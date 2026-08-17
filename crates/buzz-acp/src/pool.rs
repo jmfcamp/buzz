@@ -2975,12 +2975,14 @@ fn conversation_context_delta(
             messages,
             total,
             truncated,
+            root_kind,
         } => {
             let messages = filter(messages);
             (!messages.is_empty()).then_some(ConversationContext::Thread {
                 messages,
                 total,
                 truncated,
+                root_kind,
             })
         }
         ConversationContext::Dm {
@@ -6451,6 +6453,7 @@ printf '%s\n' '{{"jsonrpc":"2.0","id":0,"result":{{"stopReason":"end_turn"}}}}'"
             ],
             total: 3,
             truncated: false,
+            root_kind: Some(buzz_core::kind::KIND_FORUM_POST),
         };
 
         let delta = conversation_context_delta(Some(context), &delivered, &triggering)
@@ -6460,11 +6463,13 @@ printf '%s\n' '{{"jsonrpc":"2.0","id":0,"result":{{"stopReason":"end_turn"}}}}'"
                 messages,
                 total,
                 truncated,
+                root_kind,
             } => {
                 assert_eq!(messages.len(), 1);
                 assert_eq!(messages[0].event_id, "new");
                 assert_eq!(total, 3);
                 assert!(!truncated);
+                assert_eq!(root_kind, Some(buzz_core::kind::KIND_FORUM_POST));
             }
             _ => panic!("expected thread context"),
         }
