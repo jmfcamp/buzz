@@ -5,7 +5,7 @@ import {
   clampAuxiliaryPanelWidth,
 } from "@/shared/layout/AuxiliaryPanel";
 
-const THREAD_PANEL_WIDTH_SESSION_KEY = "buzz.desktop.thread-panel-width";
+const THREAD_PANEL_WIDTH_STORAGE_KEY = "buzz.desktop.thread-panel-width";
 
 function getViewportWidth(): number {
   return typeof window === "undefined" ? 0 : window.innerWidth;
@@ -29,7 +29,7 @@ function getInitialThreadPanelWidth(): number {
   }
 
   try {
-    const raw = window.sessionStorage.getItem(THREAD_PANEL_WIDTH_SESSION_KEY);
+    const raw = window.localStorage.getItem(THREAD_PANEL_WIDTH_STORAGE_KEY);
     if (!raw) {
       return AUXILIARY_PANEL_DEFAULT_WIDTH_PX;
     }
@@ -60,12 +60,12 @@ export function useThreadPanelWidth(availableWidthPx?: number) {
     }
 
     try {
-      window.sessionStorage.setItem(
-        THREAD_PANEL_WIDTH_SESSION_KEY,
+      window.localStorage.setItem(
+        THREAD_PANEL_WIDTH_STORAGE_KEY,
         String(widthPx),
       );
     } catch {
-      // Ignore storage failures and keep in-memory width for this session.
+      // Ignore storage failures and keep the chosen width in memory.
     }
   }, [widthPx]);
 
