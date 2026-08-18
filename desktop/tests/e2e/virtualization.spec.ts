@@ -31,16 +31,21 @@ async function seedChannelSections(page: Page) {
 // pointer down, past the activation threshold, onto the target, then releases —
 // the sequence dnd-kit needs to fire onDragEnd and commit the reorder.
 async function dragOver(page: Page, source: Locator, target: Locator) {
+  await source.evaluate((element) =>
+    element.scrollIntoView({ block: "center" }),
+  );
   const from = await source.boundingBox();
   const to = await target.boundingBox();
   if (!from || !to) throw new Error("drag handles not laid out");
   await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
   await page.mouse.down();
   await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2 + 10);
+  await expect(page.getByTestId("sidebar-section-drag-overlay")).toBeVisible();
   await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, {
     steps: 10,
   });
   await page.mouse.up();
+  await expect(page.getByTestId("sidebar-section-drag-overlay")).toBeHidden();
 }
 
 test.describe("list virtualization", () => {
