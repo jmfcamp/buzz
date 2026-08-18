@@ -1,4 +1,4 @@
-import { expect, test } from "../helpers/test";
+import { expect, test, bootstrapE2ePage } from "../helpers/test";
 import { readFileSync } from "node:fs";
 
 import { installMockBridge } from "../helpers/bridge";
@@ -107,7 +107,7 @@ test.describe("top chrome macOS traffic-light clearance under text zoom", () => 
   }) => {
     await spoofMacPlatform(page);
     await installMockBridge(page);
-    await page.goto("/");
+    await bootstrapE2ePage(page, "/");
 
     // Lock the native and webview placements together: removing this explicit
     // Tauri inset or shifting the nav row regresses the macOS chrome alignment.
@@ -141,7 +141,7 @@ test.describe("top chrome macOS traffic-light clearance under text zoom", () => 
     // fixed-position native controls.
     await seedTextScale(page, 0.75);
     await installMockBridge(page);
-    await page.goto("/");
+    await bootstrapE2ePage(page, "/");
 
     // Confirm the zoomed-out scale actually applied to the root font size.
     await expectRootFontSize(page, "12px");
@@ -159,7 +159,7 @@ test.describe("top chrome macOS traffic-light clearance under text zoom", () => 
     // here) grew visibly taller than the fixed-size traffic lights.
     await seedTextScale(page, 1.5);
     await installMockBridge(page);
-    await page.goto("/");
+    await bootstrapE2ePage(page, "/");
 
     await expectRootFontSize(page, "24px");
 

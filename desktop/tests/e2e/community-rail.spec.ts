@@ -1,4 +1,4 @@
-import { expect, test } from "../helpers/test";
+import { expect, test, bootstrapE2ePage } from "../helpers/test";
 
 import { installMockBridge } from "../helpers/bridge";
 import { FEATURE_OVERRIDES_STORAGE_KEY } from "../helpers/features";
@@ -52,7 +52,7 @@ test.describe("community rail", () => {
         JSON.stringify({ workspaceRail: false }),
       );
     }, FEATURE_OVERRIDES_STORAGE_KEY);
-    await page.goto("/");
+    await bootstrapE2ePage(page, "/");
 
     const rail = page.getByTestId("community-rail");
     await expect(rail).toBeVisible();
@@ -144,7 +144,7 @@ test.describe("community rail", () => {
   }) => {
     await installMockBridge(page, undefined, { skipCommunitySeed: true });
     await seedCommunities(page, [COMMUNITY_A, COMMUNITY_B], COMMUNITY_A.id);
-    await page.goto("/");
+    await bootstrapE2ePage(page, "/");
 
     const communityButton = page.getByTestId(
       `community-rail-button-${COMMUNITY_A.id}`,
@@ -184,7 +184,7 @@ test.describe("community rail", () => {
       { skipCommunitySeed: true },
     );
     await seedCommunities(page, [COMMUNITY_A, COMMUNITY_B], COMMUNITY_A.id);
-    await page.goto("/");
+    await bootstrapE2ePage(page, "/");
 
     await page
       .getByTestId(`community-rail-button-${COMMUNITY_A.id}`)
@@ -231,7 +231,7 @@ test.describe("community rail", () => {
       { skipCommunitySeed: true },
     );
     await seedCommunities(page, [COMMUNITY_A, COMMUNITY_B], COMMUNITY_A.id);
-    await page.goto("/");
+    await bootstrapE2ePage(page, "/");
 
     await page
       .getByTestId(`community-rail-button-${COMMUNITY_A.id}`)
@@ -260,7 +260,7 @@ test.describe("community rail", () => {
       { skipCommunitySeed: true },
     );
     await seedCommunities(page, [COMMUNITY_A, COMMUNITY_B], COMMUNITY_A.id);
-    await page.goto("/");
+    await bootstrapE2ePage(page, "/");
 
     await page.getByTestId("sidebar-profile-avatar-button").click();
     const communityTrigger = page.getByTestId("community-switcher");
@@ -322,7 +322,7 @@ test.describe("community rail", () => {
       { skipCommunitySeed: true },
     );
     await seedCommunities(page, [COMMUNITY_A, COMMUNITY_B], COMMUNITY_A.id);
-    await page.goto("/");
+    await bootstrapE2ePage(page, "/");
 
     await page.getByTestId("sidebar-profile-avatar-button").click();
     await page.getByTestId("community-switcher").click();
@@ -363,7 +363,7 @@ test.describe("community rail", () => {
     await installMockBridge(page, undefined, { skipCommunitySeed: true });
     await seedCommunities(page, [COMMUNITY_A, COMMUNITY_B], COMMUNITY_A.id);
 
-    await page.goto("/");
+    await bootstrapE2ePage(page, "/");
 
     await page.getByTestId(`community-rail-button-${COMMUNITY_B.id}`).click();
 
@@ -405,7 +405,7 @@ test.describe("community rail", () => {
       { skipCommunitySeed: true },
     );
     await seedCommunities(page, [COMMUNITY_A, COMMUNITY_B], COMMUNITY_A.id);
-    await page.goto("/");
+    await bootstrapE2ePage(page, "/");
     await page.getByTestId("channel-general").click();
 
     const input = page.getByTestId("message-input");
@@ -465,7 +465,7 @@ test.describe("community rail", () => {
       { skipCommunitySeed: true },
     );
     await seedCommunities(page, [COMMUNITY_A, COMMUNITY_B], COMMUNITY_A.id);
-    await page.goto("/");
+    await bootstrapE2ePage(page, "/");
     await page.getByTestId("channel-general").click();
 
     const input = page.getByTestId("message-input");
@@ -524,7 +524,7 @@ test.describe("community rail", () => {
       { skipCommunitySeed: true },
     );
     await seedCommunities(page, [COMMUNITY_A, COMMUNITY_B], COMMUNITY_A.id);
-    await page.goto("/");
+    await bootstrapE2ePage(page, "/");
     await page.getByTestId("channel-general").click();
 
     const input = page.getByTestId("message-input");
@@ -571,7 +571,7 @@ test.describe("community rail", () => {
   }) => {
     await installMockBridge(page, undefined, { skipCommunitySeed: true });
     await seedCommunities(page, [COMMUNITY_A, COMMUNITY_B], COMMUNITY_A.id);
-    await page.goto("/");
+    await bootstrapE2ePage(page, "/");
 
     await page.getByTestId("channel-general").click();
     await expect(page).toHaveURL(/#\/channels\//);
@@ -603,7 +603,7 @@ test.describe("community rail", () => {
   }) => {
     await installMockBridge(page, undefined, { skipCommunitySeed: true });
     await seedCommunities(page, [COMMUNITY_A, COMMUNITY_B], COMMUNITY_A.id);
-    await page.goto("/");
+    await bootstrapE2ePage(page, "/");
     await expect(page.getByTestId("app-sidebar")).toBeVisible();
     const rememberedChannelId = await page.evaluate(
       ({ communityId, sourceSnapshotKey, targetSnapshotKey }) => {
@@ -673,7 +673,7 @@ test.describe("community rail", () => {
       );
     }, COMMUNITY_B.id);
 
-    await page.goto("/");
+    await bootstrapE2ePage(page, "/");
     const sourceSnapshotKey = snapshotKey(COMMUNITY_A.relayUrl);
     const targetSnapshotKey = snapshotKey(COMMUNITY_B.relayUrl);
     await expect
@@ -726,7 +726,7 @@ test.describe("community rail", () => {
         }),
       );
     }, COMMUNITY_B.id);
-    await page.goto("/");
+    await bootstrapE2ePage(page, "/");
     await expect(page.getByTestId("app-sidebar")).toBeVisible();
     const sourceSnapshotKey = snapshotKey(COMMUNITY_A.relayUrl);
     await expect
@@ -961,7 +961,7 @@ test.describe("community rail", () => {
       );
     }, COMMUNITY_A.id);
 
-    await page.goto("/");
+    await bootstrapE2ePage(page, "/");
 
     await expect(page).not.toHaveURL(/#\/channels\//);
   });
@@ -971,7 +971,7 @@ test.describe("community rail", () => {
   }) => {
     await installMockBridge(page, undefined, { skipCommunitySeed: true });
     await seedCommunities(page, [COMMUNITY_A, COMMUNITY_B], COMMUNITY_A.id);
-    await page.goto("/");
+    await bootstrapE2ePage(page, "/");
 
     await page.getByTestId(`community-rail-button-${COMMUNITY_B.id}`).click();
     await page.getByTestId("channel-random").click();
@@ -1006,7 +1006,7 @@ test.describe("community rail", () => {
       { skipCommunitySeed: true },
     );
     await seedCommunities(page, [COMMUNITY_A, COMMUNITY_B], COMMUNITY_A.id);
-    await page.goto("/");
+    await bootstrapE2ePage(page, "/");
 
     // Cold boot still uses the full splash.
     await expect(page.getByTestId("app-loading-gate")).toBeVisible();
@@ -1043,7 +1043,7 @@ test.describe("community rail", () => {
       skipCommunitySeed: true,
     });
     await seedCommunities(page, [COMMUNITY_A], COMMUNITY_A.id);
-    await page.goto("/");
+    await bootstrapE2ePage(page, "/");
 
     await expect
       .poll(() =>
@@ -1111,7 +1111,7 @@ test.describe("community rail", () => {
       { skipCommunitySeed: true },
     );
     await seedCommunities(page, [COMMUNITY_A], COMMUNITY_A.id);
-    await page.goto("/");
+    await bootstrapE2ePage(page, "/");
 
     await page.getByTestId("sidebar-profile-avatar-button").click();
     await page.getByTestId("community-switcher").click();
@@ -1136,7 +1136,7 @@ test.describe("community rail", () => {
   test("hides the rail with a single community", async ({ page }) => {
     await installMockBridge(page, undefined, { skipCommunitySeed: true });
     await seedCommunities(page, [COMMUNITY_A], COMMUNITY_A.id);
-    await page.goto("/");
+    await bootstrapE2ePage(page, "/");
 
     // The channel sidebar still renders; the rail is omitted (a rail of one
     // adds nothing).
@@ -1149,7 +1149,7 @@ test.describe("community rail", () => {
   }) => {
     await installMockBridge(page, undefined, { skipCommunitySeed: true });
     await seedCommunities(page, [COMMUNITY_A, COMMUNITY_B], COMMUNITY_A.id);
-    await page.goto("/");
+    await bootstrapE2ePage(page, "/");
 
     const rail = page.getByTestId("community-rail");
     await expect(rail).toBeVisible();
@@ -1183,7 +1183,7 @@ test.describe("community rail", () => {
     });
     await installMockBridge(page, undefined, { skipCommunitySeed: true });
     await seedCommunities(page, [COMMUNITY_A, COMMUNITY_B], COMMUNITY_A.id);
-    await page.goto("/");
+    await bootstrapE2ePage(page, "/");
 
     // The first community button must start below the traffic-light band
     // (native controls sit around y<=31 with trafficLightPosition y:24).
@@ -1259,7 +1259,7 @@ test.describe("community rail", () => {
       },
       { list: [COMMUNITY_A, COMMUNITY_B], active: COMMUNITY_A.id },
     );
-    await page.goto("/");
+    await bootstrapE2ePage(page, "/");
 
     const buttonA = page.getByTestId(`community-rail-button-${COMMUNITY_A.id}`);
     const buttonB = page.getByTestId(`community-rail-button-${COMMUNITY_B.id}`);
@@ -1331,7 +1331,7 @@ test.describe("community rail", () => {
   }) => {
     await installMockBridge(page, undefined, { skipCommunitySeed: true });
     await seedCommunities(page, [COMMUNITY_A, COMMUNITY_B], COMMUNITY_A.id);
-    await page.goto("/");
+    await bootstrapE2ePage(page, "/");
 
     const buttonA = page.getByTestId(`community-rail-button-${COMMUNITY_A.id}`);
     const buttonB = page.getByTestId(`community-rail-button-${COMMUNITY_B.id}`);
