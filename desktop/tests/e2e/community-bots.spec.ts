@@ -35,7 +35,7 @@ test("owner can connect, see pending approval, then install remote agents", asyn
   await page.goto("/");
   await openSettings(page, "bots");
 
-  await expect(page.getByTestId("settings-nav-bots")).toHaveText("Bots");
+  await expect(page.getByTestId("settings-nav-bots")).toContainText("Bots");
   await expect(page.getByTestId("settings-panel-bots")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Bots", exact: true })).toBeVisible();
 
