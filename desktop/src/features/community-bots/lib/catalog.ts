@@ -1,9 +1,22 @@
 import { KIND_COMMUNITY_BOTS } from "@/shared/constants/kinds";
 import { relayClient } from "@/shared/api/relayClient";
+import {
+  addRelayMember,
+  listRelayMembers,
+  removeRelayMember,
+} from "@/shared/api/relayMembers";
 import { signRelayEvent } from "@/shared/api/tauri";
 import type { RelayEvent } from "@/shared/api/types";
+import { getStorageItem, setStorageItem } from "@/shared/lib/safeStorage";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 
+import {
+  communityBotsStorageKey,
+  isAlreadyCommunityBotMemberError,
+  isUnknownCommunityBotsKindError,
+  mergeCommunityBots,
+  resolveCommunityBotsRelayUrl,
+} from "./localCatalog";
 import type { CommunityBot, CommunityBotsPayload } from "./types";
 
 export const COMMUNITY_BOTS_D_TAG = "buzz:community-bots";
@@ -74,16 +87,43 @@ export function selectLatestCommunityBots(
   return latest ? parseCommunityBotsPayload(latest.content) : [];
 }
 
-export async function fetchCommunityBots(): Promise<CommunityBot[]> {
+export function loadLocalCommunityBots(relayUrl: string): CommunityBot[] {
+  const raw = getStorageItem(communityBotsStorageKey(relayUrl));
+  if (!raw) return [];
+  return parseCommunityBotsPayload(raw);
+}
+
+export function saveLocalCommunityBots(
+  relayUrl: string,
+  bots: ReadonlyArray<CommunityBot>,
+): void {
+  const payload: CommunityBotsPayload = {
+    version: 1,
+    bots: bots.map((bot) => ({
+      id: bot.id,
+      name: bot.name,
+      pubkey: normalizePubkey(bot.pubkey),
+      source: "openclaw",
+    })),
+  };
+  setStorageItem(communityBotsStorageKey(relayUrl), JSON.stringify(payload));
+}
+
+export async function fetchCommunityBots(
+  relayUrl = resolveCommunityBotsRelayUrl(),
+): Promise<CommunityBot[]> {
   const events = await relayClient.fetchEvents({
     kinds: [KIND_COMMUNITY_BOTS],
     "#d": [COMMUNITY_BOTS_D_TAG],
     limit: 50,
   });
-  return selectLatestCommunityBots(events);
+  return mergeCommunityBots(
+    selectLatestCommunityBots(events),
+    loadLocalCommunityBots(relayUrl),
+  );
 }
 
-export async function publishCommunityBots(
+async function publishCommunityBotsToRelay(
   bots: ReadonlyArray<CommunityBot>,
 ): Promise<void> {
   const payload: CommunityBotsPayload = {
@@ -105,6 +145,68 @@ export async function publishCommunityBots(
     "Timed out while saving community bots.",
     "Failed to save community bots.",
   );
+}
+
+export async function publishCommunityBots(
+  bots: ReadonlyArray<CommunityBot>,
+  relayUrl = resolveCommunityBotsRelayUrl(),
+): Promise<void> {
+  try {
+    await publishCommunityBotsToRelay(bots);
+    saveLocalCommunityBots(relayUrl, bots);
+  } catch (error) {
+    if (isUnknownCommunityBotsKindError(error)) {
+      saveLocalCommunityBots(relayUrl, bots);
+      return;
+    }
+    throw error;
+  }
+}
+
+export async function ensureCommunityBotMember(pubkey: string): Promise<void> {
+  const normalized = normalizePubkey(pubkey);
+  try {
+    const members = await listRelayMembers();
+    if (
+      members.some((member) => normalizePubkey(member.pubkey) === normalized)
+    ) {
+      return;
+    }
+  } catch {
+    // Membership snapshot is optional; fall through and publish 9030.
+  }
+  try {
+    await addRelayMember(normalized, "member");
+  } catch (error) {
+    if (isAlreadyCommunityBotMemberError(error)) {
+      return;
+    }
+    throw error;
+  }
+}
+
+export async function installCommunityBot(
+  current: ReadonlyArray<CommunityBot>,
+  bot: CommunityBot,
+  relayUrl = resolveCommunityBotsRelayUrl(),
+): Promise<CommunityBot[]> {
+  await ensureCommunityBotMember(bot.pubkey);
+  const next = upsertInstalledBot(current, bot);
+  await publishCommunityBots(next, relayUrl);
+  return next;
+}
+
+export async function uninstallCommunityBot(
+  current: ReadonlyArray<CommunityBot>,
+  bot: CommunityBot,
+  relayUrl = resolveCommunityBotsRelayUrl(),
+): Promise<CommunityBot[]> {
+  const next = removeInstalledBot(current, bot.id);
+  if (!otherBotsSharePubkey(current, bot.id, bot.pubkey)) {
+    await removeRelayMember(bot.pubkey);
+  }
+  await publishCommunityBots(next, relayUrl);
+  return next;
 }
 
 export function upsertInstalledBot(
