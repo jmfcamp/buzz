@@ -37,7 +37,9 @@ test("owner can connect, see pending approval, then install remote agents", asyn
 
   await expect(page.getByTestId("settings-nav-bots")).toContainText("Bots");
   await expect(page.getByTestId("settings-panel-bots")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Bots", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Bots", exact: true }),
+  ).toBeVisible();
 
   await page.getByTestId("settings-bots-url").fill("wss://stitch.example.com");
   await page.getByTestId("settings-bots-password").fill("gateway-password");
@@ -47,12 +49,12 @@ test("owner can connect, see pending approval, then install remote agents", asyn
   await expect(page.getByTestId("settings-bots-request-id")).toHaveText(
     "pairing-req-42",
   );
-  await expect(page.getByTestId("settings-bots-requested-scopes")).toContainText(
-    "operator.write",
-  );
-  await expect(page.getByTestId("settings-bots-requested-scopes")).toContainText(
-    "operator.admin",
-  );
+  await expect(
+    page.getByTestId("settings-bots-requested-scopes"),
+  ).toContainText("operator.write");
+  await expect(
+    page.getByTestId("settings-bots-requested-scopes"),
+  ).toContainText("operator.admin");
 
   await page.evaluate(() => window.__BUZZ_E2E_APPROVE_COMMUNITY_BOTS__?.());
   await page.getByTestId("settings-bots-connect").click();
@@ -63,7 +65,11 @@ test("owner can connect, see pending approval, then install remote agents", asyn
 
   await page.getByTestId("settings-bots-install-mo").click();
   await expect(page.getByTestId("settings-bots-installed-mo")).toBeVisible();
-  await expect(page.getByTestId("settings-bots-uninstall-mo")).toBeVisible();
+  await expect(
+    page
+      .getByTestId("settings-bots-installed-mo")
+      .getByTestId("settings-bots-uninstall-mo"),
+  ).toBeVisible();
 });
 
 test("admin can open Bots and any member can add an installed bot to a channel", async ({

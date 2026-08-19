@@ -300,16 +300,12 @@ export function BotsSettingsCard() {
                           </p>
                         </div>
                         {bot ? (
-                          <Button
-                            data-testid={`settings-bots-uninstall-${agent.id}`}
-                            disabled={uninstallMutation.isPending}
-                            onClick={() => void handleUninstall(bot)}
-                            size="sm"
-                            type="button"
-                            variant="outline"
+                          <span
+                            className="text-xs text-muted-foreground"
+                            data-testid={`settings-bots-agent-installed-${agent.id}`}
                           >
-                            Uninstall
-                          </Button>
+                            Installed
+                          </span>
                         ) : (
                           <Button
                             data-testid={`settings-bots-install-${agent.id}`}
