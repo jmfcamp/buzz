@@ -373,6 +373,17 @@ type MockBridgeOptions = {
    * (owner-path branch of the gate).
    */
   oaOwnerIsMe?: boolean;
+  /** OpenClaw community-bots gateway mock. */
+  communityBots?: {
+    remoteAgents?: Array<{
+      id: string;
+      name: string;
+      pubkey?: string | null;
+    }>;
+    startConnected?: boolean;
+    startPending?: boolean;
+    connectResult?: "pending" | "connected" | "insufficient_scopes";
+  };
   /** Whether the mock relay advertises NIP-43 membership support. Defaults to false. */
   relayRequiresMembership?: boolean;
   /** Delay EOSE for membership snapshots after delivering the event. */

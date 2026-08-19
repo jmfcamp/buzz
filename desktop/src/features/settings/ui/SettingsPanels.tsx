@@ -29,6 +29,7 @@ import type {
   NotificationSettings,
 } from "@/features/notifications/hooks";
 import type { SoundName, SoundSlot } from "@/features/notifications/lib/sound";
+import { BotsSettingsCard } from "@/features/community-bots/ui/BotsSettingsCard";
 import { CommunityMembersSettingsCard } from "@/features/community-members/ui/CommunityMembersSettingsCard";
 import { CustomEmojiSettingsCard } from "@/features/custom-emoji/ui/CustomEmojiSettingsCard";
 import { LocalArchiveSettingsCard } from "@/features/local-archive/ui/LocalArchiveSettingsCard";
@@ -95,6 +96,7 @@ export type SettingsSection =
   | "shortcuts"
   | "hosted-communities"
   | "community-members"
+  | "bots"
   | "moderation"
   | "custom-emoji"
   | "local-archive"
@@ -116,6 +118,7 @@ const SETTINGS_SECTION_VALUES: readonly SettingsSection[] = [
   "shortcuts",
   "hosted-communities",
   "community-members",
+  "bots",
   "moderation",
   "custom-emoji",
   "local-archive",
@@ -216,6 +219,11 @@ export const settingsSections: SettingsSectionDescriptor[] = [
     value: "community-members",
     label: "Invites",
     icon: Ticket,
+  },
+  {
+    value: "bots",
+    label: "Bots",
+    icon: Bot,
   },
   {
     value: "moderation",
@@ -859,6 +867,8 @@ export function renderSettingsSection(
       return (
         <CommunityMembersSettingsCard currentPubkey={props.currentPubkey} />
       );
+    case "bots":
+      return <BotsSettingsCard />;
     case "moderation":
       return <ModerationQueueCard />;
     case "custom-emoji":

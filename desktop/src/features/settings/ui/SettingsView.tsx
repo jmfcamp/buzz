@@ -2,6 +2,7 @@ import * as React from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { AlertCircle, ArrowLeft, LoaderCircle, RefreshCw } from "lucide-react";
 
+import { isAdminOnlySettingsSection } from "@/features/community-bots/lib/settingsVisibility";
 import { useMyRelayMembershipLookupQuery } from "@/features/community-members/hooks";
 import {
   canManageCommunityMembers,
@@ -68,7 +69,7 @@ const settingsNavGroups: Array<{
   },
   {
     label: "Communities",
-    sections: ["hosted-communities", "community-members"],
+    sections: ["hosted-communities", "community-members", "bots"],
   },
   {
     label: "App",
@@ -189,7 +190,7 @@ export function SettingsView({
       }
       // Invites and member management require a discovered owner/admin role.
       // Open relays have no membership snapshot or invite controls.
-      if (s.value === "community-members") {
+      if (isAdminOnlySettingsSection(s.value)) {
         return canManageCommunityMembers(myMembershipQuery.data);
       }
       return true;

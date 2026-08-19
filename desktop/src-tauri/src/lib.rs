@@ -4,6 +4,7 @@ mod app_state;
 mod archive;
 mod builderlab;
 mod commands;
+mod community_bots;
 mod deep_link;
 mod egress_guard;
 mod event_sync;
@@ -90,11 +91,7 @@ use tauri_plugin_window_state::StateFlags;
 use tray_menu::show_main_window;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // mesh-llm's async chains (model download, node start/join) overflow
-    // tokio's default 2 MiB worker stacks — a stack-guard SIGABRT, not a
-    // panic. Upstream mesh-llm and mesh-console both run on 8 MiB worker
-    // stacks for this reason; give Tauri's command runtime the same headroom
-    // before anything else touches tauri::async_runtime.
+    // mesh-llm futures overflow tokio's default 2 MiB stacks; use 8 MiB.
     #[cfg(feature = "mesh-llm")]
     match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -754,6 +751,11 @@ pub fn run() {
             relay_requires_membership,
             list_relay_members,
             get_my_relay_membership,
+            community_bots_get_status,
+            community_bots_connect,
+            community_bots_disconnect,
+            community_bots_list_remote_agents,
+            community_bots_resolve_identity,
             add_relay_member,
             remove_relay_member,
             change_relay_member_role,
@@ -998,11 +1000,7 @@ pub fn run() {
                 relaunch_after_mesh_shutdown(app_handle);
             }
 
-            // AppKit terminates through libc exit(), which runs C++ static
-            // destructors. The embedded ggml/Metal runtime currently aborts in
-            // that destructor phase even after its node has stopped cleanly.
-            // End the process only after Buzz and Mesh shutdown above, while
-            // deliberately skipping those native global destructors.
+            // Skip ggml/Metal global destructors after Mesh shutdown.
             #[cfg(all(feature = "mesh-llm", target_os = "macos"))]
             hard_exit_after_mesh_shutdown();
         }

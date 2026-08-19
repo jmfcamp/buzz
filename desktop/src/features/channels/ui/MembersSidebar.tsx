@@ -18,9 +18,19 @@ import { useIsArchivedPredicate } from "@/features/identity-archive/hooks";
 import { useClassifiedMembers } from "@/features/channels/lib/useClassifiedMembers";
 import { formatMemberName } from "@/features/channels/lib/memberUtils";
 import {
+  addMemberCandidateWithAgentMetadata,
+  formatAddCandidateName,
+  type AddMemberSearchCandidate,
+} from "@/features/channels/lib/addMemberSearch";
+import {
   canAddChannelMembers,
   PRIVATE_CHANNEL_ADD_DENIED_MESSAGE,
 } from "@/features/channels/lib/channelMemberAdmission";
+import { useCommunityBotsQuery } from "@/features/community-bots/hooks";
+import {
+  appendCommunityBotCandidates,
+  communityBotAllowedPubkeys,
+} from "@/features/community-bots/lib/addCandidates";
 import {
   useFlattenedUserSearchResults,
   useInfiniteUserSearchQuery,
@@ -70,45 +80,6 @@ const MEMBER_ADD_RESULT_LIMIT = 50;
 const MEMBER_SEARCH_MIN_QUERY_LENGTH = 2;
 const MEMBER_ROW_INSET_DIVIDER_CLASS =
   "after:pointer-events-none after:absolute after:bottom-0 after:left-[3.75rem] after:right-0 after:h-px after:bg-border/60 after:content-[''] last:after:hidden";
-
-function formatAddCandidateName(user: UserSearchResult) {
-  return (
-    user.displayName?.trim() ||
-    user.nip05Handle?.trim() ||
-    truncatePubkey(user.pubkey)
-  );
-}
-type AddMemberSearchCandidate = UserSearchResult & {
-  isManagedAgent?: boolean;
-  isMember?: boolean;
-  personaId?: string | null;
-};
-function addMemberCandidatePersonaId(
-  candidate: UserSearchResult,
-  managedAgentsByPubkey: ReadonlyMap<string, ManagedAgent>,
-) {
-  return managedAgentsByPubkey.get(normalizePubkey(candidate.pubkey))
-    ?.personaId;
-}
-function addMemberCandidateIsManagedAgent(
-  candidate: UserSearchResult,
-  managedAgentsByPubkey: ReadonlyMap<string, ManagedAgent>,
-) {
-  return managedAgentsByPubkey.has(normalizePubkey(candidate.pubkey));
-}
-function addMemberCandidateWithAgentMetadata(
-  candidate: UserSearchResult,
-  managedAgentsByPubkey: ReadonlyMap<string, ManagedAgent>,
-): AddMemberSearchCandidate {
-  return {
-    ...candidate,
-    isManagedAgent: addMemberCandidateIsManagedAgent(
-      candidate,
-      managedAgentsByPubkey,
-    ),
-    personaId: addMemberCandidatePersonaId(candidate, managedAgentsByPubkey),
-  };
-}
 
 function memberModalRoleRank(member: ChannelMember) {
   if (member.role === "owner") return 0;
@@ -251,6 +222,7 @@ export function MembersSidebar({
     visibility: channel?.visibility,
     selfRole: selfMember?.role,
   });
+  const communityBotsQuery = useCommunityBotsQuery(open && canAddMembers);
   // Distinguish "you can't add here" from "nothing to add" so a non-member
   // viewing a private channel gets the reason instead of a silently missing affordance.
   const showPrivateAddDeniedNotice =
@@ -288,6 +260,11 @@ export function MembersSidebar({
       relayAgents: relayAgentsQuery.data,
       sharedChannelIds,
     });
+    for (const pubkey of communityBotAllowedPubkeys(
+      communityBotsQuery.data ?? [],
+    )) {
+      allowedAgentPubkeys.add(pubkey);
+    }
 
     const addCandidate = (candidate: AddMemberSearchCandidate) => {
       const pubkey = normalizePubkey(candidate.pubkey);
@@ -356,8 +333,13 @@ export function MembersSidebar({
       });
     }
 
-    const coalescedCandidates = coalesceAgentAutocompleteCandidates(
+    const withCommunityBots = appendCommunityBotCandidates(
       [...candidatesByPubkey.values()],
+      communityBotsQuery.data ?? [],
+      normalizedDeferredSearchQuery,
+    );
+    const coalescedCandidates = coalesceAgentAutocompleteCandidates(
+      withCommunityBots,
       {
         currentPubkey,
         getLabel: formatAddCandidateName,
@@ -374,6 +356,7 @@ export function MembersSidebar({
   }, [
     canAddMembers,
     channelsQuery.data,
+    communityBotsQuery.data,
     isArchivedDiscovery,
     currentPubkey,
     managedAgentsQuery.data,
@@ -386,6 +369,7 @@ export function MembersSidebar({
     userSearchQuery.isLoading ||
     managedAgentsQuery.isLoading ||
     relayAgentsQuery.isLoading ||
+    communityBotsQuery.isLoading ||
     channelsQuery.isLoading;
   const handlePeopleSearchScroll = useUserSearchFetchMoreOnScroll(
     userSearchQuery,
