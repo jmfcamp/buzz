@@ -7,6 +7,11 @@ fn appimage_binary_matches_truncated_linux_comm_name() {
     assert!(super::is_desktop_binary("buzz-desktop.bi"));
 }
 
+#[test]
+fn bundled_hula_buzz_process_name_matches() {
+    assert!(super::is_desktop_binary("Hula Buzz"));
+}
+
 // ── buffer_contains_identifier tests ────────────────────────────────────
 
 #[test]

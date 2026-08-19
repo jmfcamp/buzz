@@ -354,6 +354,14 @@ fn parse_message_deep_link_accepts_buzz_scheme() {
 }
 
 #[test]
+fn parse_message_deep_link_accepts_hulabuzz_scheme() {
+    let url = Url::parse("hulabuzz://message?channel=abc&id=xyz").unwrap();
+    let payload = parse_message_deep_link(&url).expect("required params present");
+    assert_eq!(payload["channelId"], "abc");
+    assert_eq!(payload["messageId"], "xyz");
+}
+
+#[test]
 fn parse_message_deep_link_includes_thread_root() {
     let url = Url::parse("buzz://message?channel=abc&id=xyz&thread=root1").unwrap();
     let payload = parse_message_deep_link(&url).expect("required params present");
