@@ -35,6 +35,7 @@ import { resetAvatarProfileSync } from "@/features/profile/avatarProfileSync";
 import { resetSidebarRelayConnectionCardState } from "@/features/sidebar/ui/useSidebarRelayConnectionCard";
 import { clearMarkdownNodeCache } from "@/shared/ui/markdown/nodeCache";
 import { resetVideoPlayerState } from "@/shared/ui/videoPlayerState";
+import { hideAllPinWebviews } from "@/features/pinned-sites/lib/pinWebview";
 
 import {
   initFirstCommunity,
@@ -77,6 +78,7 @@ async function resetCommunityState({
   resetLinkPreviewPreparations();
   clearSearchHitEventCache();
   clearMarkdownNodeCache();
+  void hideAllPinWebviews();
 }
 
 type CommunityInitResult =

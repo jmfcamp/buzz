@@ -9,7 +9,8 @@ export type AppView =
   | "agents"
   | "workflows"
   | "pulse"
-  | "projects";
+  | "projects"
+  | "pin";
 
 const WINDOW_DRAG_HANDLE_HEIGHT = 44;
 const TAURI_DRAG_REGION_ATTR = "data-tauri-drag-region";
@@ -143,19 +144,31 @@ export function toSearchHit(
 
 export function deriveShellRoute(pathname: string): {
   selectedChannelId: string | null;
+  selectedPinId: string | null;
   selectedView: AppView;
 } {
   if (pathname.startsWith("/channels/")) {
     const [, , rawChannelId] = pathname.split("/");
     return {
       selectedChannelId: rawChannelId ? decodeURIComponent(rawChannelId) : null,
+      selectedPinId: null,
       selectedView: "channel",
+    };
+  }
+
+  if (pathname.startsWith("/pins/")) {
+    const [, , rawPinId] = pathname.split("/");
+    return {
+      selectedChannelId: null,
+      selectedPinId: rawPinId ? decodeURIComponent(rawPinId) : null,
+      selectedView: "pin",
     };
   }
 
   if (pathname === "/messages/new") {
     return {
       selectedChannelId: null,
+      selectedPinId: null,
       selectedView: "messages",
     };
   }
@@ -163,6 +176,7 @@ export function deriveShellRoute(pathname: string): {
   if (pathname === "/agents") {
     return {
       selectedChannelId: null,
+      selectedPinId: null,
       selectedView: "agents",
     };
   }
@@ -170,6 +184,7 @@ export function deriveShellRoute(pathname: string): {
   if (pathname === "/workflows" || pathname.startsWith("/workflows/")) {
     return {
       selectedChannelId: null,
+      selectedPinId: null,
       selectedView: "workflows",
     };
   }
@@ -177,6 +192,7 @@ export function deriveShellRoute(pathname: string): {
   if (pathname === "/projects" || pathname.startsWith("/projects/")) {
     return {
       selectedChannelId: null,
+      selectedPinId: null,
       selectedView: "projects",
     };
   }
@@ -184,12 +200,14 @@ export function deriveShellRoute(pathname: string): {
   if (pathname === "/pulse") {
     return {
       selectedChannelId: null,
+      selectedPinId: null,
       selectedView: "pulse",
     };
   }
 
   return {
     selectedChannelId: null,
+    selectedPinId: null,
     selectedView: "home",
   };
 }

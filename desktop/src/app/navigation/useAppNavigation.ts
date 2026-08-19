@@ -59,6 +59,20 @@ export function useAppNavigation() {
     [commitNavigation],
   );
 
+  const goPinnedSite = React.useCallback(
+    (pinId: string, behavior?: NavigationBehavior) =>
+      commitNavigation(
+        {
+          to: "/pins/$pinId",
+          params: {
+            pinId,
+          },
+        },
+        behavior,
+      ),
+    [commitNavigation],
+  );
+
   const goAgents = React.useCallback(
     (behavior?: NavigationBehavior) =>
       commitNavigation(
@@ -329,6 +343,7 @@ export function useAppNavigation() {
     closeSettings,
     closeWorkflowDetail,
     goAgents,
+    goPinnedSite,
     goChannel,
     goForumPost,
     goHome,

@@ -60,6 +60,7 @@ const settingsNavGroups: Array<{
       "notifications",
       "voice",
       "shortcuts",
+      "pinned-sites",
       "custom-emoji",
       "local-archive",
       "channel-templates",

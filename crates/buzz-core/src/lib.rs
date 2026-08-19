@@ -30,6 +30,8 @@ pub mod network;
 pub mod observer;
 /// NIP-AB device pairing — crypto primitives, message types, and errors.
 pub mod pairing;
+/// Community-shared pinned-site list (kind:30623) payload validation.
+pub mod pinned_sites;
 /// Presence status types shared across crates.
 pub mod presence;
 /// NIP-PMA owner-encrypted private managed-agent wire codec.

@@ -13,6 +13,7 @@ import {
   MessagesSquare,
   MonitorCog,
   Moon,
+  Pin,
   ShieldAlert,
   Smartphone,
   Smile,
@@ -80,6 +81,7 @@ import { ProfileSettingsCard } from "./ProfileSettingsCard";
 import { UpdateChecker } from "../UpdateChecker";
 import { SettingsSectionHeader } from "./SettingsSectionHeader";
 import { VoiceSettingsCard } from "./VoiceSettingsCard";
+import { PinnedSitesSettingsCard } from "@/features/pinned-sites/ui/PinnedSitesSettingsCard";
 
 export type SettingsSection =
   | "profile"
@@ -97,7 +99,8 @@ export type SettingsSection =
   | "custom-emoji"
   | "local-archive"
   | "mobile"
-  | "updates";
+  | "updates"
+  | "pinned-sites";
 
 export const DEFAULT_SETTINGS_SECTION: SettingsSection = "profile";
 
@@ -118,6 +121,7 @@ const SETTINGS_SECTION_VALUES: readonly SettingsSection[] = [
   "local-archive",
   "mobile",
   "updates",
+  "pinned-sites",
 ];
 
 export function isSettingsSection(value: unknown): value is SettingsSection {
@@ -197,6 +201,11 @@ export const settingsSections: SettingsSectionDescriptor[] = [
     value: "shortcuts",
     label: "Shortcuts",
     icon: Keyboard,
+  },
+  {
+    value: "pinned-sites",
+    label: "Pinned sites",
+    icon: Pin,
   },
   {
     value: "hosted-communities",
@@ -842,6 +851,8 @@ export function renderSettingsSection(
       return <ThemeSettingsCard />;
     case "shortcuts":
       return <KeyboardShortcutsCard />;
+    case "pinned-sites":
+      return <PinnedSitesSettingsCard />;
     case "hosted-communities":
       return <HostedCommunitiesSettingsCard />;
     case "community-members":

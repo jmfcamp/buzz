@@ -13470,6 +13470,37 @@ export function maybeInstallE2eTauriMocks() {
         }
         return null;
       }
+      case "pin_webview_show":
+      case "pin_webview_nav_state": {
+        const { pinId, startUrl } = (payload ?? {}) as {
+          pinId?: string;
+          startUrl?: string;
+        };
+        return {
+          pinId: pinId ?? "",
+          canGoBack: false,
+          canGoForward: false,
+          currentUrl: startUrl ?? "",
+        };
+      }
+      case "pin_webview_hide":
+      case "pin_webview_hide_all":
+      case "pin_webview_set_bounds":
+      case "pin_webview_reload":
+      case "pin_webview_close":
+        return null;
+      case "pin_webview_go_back":
+      case "pin_webview_go_forward": {
+        const { pinId } = (payload ?? {}) as { pinId?: string };
+        return {
+          pinId: pinId ?? "",
+          canGoBack: false,
+          canGoForward: false,
+          currentUrl: "",
+        };
+      }
+      case "pin_webview_poll":
+        return { changed: false };
       default:
         throw new Error(`Unsupported mocked Tauri command: ${command}`);
     }

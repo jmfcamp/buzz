@@ -29,6 +29,7 @@ mod models;
 mod native_websocket;
 mod nostr_bind;
 pub mod nostr_convert;
+mod pin_webview;
 mod prevent_sleep;
 mod ptt_shortcut;
 mod relay;
@@ -311,6 +312,7 @@ pub fn run() {
         .manage(BuilderlabLogin::default())
         .manage(commands::pairing::PairingHandle::new())
         .manage(terminal_runtime::TerminalSessions::default())
+        .manage(pin_webview::PinWebviewManager::default())
         .setup(move |app| {
             let app_handle = app.handle().clone();
             #[cfg(target_os = "macos")]
@@ -854,6 +856,16 @@ pub fn run() {
             get_huddle_state,
             close_huddle_companion,
             open_huddle_window,
+            pin_webview::pin_webview_show,
+            pin_webview::pin_webview_hide,
+            pin_webview::pin_webview_hide_all,
+            pin_webview::pin_webview_set_bounds,
+            pin_webview::pin_webview_go_back,
+            pin_webview::pin_webview_go_forward,
+            pin_webview::pin_webview_reload,
+            pin_webview::pin_webview_nav_state,
+            pin_webview::pin_webview_close,
+            pin_webview::pin_webview_poll,
             push_audio_pcm,
             reconnect_huddle_audio,
             start_stt_pipeline,
