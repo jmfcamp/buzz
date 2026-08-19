@@ -76,6 +76,51 @@ const settingsNavGroups: Array<{
   },
 ];
 
+/**
+ * Keep the Settings chrome (sidebar + shell) mounted if a section card throws.
+ * Without this, RootErrorBoundary replaces the whole window — including the
+ * settings nav — with a degraded splash.
+ */
+class SettingsSectionErrorBoundary extends React.Component<
+  { children: React.ReactNode; section: SettingsSection },
+  { error: Error | null }
+> {
+  override state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error): { error: Error } {
+    return { error };
+  }
+
+  override componentDidCatch(error: Error, info: React.ErrorInfo): void {
+    console.error(
+      `[Settings] "${this.props.section}" failed to render:`,
+      error,
+      info,
+    );
+  }
+
+  override componentDidUpdate(prevProps: {
+    children: React.ReactNode;
+    section: SettingsSection;
+  }): void {
+    if (prevProps.section !== this.props.section && this.state.error) {
+      this.setState({ error: null });
+    }
+  }
+
+  override render(): React.ReactNode {
+    if (this.state.error) {
+      return (
+        <p className="px-4 py-8 text-sm text-muted-foreground">
+          This settings page failed to load. Choose another section or reopen
+          Settings.
+        </p>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function SettingsSectionButton({
   active,
   onSelect,
@@ -343,20 +388,22 @@ export function SettingsView({
               className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-4"
               data-testid={`settings-panel-${section}`}
             >
-              {renderSettingsSection(section, {
-                currentPubkey,
-                fallbackDisplayName,
-                isUpdatingDesktopNotifications,
-                notificationErrorMessage,
-                notificationPermission,
-                notificationSettings,
-                onSetDesktopNotificationsEnabled,
-                onSetHomeBadgeEnabled,
-                onSetSlotAlertsEnabled,
-                onSetNotifyWhileViewing,
-                onSetAllSlotAlertsEnabled,
-                onSetSoundForSlot,
-              })}
+              <SettingsSectionErrorBoundary section={section}>
+                {renderSettingsSection(section, {
+                  currentPubkey,
+                  fallbackDisplayName,
+                  isUpdatingDesktopNotifications,
+                  notificationErrorMessage,
+                  notificationPermission,
+                  notificationSettings,
+                  onSetDesktopNotificationsEnabled,
+                  onSetHomeBadgeEnabled,
+                  onSetSlotAlertsEnabled,
+                  onSetNotifyWhileViewing,
+                  onSetAllSlotAlertsEnabled,
+                  onSetSoundForSlot,
+                })}
+              </SettingsSectionErrorBoundary>
             </div>
           </section>
         </div>
