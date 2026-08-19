@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   communityBotsStorageKey,
   isAlreadyCommunityBotMemberError,
+  isAlreadyGoneCommunityBotMemberError,
   isUnknownCommunityBotsKindError,
   mergeCommunityBots,
 } from "./localCatalog.ts";
@@ -75,6 +76,33 @@ test("isAlreadyCommunityBotMemberError is conservative", () => {
   assert.equal(
     isAlreadyCommunityBotMemberError(
       new Error("restricted: unknown event kind"),
+    ),
+    false,
+  );
+});
+
+test("isAlreadyGoneCommunityBotMemberError matches official 9031 and gone phrasing", () => {
+  assert.equal(
+    isAlreadyGoneCommunityBotMemberError(
+      new Error(`member not found: ${MO_PUBKEY}`),
+    ),
+    true,
+  );
+  assert.equal(
+    isAlreadyGoneCommunityBotMemberError(new Error("not a member")),
+    true,
+  );
+  assert.equal(
+    isAlreadyGoneCommunityBotMemberError(new Error("unknown member")),
+    true,
+  );
+  assert.equal(
+    isAlreadyGoneCommunityBotMemberError(new Error("member missing")),
+    true,
+  );
+  assert.equal(
+    isAlreadyGoneCommunityBotMemberError(
+      new Error("Timed out while updating relay access."),
     ),
     false,
   );

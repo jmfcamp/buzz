@@ -44,6 +44,12 @@ import {
   resolveUserLabelPlaceholderData,
   writeCachedUserLabels,
 } from "@/features/profile/lib/userLabelStorage";
+import { useCommunityBotsQuery } from "@/features/community-bots/hooks";
+import {
+  overlayCommunityBotDisplayName,
+  overlayCommunityBotNamesOnBatch,
+} from "@/features/community-bots/lib/displayName";
+import { loadLocalCommunityBots } from "@/features/community-bots/lib/catalog";
 import { useCommunities } from "@/features/communities/useCommunities";
 import { updateCachedChannelMemberDisplayName } from "@/features/channels/channelMemberProfileCache";
 
@@ -274,12 +280,30 @@ export function useUnfollowMutation(currentPubkey?: string) {
 }
 
 export function useUserProfileQuery(pubkey?: string) {
-  return useQuery({
-    enabled: typeof pubkey === "string" && pubkey.length > 0,
+  const enabled = typeof pubkey === "string" && pubkey.length > 0;
+  const catalogQuery = useCommunityBotsQuery(enabled);
+  const query = useQuery({
+    enabled,
     queryKey: ["user-profile", pubkey?.toLowerCase() ?? ""],
     queryFn: () => getUserProfile(pubkey),
     staleTime: 60_000,
   });
+  const profile = query.data;
+  if (!profile || !pubkey) {
+    return query;
+  }
+  const displayName = overlayCommunityBotDisplayName(
+    profile.displayName,
+    pubkey,
+    catalogQuery.data,
+  );
+  if (displayName === (profile.displayName?.trim() || null)) {
+    return query;
+  }
+  return {
+    ...query,
+    data: { ...profile, displayName },
+  };
 }
 
 // Per-pubkey resolution cache backing `useUsersBatchQuery`'s delta fetch.
@@ -328,6 +352,7 @@ export function useUsersBatchQuery(
     .filter((pubkey) => pubkey.length > 0)
     .sort();
   const enabled = (options?.enabled ?? true) && normalizedPubkeys.length > 0;
+  const catalogQuery = useCommunityBotsQuery(enabled);
 
   const query = useQuery<UsersBatchResponse>({
     enabled,
@@ -409,7 +434,11 @@ export function useUsersBatchQuery(
     }
   }, [query.data, query.dataUpdatedAt, queryClient]);
 
-  return query;
+  const bots = catalogQuery.data ?? loadLocalCommunityBots(relayUrl);
+  const overlaid = query.data
+    ? overlayCommunityBotNamesOnBatch(query.data, bots, normalizedPubkeys)
+    : query.data;
+  return overlaid === query.data ? query : { ...query, data: overlaid };
 }
 
 export function useUserSearchQuery(

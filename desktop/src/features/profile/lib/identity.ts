@@ -1,3 +1,5 @@
+import { overlayCommunityBotDisplayName } from "@/features/community-bots/lib/displayName";
+import type { CommunityBot } from "@/features/community-bots/lib/types";
 import type { Profile, UserProfileSummary } from "@/shared/api/types";
 import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
 
@@ -94,6 +96,7 @@ export function resolveUserLabel(input: {
   fallbackName?: string | null;
   profiles?: UserProfileLookup;
   preferResolvedSelfLabel?: boolean;
+  communityBots?: ReadonlyArray<CommunityBot>;
 }) {
   const {
     currentPubkey,
@@ -101,6 +104,7 @@ export function resolveUserLabel(input: {
     preferResolvedSelfLabel = false,
     profiles,
     pubkey,
+    communityBots,
   } = input;
 
   if (
@@ -113,7 +117,11 @@ export function resolveUserLabel(input: {
   }
 
   const profile = getResolvedProfile(pubkey, profiles);
-  const displayName = profile?.displayName?.trim();
+  const displayName = overlayCommunityBotDisplayName(
+    profile?.displayName ?? fallbackName,
+    pubkey,
+    communityBots,
+  );
   if (displayName) {
     return displayName;
   }
@@ -121,11 +129,6 @@ export function resolveUserLabel(input: {
   const nip05Handle = profile?.nip05Handle?.trim();
   if (nip05Handle) {
     return nip05Handle;
-  }
-
-  const safeFallback = fallbackName?.trim();
-  if (safeFallback) {
-    return safeFallback;
   }
 
   return truncatePubkey(pubkey);

@@ -36,6 +36,7 @@ import { resetSidebarRelayConnectionCardState } from "@/features/sidebar/ui/useS
 import { clearMarkdownNodeCache } from "@/shared/ui/markdown/nodeCache";
 import { resetVideoPlayerState } from "@/shared/ui/videoPlayerState";
 import { hideAllPinWebviews } from "@/features/pinned-sites/lib/pinWebview";
+import { resetCommunityBotNameCache } from "@/features/community-bots/lib/displayName";
 
 import {
   initFirstCommunity,
@@ -78,6 +79,7 @@ async function resetCommunityState({
   resetLinkPreviewPreparations();
   clearSearchHitEventCache();
   clearMarkdownNodeCache();
+  resetCommunityBotNameCache();
   void hideAllPinWebviews();
 }
 

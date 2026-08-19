@@ -10,9 +10,11 @@ import type { RelayEvent } from "@/shared/api/types";
 import { getStorageItem, setStorageItem } from "@/shared/lib/safeStorage";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 
+import { rememberCommunityBotNames } from "./displayName";
 import {
   communityBotsStorageKey,
   isAlreadyCommunityBotMemberError,
+  isAlreadyGoneCommunityBotMemberError,
   isUnknownCommunityBotsKindError,
   mergeCommunityBots,
   resolveCommunityBotsRelayUrl,
@@ -107,6 +109,7 @@ export function saveLocalCommunityBots(
     })),
   };
   setStorageItem(communityBotsStorageKey(relayUrl), JSON.stringify(payload));
+  rememberCommunityBotNames(bots, relayUrl);
 }
 
 export async function fetchCommunityBots(
@@ -117,10 +120,12 @@ export async function fetchCommunityBots(
     "#d": [COMMUNITY_BOTS_D_TAG],
     limit: 50,
   });
-  return mergeCommunityBots(
+  const bots = mergeCommunityBots(
     selectLatestCommunityBots(events),
     loadLocalCommunityBots(relayUrl),
   );
+  rememberCommunityBotNames(bots, relayUrl);
+  return bots;
 }
 
 async function publishCommunityBotsToRelay(
@@ -196,6 +201,30 @@ export async function installCommunityBot(
   return next;
 }
 
+export async function removeCommunityBotRelayMember(
+  pubkey: string,
+): Promise<void> {
+  const normalized = normalizePubkey(pubkey);
+  try {
+    const members = await listRelayMembers();
+    if (
+      !members.some((member) => normalizePubkey(member.pubkey) === normalized)
+    ) {
+      return;
+    }
+  } catch {
+    // Membership snapshot is optional; fall through and publish 9031.
+  }
+  try {
+    await removeRelayMember(normalized);
+  } catch (error) {
+    if (isAlreadyGoneCommunityBotMemberError(error)) {
+      return;
+    }
+    throw error;
+  }
+}
+
 export async function uninstallCommunityBot(
   current: ReadonlyArray<CommunityBot>,
   bot: CommunityBot,
@@ -203,7 +232,7 @@ export async function uninstallCommunityBot(
 ): Promise<CommunityBot[]> {
   const next = removeInstalledBot(current, bot.id);
   if (!otherBotsSharePubkey(current, bot.id, bot.pubkey)) {
-    await removeRelayMember(bot.pubkey);
+    await removeCommunityBotRelayMember(bot.pubkey);
   }
   await publishCommunityBots(next, relayUrl);
   return next;

@@ -1,4 +1,6 @@
 import * as React from "react";
+
+import { overlayCommunityBotDisplayName } from "@/features/community-bots/lib/displayName";
 import type {
   AcpRuntimeCatalogEntry,
   AgentPersona,
@@ -235,6 +237,7 @@ export function resolveProfileDisplayName({
   pubkey: string | null;
 }) {
   return (
+    overlayCommunityBotDisplayName(profile?.displayName, pubkey ?? "") ??
     profile?.displayName ??
     persona?.displayName ??
     (pubkey ? truncatePubkey(pubkey) : "Agent")

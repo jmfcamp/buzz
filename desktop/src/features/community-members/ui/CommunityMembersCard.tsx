@@ -2,6 +2,7 @@ import * as React from "react";
 import { MoreHorizontal, Plus, Shield, ShieldCheck, User } from "lucide-react";
 import { toast } from "sonner";
 
+import { overlayCommunityBotDisplayName } from "@/features/community-bots/lib/displayName";
 import { useUsersBatchQuery } from "@/features/profile/hooks";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { PubKey } from "@/shared/ui/PubKey";
@@ -252,9 +253,10 @@ export function CommunityMembersCard({
           {members.map((member) => (
             <MemberRow
               currentPubkey={currentPubkey}
-              displayName={
-                profiles[member.pubkey.toLowerCase()]?.displayName ?? null
-              }
+              displayName={overlayCommunityBotDisplayName(
+                profiles[member.pubkey.toLowerCase()]?.displayName,
+                member.pubkey,
+              )}
               key={member.pubkey}
               member={member}
               onChangeRole={handleChangeRole}
@@ -276,7 +278,10 @@ export function CommunityMembersCard({
         member={removeTarget}
         displayName={
           removeTarget
-            ? (profiles[removeTarget.pubkey.toLowerCase()]?.displayName ?? null)
+            ? overlayCommunityBotDisplayName(
+                profiles[removeTarget.pubkey.toLowerCase()]?.displayName,
+                removeTarget.pubkey,
+              )
             : null
         }
         onOpenChange={(open) => {
