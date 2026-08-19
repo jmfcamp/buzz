@@ -13,9 +13,10 @@ use tokio_tungstenite::tungstenite::Message;
 use super::protocol::{
     build_device_auth_payload_v3, device_id_from_public_key, parse_agents_list,
     parse_connect_challenge, parse_hello_auth, parse_pairing_required, public_key_base64url,
-    public_key_from_secret, scopes_are_sufficient, sign_device_payload, RemoteAgent,
-    OPENCLAW_CLIENT_DISPLAY_NAME, OPENCLAW_CLIENT_ID, OPENCLAW_CLIENT_MODE, OPENCLAW_CLIENT_ROLE,
-    OPENCLAW_DEVICE_FAMILY, REQUIRED_OPERATOR_SCOPES,
+    public_key_from_secret, scopes_are_sufficient, sign_device_payload,
+    signature_token_from_connect_auth, RemoteAgent, OPENCLAW_CLIENT_DISPLAY_NAME,
+    OPENCLAW_CLIENT_ID, OPENCLAW_CLIENT_MODE, OPENCLAW_CLIENT_ROLE, OPENCLAW_DEVICE_FAMILY,
+    REQUIRED_OPERATOR_SCOPES,
 };
 use super::store::GatewaySecrets;
 
@@ -211,7 +212,10 @@ fn build_connect_frame(
     let public_key = public_key_from_secret(&secret);
     let device_id = device_id_from_public_key(&public_key);
     let platform = normalize_platform(std::env::consts::OS);
-    let signature_token = secrets.device_token.as_deref().unwrap_or("");
+    let auth = build_connect_auth(secrets);
+    // OpenClaw reconstructs this as auth.token ?? auth.deviceToken ??
+    // auth.bootstrapToken ?? "". Password is never signed.
+    let signature_token = signature_token_from_connect_auth(&Value::Object(auth.clone()));
     let payload = build_device_auth_payload_v3(
         &device_id,
         OPENCLAW_CLIENT_ID,
@@ -219,27 +223,12 @@ fn build_connect_frame(
         OPENCLAW_CLIENT_ROLE,
         REQUIRED_OPERATOR_SCOPES,
         challenge.ts,
-        signature_token,
+        &signature_token,
         &challenge.nonce,
         &platform,
         OPENCLAW_DEVICE_FAMILY,
     );
     let signature = sign_device_payload(&secret, &payload)?;
-    let mut auth = serde_json::Map::new();
-    if !secrets.password.is_empty() {
-        auth.insert("password".into(), json!(secrets.password));
-    }
-    if let Some(token) = secrets
-        .token
-        .as_deref()
-        .filter(|value| !value.is_empty())
-        .or(secrets
-            .device_token
-            .as_deref()
-            .filter(|value| !value.is_empty()))
-    {
-        auth.insert("token".into(), json!(token));
-    }
     Ok(json!({
         "type": "req",
         "id": request_id,
@@ -252,6 +241,7 @@ fn build_connect_frame(
                 "displayName": OPENCLAW_CLIENT_DISPLAY_NAME,
                 "version": env!("CARGO_PKG_VERSION"),
                 "platform": platform,
+                "deviceFamily": OPENCLAW_DEVICE_FAMILY,
                 "mode": OPENCLAW_CLIENT_MODE
             },
             "role": OPENCLAW_CLIENT_ROLE,
@@ -271,6 +261,29 @@ fn build_connect_frame(
             }
         }
     }))
+}
+
+/// Shared-secret / device-token fields sent on `connect.params.auth`.
+///
+/// User token wins over device token when both are stored, matching the
+/// gateway's `auth.token ?? auth.deviceToken` reconstruction order.
+fn build_connect_auth(secrets: &GatewaySecrets) -> serde_json::Map<String, Value> {
+    let mut auth = serde_json::Map::new();
+    if !secrets.password.is_empty() {
+        auth.insert("password".into(), json!(secrets.password));
+    }
+    if let Some(token) = secrets
+        .token
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .or(secrets
+            .device_token
+            .as_deref()
+            .filter(|value| !value.is_empty()))
+    {
+        auth.insert("token".into(), json!(token));
+    }
+    auth
 }
 
 fn interpret_connect_response(response: Value) -> Result<ConnectOutcome, String> {
@@ -330,15 +343,90 @@ mod tests {
     use super::*;
     use crate::community_bots::protocol::ConnectChallenge;
 
+    fn challenge() -> ConnectChallenge {
+        ConnectChallenge {
+            nonce: "nonce-1".into(),
+            ts: 1_737_264_000_000,
+        }
+    }
+
+    /// Reconstruct the v3 string the way OpenClaw's gateway does: from the
+    /// connect JSON, not from the constants we intended to sign.
+    fn gateway_reconstructed_payload(params: &Value) -> String {
+        let client = &params["client"];
+        let device = &params["device"];
+        let scopes: Vec<&str> = params["scopes"]
+            .as_array()
+            .expect("scopes")
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        build_device_auth_payload_v3(
+            device["id"].as_str().expect("device.id"),
+            client["id"].as_str().expect("client.id"),
+            client["mode"].as_str().unwrap_or(""),
+            params["role"].as_str().expect("role"),
+            &scopes,
+            device["signedAt"].as_u64().expect("signedAt"),
+            &signature_token_from_connect_auth(params.get("auth").unwrap_or(&Value::Null)),
+            device["nonce"].as_str().expect("nonce"),
+            client["platform"].as_str().unwrap_or(""),
+            client["deviceFamily"].as_str().unwrap_or(""),
+        )
+    }
+
+    fn assert_signature_matches_reconstructed_payload(secrets: &GatewaySecrets, params: &Value) {
+        let payload = gateway_reconstructed_payload(params);
+        let client = &params["client"];
+        let device = &params["device"];
+        let mode = client["mode"].as_str().expect("client.mode");
+        let device_family = client["deviceFamily"]
+            .as_str()
+            .expect("client.deviceFamily");
+        let signed_at = device["signedAt"].as_u64().expect("signedAt").to_string();
+        let nonce = device["nonce"].as_str().expect("nonce");
+        let signature_token =
+            signature_token_from_connect_auth(params.get("auth").unwrap_or(&Value::Null));
+
+        assert_eq!(mode, OPENCLAW_CLIENT_MODE);
+        assert_eq!(device_family, OPENCLAW_DEVICE_FAMILY);
+        assert!(
+            payload.contains(&format!("|{mode}|")),
+            "signed payload must include client.mode: {payload}"
+        );
+        assert!(
+            payload.ends_with(&format!("|{device_family}"))
+                || payload.contains(&format!("|{device_family}|")),
+            "signed payload must include client.deviceFamily: {payload}"
+        );
+        assert!(
+            payload.contains(&format!("|{signed_at}|")),
+            "signed payload must include device.signedAt: {payload}"
+        );
+        assert!(
+            payload.contains(&format!("|{nonce}|")),
+            "signed payload must include device.nonce: {payload}"
+        );
+        assert!(
+            payload.contains(&format!("|{signature_token}|{nonce}|")),
+            "signed payload must include the auth signature-token field: {payload}"
+        );
+        assert!(
+            !payload.contains("secret"),
+            "password must not be part of the signed token: {payload}"
+        );
+
+        let expected_signature =
+            sign_device_payload(&secrets.device_secret().expect("secret"), &payload)
+                .expect("signature");
+        assert_eq!(device["signature"], expected_signature);
+    }
+
     #[test]
     fn connect_frame_sends_allowed_cli_mode_matching_signed_payload() {
         let secrets = GatewaySecrets::new("wss://gateway.example/ws".into(), "secret".into(), None)
             .expect("secrets");
-        let challenge = ConnectChallenge {
-            nonce: "nonce-1".into(),
-            ts: 1_737_264_000_000,
-        };
-        let frame = build_connect_frame(&secrets, &challenge, "buzz-1").expect("frame");
+        let frame = build_connect_frame(&secrets, &challenge(), "buzz-1").expect("frame");
         let params = &frame["params"];
         let client = &params["client"];
 
@@ -346,26 +434,18 @@ mod tests {
         assert_eq!(client["mode"], OPENCLAW_CLIENT_MODE);
         assert_eq!(client["mode"], "cli");
         assert_ne!(client["mode"], "operator");
+        assert_eq!(client["deviceFamily"], OPENCLAW_DEVICE_FAMILY);
         assert_eq!(params["role"], OPENCLAW_CLIENT_ROLE);
         assert_eq!(
             params["scopes"],
             json!(["operator.read", "operator.write", "operator.admin"])
         );
+        assert_eq!(params["device"]["signedAt"], challenge().ts);
+        assert_eq!(params["device"]["nonce"], challenge().nonce);
+        assert!(params["auth"].get("token").is_none());
+        assert_eq!(params["auth"]["password"], "secret");
 
-        let device_id = params["device"]["id"].as_str().expect("device id");
-        let platform = client["platform"].as_str().expect("platform");
-        let payload = build_device_auth_payload_v3(
-            device_id,
-            OPENCLAW_CLIENT_ID,
-            OPENCLAW_CLIENT_MODE,
-            OPENCLAW_CLIENT_ROLE,
-            REQUIRED_OPERATOR_SCOPES,
-            challenge.ts,
-            "",
-            &challenge.nonce,
-            platform,
-            OPENCLAW_DEVICE_FAMILY,
-        );
+        let payload = gateway_reconstructed_payload(params);
         assert!(
             payload.contains("|cli|cli|operator|"),
             "signed payload must bind client.mode=cli, not the operator role: {payload}"
@@ -374,10 +454,49 @@ mod tests {
             !payload.contains("|cli|operator|operator|"),
             "signed payload must not use operator as client_mode: {payload}"
         );
+        assert!(
+            payload.ends_with("|desktop"),
+            "signed payload must bind client.deviceFamily=desktop: {payload}"
+        );
 
-        let expected_signature =
-            sign_device_payload(&secrets.device_secret().expect("secret"), &payload)
-                .expect("signature");
-        assert_eq!(params["device"]["signature"], expected_signature);
+        assert_signature_matches_reconstructed_payload(&secrets, params);
+    }
+
+    #[test]
+    fn connect_frame_signs_sent_user_token_not_password_or_device_token() {
+        let mut secrets = GatewaySecrets::new(
+            "wss://gateway.example/ws".into(),
+            "secret".into(),
+            Some("user-token".into()),
+        )
+        .expect("secrets");
+        secrets.device_token = Some("device-token".into());
+        let frame = build_connect_frame(&secrets, &challenge(), "buzz-1").expect("frame");
+        let params = &frame["params"];
+
+        assert_eq!(params["auth"]["token"], "user-token");
+        assert!(params["auth"].get("deviceToken").is_none());
+        assert_eq!(
+            signature_token_from_connect_auth(&params["auth"]),
+            "user-token"
+        );
+        assert_signature_matches_reconstructed_payload(&secrets, params);
+    }
+
+    #[test]
+    fn connect_frame_signs_device_token_when_that_is_the_sent_auth_token() {
+        let mut secrets =
+            GatewaySecrets::new("wss://gateway.example/ws".into(), "secret".into(), None)
+                .expect("secrets");
+        secrets.device_token = Some("device-token".into());
+        let frame = build_connect_frame(&secrets, &challenge(), "buzz-1").expect("frame");
+        let params = &frame["params"];
+
+        assert_eq!(params["auth"]["token"], "device-token");
+        assert_eq!(
+            signature_token_from_connect_auth(&params["auth"]),
+            "device-token"
+        );
+        assert_signature_matches_reconstructed_payload(&secrets, params);
     }
 }
