@@ -215,6 +215,10 @@ fn persist_session(app: &AppHandle, pin_id: &str, session: &PinSession) {
     let _ = write_persisted(&path, &session.persist());
 }
 
+fn hash_response_body(body: &[u8]) -> String {
+    hex::encode(Sha256::digest(body))
+}
+
 fn emit_nav(app: &AppHandle, state: PinNavState) {
     if let Err(error) = app.emit("pin-webview-nav", state) {
         eprintln!("buzz-desktop: pin-webview-nav emit failed: {error}");
@@ -490,7 +494,7 @@ pub async fn pin_webview_poll(
         .and_then(|value| value.to_str().ok())
         .map(ToOwned::to_owned);
     let body = response.bytes().await.map_err(|error| error.to_string())?;
-    let body_hash = format!("{:x}", Sha256::digest(&body));
+    let body_hash = hash_response_body(&body);
 
     let mut sessions = manager
         .sessions
@@ -542,6 +546,19 @@ mod tests {
     fn sanitize_rejects_path_traversal() {
         assert!(sanitize_pin_id("../etc").is_err());
         assert!(sanitize_pin_id("wayfinder").is_ok());
+    }
+
+    #[test]
+    fn body_hash_is_lowercase_hex_sha256() {
+        assert_eq!(
+            hash_response_body(b""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        assert_eq!(
+            hash_response_body(b"hello"),
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+        );
+        assert_ne!(hash_response_body(b"a"), hash_response_body(b"b"));
     }
 
     #[test]
