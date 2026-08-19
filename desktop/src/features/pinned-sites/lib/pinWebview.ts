@@ -18,11 +18,29 @@ export type PinWebviewPollResult = {
   changed: boolean;
 };
 
+export type PinWebviewLoadState = {
+  pinId: string;
+  url: string;
+  ok: boolean;
+  status?: number | null;
+  message?: string | null;
+};
+
+/** Logical px. A 1×1 first layout must not create the child webview. */
+export const MIN_PIN_WEBVIEW_EDGE = 32;
+
 const EMPTY_NAV: PinWebviewNavState = {
   canGoBack: false,
   canGoForward: false,
   currentUrl: "",
 };
+
+export function pinWebviewBoundsAreUsable(bounds: PinWebviewBounds): boolean {
+  return (
+    bounds.width >= MIN_PIN_WEBVIEW_EDGE &&
+    bounds.height >= MIN_PIN_WEBVIEW_EDGE
+  );
+}
 
 function isNativePinRuntime(): boolean {
   return isTauri() || import.meta.env.MODE === "e2e";
@@ -124,4 +142,15 @@ export function subscribePinWebviewNav(
       onNav(event.payload);
     },
   ).catch(() => () => {});
+}
+
+export function subscribePinWebviewLoad(
+  onLoad: (state: PinWebviewLoadState) => void,
+): Promise<() => void> {
+  if (!isNativePinRuntime()) {
+    return Promise.resolve(() => {});
+  }
+  return listen<PinWebviewLoadState>("pin-webview-load", (event) => {
+    onLoad(event.payload);
+  }).catch(() => () => {});
 }
