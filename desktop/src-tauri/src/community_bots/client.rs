@@ -8,15 +8,15 @@ use std::time::Duration;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use tokio::time::timeout;
-use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::{protocol::CloseFrame, Message};
 
 use super::protocol::{
     build_device_auth_payload_v3, device_id_from_public_key, parse_agents_list,
-    parse_connect_challenge, parse_hello_auth, parse_pairing_required, public_key_base64url,
-    public_key_from_secret, scopes_are_sufficient, sign_device_payload,
-    signature_token_from_connect_auth, RemoteAgent, OPENCLAW_CLIENT_DISPLAY_NAME,
-    OPENCLAW_CLIENT_ID, OPENCLAW_CLIENT_MODE, OPENCLAW_CLIENT_ROLE, OPENCLAW_DEVICE_FAMILY,
-    REQUIRED_OPERATOR_SCOPES,
+    parse_connect_challenge, parse_hello_auth, parse_pairing_required,
+    parse_pairing_required_from_text, public_key_base64url, public_key_from_secret,
+    scopes_are_sufficient, sign_device_payload, signature_token_from_connect_auth, RemoteAgent,
+    OPENCLAW_CLIENT_DISPLAY_NAME, OPENCLAW_CLIENT_ID, OPENCLAW_CLIENT_MODE, OPENCLAW_CLIENT_ROLE,
+    OPENCLAW_DEVICE_FAMILY, REQUIRED_OPERATOR_SCOPES,
 };
 use super::store::GatewaySecrets;
 
@@ -99,14 +99,20 @@ impl GatewaySession {
     }
 
     async fn authenticate(&mut self, secrets: &GatewaySecrets) -> Result<ConnectOutcome, String> {
-        let challenge = self.wait_for_challenge().await?;
+        let challenge = match self.wait_for_challenge().await {
+            Ok(challenge) => challenge,
+            Err(error) => return pairing_or_err(error),
+        };
         let request_id = self.next_request_id();
         let connect = build_connect_frame(secrets, &challenge, &request_id)?;
         self.write
             .send(Message::Text(connect.to_string().into()))
             .await
             .map_err(|error| format!("failed to send connect: {error}"))?;
-        let response = self.wait_for_response(&request_id).await?;
+        let response = match self.wait_for_response(&request_id).await {
+            Ok(response) => response,
+            Err(error) => return pairing_or_err(error),
+        };
         interpret_connect_response(response)
     }
 
@@ -196,8 +202,8 @@ async fn read_json_frame(
             Message::Binary(_) => {
                 return Err("OpenClaw gateway sent a binary frame".into());
             }
-            Message::Close(_) => {
-                return Err("OpenClaw gateway closed the connection".into());
+            Message::Close(frame) => {
+                return Err(format_close_error(frame.as_ref()));
             }
         }
     }
@@ -302,15 +308,8 @@ fn interpret_connect_response(response: Value) -> Result<ConnectOutcome, String>
         });
     }
     let error = response.get("error").cloned().unwrap_or(Value::Null);
-    if let Some(pairing) = parse_pairing_required(&error) {
-        return Ok(ConnectOutcome::Pending {
-            request_id: pairing.request_id,
-            requested_scopes: if pairing.requested_scopes.is_empty() {
-                required_scope_strings()
-            } else {
-                pairing.requested_scopes
-            },
-        });
+    if let Some(outcome) = pairing_outcome_from_error(&error) {
+        return Ok(outcome);
     }
     let code = error
         .get("code")
@@ -320,7 +319,62 @@ fn interpret_connect_response(response: Value) -> Result<ConnectOutcome, String>
         .get("message")
         .and_then(Value::as_str)
         .unwrap_or("OpenClaw gateway connect failed");
-    Err(format!("{code}: {message}"))
+    let formatted = format!("{code}: {message}");
+    if let Some(outcome) = connect_failure_outcome(&formatted) {
+        return Ok(outcome);
+    }
+    Err(formatted)
+}
+
+/// Turn a pairing JSON error into [`ConnectOutcome::Pending`].
+fn pairing_outcome_from_error(error: &Value) -> Option<ConnectOutcome> {
+    let pairing = parse_pairing_required(error)?;
+    Some(pending_outcome(
+        pairing.request_id,
+        pairing.requested_scopes,
+    ))
+}
+
+/// Turn a close reason or formatted `CODE: message` into pending when it is pairing.
+pub(crate) fn connect_failure_outcome(error: &str) -> Option<ConnectOutcome> {
+    let pairing = parse_pairing_required_from_text(error)?;
+    Some(pending_outcome(
+        pairing.request_id,
+        pairing.requested_scopes,
+    ))
+}
+
+fn pending_outcome(request_id: String, requested_scopes: Vec<String>) -> ConnectOutcome {
+    ConnectOutcome::Pending {
+        request_id,
+        requested_scopes: if requested_scopes.is_empty() {
+            required_scope_strings()
+        } else {
+            requested_scopes
+        },
+    }
+}
+
+fn pairing_or_err(error: String) -> Result<ConnectOutcome, String> {
+    if let Some(outcome) = connect_failure_outcome(&error) {
+        return Ok(outcome);
+    }
+    Err(error)
+}
+
+fn format_close_error(frame: Option<&CloseFrame>) -> String {
+    match frame {
+        Some(close) => {
+            let code = u16::from(close.code);
+            let reason = close.reason.to_string();
+            if reason.is_empty() {
+                format!("OpenClaw gateway closed the connection ({code})")
+            } else {
+                format!("OpenClaw gateway closed the connection ({code}): {reason}")
+            }
+        }
+        None => "OpenClaw gateway closed the connection".into(),
+    }
 }
 
 fn required_scope_strings() -> Vec<String> {
@@ -498,5 +552,67 @@ mod tests {
             "device-token"
         );
         assert_signature_matches_reconstructed_payload(&secrets, params);
+    }
+
+    #[test]
+    fn interpret_not_paired_without_request_id_is_pending() {
+        let response = json!({
+            "type": "res",
+            "id": "buzz-1",
+            "ok": false,
+            "error": {
+                "code": "NOT_PAIRED",
+                "message": "pairing required: device is not approved yet"
+            }
+        });
+        let outcome = interpret_connect_response(response).expect("pending");
+        match outcome {
+            ConnectOutcome::Pending {
+                request_id,
+                requested_scopes,
+            } => {
+                assert!(request_id.is_empty());
+                assert_eq!(
+                    requested_scopes,
+                    vec!["operator.read", "operator.write", "operator.admin"]
+                );
+            }
+            other => panic!("expected pending, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn interpret_pairing_required_with_request_id_is_pending() {
+        let response = json!({
+            "ok": false,
+            "error": {
+                "code": "PAIRING_REQUIRED",
+                "details": {
+                    "requestId": "req-123",
+                    "scopes": ["operator.read"]
+                }
+            }
+        });
+        let outcome = interpret_connect_response(response).expect("pending");
+        match outcome {
+            ConnectOutcome::Pending {
+                request_id,
+                requested_scopes,
+            } => {
+                assert_eq!(request_id, "req-123");
+                assert_eq!(requested_scopes, vec!["operator.read"]);
+            }
+            other => panic!("expected pending, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn close_reason_pairing_is_pending_not_an_error() {
+        let outcome = connect_failure_outcome(
+            "OpenClaw gateway closed the connection (1008): pairing required: device is not approved yet",
+        )
+        .expect("pending");
+        assert!(matches!(outcome, ConnectOutcome::Pending { .. }));
+        assert!(connect_failure_outcome("timed out connecting to the OpenClaw gateway").is_none());
     }
 }

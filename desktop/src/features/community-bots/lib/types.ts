@@ -23,9 +23,19 @@ export type CommunityBotsStatus = {
   url: string | null;
   hasPassword: boolean;
   requestId: string | null;
+  deviceId: string | null;
   requestedScopes: string[];
   approvedScopes: string[];
 };
+
+export const MISSING_PAIRING_REQUEST_ID = "not provided by gateway";
+
+export function pairingRequestIdLabel(
+  requestId: string | null | undefined,
+): string {
+  const trimmed = requestId?.trim() ?? "";
+  return trimmed || MISSING_PAIRING_REQUEST_ID;
+}
 
 export type RemoteOpenClawAgent = {
   id: string;

@@ -49,6 +49,9 @@ test("owner can connect, see pending approval, then install remote agents", asyn
   await expect(page.getByTestId("settings-bots-request-id")).toHaveText(
     "pairing-req-42",
   );
+  await expect(page.getByTestId("settings-bots-device-id")).toHaveText(
+    "0736ef3394efb187aea8d47e3df7151a5f92b837a9d3448ad0ee6e6124c53f91",
+  );
   await expect(
     page.getByTestId("settings-bots-requested-scopes"),
   ).toContainText("operator.write");

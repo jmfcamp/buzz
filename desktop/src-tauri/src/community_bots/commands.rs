@@ -7,7 +7,7 @@ use tauri::State;
 use crate::app_state::AppState;
 use crate::relay::relay_ws_url_with_override;
 
-use super::client::{handshake, list_remote_agents, ConnectOutcome};
+use super::client::{connect_failure_outcome, handshake, list_remote_agents, ConnectOutcome};
 use super::protocol::{
     normalize_hex_pubkey, relay_host_key, validate_gateway_url, RemoteAgent,
     REQUIRED_OPERATOR_SCOPES,
@@ -29,6 +29,8 @@ pub struct CommunityBotsStatus {
     pub has_password: bool,
     /// Pending pairing request id to approve on the VPS.
     pub request_id: Option<String>,
+    /// This desktop's OpenClaw device id (sha256 of the Ed25519 public key).
+    pub device_id: Option<String>,
     /// Scopes this connect asked for.
     pub requested_scopes: Vec<String>,
     /// Scopes granted by the last successful hello-ok.
@@ -61,7 +63,14 @@ fn status_from_secrets(secrets: Option<&GatewaySecrets>, state: &str) -> Communi
         state: state.to_string(),
         url: secrets.map(|s| s.url.clone()),
         has_password: secrets.is_some_and(|s| !s.password.is_empty()),
-        request_id: secrets.and_then(|s| s.pending_request_id.clone()),
+        request_id: secrets.and_then(|s| {
+            s.pending_request_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+                .map(ToOwned::to_owned)
+        }),
+        device_id: secrets.and_then(|s| s.device_id().ok()),
         requested_scopes: secrets
             .map(|s| {
                 if s.pending_scopes.is_empty() {
@@ -77,6 +86,39 @@ fn status_from_secrets(secrets: Option<&GatewaySecrets>, state: &str) -> Communi
     }
 }
 
+/// Reuse the stored Ed25519 device when the URL matches this community.
+///
+/// Handshake pairing / NOT_PAIRED must not mint a new identity — the
+/// gateway already has a pending or approved row for this public key.
+fn resolve_connect_secrets(
+    existing: Option<GatewaySecrets>,
+    url: String,
+    password: String,
+    token: Option<String>,
+) -> Result<GatewaySecrets, String> {
+    match existing {
+        Some(existing) if existing.url == url => {
+            let mut next = existing;
+            if !password.is_empty() {
+                next.password = password;
+            }
+            if token.is_some() {
+                next.token = token;
+            }
+            if next.password.is_empty() {
+                return Err("password is required".into());
+            }
+            Ok(next)
+        }
+        _ => {
+            if password.is_empty() {
+                return Err("password is required".into());
+            }
+            GatewaySecrets::new(url, password, token)
+        }
+    }
+}
+
 /// Return the last known gateway connection state. Does not open a socket.
 #[tauri::command]
 pub fn community_bots_get_status(
@@ -87,18 +129,10 @@ pub fn community_bots_get_status(
     let Some(secrets) = secrets else {
         return Ok(status_from_secrets(None, "disconnected"));
     };
-    if !secrets.approved_scopes.is_empty()
-        && super::protocol::scopes_are_sufficient(&secrets.approved_scopes)
-    {
-        return Ok(status_from_secrets(Some(&secrets), "connected"));
-    }
-    if secrets.pending_request_id.is_some() {
-        return Ok(status_from_secrets(Some(&secrets), "pending"));
-    }
-    if !secrets.approved_scopes.is_empty() {
-        return Ok(status_from_secrets(Some(&secrets), "insufficient_scopes"));
-    }
-    Ok(status_from_secrets(Some(&secrets), "disconnected"))
+    Ok(status_from_secrets(
+        Some(&secrets),
+        stored_status_state(&secrets),
+    ))
 }
 
 /// Save URL + password and attempt an OpenClaw gateway handshake.
@@ -116,30 +150,22 @@ pub async fn community_bots_connect(
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
 
-    let mut secrets = match load_gateway(&host)? {
-        Some(existing) if existing.url == url => {
-            let mut next = existing;
-            if !password.is_empty() {
-                next.password = password;
+    let mut secrets = resolve_connect_secrets(load_gateway(&host)?, url, password, token)?;
+    // Persist the device identity before the gateway sees the public key.
+    // If handshake returns pairing / NOT_PAIRED, the next Connect must
+    // present the same device — not a freshly minted one.
+    store_gateway(&host, &secrets)?;
+
+    let outcome = match handshake(&secrets).await {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            if let Some(outcome) = connect_failure_outcome(&error) {
+                outcome
+            } else {
+                return Err(error);
             }
-            if token.is_some() {
-                next.token = token;
-            }
-            next
-        }
-        Some(existing) if password.is_empty() && url == existing.url => existing,
-        _ => {
-            if password.is_empty() {
-                return Err("password is required".into());
-            }
-            GatewaySecrets::new(url, password, token)?
         }
     };
-    if secrets.password.is_empty() {
-        return Err("password is required".into());
-    }
-
-    let outcome = handshake(&secrets).await?;
     apply_outcome(&mut secrets, &outcome);
     store_gateway(&host, &secrets)?;
     Ok(status_from_outcome(&secrets, &outcome))
@@ -240,5 +266,104 @@ fn status_from_outcome(secrets: &GatewaySecrets, outcome: &ConnectOutcome) -> Co
             status_from_secrets(Some(secrets), "insufficient_scopes")
         }
         ConnectOutcome::Connected { .. } => status_from_secrets(Some(secrets), "connected"),
+    }
+}
+
+fn stored_status_state(secrets: &GatewaySecrets) -> &'static str {
+    if !secrets.approved_scopes.is_empty()
+        && super::protocol::scopes_are_sufficient(&secrets.approved_scopes)
+    {
+        return "connected";
+    }
+    if secrets.pending_request_id.is_some() {
+        return "pending";
+    }
+    if !secrets.approved_scopes.is_empty() {
+        return "insufficient_scopes";
+    }
+    "disconnected"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn first_not_paired_stores_device_and_second_connect_reuses_it() {
+        let url = "wss://gateway.example/ws".to_string();
+        let first =
+            resolve_connect_secrets(None, url.clone(), "secret".into(), None).expect("first");
+        let first_key = first.device_private_key.clone();
+        let first_device_id = first.device_id().expect("device id");
+
+        let outcome = ConnectOutcome::Pending {
+            request_id: String::new(),
+            requested_scopes: requested_scopes(),
+        };
+        let mut stored = first;
+        apply_outcome(&mut stored, &outcome);
+
+        assert_eq!(stored_status_state(&stored), "pending");
+        let status = status_from_outcome(&stored, &outcome);
+        assert_eq!(status.state, "pending");
+        assert_eq!(status.request_id, None);
+        assert_eq!(status.device_id.as_deref(), Some(first_device_id.as_str()));
+        assert_eq!(
+            status.requested_scopes,
+            vec!["operator.read", "operator.write", "operator.admin"]
+        );
+
+        let second = resolve_connect_secrets(Some(stored.clone()), url, "secret".into(), None)
+            .expect("reuse");
+        assert_eq!(
+            second.device_private_key, first_key,
+            "same URL must not mint a new device after NOT_PAIRED"
+        );
+        assert_eq!(second.device_id().expect("id"), first_device_id);
+
+        let other = resolve_connect_secrets(
+            Some(stored),
+            "wss://other.example/ws".into(),
+            "secret".into(),
+            None,
+        )
+        .expect("other url");
+        assert_ne!(other.device_private_key, first_key);
+    }
+
+    #[test]
+    fn pending_with_request_id_surfaces_id_and_device() {
+        let mut secrets =
+            GatewaySecrets::new("wss://gateway.example/ws".into(), "secret".into(), None)
+                .expect("secrets");
+        let device_id = secrets.device_id().expect("device id");
+        apply_outcome(
+            &mut secrets,
+            &ConnectOutcome::Pending {
+                request_id: "req-42".into(),
+                requested_scopes: vec!["operator.write".into()],
+            },
+        );
+        let status = status_from_secrets(Some(&secrets), stored_status_state(&secrets));
+        assert_eq!(status.state, "pending");
+        assert_eq!(status.request_id.as_deref(), Some("req-42"));
+        assert_eq!(status.device_id.as_deref(), Some(device_id.as_str()));
+        assert_eq!(status.requested_scopes, vec!["operator.write"]);
+    }
+
+    #[test]
+    fn connected_outcome_persists_device_token() {
+        let mut secrets =
+            GatewaySecrets::new("wss://gateway.example/ws".into(), "secret".into(), None)
+                .expect("secrets");
+        apply_outcome(
+            &mut secrets,
+            &ConnectOutcome::Connected {
+                approved_scopes: requested_scopes(),
+                device_token: Some("hello-ok-token".into()),
+            },
+        );
+        assert_eq!(secrets.device_token.as_deref(), Some("hello-ok-token"));
+        assert_eq!(stored_status_state(&secrets), "connected");
     }
 }
