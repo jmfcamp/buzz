@@ -37,12 +37,31 @@ pub const OPENCLAW_CLIENT_ROLE: &str = "operator";
 pub const OPENCLAW_CLIENT_DISPLAY_NAME: &str = "Hula Buzz";
 
 /// Device family bound into the v3 signature payload.
+///
+/// Must also be sent as `connect.params.client.deviceFamily`. The gateway
+/// reconstructs the signed string from that JSON field; omitting it verifies
+/// as `""` and fails with `device signature invalid`.
 pub const OPENCLAW_DEVICE_FAMILY: &str = "desktop";
+
+/// Token the gateway binds into the v3 device signature.
+///
+/// Mirrors OpenClaw `resolveSignatureToken`:
+/// `auth.token ?? auth.deviceToken ?? auth.bootstrapToken ?? ""`.
+/// Password is never part of the signed token.
+pub fn signature_token_from_connect_auth(auth: &serde_json::Value) -> String {
+    for key in ["token", "deviceToken", "bootstrapToken"] {
+        if let Some(serde_json::Value::String(value)) = auth.get(key) {
+            return value.clone();
+        }
+    }
+    String::new()
+}
 
 /// Build the v3 device-auth payload signed during `connect`.
 ///
-/// `token` is empty when authenticating with a password. When reconnecting
-/// with a device token, pass that token here so the signature binds to it.
+/// `token` must be the same string [`signature_token_from_connect_auth`]
+/// returns for the connect `auth` object we send. Password-only connects
+/// sign the empty string.
 pub fn build_device_auth_payload_v3(
     device_id: &str,
     client_id: &str,
@@ -357,6 +376,37 @@ mod tests {
         assert_ne!(OPENCLAW_CLIENT_MODE, OPENCLAW_CLIENT_ROLE);
         assert!(ALLOWED.contains(&OPENCLAW_CLIENT_MODE));
         assert!(!ALLOWED.contains(&"operator"));
+    }
+
+    #[test]
+    fn signature_token_follows_openclaw_auth_priority() {
+        assert_eq!(
+            signature_token_from_connect_auth(&serde_json::json!({
+                "password": "gateway-password"
+            })),
+            ""
+        );
+        assert_eq!(
+            signature_token_from_connect_auth(&serde_json::json!({
+                "password": "gateway-password",
+                "token": "user-token",
+                "deviceToken": "device-token"
+            })),
+            "user-token"
+        );
+        assert_eq!(
+            signature_token_from_connect_auth(&serde_json::json!({
+                "deviceToken": "device-token",
+                "bootstrapToken": "bootstrap-token"
+            })),
+            "device-token"
+        );
+        assert_eq!(
+            signature_token_from_connect_auth(&serde_json::json!({
+                "bootstrapToken": "bootstrap-token"
+            })),
+            "bootstrap-token"
+        );
     }
 
     #[test]
