@@ -121,6 +121,27 @@ test("rankMentionCandidates: active persona-backed non-members outrank other non
   );
 });
 
+test("rankMentionCandidates: catalog and truncated-pubkey labels are searchable", () => {
+  const catalogBot = candidate({
+    displayName: "mo",
+    isAgent: true,
+    isMember: true,
+    pubkey: CHANNEL_BRAIN_PUBKEY,
+  });
+  const unnamedMember = candidate({
+    displayName: null,
+    isMember: true,
+    pubkey: OTHER_BRAIN_PUBKEY,
+  });
+
+  assert.deepEqual(rankedPubkeys([catalogBot], "mo"), [CHANNEL_BRAIN_PUBKEY]);
+  assert.deepEqual(rankedPubkeys([unnamedMember], ""), [OTHER_BRAIN_PUBKEY]);
+  assert.deepEqual(
+    rankedPubkeys([unnamedMember], OTHER_BRAIN_PUBKEY.slice(0, 8)),
+    [OTHER_BRAIN_PUBKEY],
+  );
+});
+
 test("rankMentionCandidates: owned teams rank with runnable personas", () => {
   const remoteAgent = candidate({
     displayName: "Launch Agent",

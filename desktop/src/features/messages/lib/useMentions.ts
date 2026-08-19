@@ -10,6 +10,7 @@ import {
   useChannelMembersQuery,
   useChannelsQuery,
 } from "@/features/channels/hooks";
+import { useCommunityBotsQuery } from "@/features/community-bots/hooks";
 import { useIsArchivedPredicate } from "@/features/identity-archive/hooks";
 import type { MentionSuggestion } from "@/features/messages/ui/MentionAutocomplete";
 import {
@@ -50,6 +51,7 @@ import { rankMentionCandidates } from "./mentionRanking";
 import { mapMentionCandidateToSuggestion } from "./mentionSuggestionMapping";
 import {
   appendUniqueName,
+  buildChannelMemberMentionCandidate,
   buildTeamMentionCandidates,
   formatSearchUserDisplayName,
   formatSearchUserSecondaryLabel,
@@ -95,6 +97,7 @@ export function useMentions(
     : null;
   const membersQuery = useChannelMembersQuery(channelId);
   const members = externalMembers ?? membersQuery.data;
+  const communityBotsQuery = useCommunityBotsQuery();
   const isArchivedDiscovery = useIsArchivedPredicate();
   const managedAgentsQuery = useManagedAgentsQuery();
   const relayAgentsQuery = useRelayAgentsQuery();
@@ -253,7 +256,10 @@ export function useMentions(
       if (isArchivedDiscovery(pubkey)) {
         return;
       }
+      // Room members stay mentionable — including role `bot` catalog
+      // identities that are not in the managed/relay agent directory.
       if (
+        !candidate.isMember &&
         shouldHideAgentFromMentions({
           isAgent: candidate.isAgent === true,
           isManagedAgent: candidate.isManagedAgent === true,
@@ -303,41 +309,23 @@ export function useMentions(
     };
     for (const member of members ?? []) {
       const pubkey = normalizePubkey(member.pubkey);
-      const linkedPersonaId = activePersonaById.has(pubkey)
-        ? pubkey
-        : undefined;
-      const agentName =
-        managedAgentNamesByPubkey.get(pubkey) ??
-        relayAgentNamesByPubkey.get(pubkey) ??
-        null;
-      const profile = profiles?.[pubkey] ?? null;
-      addCandidate({
-        kind: "identity",
-        pubkey,
-        displayName:
-          member.displayName?.trim() ||
-          agentName ||
-          profile?.displayName?.trim() ||
-          profile?.nip05Handle?.trim() ||
-          null,
-        avatarUrl: profile?.avatarUrl ?? null,
-        isMember: true,
-        personaId:
-          managedAgentPersonaIdsByPubkey.get(pubkey) ?? linkedPersonaId,
-        isAgent:
-          member.isAgent === true ||
-          profile?.isAgent === true ||
-          member.role === "bot" ||
-          managedAgentNamesByPubkey.has(pubkey) ||
-          relayAgentNamesByPubkey.has(pubkey),
-        ownerPubkey: profile?.ownerPubkey ?? null,
-        personaName: personaNameByPubkey.get(pubkey) ?? null,
-        role: member.role,
-        secondaryLabel:
-          profile?.displayName?.trim() && profile?.nip05Handle?.trim()
-            ? profile.nip05Handle
-            : null,
-      });
+      addCandidate(
+        buildChannelMemberMentionCandidate({
+          member,
+          profile: profiles?.[pubkey] ?? null,
+          agentName:
+            managedAgentNamesByPubkey.get(pubkey) ??
+            relayAgentNamesByPubkey.get(pubkey) ??
+            null,
+          isDirectoryAgent:
+            managedAgentNamesByPubkey.has(pubkey) ||
+            relayAgentNamesByPubkey.has(pubkey),
+          managedAgentPersonaId: managedAgentPersonaIdsByPubkey.get(pubkey),
+          linkedPersonaId: activePersonaById.has(pubkey) ? pubkey : undefined,
+          personaName: personaNameByPubkey.get(pubkey) ?? null,
+          communityBots: communityBotsQuery.data,
+        }),
+      );
     }
     for (const agent of relayAgentsQuery.data ?? []) {
       const pubkey = normalizePubkey(agent.pubkey);
@@ -419,6 +407,7 @@ export function useMentions(
     agentAccessOwnerOnlyQuery.data,
     userSearchResults,
     canSearchGlobalUsers,
+    communityBotsQuery.data,
     currentPubkey,
     isArchivedDiscovery,
     managedAgentDirectoryReady,

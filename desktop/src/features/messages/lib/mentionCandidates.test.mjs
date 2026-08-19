@@ -1,10 +1,24 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { truncatePubkey } from "@/shared/lib/pubkey.ts";
+
 import {
+  buildChannelMemberMentionCandidate,
   buildTeamMentionCandidates,
   formatTeamMention,
+  resolveMentionMemberDisplayName,
 } from "./mentionCandidates.ts";
+
+const MO_PUBKEY = `${"d5c38517".padEnd(60, "0")}83ae`;
+const ADA_PUBKEY = "aa".repeat(32);
+
+const moBot = {
+  id: "mo",
+  name: "mo",
+  pubkey: MO_PUBKEY,
+  source: "openclaw",
+};
 
 function persona(id, displayName, isActive = true) {
   return {
@@ -169,4 +183,104 @@ test("teams with identity and persona display-name collisions are not suggested"
     ),
     [],
   );
+});
+
+test("resolveMentionMemberDisplayName uses the community-bots catalog overlay", () => {
+  assert.equal(
+    resolveMentionMemberDisplayName({
+      pubkey: MO_PUBKEY,
+      communityBots: [moBot],
+    }),
+    "mo",
+  );
+  assert.equal(
+    resolveMentionMemberDisplayName({
+      pubkey: MO_PUBKEY,
+      memberDisplayName: truncatePubkey(MO_PUBKEY),
+      communityBots: [moBot],
+    }),
+    "mo",
+  );
+});
+
+test("resolveMentionMemberDisplayName keeps member, kind 0, and managed-agent names", () => {
+  assert.equal(
+    resolveMentionMemberDisplayName({
+      pubkey: ADA_PUBKEY,
+      memberDisplayName: "Ada",
+      communityBots: [moBot],
+    }),
+    "Ada",
+  );
+  assert.equal(
+    resolveMentionMemberDisplayName({
+      pubkey: ADA_PUBKEY,
+      profileDisplayName: "Ada Lovelace",
+      profileNip05: "ada@example.com",
+    }),
+    "Ada Lovelace",
+  );
+  assert.equal(
+    resolveMentionMemberDisplayName({
+      pubkey: ADA_PUBKEY,
+      agentName: "Honey",
+    }),
+    "Honey",
+  );
+  assert.equal(
+    resolveMentionMemberDisplayName({
+      pubkey: ADA_PUBKEY,
+      profileNip05: "ada@example.com",
+    }),
+    "ada@example.com",
+  );
+});
+
+test("resolveMentionMemberDisplayName falls back to the truncated pubkey", () => {
+  assert.equal(
+    resolveMentionMemberDisplayName({ pubkey: ADA_PUBKEY }),
+    truncatePubkey(ADA_PUBKEY),
+  );
+});
+
+test("buildChannelMemberMentionCandidate labels a catalog bot and unnamed members", () => {
+  const bot = buildChannelMemberMentionCandidate({
+    member: {
+      pubkey: MO_PUBKEY,
+      displayName: null,
+      isAgent: false,
+      role: "bot",
+    },
+    communityBots: [moBot],
+  });
+  assert.equal(bot.displayName, "mo");
+  assert.equal(bot.isMember, true);
+  assert.equal(bot.isAgent, true);
+  assert.equal(bot.role, "bot");
+  assert.equal(bot.pubkey, MO_PUBKEY);
+
+  const unnamed = buildChannelMemberMentionCandidate({
+    member: {
+      pubkey: ADA_PUBKEY,
+      displayName: null,
+      isAgent: false,
+      role: "member",
+    },
+  });
+  assert.equal(unnamed.displayName, truncatePubkey(ADA_PUBKEY));
+  assert.equal(unnamed.isMember, true);
+  assert.equal(unnamed.isAgent, false);
+
+  const fizz = buildChannelMemberMentionCandidate({
+    member: {
+      pubkey: ADA_PUBKEY,
+      displayName: null,
+      isAgent: true,
+      role: "bot",
+    },
+    agentName: "Fizz",
+    isDirectoryAgent: true,
+  });
+  assert.equal(fizz.displayName, "Fizz");
+  assert.equal(fizz.isAgent, true);
 });

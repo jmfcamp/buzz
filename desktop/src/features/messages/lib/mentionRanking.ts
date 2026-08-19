@@ -75,9 +75,10 @@ export function rankMentionCandidates<T extends MentionCandidateForRanking>(
         candidate.displayName,
         candidate.personaName,
         candidate.secondaryLabel,
+        label,
       ]
         .map((value) =>
-          value ? scoreMentionCandidateLabel(value, lowerQuery) : null,
+          value?.trim() ? scoreMentionCandidateLabel(value, lowerQuery) : null,
         )
         .filter((score): score is number => score !== null);
       const labelScore =
