@@ -16,7 +16,6 @@ import type { MentionSuggestion } from "@/features/messages/ui/MentionAutocomple
 import {
   coalesceAgentAutocompleteCandidates,
   coalesceAutocompleteCandidatesByKey,
-  filterAdmittedMentionPubkeys,
   filterCachedAgentSuggestions,
   getAdmittedAgentPubkeys,
   getAgentIdentityPubkeys,
@@ -45,7 +44,7 @@ import { trimMapToSize } from "@/shared/lib/trimMapToSize";
 import { flushMentionDebounce } from "./flushMentionDebounce";
 import { useAgentMentionRevalidation } from "./agentMentionRevalidation";
 import { hasMention } from "./hasMention";
-import { extractMentionPubkeys } from "./extractMentionPubkeys";
+import { admitSendMentionPubkeys } from "./extractMentionPubkeys";
 import { useDraftMentionRouting } from "./useDraftMentionRouting";
 import { rankMentionCandidates } from "./mentionRanking";
 import { mapMentionCandidateToSuggestion } from "./mentionSuggestionMapping";
@@ -784,23 +783,27 @@ export function useMentions(
   );
 
   const extractMentionPubkeysForCurrentMentions = React.useCallback(
-    (text: string): string[] => {
-      const extracted = extractMentionPubkeys({
+    (text: string): string[] =>
+      admitSendMentionPubkeys({
         text,
         selectedMentions: mentionMapRef.current,
         selectedDisplayNames: personaMentionMapRef.current.keys(),
         memberCandidates: mentionCandidates,
-      });
-      return filterAdmittedMentionPubkeys(
-        extracted,
-        new Set([
-          ...agentIdentityPubkeys,
-          ...selectedAgentMentionPubkeysRef.current,
-        ]),
+        agentIdentityPubkeys,
+        selectedAgentPubkeys: selectedAgentMentionPubkeysRef.current,
         admittedAgentPubkeys,
-      );
-    },
-    [admittedAgentPubkeys, agentIdentityPubkeys, mentionCandidates],
+        memberPubkeys,
+        managedAgentPubkeys,
+        relayAgents: relayAgentsQuery.data,
+      }),
+    [
+      admittedAgentPubkeys,
+      agentIdentityPubkeys,
+      managedAgentPubkeys,
+      memberPubkeys,
+      mentionCandidates,
+      relayAgentsQuery.data,
+    ],
   );
   const getSelectedAgentPubkeys = React.useRef(
     () => selectedAgentMentionPubkeysRef.current,
@@ -816,6 +819,9 @@ export function useMentions(
     ownerOnly: agentAccessOwnerOnlyQuery.data,
     ownerPolicyError: agentAccessOwnerOnlyQuery.error,
     refetchManagedAgents: managedAgentsQuery.refetch,
+    memberPubkeys,
+    knownManagedAgentPubkeys: managedAgentPubkeys,
+    knownRelayAgents: relayAgentsQuery.data,
   });
 
   const extractMentionPersonas = React.useCallback(

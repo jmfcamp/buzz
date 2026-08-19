@@ -214,6 +214,43 @@ export function getAdmittedAgentPubkeys(
   );
 }
 
+/**
+ * Agent identities that still need managed/relay directory admission on send.
+ *
+ * Current-channel catalog/community bots are agent-shaped (`role === "bot"`)
+ * but have no managed or relay directory grant. The picker already keeps those
+ * members mentionable; send-time revalidation must admit them the same way it
+ * admits current-channel people, or the published event loses the `p` tag.
+ * Fizz/Honey and other directory agents stay in this set and keep the existing
+ * managed/relay admission path. Non-member agents stay gated.
+ */
+export function getDirectoryGatedAgentPubkeys({
+  agentPubkeys,
+  memberPubkeys,
+  managedAgentPubkeys,
+  relayAgents,
+}: {
+  agentPubkeys: Iterable<string>;
+  memberPubkeys?: Iterable<string>;
+  managedAgentPubkeys?: Iterable<string>;
+  relayAgents?: readonly { pubkey: string }[];
+}) {
+  const members = new Set(
+    [...(memberPubkeys ?? [])].map(normalizePubkey).filter(Boolean),
+  );
+  const directory = new Set([
+    ...[...(managedAgentPubkeys ?? [])].map(normalizePubkey).filter(Boolean),
+    ...(relayAgents ?? []).map((agent) => normalizePubkey(agent.pubkey)),
+  ]);
+
+  return new Set(
+    [...agentPubkeys].map(normalizePubkey).filter((pubkey) => {
+      if (!pubkey) return false;
+      return !members.has(pubkey) || directory.has(pubkey);
+    }),
+  );
+}
+
 export function rememberSelectedAgentPubkeys(
   target: Set<string>,
   selected: readonly { pubkey?: string; isAgent?: boolean }[],

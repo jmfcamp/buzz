@@ -1,6 +1,7 @@
 import {
   filterAdmittedMentionPubkeys,
   getAgentMentionAdmission,
+  getDirectoryGatedAgentPubkeys,
   getMentionableAgentPubkeys,
   type AgentEligibilityScope,
 } from "@/features/agents/lib/agentAutocompleteEligibility";
@@ -32,6 +33,9 @@ export async function revalidateAgentMentionPubkeys({
   refetchManagedAgents,
   fetchRelayAgents,
   refetchOwnerProfiles,
+  memberPubkeys,
+  knownManagedAgentPubkeys,
+  knownRelayAgents,
 }: {
   pubkeys: readonly string[];
   agentPubkeys: ReadonlySet<string>;
@@ -43,9 +47,20 @@ export async function revalidateAgentMentionPubkeys({
   refetchManagedAgents: () => Promise<DirectoryResult<ManagedAgent[]>>;
   fetchRelayAgents: (pubkeys: string[]) => Promise<RelayAgent[]>;
   refetchOwnerProfiles: (pubkeys: string[]) => Promise<UsersBatchResponse>;
+  memberPubkeys?: Iterable<string>;
+  knownManagedAgentPubkeys?: Iterable<string>;
+  knownRelayAgents?: readonly { pubkey: string }[];
 }) {
+  const directoryGatedAgentPubkeys = getDirectoryGatedAgentPubkeys({
+    agentPubkeys,
+    memberPubkeys,
+    managedAgentPubkeys: knownManagedAgentPubkeys,
+    relayAgents: knownRelayAgents,
+  });
   const requestedAgentPubkeys = new Set(
-    pubkeys.map(normalizePubkey).filter((pubkey) => agentPubkeys.has(pubkey)),
+    pubkeys
+      .map(normalizePubkey)
+      .filter((pubkey) => directoryGatedAgentPubkeys.has(pubkey)),
   );
   if (requestedAgentPubkeys.size === 0) {
     return [...pubkeys];
@@ -65,12 +80,27 @@ export async function revalidateAgentMentionPubkeys({
     managedResult.error !== null ||
     managedResult.data === undefined
   ) {
-    return filterAdmittedMentionPubkeys(pubkeys, agentPubkeys, new Set());
+    return filterAdmittedMentionPubkeys(
+      pubkeys,
+      directoryGatedAgentPubkeys,
+      new Set(),
+    );
   }
 
   const managedPubkeys = new Set(
     managedResult.data.map((agent) => normalizePubkey(agent.pubkey)),
   );
+  const freshGatedAgentPubkeys = getDirectoryGatedAgentPubkeys({
+    agentPubkeys,
+    memberPubkeys,
+    managedAgentPubkeys: [
+      ...(knownManagedAgentPubkeys ?? []),
+      ...managedPubkeys,
+    ],
+    relayAgents: relayDirectoryReady
+      ? [...(knownRelayAgents ?? []), ...relayAgents]
+      : knownRelayAgents,
+  });
   const mentionablePubkeys = getMentionableAgentPubkeys({
     currentPubkey,
     eligibilityScope,
@@ -79,7 +109,7 @@ export async function revalidateAgentMentionPubkeys({
     sharedChannelIds,
   });
   const admittedPubkeys = new Set(
-    [...agentPubkeys].filter((pubkey) => {
+    [...freshGatedAgentPubkeys].filter((pubkey) => {
       const isManagedAgent = managedPubkeys.has(normalizePubkey(pubkey));
       const directoryReady =
         isManagedAgent ||
@@ -98,7 +128,11 @@ export async function revalidateAgentMentionPubkeys({
       );
     }),
   );
-  return filterAdmittedMentionPubkeys(pubkeys, agentPubkeys, admittedPubkeys);
+  return filterAdmittedMentionPubkeys(
+    pubkeys,
+    freshGatedAgentPubkeys,
+    admittedPubkeys,
+  );
 }
 
 export function useAgentMentionRevalidation({
@@ -110,6 +144,9 @@ export function useAgentMentionRevalidation({
   ownerOnly,
   ownerPolicyError,
   refetchManagedAgents,
+  memberPubkeys,
+  knownManagedAgentPubkeys,
+  knownRelayAgents,
 }: {
   agentPubkeys: ReadonlySet<string>;
   getSelectedAgentPubkeys: () => ReadonlySet<string>;
@@ -119,6 +156,9 @@ export function useAgentMentionRevalidation({
   ownerOnly: boolean | undefined;
   ownerPolicyError: Error | null;
   refetchManagedAgents: () => Promise<DirectoryResult<ManagedAgent[]>>;
+  memberPubkeys?: Iterable<string>;
+  knownManagedAgentPubkeys?: Iterable<string>;
+  knownRelayAgents?: readonly { pubkey: string }[];
 }) {
   const queryClient = useQueryClient();
   const refetchOwnerProfiles = React.useCallback(
@@ -147,12 +187,18 @@ export function useAgentMentionRevalidation({
               : undefined,
           ),
         refetchOwnerProfiles,
+        memberPubkeys,
+        knownManagedAgentPubkeys,
+        knownRelayAgents,
       }),
     [
       agentPubkeys,
       currentPubkey,
       eligibilityScope,
       getSelectedAgentPubkeys,
+      knownManagedAgentPubkeys,
+      knownRelayAgents,
+      memberPubkeys,
       ownerOnly,
       ownerPolicyError,
       refetchManagedAgents,

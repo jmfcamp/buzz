@@ -6,6 +6,7 @@ import {
   filterAdmittedMentionPubkeys,
   filterCachedAgentSuggestions,
   getAgentMentionAdmission,
+  getDirectoryGatedAgentPubkeys,
   getMentionableAgentPubkeys,
   getSharedChannelIds,
   isAgentIdentityInAllowedList,
@@ -485,6 +486,58 @@ test("filterAdmittedMentionPubkeys: rechecks agent admission without dropping pe
     ),
     [PUB_B, PUB_C],
   );
+});
+
+test("getDirectoryGatedAgentPubkeys: current-channel catalog bots are not directory-gated", () => {
+  const catalogBot = PUB_A;
+  const managedAgent = PUB_B;
+  const nonMemberAgent = PUB_C;
+  const humanMember = PUB_D;
+
+  const gated = getDirectoryGatedAgentPubkeys({
+    agentPubkeys: [catalogBot, managedAgent, nonMemberAgent],
+    memberPubkeys: [catalogBot, humanMember],
+    managedAgentPubkeys: [managedAgent],
+    relayAgents: [],
+  });
+
+  assert.equal(gated.has(catalogBot), false);
+  assert.equal(gated.has(humanMember), false);
+  assert.equal(gated.has(managedAgent), true);
+  assert.equal(gated.has(nonMemberAgent), true);
+});
+
+test("getDirectoryGatedAgentPubkeys: current-channel managed agents stay gated", () => {
+  const gated = getDirectoryGatedAgentPubkeys({
+    agentPubkeys: [PUB_A],
+    memberPubkeys: [PUB_A],
+    managedAgentPubkeys: [PUB_A],
+    relayAgents: [],
+  });
+
+  assert.deepEqual(gated, new Set([PUB_A]));
+});
+
+test("getDirectoryGatedAgentPubkeys: current-channel relay agents stay gated", () => {
+  const gated = getDirectoryGatedAgentPubkeys({
+    agentPubkeys: [PUB_B],
+    memberPubkeys: [PUB_B],
+    managedAgentPubkeys: [],
+    relayAgents: [{ pubkey: PUB_B }],
+  });
+
+  assert.deepEqual(gated, new Set([PUB_B]));
+});
+
+test("getDirectoryGatedAgentPubkeys: non-member agents stay gated without a directory grant", () => {
+  const gated = getDirectoryGatedAgentPubkeys({
+    agentPubkeys: [PUB_C],
+    memberPubkeys: [PUB_A],
+    managedAgentPubkeys: [],
+    relayAgents: [],
+  });
+
+  assert.deepEqual(gated, new Set([PUB_C]));
 });
 
 test("coalesceAgentAutocompleteCandidates: keeps agents with the same persona id distinct", () => {

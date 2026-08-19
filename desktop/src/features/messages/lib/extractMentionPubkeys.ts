@@ -1,3 +1,7 @@
+import {
+  filterAdmittedMentionPubkeys,
+  getDirectoryGatedAgentPubkeys,
+} from "@/features/agents/lib/agentAutocompleteEligibility";
 import { getMentionOffsets } from "./hasMention";
 
 export type MentionPubkeyCandidate = {
@@ -88,4 +92,49 @@ export function extractMentionPubkeys({
     }
   }
   return pubkeys;
+}
+
+/**
+ * Extract mention pubkeys and apply send-time admission. Current-channel
+ * catalog/community bots stay through like people; managed/relay agents still
+ * require directory admission; non-member agents stay gated.
+ */
+export function admitSendMentionPubkeys({
+  text,
+  selectedMentions,
+  selectedDisplayNames,
+  memberCandidates,
+  agentIdentityPubkeys,
+  selectedAgentPubkeys,
+  admittedAgentPubkeys,
+  memberPubkeys,
+  managedAgentPubkeys,
+  relayAgents,
+}: {
+  text: string;
+  selectedMentions: ReadonlyMap<string, string>;
+  selectedDisplayNames?: Iterable<string>;
+  memberCandidates: readonly MentionPubkeyCandidate[];
+  agentIdentityPubkeys: Iterable<string>;
+  selectedAgentPubkeys?: Iterable<string>;
+  admittedAgentPubkeys: ReadonlySet<string>;
+  memberPubkeys?: Iterable<string>;
+  managedAgentPubkeys?: Iterable<string>;
+  relayAgents?: readonly { pubkey: string }[];
+}): string[] {
+  return filterAdmittedMentionPubkeys(
+    extractMentionPubkeys({
+      text,
+      selectedMentions,
+      selectedDisplayNames,
+      memberCandidates,
+    }),
+    getDirectoryGatedAgentPubkeys({
+      agentPubkeys: [...agentIdentityPubkeys, ...(selectedAgentPubkeys ?? [])],
+      memberPubkeys,
+      managedAgentPubkeys,
+      relayAgents,
+    }),
+    admittedAgentPubkeys,
+  );
 }
