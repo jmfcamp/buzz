@@ -100,8 +100,7 @@ pub fn run() {
     {
         Ok(runtime) => {
             tauri::async_runtime::set(runtime.handle().clone());
-            // Keep the runtime alive for the process lifetime; dropping it
-            // would shut down the workers Tauri now depends on.
+            // Keep the runtime alive so Tauri workers stay up.
             std::mem::forget(runtime);
             eprintln!(
                 "buzz-mesh: installed tokio runtime with {} MiB worker stacks",
