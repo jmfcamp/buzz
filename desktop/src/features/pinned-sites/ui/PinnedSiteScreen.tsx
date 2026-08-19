@@ -10,12 +10,14 @@ import { getPinnedSiteIcon } from "../lib/icons";
 import {
   getPinWebviewNavState,
   hidePinWebview,
+  pinWebviewBoundsAreUsable,
   pinWebviewGoBack,
   pinWebviewGoForward,
   pinWebviewReload,
   pollPinWebview,
   setPinWebviewBounds,
   showPinWebview,
+  subscribePinWebviewLoad,
   subscribePinWebviewNav,
   type PinWebviewBounds,
   type PinWebviewNavState,
@@ -79,20 +81,28 @@ function PinnedSiteChrome({
     canGoForward: false,
     currentUrl: startUrl,
   });
+  const [loadError, setLoadError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     let cancelled = false;
     void getPinWebviewNavState(pinId).then((state) => {
       if (!cancelled) setNav(state);
     });
-    const unlisten = subscribePinWebviewNav((payload) => {
+    const unlistenNav = subscribePinWebviewNav((payload) => {
       if (payload.pinId === pinId) {
         setNav(payload);
       }
     });
+    const unlistenLoad = subscribePinWebviewLoad((payload) => {
+      if (payload.pinId !== pinId) return;
+      setLoadError(
+        payload.ok ? null : (payload.message ?? "This page failed to load."),
+      );
+    });
     return () => {
       cancelled = true;
-      void unlisten.then((stop) => stop());
+      void unlistenNav.then((stop) => stop());
+      void unlistenLoad.then((stop) => stop());
     };
   }, [pinId]);
 
@@ -130,6 +140,7 @@ function PinnedSiteChrome({
             aria-label="Refresh"
             data-testid="pinned-site-refresh"
             onClick={() => {
+              setLoadError(null);
               void pinWebviewReload(pinId);
             }}
             size="icon"
@@ -142,6 +153,15 @@ function PinnedSiteChrome({
         <div className="flex min-w-0 items-center gap-2">
           {icon}
           <h1 className="truncate text-sm font-medium">{title}</h1>
+          {loadError ? (
+            <p
+              className="truncate text-2xs text-destructive"
+              data-testid="pinned-site-chrome-error"
+              title={loadError}
+            >
+              {loadError}
+            </p>
+          ) : null}
         </div>
       </header>
     </TopChromeInsetHeader>
@@ -169,30 +189,55 @@ function PinnedSiteSurface({
 }) {
   const hostRef = React.useRef<HTMLDivElement | null>(null);
   const native = isTauri() || import.meta.env.MODE === "e2e";
+  const [loadError, setLoadError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!native) return;
     const host = hostRef.current;
     if (!host) return;
     let cancelled = false;
+    let opened = false;
 
-    void showPinWebview({
-      pinId,
-      startUrl,
-      bounds: readBounds(host),
-    }).catch((error) => {
-      console.error("Failed to open pinned site", error);
-    });
-
-    const observer = new ResizeObserver(() => {
+    const openOrResize = () => {
       if (cancelled || !hostRef.current) return;
-      void setPinWebviewBounds(pinId, readBounds(hostRef.current));
-    });
+      const bounds = readBounds(hostRef.current);
+      if (!opened) {
+        if (!pinWebviewBoundsAreUsable(bounds)) return;
+        opened = true;
+        void showPinWebview({
+          pinId,
+          startUrl,
+          bounds,
+        }).catch((error) => {
+          console.error("Failed to open pinned site", error);
+          if (!cancelled) {
+            setLoadError(
+              error instanceof Error
+                ? error.message
+                : "Failed to open pinned site.",
+            );
+          }
+        });
+        return;
+      }
+      void setPinWebviewBounds(pinId, bounds);
+    };
+
+    openOrResize();
+    const observer = new ResizeObserver(openOrResize);
     observer.observe(host);
+
+    const unlistenLoad = subscribePinWebviewLoad((payload) => {
+      if (payload.pinId !== pinId) return;
+      setLoadError(
+        payload.ok ? null : (payload.message ?? "This page failed to load."),
+      );
+    });
 
     return () => {
       cancelled = true;
       observer.disconnect();
+      void unlistenLoad.then((stop) => stop());
       void hidePinWebview(pinId);
     };
   }, [native, pinId, startUrl]);
@@ -219,11 +264,50 @@ function PinnedSiteSurface({
       data-testid="pinned-site-surface"
       ref={hostRef}
     >
-      {native ? null : (
+      {native ? (
+        loadError ? (
+          <PinnedSiteLoadError
+            message={loadError}
+            onRetry={() => {
+              setLoadError(null);
+              void pinWebviewReload(pinId);
+            }}
+          />
+        ) : null
+      ) : (
         <div className="flex h-full items-center justify-center px-8 text-center text-sm text-muted-foreground">
           Open this pin in the Buzz desktop app to keep the page and login.
         </div>
       )}
+    </div>
+  );
+}
+
+export function PinnedSiteLoadError({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div
+      className="absolute inset-0 z-10 flex items-center justify-center bg-background px-8"
+      data-testid="pinned-site-load-error"
+    >
+      <div className="flex max-w-md flex-col items-center text-center">
+        <p className="text-sm font-medium">This pinned site did not load</p>
+        <p className="mt-2 text-sm text-muted-foreground">{message}</p>
+        <Button
+          className="mt-4"
+          data-testid="pinned-site-load-error-retry"
+          onClick={onRetry}
+          type="button"
+          variant="secondary"
+        >
+          Retry
+        </Button>
+      </div>
     </div>
   );
 }

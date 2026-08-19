@@ -1,5 +1,7 @@
 //! Embedded per-pin website webviews with isolated persistent profiles.
 
+mod policy;
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -7,12 +9,31 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tauri::webview::WebviewBuilder;
-use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, Url, WebviewUrl};
+use tauri::webview::{PageLoadEvent, WebviewBuilder};
+use tauri::{
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, Url, Webview, WebviewUrl,
+};
 use uuid::Uuid;
+
+use policy::{
+    bounds_are_usable, classify_pin_load, http_failure_message, is_unusable_document_url,
+    parse_document_probe, should_navigate_existing, should_recreate_tiny_webview, PinLoadVerdict,
+    PIN_WEBVIEW_USER_AGENT,
+};
 
 const PIN_LABEL_PREFIX: &str = "pin-";
 const SESSION_FILE: &str = "session.json";
+const DOCUMENT_PROBE_JS: &str = r#"(function(){
+  var body = document.body;
+  var root = document.documentElement;
+  return {
+    url: String(location.href || ""),
+    title: String(document.title || ""),
+    textLen: String((body && body.innerText) || "").trim().length,
+    htmlLen: String((root && root.outerHTML) || "").length,
+    childCount: body ? body.children.length : 0
+  };
+})()"#;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -38,6 +59,16 @@ pub struct PinPollResult {
     changed: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PinLoadState {
+    pin_id: String,
+    url: String,
+    ok: bool,
+    status: Option<u16>,
+    message: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct PersistedSession {
     last_url: Option<String>,
@@ -56,6 +87,8 @@ struct PinSession {
     etag: Option<String>,
     last_modified: Option<String>,
     body_hash: Option<String>,
+    last_load_failed: bool,
+    created_tiny: bool,
 }
 
 impl PinSession {
@@ -81,6 +114,8 @@ impl PinSession {
             etag: persisted.etag,
             last_modified: persisted.last_modified,
             body_hash: persisted.body_hash,
+            last_load_failed: false,
+            created_tiny: false,
         }
     }
 
@@ -225,6 +260,187 @@ fn emit_nav(app: &AppHandle, state: PinNavState) {
     }
 }
 
+fn emit_load(app: &AppHandle, state: PinLoadState) {
+    if let Err(error) = app.emit("pin-webview-load", state) {
+        eprintln!("buzz-desktop: pin-webview-load emit failed: {error}");
+    }
+}
+
+fn session_surface(manager: &PinWebviewManager, pin_id: &str) -> (Option<Url>, bool, bool) {
+    match manager.sessions.lock() {
+        Ok(sessions) => sessions
+            .get(pin_id)
+            .map(|session| {
+                (
+                    Some(session.start_url.clone()),
+                    session.last_load_failed,
+                    session.created_tiny,
+                )
+            })
+            .unwrap_or((None, false, false)),
+        Err(_) => (None, false, false),
+    }
+}
+
+fn remember_session_flags(session: &mut PinSession, last_load_failed: bool, created_tiny: bool) {
+    session.last_load_failed = last_load_failed;
+    session.created_tiny = created_tiny;
+}
+
+fn store_session(manager: &PinWebviewManager, pin_id: String, session: PinSession) {
+    if let Ok(mut sessions) = manager.sessions.lock() {
+        sessions.insert(pin_id, session);
+    }
+}
+
+fn mark_load_ok(app: &AppHandle, manager: &PinWebviewManager, pin_id: &str, url: &Url) {
+    if let Ok(mut sessions) = manager.sessions.lock() {
+        if let Some(session) = sessions.get_mut(pin_id) {
+            session.last_load_failed = false;
+        }
+    }
+    emit_load(
+        app,
+        PinLoadState {
+            pin_id: pin_id.to_string(),
+            url: url.to_string(),
+            ok: true,
+            status: None,
+            message: None,
+        },
+    );
+}
+
+fn mark_load_failed(
+    app: &AppHandle,
+    manager: &PinWebviewManager,
+    pin_id: &str,
+    url: &Url,
+    status: Option<u16>,
+    message: &str,
+) {
+    if let Ok(mut sessions) = manager.sessions.lock() {
+        if let Some(session) = sessions.get_mut(pin_id) {
+            session.last_load_failed = true;
+        }
+    }
+    if let Some(webview) = app.get_webview(&pin_label(pin_id)) {
+        let _ = webview.hide();
+    }
+    emit_load(
+        app,
+        PinLoadState {
+            pin_id: pin_id.to_string(),
+            url: url.to_string(),
+            ok: false,
+            status,
+            message: Some(message.to_string()),
+        },
+    );
+}
+
+fn apply_load_verdict(
+    app: &AppHandle,
+    manager: &PinWebviewManager,
+    pin_id: &str,
+    url: &Url,
+    verdict: PinLoadVerdict,
+) {
+    match verdict {
+        PinLoadVerdict::Ok => mark_load_ok(app, manager, pin_id, url),
+        PinLoadVerdict::Failed { message, status } => {
+            mark_load_failed(app, manager, pin_id, url, status, &message);
+        }
+    }
+}
+
+fn inspect_pin_document(app: &AppHandle, pin_id: &str, webview: &Webview, url: &Url) {
+    if is_unusable_document_url(Some(url)) {
+        if let Some(manager) = app.try_state::<PinWebviewManager>() {
+            apply_load_verdict(
+                app,
+                &manager,
+                pin_id,
+                url,
+                classify_pin_load(Some(url), None, None),
+            );
+        }
+        return;
+    }
+    let inspect_app = app.clone();
+    let inspect_pin = pin_id.to_string();
+    let inspect_url = url.clone();
+    let _ = webview.eval_with_callback(DOCUMENT_PROBE_JS, move |raw| {
+        let probe = parse_document_probe(&raw);
+        let empty = probe.as_ref().is_some_and(policy::document_looks_empty);
+        if empty {
+            spawn_empty_document_status(
+                inspect_app.clone(),
+                inspect_pin.clone(),
+                inspect_url.clone(),
+            );
+            return;
+        }
+        if let Some(manager) = inspect_app.try_state::<PinWebviewManager>() {
+            apply_load_verdict(
+                &inspect_app,
+                &manager,
+                &inspect_pin,
+                &inspect_url,
+                classify_pin_load(Some(&inspect_url), probe.as_ref(), None),
+            );
+        }
+    });
+}
+
+fn spawn_empty_document_status(app: AppHandle, pin_id: String, url: Url) {
+    tauri::async_runtime::spawn(async move {
+        let status = probe_http_status(url.as_str()).await.ok();
+        let verdict = PinLoadVerdict::Failed {
+            message: match status {
+                Some(code) if code >= 400 => http_failure_message(code),
+                _ => "This page did not load any content.".into(),
+            },
+            status,
+        };
+        if let Some(manager) = app.try_state::<PinWebviewManager>() {
+            apply_load_verdict(&app, &manager, &pin_id, &url, verdict);
+        }
+    });
+}
+
+fn schedule_document_inspect(app: AppHandle, pin_id: String) {
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let Some(webview) = app.get_webview(&pin_label(&pin_id)) else {
+            return;
+        };
+        let current = webview.url().ok();
+        if let Some(url) = current {
+            inspect_pin_document(&app, &pin_id, &webview, &url);
+        }
+    });
+}
+
+async fn probe_http_status(url: &str) -> Result<u16, String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .user_agent(PIN_WEBVIEW_USER_AGENT)
+        .build()
+        .map_err(|error| error.to_string())?;
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(response.status().as_u16())
+}
+
+fn navigate_pin_webview(webview: &Webview, url: Url) -> Result<(), String> {
+    webview.navigate(url).map_err(|error| error.to_string())
+}
+
 fn apply_bounds(app: &AppHandle, pin_id: &str, bounds: &PinBounds) -> Result<(), String> {
     let Some(webview) = app.get_webview(&pin_label(pin_id)) else {
         return Ok(());
@@ -273,17 +489,43 @@ pub async fn pin_webview_show(
     let profile_dir = pin_profile_dir(&app, &pin_id)?;
     std::fs::create_dir_all(&profile_dir).map_err(|error| error.to_string())?;
     let persisted = read_persisted(&profile_dir.join(SESSION_FILE));
-    let session = PinSession::from_start(start_url.clone(), persisted);
+    let mut session = PinSession::from_start(start_url.clone(), persisted);
+    let (previous_start, last_load_failed, created_tiny) = session_surface(&manager, &pin_id);
+    remember_session_flags(&mut session, last_load_failed, created_tiny);
     let initial_url = session.current_url().clone();
 
     let label = pin_label(&pin_id);
     if let Some(webview) = app.get_webview(&label) {
-        apply_bounds(&app, &pin_id, &bounds)?;
-        webview.show().map_err(|error| error.to_string())?;
-        let nav = session.nav_state(&pin_id);
-        if let Ok(mut sessions) = manager.sessions.lock() {
-            sessions.insert(pin_id, session);
+        let current = webview.url().ok();
+        if should_recreate_tiny_webview(created_tiny, bounds.width, bounds.height) {
+            webview.close().map_err(|error| error.to_string())?;
+        } else {
+            apply_bounds(&app, &pin_id, &bounds)?;
+            if should_navigate_existing(
+                current.as_ref(),
+                &start_url,
+                previous_start.as_ref(),
+                last_load_failed,
+            ) {
+                session.programmatic = true;
+                session.last_load_failed = false;
+                navigate_pin_webview(&webview, start_url.clone())?;
+                schedule_document_inspect(app.clone(), pin_id.clone());
+            } else if let Some(url) = current.as_ref() {
+                inspect_pin_document(&app, &pin_id, &webview, url);
+            }
+            webview.show().map_err(|error| error.to_string())?;
+            let nav = session.nav_state(&pin_id);
+            persist_session(&app, &pin_id, &session);
+            store_session(&manager, pin_id, session);
+            return Ok(nav);
         }
+    }
+
+    if !bounds_are_usable(bounds.width, bounds.height) {
+        session.created_tiny = true;
+        let nav = session.nav_state(&pin_id);
+        store_session(&manager, pin_id, session);
         return Ok(nav);
     }
 
@@ -292,14 +534,29 @@ pub async fn pin_webview_show(
         .ok_or_else(|| "main window is not available".to_string())?;
     let nav_app = app.clone();
     let nav_pin = pin_id.clone();
+    let load_app = app.clone();
+    let load_pin = pin_id.clone();
     let builder = WebviewBuilder::new(label, WebviewUrl::External(initial_url))
         .data_directory(profile_dir.clone())
         .data_store_identifier(pin_data_store_identifier(&pin_id))
+        .user_agent(PIN_WEBVIEW_USER_AGENT)
         .on_navigation(move |url| {
             if let Some(manager) = nav_app.try_state::<PinWebviewManager>() {
                 record_navigation(&nav_app, &manager, &nav_pin, url);
             }
             true
+        })
+        .on_page_load(move |webview, payload| match payload.event() {
+            PageLoadEvent::Started => {
+                if !is_unusable_document_url(Some(payload.url())) {
+                    if let Some(manager) = load_app.try_state::<PinWebviewManager>() {
+                        mark_load_ok(&load_app, &manager, &load_pin, payload.url());
+                    }
+                }
+            }
+            PageLoadEvent::Finished => {
+                inspect_pin_document(&load_app, &load_pin, &webview, payload.url());
+            }
         });
 
     window
@@ -310,11 +567,12 @@ pub async fn pin_webview_show(
         )
         .map_err(|error| error.to_string())?;
 
+    session.created_tiny = false;
+    session.last_load_failed = false;
     let nav = session.nav_state(&pin_id);
     persist_session(&app, &pin_id, &session);
-    if let Ok(mut sessions) = manager.sessions.lock() {
-        sessions.insert(pin_id, session);
-    }
+    store_session(&manager, pin_id.clone(), session);
+    schedule_document_inspect(app, pin_id);
     Ok(nav)
 }
 
@@ -402,10 +660,32 @@ fn navigate_history(
 }
 
 #[tauri::command]
-pub async fn pin_webview_reload(app: AppHandle, pin_id: String) -> Result<(), String> {
+pub async fn pin_webview_reload(
+    app: AppHandle,
+    manager: State<'_, PinWebviewManager>,
+    pin_id: String,
+) -> Result<(), String> {
     let pin_id = sanitize_pin_id(&pin_id)?;
+    let start_url = {
+        let mut sessions = manager
+            .sessions
+            .lock()
+            .map_err(|_| "pinned site session lock poisoned".to_string())?;
+        let Some(session) = sessions.get_mut(&pin_id) else {
+            if let Some(webview) = app.get_webview(&pin_label(&pin_id)) {
+                webview.reload().map_err(|error| error.to_string())?;
+            }
+            return Ok(());
+        };
+        session.programmatic = true;
+        session.last_load_failed = false;
+        persist_session(&app, &pin_id, session);
+        session.start_url.clone()
+    };
     if let Some(webview) = app.get_webview(&pin_label(&pin_id)) {
-        webview.reload().map_err(|error| error.to_string())?;
+        webview.show().map_err(|error| error.to_string())?;
+        navigate_pin_webview(&webview, start_url)?;
+        schedule_document_inspect(app, pin_id);
     }
     Ok(())
 }
