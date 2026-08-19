@@ -157,12 +157,16 @@ fmt-all: fmt desktop-tauri-fmt mobile-fmt
 # Fix all formatting and lint issues
 fix-all: fmt desktop-tauri-fmt desktop-fix web-fix mobile-fix
 
-# Ensure sidecar placeholder binaries exist (Tauri validates externalBin at compile time)
-# Sidecar binary list must stay in sync with desktop-release-build below.
-_ensure-sidecar-stubs:
+# Ensure sidecar placeholder binaries exist (Tauri validates externalBin at compile time).
+# Sidecar binary list must stay in sync with scripts/bundle-sidecars.sh.
+# `touch` updates mtime only — it must not truncate an existing real binary.
+_ensure-sidecar-stubs target="":
     #!/usr/bin/env bash
     set -euo pipefail
-    TARGET=$(rustc -vV | sed -n 's|host: ||p')
+    TARGET={{target}}
+    if [[ -z "$TARGET" ]]; then
+        TARGET=$(rustc -vV | sed -n 's|host: ||p')
+    fi
     mkdir -p desktop/src-tauri/binaries
     SIDECARS=(buzz-acp buzz-agent buzz-dev-mcp git-credential-nostr buzz)
     if [[ "$TARGET" != *windows* ]]; then
@@ -252,21 +256,30 @@ desktop-tauri-test-compiled-flags: _ensure-sidecar-stubs
     echo "Both compiled states verified."
 
 # Build the full desktop Tauri app locally (unsigned, for testing)
-# Sidecar binary list must stay in sync with _ensure-sidecar-stubs above.
 # pnpm install is unconditional here: release builds must start from a clean dep tree.
-desktop-release-build target="aarch64-apple-darwin":
+# Stubs let `tauri build` start, but Agents need the real `buzz-acp` binary
+# inside the .app — a 0-byte stub ships otherwise and Desktop falls back to
+# PATH, which a Finder/Dock-launched .app does not have. Build the sidecar
+# crates (same list as `dev` / `desktop-standalone`) and copy them via
+# scripts/bundle-sidecars.sh before packaging.
+desktop-release-build target="aarch64-apple-darwin": (_ensure-sidecar-stubs target)
     #!/usr/bin/env bash
     set -euo pipefail
     TARGET={{target}}
-    mkdir -p desktop/src-tauri/binaries
-    touch "desktop/src-tauri/binaries/buzz-acp-$TARGET"
-    touch "desktop/src-tauri/binaries/buzz-agent-$TARGET"
+    HOST=$(rustc -vV | sed -n 's|host: ||p')
+    # Same crate list as `dev` / `desktop-standalone` / official CI.
+    # buzz-cli produces the `buzz` sidecar; k8s provider is Unix-only.
+    PACKAGES=(-p buzz-acp -p buzz-agent -p buzz-dev-mcp -p git-credential-nostr -p buzz-cli)
     if [[ "$TARGET" != *windows* ]]; then
-        touch "desktop/src-tauri/binaries/buzz-backend-kubernetes-$TARGET"
+        PACKAGES+=(-p buzz-backend-kubernetes)
     fi
-    touch "desktop/src-tauri/binaries/buzz-dev-mcp-$TARGET"
-    touch "desktop/src-tauri/binaries/git-credential-nostr-$TARGET"
-    touch "desktop/src-tauri/binaries/buzz-$TARGET"
+    if [[ "$TARGET" == "$HOST" ]]; then
+        cargo build --release "${PACKAGES[@]}"
+        ./scripts/bundle-sidecars.sh
+    else
+        cargo build --release --target "$TARGET" "${PACKAGES[@]}"
+        ./scripts/bundle-sidecars.sh "$TARGET"
+    fi
     pnpm install
     cd {{desktop_dir}} && pnpm tauri build --features mesh-llm --target {{target}}
 
