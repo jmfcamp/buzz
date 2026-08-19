@@ -11,4 +11,5 @@ mod store;
 pub use commands::{
     community_bots_connect, community_bots_disconnect, community_bots_get_status,
     community_bots_list_remote_agents, community_bots_resolve_identity,
+    community_bots_sign_profile,
 };

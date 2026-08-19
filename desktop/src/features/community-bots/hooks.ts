@@ -1,18 +1,26 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  type QueryClient,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 
+import { updateCachedChannelMemberDisplayName } from "@/features/channels/channelMemberProfileCache";
 import { useCommunities } from "@/features/communities/useCommunities";
 import { invokeTauri } from "@/shared/api/tauri";
+import type { RelayEvent } from "@/shared/api/types";
 
+import { fetchCommunityBots, uninstallCommunityBot } from "./lib/catalog";
 import {
-  fetchCommunityBots,
-  installCommunityBot,
-  uninstallCommunityBot,
-} from "./lib/catalog";
-import type {
-  CommunityBot,
-  CommunityBotsStatus,
-  RemoteOpenClawAgent,
-  ResolvedBotIdentity,
+  completeCommunityBotInstall,
+  completeCommunityBotRename,
+} from "./lib/installFlow";
+import {
+  defaultRemoteAgentName,
+  type CommunityBot,
+  type CommunityBotsStatus,
+  type RemoteOpenClawAgent,
+  type ResolvedBotIdentity,
 } from "./lib/types";
 
 export const communityBotsQueryKey = ["communityBots"] as const;
@@ -86,11 +94,40 @@ export function useDisconnectCommunityBotsMutation() {
   });
 }
 
+async function signMintedCommunityBotProfile(
+  agentId: string,
+  name: string,
+): Promise<RelayEvent> {
+  const eventJson = await invokeTauri<string>("community_bots_sign_profile", {
+    agentId,
+    name,
+  });
+  return JSON.parse(eventJson) as RelayEvent;
+}
+
+async function refreshCommunityBotAppearance(
+  queryClient: QueryClient,
+  pubkey: string,
+  displayName: string,
+): Promise<void> {
+  await updateCachedChannelMemberDisplayName(queryClient, pubkey, displayName);
+  await queryClient.invalidateQueries({ queryKey: ["relayMembers"] });
+  await queryClient.invalidateQueries({ queryKey: ["users-batch"] });
+  await queryClient.invalidateQueries({ queryKey: ["users-batch-entry"] });
+  await queryClient.invalidateQueries({
+    queryKey: ["user-profile", pubkey.toLowerCase()],
+  });
+}
+
 export function useInstallCommunityBotMutation() {
   const queryClient = useQueryClient();
   const relayUrl = useCommunityBotsRelayUrl();
   return useMutation({
-    mutationFn: async (agent: RemoteOpenClawAgent) => {
+    mutationFn: async (input: {
+      agent: RemoteOpenClawAgent;
+      name?: string;
+    }) => {
+      const { agent } = input;
       const identity = await invokeTauri<ResolvedBotIdentity>(
         "community_bots_resolve_identity",
         { agentId: agent.id, pubkey: agent.pubkey ?? null },
@@ -100,20 +137,51 @@ export function useInstallCommunityBotMutation() {
         relayUrl,
       ]);
       const current = installed ?? (await fetchCommunityBots(relayUrl));
-      return installCommunityBot(
+      return completeCommunityBotInstall({
         current,
-        {
-          id: agent.id,
-          name: agent.name?.trim() || agent.id,
-          pubkey: identity.pubkey,
-          source: "openclaw",
-        },
+        agent,
+        displayName: input.name ?? defaultRemoteAgentName(agent),
+        identity,
         relayUrl,
-      );
+        signMintedProfile: ({ agentId, name }) =>
+          signMintedCommunityBotProfile(agentId, name),
+      });
     },
-    onSuccess: async (next) => {
+    onSuccess: async (next, input) => {
       queryClient.setQueryData([...communityBotsQueryKey, relayUrl], next);
-      await queryClient.invalidateQueries({ queryKey: ["relayMembers"] });
+      const bot = next.find((entry) => entry.id === input.agent.id);
+      if (bot) {
+        await refreshCommunityBotAppearance(queryClient, bot.pubkey, bot.name);
+      }
+    },
+  });
+}
+
+export function useRenameCommunityBotMutation() {
+  const queryClient = useQueryClient();
+  const relayUrl = useCommunityBotsRelayUrl();
+  return useMutation({
+    mutationFn: async (input: { bot: CommunityBot; name: string }) => {
+      const installed = queryClient.getQueryData<CommunityBot[]>([
+        ...communityBotsQueryKey,
+        relayUrl,
+      ]);
+      const current = installed ?? (await fetchCommunityBots(relayUrl));
+      return completeCommunityBotRename({
+        current,
+        bot: input.bot,
+        displayName: input.name,
+        relayUrl,
+        signMintedProfile: ({ agentId, name }) =>
+          signMintedCommunityBotProfile(agentId, name),
+      });
+    },
+    onSuccess: async (next, input) => {
+      queryClient.setQueryData([...communityBotsQueryKey, relayUrl], next);
+      const bot = next.find((entry) => entry.id === input.bot.id);
+      if (bot) {
+        await refreshCommunityBotAppearance(queryClient, bot.pubkey, bot.name);
+      }
     },
   });
 }

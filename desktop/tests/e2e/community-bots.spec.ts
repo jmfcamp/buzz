@@ -65,14 +65,27 @@ test("owner can connect, see pending approval, then install remote agents", asyn
   await expect(page.getByTestId("settings-bots-agent-main")).toBeVisible();
   await expect(page.getByTestId("settings-bots-agent-mo")).toBeVisible();
   await expect(page.getByTestId("settings-bots-install-mo")).toBeVisible();
+  await expect(page.getByTestId("settings-bots-agent-name-mo")).toHaveValue(
+    "Mo",
+  );
 
+  await page.getByTestId("settings-bots-agent-name-mo").fill("Mo Desk");
   await page.getByTestId("settings-bots-install-mo").click();
   await expect(page.getByTestId("settings-bots-installed-mo")).toBeVisible();
+  await expect(page.getByTestId("settings-bots-installed-name-mo")).toHaveValue(
+    "Mo Desk",
+  );
   await expect(
     page
       .getByTestId("settings-bots-installed-mo")
       .getByTestId("settings-bots-uninstall-mo"),
   ).toBeVisible();
+
+  await page.getByTestId("settings-bots-installed-name-mo").fill("Mo Channel");
+  await page.getByTestId("settings-bots-rename-mo").click();
+  await expect(page.getByTestId("settings-bots-installed-name-mo")).toHaveValue(
+    "Mo Channel",
+  );
 });
 
 test("admin can open Bots and any member can add an installed bot to a channel", async ({

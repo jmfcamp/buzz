@@ -56,6 +56,7 @@ export function createCommunityBotsMock(options?: MockCommunityBotsOptions) {
       : "disconnected";
   let requestId = state === "pending" ? DEFAULT_COMMUNITY_BOT_REQUEST_ID : null;
   const catalogEvents: RelayEvent[] = [];
+  const mintedByAgent = new Map();
 
   function status(): CommunityBotsStatus {
     return {
@@ -116,10 +117,32 @@ export function createCommunityBotsMock(options?: MockCommunityBotsOptions) {
         const provided =
           typeof payload.pubkey === "string" ? payload.pubkey : null;
         const match = remoteAgents.find((agent) => agent.id === agentId);
-        return {
-          pubkey: provided || match?.pubkey || "aa".repeat(32),
-          minted: !provided && !match?.pubkey,
-        };
+        const minted = !provided && !match?.pubkey;
+        const pubkey = provided || match?.pubkey || "aa".repeat(32);
+        if (minted) {
+          mintedByAgent.set(agentId, pubkey);
+        }
+        return { pubkey, minted };
+      }
+      case "community_bots_sign_profile": {
+        const agentId = String(payload.agentId ?? "");
+        const name = String(payload.name ?? "").trim();
+        const pubkey = mintedByAgent.get(agentId);
+        if (!pubkey) {
+          throw new Error("no minted identity for this agent");
+        }
+        if (!name) {
+          throw new Error("bot name is required");
+        }
+        return JSON.stringify({
+          id: `profile-${agentId}`,
+          pubkey,
+          kind: 0,
+          created_at: 1,
+          content: JSON.stringify({ name, display_name: name }),
+          tags: [],
+          sig: "00",
+        });
       }
       default:
         return undefined;
