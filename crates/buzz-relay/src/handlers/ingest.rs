@@ -14,10 +14,10 @@ use buzz_core::kind::{
     event_kind_u32, is_identity_archive_request_kind, is_parameterized_replaceable,
     is_relay_admin_kind, KIND_AGENT_ENGRAM, KIND_AGENT_PROFILE, KIND_AGENT_TURN_METRIC,
     KIND_APPROVAL_DENY, KIND_APPROVAL_GRANT, KIND_AUTH, KIND_BOOKMARK_LIST, KIND_BOOKMARK_SET,
-    KIND_CANVAS, KIND_COMMUNITY_PINNED_SITES, KIND_CONTACT_LIST, KIND_DELETION, KIND_DM_ADD_MEMBER,
-    KIND_DM_HIDE, KIND_DM_OPEN, KIND_EMOJI_LIST, KIND_EMOJI_SET, KIND_EVENT_REMINDER,
-    KIND_FOLLOW_SET, KIND_FORUM_COMMENT, KIND_FORUM_POST, KIND_FORUM_VOTE, KIND_GIFT_WRAP,
-    KIND_GIT_ISSUE, KIND_GIT_PATCH, KIND_GIT_PR_UPDATE, KIND_GIT_PULL_REQUEST,
+    KIND_CANVAS, KIND_COMMUNITY_BOTS, KIND_COMMUNITY_PINNED_SITES, KIND_CONTACT_LIST,
+    KIND_DELETION, KIND_DM_ADD_MEMBER, KIND_DM_HIDE, KIND_DM_OPEN, KIND_EMOJI_LIST, KIND_EMOJI_SET,
+    KIND_EVENT_REMINDER, KIND_FOLLOW_SET, KIND_FORUM_COMMENT, KIND_FORUM_POST, KIND_FORUM_VOTE,
+    KIND_GIFT_WRAP, KIND_GIT_ISSUE, KIND_GIT_PATCH, KIND_GIT_PR_UPDATE, KIND_GIT_PULL_REQUEST,
     KIND_GIT_REPO_ANNOUNCEMENT, KIND_GIT_REPO_STATE, KIND_GIT_STATUS_CLOSED, KIND_GIT_STATUS_DRAFT,
     KIND_GIT_STATUS_MERGED, KIND_GIT_STATUS_OPEN, KIND_HUDDLE_ENDED, KIND_HUDDLE_GUIDELINES,
     KIND_HUDDLE_PARTICIPANT_JOINED, KIND_HUDDLE_PARTICIPANT_LEFT, KIND_HUDDLE_STARTED,
@@ -125,6 +125,36 @@ async fn authorize_community_pinned_sites(
         }
     });
     buzz_core::pinned_sites::validate_community_pinned_sites_payload(d_tag, &event.content)
+        .map_err(|error| IngestError::Rejected(format!("invalid: {error}")))?;
+    Ok(())
+}
+
+async fn authorize_community_bots(
+    state: &Arc<AppState>,
+    tenant: &TenantContext,
+    event: &Event,
+) -> Result<(), IngestError> {
+    let sender_hex = event.pubkey.to_hex();
+    let member = state
+        .db
+        .get_relay_member(tenant.community(), &sender_hex)
+        .await
+        .map_err(|e| IngestError::Rejected(format!("database error: {e}")))?;
+    let role = member.as_ref().map(|m| m.role.as_str()).unwrap_or("");
+    if role != "owner" && role != "admin" {
+        return Err(IngestError::AuthFailed(
+            "restricted: only community owner or admin can publish community bots".into(),
+        ));
+    }
+    let d_tag = event.tags.iter().find_map(|tag| {
+        let parts = tag.as_slice();
+        if parts.first().map(String::as_str) == Some("d") {
+            parts.get(1).map(String::as_str)
+        } else {
+            None
+        }
+    });
+    buzz_core::community_bots::validate_community_bots_payload(d_tag, &event.content)
         .map_err(|error| IngestError::Rejected(format!("invalid: {error}")))?;
     Ok(())
 }
@@ -470,7 +500,7 @@ fn required_scope_for_kind(kind: u32, event: &Event) -> Result<Scope, &'static s
         KIND_PROJECT => Ok(Scope::ReposWrite),
         // Community pin list is UsersWrite at the token layer; owner/admin
         // membership is enforced after auth (same pattern as NIP-IA).
-        KIND_COMMUNITY_PINNED_SITES => Ok(Scope::UsersWrite),
+        KIND_COMMUNITY_PINNED_SITES | KIND_COMMUNITY_BOTS => Ok(Scope::UsersWrite),
         KIND_GIT_PATCH
         | KIND_GIT_PULL_REQUEST
         | KIND_GIT_PR_UPDATE
@@ -616,6 +646,10 @@ pub(crate) fn is_global_only_kind(kind: u32) -> bool {
             // (pubkey, kind, d=buzz:community-pins). Tenant-scoped, never
             // channel-scoped.
             | KIND_COMMUNITY_PINNED_SITES
+            // Community bots (30624): NIP-33 catalog keyed by
+            // (pubkey, kind, d=buzz:community-bots). Tenant-scoped, never
+            // channel-scoped.
+            | KIND_COMMUNITY_BOTS
             // Community moderation commands (9040–9044): community-global
             // direct commands, same model as the NIP-43 9030-series. A stray
             // `h` tag must never channel-scope them (pinned contract —
@@ -2607,6 +2641,10 @@ async fn ingest_event_inner(
         authorize_community_pinned_sites(state, tenant, &event).await?;
     }
 
+    if kind_u32 == KIND_COMMUNITY_BOTS {
+        authorize_community_bots(state, tenant, &event).await?;
+    }
+
     // Track pre-created channel UUID for compensation on insert failure.
     let mut pre_created_channel: Option<Uuid> = None;
 
@@ -3725,6 +3763,24 @@ mod tests {
         assert!(
             is_global_only_kind(KIND_COMMUNITY_PINNED_SITES),
             "kind:30623 must stay tenant-global even with a stray h tag"
+        );
+    }
+
+    #[test]
+    fn community_bots_require_users_write() {
+        let dummy = make_dummy_event();
+        assert_eq!(
+            required_scope_for_kind(KIND_COMMUNITY_BOTS, &dummy).unwrap(),
+            Scope::UsersWrite,
+            "kind:30624 requires UsersWrite; owner/admin is checked after auth"
+        );
+        assert!(
+            !requires_h_channel_scope(KIND_COMMUNITY_BOTS),
+            "kind:30624 is community-scoped by tenant, not an h-tag"
+        );
+        assert!(
+            is_global_only_kind(KIND_COMMUNITY_BOTS),
+            "kind:30624 must stay tenant-global even with a stray h tag"
         );
     }
 

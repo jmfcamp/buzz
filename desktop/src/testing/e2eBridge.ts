@@ -9,6 +9,11 @@ import {
   handleSaveCustomHarness,
   handleDeleteCustomHarness,
 } from "./e2eBridgeCustomHarnesses.ts";
+import {
+  createCommunityBotsMock,
+  type CommunityBotsMock,
+  type MockCommunityBotsOptions,
+} from "./e2eBridgeCommunityBots.ts";
 
 import { relayClient } from "@/shared/api/relayClient";
 import { activateRateLimit } from "@/shared/api/relayRateLimitGate";
@@ -30,6 +35,7 @@ import {
   KIND_AGENT_OBSERVER_FRAME,
   KIND_CHANNEL_THREAD_SUMMARY,
   KIND_CHANNEL_WINDOW_BOUNDS,
+  KIND_COMMUNITY_BOTS,
   KIND_DM_VISIBILITY,
   KIND_EVENT_REMINDER,
   KIND_GIT_ISSUE,
@@ -429,6 +435,8 @@ type E2eConfig = {
     // fail open (no mod-DM detection), matching the Rust command's contract.
     relaySelf?: string | null;
     oaOwnerIsMe?: boolean;
+    /** OpenClaw community-bots gateway mock. */
+    communityBots?: MockCommunityBotsOptions;
     /** Whether the mock relay advertises NIP-43 membership support. Defaults to false. */
     relayRequiresMembership?: boolean;
     /** Delay EOSE for membership snapshots after delivering the event. */
@@ -1355,6 +1363,7 @@ declare global {
       slotId: string;
     }) => unknown;
     __BUZZ_E2E_SEED_MOCK_REMINDERS__?: (reminders: RelayEvent[]) => void;
+    __BUZZ_E2E_APPROVE_COMMUNITY_BOTS__?: () => void;
     __BUZZ_E2E_QUERY_CLIENT__?: {
       invalidateQueries: (filters: { queryKey: readonly unknown[] }) => unknown;
     };
@@ -3065,6 +3074,7 @@ const deferredSendMessageLiveEchoes: Array<{
 }> = [];
 const mockUserStatuses: RelayEvent[] = [];
 const mockReminderEvents: RelayEvent[] = [];
+let mockCommunityBots: CommunityBotsMock = createCommunityBotsMock();
 const mockPersonaEvents: RelayEvent[] = [];
 let mockRelayMembers: RawRelayMember[] = [];
 const mockSockets = new Map<number, MockSocket>();
@@ -9944,6 +9954,14 @@ function sendToMockSocket(args: {
       return;
     }
 
+    if (filter.kinds?.includes(KIND_COMMUNITY_BOTS)) {
+      for (const event of mockCommunityBots.catalogEvents) {
+        sendWsText(socket.handler, ["EVENT", subId, event]);
+      }
+      sendWsText(socket.handler, ["EOSE", subId]);
+      return;
+    }
+
     if (filter.kinds?.includes(KIND_EVENT_REMINDER)) {
       const authors = filter.authors?.map((a) => a.toLowerCase());
       for (const event of mockReminderEvents) {
@@ -10068,6 +10086,12 @@ function sendToMockSocket(args: {
     }
 
     if (event.kind === 30078) {
+      sendWsText(socket.handler, ["OK", event.id, true, ""]);
+      return;
+    }
+
+    if (event.kind === KIND_COMMUNITY_BOTS) {
+      mockCommunityBots.upsertCatalog(event);
       sendWsText(socket.handler, ["OK", event.id, true, ""]);
       return;
     }
@@ -10283,6 +10307,7 @@ export function maybeInstallE2eTauriMocks() {
   mockGlobalAgentConfig = config.mock?.globalAgentConfig
     ? { ...config.mock.globalAgentConfig }
     : null;
+  mockCommunityBots = createCommunityBotsMock(config.mock?.communityBots);
   resetMockRelayMembers(config);
   resetMockRelayAgents(config);
   resetMockManagedAgents(config);
@@ -10551,6 +10576,9 @@ export function maybeInstallE2eTauriMocks() {
     return closed;
   };
 
+  window.__BUZZ_E2E_APPROVE_COMMUNITY_BOTS__ = () => {
+    mockCommunityBots.approve();
+  };
   window.__BUZZ_E2E_SEED_MOCK_REMINDERS__ = (reminders) => {
     mockReminderEvents.length = 0;
     for (const r of reminders) {
@@ -12161,6 +12189,15 @@ export function maybeInstallE2eTauriMocks() {
       }
       case "get_relay_http_url":
         return getRelayHttpUrl(activeConfig);
+      case "community_bots_get_status":
+      case "community_bots_connect":
+      case "community_bots_disconnect":
+      case "community_bots_list_remote_agents":
+      case "community_bots_resolve_identity":
+        return mockCommunityBots.handleCommand(
+          command,
+          payload as Record<string, unknown>,
+        );
       case "relay_requires_membership":
         return activeConfig?.mock?.relayRequiresMembership ?? false;
       case "discover_acp_providers":

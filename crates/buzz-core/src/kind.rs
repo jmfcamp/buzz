@@ -454,6 +454,12 @@ pub const KIND_DM_VISIBILITY: u32 = 30622;
 /// and never use this kind. Login cookies remain local to each desktop user.
 pub const KIND_COMMUNITY_PINNED_SITES: u32 = 30623;
 
+/// Community-installed OpenClaw bots (NIP-33, parameterized replaceable,
+/// `d=buzz:community-bots`). Content is a JSON list of `{id,name,pubkey,source}`
+/// rows curated by a community owner or admin. Gateway passwords and device
+/// tokens stay on the admin device — never in this event.
+pub const KIND_COMMUNITY_BOTS: u32 = 30624;
+
 /// Lower bound of the NIP-33 parameterized replaceable range (30000–39999).
 pub const PARAM_REPLACEABLE_KIND_MIN: u32 = 30000;
 /// Upper bound of the NIP-33 parameterized replaceable range (30000–39999).
@@ -719,6 +725,7 @@ pub const ALL_KINDS: &[u32] = &[
     KIND_PRESENCE_SNAPSHOT,
     KIND_DM_VISIBILITY,
     KIND_COMMUNITY_PINNED_SITES,
+    KIND_COMMUNITY_BOTS,
     KIND_DM_OPEN,
     KIND_DM_ADD_MEMBER,
     KIND_DM_HIDE,
@@ -869,6 +876,7 @@ const _: () = assert!(is_parameterized_replaceable(KIND_WORKFLOW_DEF)); // 30620
 const _: () = assert!(is_parameterized_replaceable(KIND_EVENT_REMINDER)); // 30300 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_DM_VISIBILITY)); // 30622 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_COMMUNITY_PINNED_SITES)); // 30623 ∈ 30000–39999
+const _: () = assert!(is_parameterized_replaceable(KIND_COMMUNITY_BOTS)); // 30624 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_PROJECT)); // 30621 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_THREAD_SUMMARY)); // 39005 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_WINDOW_BOUNDS)); // 39006 ∈ 30000–39999
