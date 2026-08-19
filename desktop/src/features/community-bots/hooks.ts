@@ -1,14 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { useCommunities } from "@/features/communities/useCommunities";
 import { invokeTauri } from "@/shared/api/tauri";
-import { addRelayMember, removeRelayMember } from "@/shared/api/relayMembers";
 
 import {
   fetchCommunityBots,
-  otherBotsSharePubkey,
-  publishCommunityBots,
-  removeInstalledBot,
-  upsertInstalledBot,
+  installCommunityBot,
+  uninstallCommunityBot,
 } from "./lib/catalog";
 import type {
   CommunityBot,
@@ -23,11 +21,17 @@ export const communityBotsRemoteAgentsQueryKey = [
   "communityBotsRemoteAgents",
 ] as const;
 
+function useCommunityBotsRelayUrl(): string {
+  const { activeCommunity } = useCommunities();
+  return activeCommunity?.relayUrl ?? "";
+}
+
 export function useCommunityBotsQuery(enabled = true) {
+  const relayUrl = useCommunityBotsRelayUrl();
   return useQuery({
     enabled,
-    queryKey: communityBotsQueryKey,
-    queryFn: fetchCommunityBots,
+    queryKey: [...communityBotsQueryKey, relayUrl],
+    queryFn: () => fetchCommunityBots(relayUrl),
     staleTime: 15_000,
   });
 }
@@ -84,28 +88,31 @@ export function useDisconnectCommunityBotsMutation() {
 
 export function useInstallCommunityBotMutation() {
   const queryClient = useQueryClient();
+  const relayUrl = useCommunityBotsRelayUrl();
   return useMutation({
     mutationFn: async (agent: RemoteOpenClawAgent) => {
       const identity = await invokeTauri<ResolvedBotIdentity>(
         "community_bots_resolve_identity",
         { agentId: agent.id, pubkey: agent.pubkey ?? null },
       );
-      const installed = queryClient.getQueryData<CommunityBot[]>(
-        communityBotsQueryKey,
+      const installed = queryClient.getQueryData<CommunityBot[]>([
+        ...communityBotsQueryKey,
+        relayUrl,
+      ]);
+      const current = installed ?? (await fetchCommunityBots(relayUrl));
+      return installCommunityBot(
+        current,
+        {
+          id: agent.id,
+          name: agent.name?.trim() || agent.id,
+          pubkey: identity.pubkey,
+          source: "openclaw",
+        },
+        relayUrl,
       );
-      const current = installed ?? (await fetchCommunityBots());
-      await addRelayMember(identity.pubkey, "member");
-      const next = upsertInstalledBot(current, {
-        id: agent.id,
-        name: agent.name?.trim() || agent.id,
-        pubkey: identity.pubkey,
-        source: "openclaw",
-      });
-      await publishCommunityBots(next);
-      return next;
     },
     onSuccess: async (next) => {
-      queryClient.setQueryData(communityBotsQueryKey, next);
+      queryClient.setQueryData([...communityBotsQueryKey, relayUrl], next);
       await queryClient.invalidateQueries({ queryKey: ["relayMembers"] });
     },
   });
@@ -113,21 +120,18 @@ export function useInstallCommunityBotMutation() {
 
 export function useUninstallCommunityBotMutation() {
   const queryClient = useQueryClient();
+  const relayUrl = useCommunityBotsRelayUrl();
   return useMutation({
     mutationFn: async (bot: CommunityBot) => {
-      const installed = queryClient.getQueryData<CommunityBot[]>(
-        communityBotsQueryKey,
-      );
-      const current = installed ?? (await fetchCommunityBots());
-      const next = removeInstalledBot(current, bot.id);
-      if (!otherBotsSharePubkey(current, bot.id, bot.pubkey)) {
-        await removeRelayMember(bot.pubkey);
-      }
-      await publishCommunityBots(next);
-      return next;
+      const installed = queryClient.getQueryData<CommunityBot[]>([
+        ...communityBotsQueryKey,
+        relayUrl,
+      ]);
+      const current = installed ?? (await fetchCommunityBots(relayUrl));
+      return uninstallCommunityBot(current, bot, relayUrl);
     },
     onSuccess: async (next) => {
-      queryClient.setQueryData(communityBotsQueryKey, next);
+      queryClient.setQueryData([...communityBotsQueryKey, relayUrl], next);
       await queryClient.invalidateQueries({ queryKey: ["relayMembers"] });
     },
   });
