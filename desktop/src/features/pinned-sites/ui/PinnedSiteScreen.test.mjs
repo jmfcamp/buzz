@@ -36,7 +36,7 @@ test("PinnedSiteLoadError shows the failure and retries start_url", async () => 
   let retried = 0;
   render(
     createElement(PinnedSiteLoadError, {
-      message: "This site returned HTTP 401.",
+      message: "The page did not load.",
       onRetry: () => {
         retried += 1;
       },
@@ -45,7 +45,7 @@ test("PinnedSiteLoadError shows the failure and retries start_url", async () => 
   assert.ok(screen.getByTestId("pinned-site-load-error"));
   assert.match(
     screen.getByTestId("pinned-site-load-error").textContent ?? "",
-    /This site returned HTTP 401/,
+    /The page did not load/,
   );
   screen.getByTestId("pinned-site-load-error-retry").click();
   assert.equal(retried, 1);
