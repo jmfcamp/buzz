@@ -3,8 +3,6 @@ import test, { mock } from "node:test";
 
 import { KIND_COMMUNITY_BOTS } from "@/shared/constants/kinds.ts";
 import { relayClient } from "@/shared/api/relayClient.ts";
-import * as relayMembers from "@/shared/api/relayMembers.ts";
-import * as tauri from "@/shared/api/tauri.ts";
 
 import {
   fetchCommunityBots,
@@ -117,6 +115,9 @@ const CAPTAIN = {
   source: "openclaw",
 };
 
+const KIND_RELAY_ADMIN_ADD_MEMBER = 9030;
+const KIND_RELAY_ADMIN_REMOVE_MEMBER = 9031;
+
 function installStorage() {
   const memory = new Map();
   globalThis.window = {
@@ -129,6 +130,22 @@ function installStorage() {
       },
       removeItem(key) {
         memory.delete(key);
+      },
+    },
+    __TAURI_INTERNALS__: {
+      invoke: async (command, args) => {
+        if (command === "sign_event") {
+          return JSON.stringify({
+            id: `signed-${args.kind}`,
+            pubkey: "aa".repeat(32),
+            kind: args.kind,
+            created_at: 1,
+            content: args.content,
+            tags: args.tags,
+            sig: "00",
+          });
+        }
+        throw new Error(`Unexpected Tauri command: ${command}`);
       },
     },
   };
@@ -144,39 +161,47 @@ function catalogEvent(bots, createdAt = 20) {
   };
 }
 
-function stubPublish(error) {
-  mock.method(tauri, "signRelayEvent", async (input) => ({
-    id: "signed-30624",
+function membershipEvent(pubkeys) {
+  return {
+    id: "membership",
     pubkey: "aa".repeat(32),
-    kind: input.kind,
+    kind: 13534,
     created_at: 1,
-    content: input.content,
-    tags: input.tags,
+    content: "",
+    tags: pubkeys.map((pubkey) => ["p", pubkey, "", "member"]),
     sig: "00",
-  }));
-  const publish = mock.method(relayClient, "publishEvent", () => {
-    if (error) return Promise.reject(error);
-    return Promise.resolve();
-  });
-  return publish;
+  };
 }
 
-function stubMembers({ members = [], addError } = {}) {
-  const list = mock.method(
-    relayMembers,
-    "listRelayMembers",
-    async () => members,
-  );
-  const add = mock.method(relayMembers, "addRelayMember", async () => {
-    if (addError) throw addError;
+function publishedKinds(publish) {
+  return publish.mock.calls.map((call) => call.arguments[0].kind);
+}
+
+function stubRelay({
+  catalogError = new Error("restricted: unknown event kind"),
+  catalogEvents = [],
+  memberPubkeys = [],
+  addMemberError,
+} = {}) {
+  const publish = mock.method(relayClient, "publishEvent", (event) => {
+    if (event.kind === KIND_COMMUNITY_BOTS) {
+      return catalogError ? Promise.reject(catalogError) : Promise.resolve();
+    }
+    if (event.kind === KIND_RELAY_ADMIN_ADD_MEMBER && addMemberError) {
+      return Promise.reject(addMemberError);
+    }
+    return Promise.resolve();
   });
-  const remove = mock.method(relayMembers, "removeRelayMember", async () => {});
-  return { list, add, remove };
+  mock.method(relayClient, "fetchEvents", async () => catalogEvents);
+  mock.method(relayClient, "fetchFirstEvent", async () =>
+    memberPubkeys.length > 0 ? membershipEvent(memberPubkeys) : null,
+  );
+  return publish;
 }
 
 test("publishCommunityBots treats unknown event kind as a soft failure and writes local", async () => {
   installStorage();
-  stubPublish(new Error("restricted: unknown event kind"));
+  stubRelay();
   try {
     await publishCommunityBots([MO], RELAY_A);
     assert.deepEqual(loadLocalCommunityBots(RELAY_A), [MO]);
@@ -188,7 +213,7 @@ test("publishCommunityBots treats unknown event kind as a soft failure and write
 
 test("publishCommunityBots writes the local catalog when 30624 is accepted", async () => {
   installStorage();
-  stubPublish();
+  stubRelay({ catalogError: null });
   try {
     await publishCommunityBots([MO], RELAY_A);
     assert.deepEqual(loadLocalCommunityBots(RELAY_A), [MO]);
@@ -199,7 +224,9 @@ test("publishCommunityBots writes the local catalog when 30624 is accepted", asy
 
 test("publishCommunityBots still rejects hard publish failures without writing local", async () => {
   installStorage();
-  stubPublish(new Error("Timed out while saving community bots."));
+  stubRelay({
+    catalogError: new Error("Timed out while saving community bots."),
+  });
   try {
     await assert.rejects(
       () => publishCommunityBots([MO], RELAY_A),
@@ -213,8 +240,7 @@ test("publishCommunityBots still rejects hard publish failures without writing l
 
 test("fetchCommunityBots returns the local fallback when the relay has no 30624", async () => {
   installStorage();
-  stubPublish(new Error("restricted: unknown event kind"));
-  mock.method(relayClient, "fetchEvents", async () => []);
+  stubRelay();
   try {
     await publishCommunityBots([MO], RELAY_A);
     const bots = await fetchCommunityBots(RELAY_A);
@@ -227,10 +253,9 @@ test("fetchCommunityBots returns the local fallback when the relay has no 30624"
 
 test("fetchCommunityBots prefers 30624 on shared ids and keeps local-only ids", async () => {
   installStorage();
-  stubPublish(new Error("restricted: unknown event kind"));
-  mock.method(relayClient, "fetchEvents", async () => [
-    catalogEvent([{ ...MO, name: "Mo from relay" }, CAPTAIN]),
-  ]);
+  stubRelay({
+    catalogEvents: [catalogEvent([{ ...MO, name: "Mo from relay" }, CAPTAIN])],
+  });
   try {
     const localOnly = {
       id: "local-only",
@@ -256,21 +281,14 @@ test("fetchCommunityBots prefers 30624 on shared ids and keeps local-only ids", 
 
 test("installCommunityBot succeeds when 30624 is rejected and skips a duplicate member add", async () => {
   installStorage();
-  stubPublish(new Error("restricted: unknown event kind"));
-  const members = stubMembers({
-    members: [
-      {
-        pubkey: MO_PUBKEY,
-        role: "member",
-        addedBy: null,
-        createdAt: "2026-01-01T00:00:00.000Z",
-      },
-    ],
-  });
+  const publish = stubRelay({ memberPubkeys: [MO_PUBKEY] });
   try {
     const next = await installCommunityBot([], MO, RELAY_A);
     assert.equal(next[0].id, "mo");
-    assert.equal(members.add.mock.callCount(), 0);
+    assert.equal(
+      publishedKinds(publish).includes(KIND_RELAY_ADMIN_ADD_MEMBER),
+      false,
+    );
     assert.deepEqual(loadLocalCommunityBots(RELAY_A), next);
     assert.equal(
       globalThis.window.localStorage.getItem(communityBotsStorageKey(RELAY_B)),
@@ -283,15 +301,16 @@ test("installCommunityBot succeeds when 30624 is rejected and skips a duplicate 
 
 test("installCommunityBot treats an already-member 9030 reject as success", async () => {
   installStorage();
-  stubPublish(new Error("restricted: unknown event kind"));
-  const members = stubMembers({
-    members: [],
-    addError: new Error("already a member"),
+  const publish = stubRelay({
+    addMemberError: new Error("already a member"),
   });
   try {
     const next = await installCommunityBot([], MO, RELAY_A);
     assert.equal(next[0].id, "mo");
-    assert.equal(members.add.mock.callCount(), 1);
+    assert.equal(
+      publishedKinds(publish).includes(KIND_RELAY_ADMIN_ADD_MEMBER),
+      true,
+    );
     assert.deepEqual(loadLocalCommunityBots(RELAY_A), next);
   } finally {
     mock.reset();
@@ -300,13 +319,13 @@ test("installCommunityBot treats an already-member 9030 reject as success", asyn
 
 test("installCommunityBot adds a member once when the pubkey is new", async () => {
   installStorage();
-  stubPublish(new Error("restricted: unknown event kind"));
-  const members = stubMembers({ members: [] });
+  const publish = stubRelay();
   try {
     await installCommunityBot([], MO, RELAY_A);
-    assert.equal(members.add.mock.callCount(), 1);
-    assert.equal(members.add.mock.calls[0].arguments[0], MO_PUBKEY);
-    assert.equal(members.add.mock.calls[0].arguments[1], "member");
+    assert.deepEqual(publishedKinds(publish), [
+      KIND_RELAY_ADMIN_ADD_MEMBER,
+      KIND_COMMUNITY_BOTS,
+    ]);
   } finally {
     mock.reset();
   }
@@ -314,15 +333,16 @@ test("installCommunityBot adds a member once when the pubkey is new", async () =
 
 test("uninstallCommunityBot updates the local fallback when 30624 is rejected", async () => {
   installStorage();
-  stubPublish(new Error("restricted: unknown event kind"));
-  const members = stubMembers();
+  const publish = stubRelay();
   try {
     const installed = await installCommunityBot([], MO, RELAY_A);
     const next = await uninstallCommunityBot(installed, MO, RELAY_A);
     assert.deepEqual(next, []);
     assert.deepEqual(loadLocalCommunityBots(RELAY_A), []);
-    assert.equal(members.remove.mock.callCount(), 1);
-    assert.equal(members.remove.mock.calls[0].arguments[0], MO_PUBKEY);
+    assert.equal(
+      publishedKinds(publish).includes(KIND_RELAY_ADMIN_REMOVE_MEMBER),
+      true,
+    );
   } finally {
     mock.reset();
   }
@@ -330,8 +350,7 @@ test("uninstallCommunityBot updates the local fallback when 30624 is rejected", 
 
 test("uninstallCommunityBot leaves a shared pubkey's relay membership intact", async () => {
   installStorage();
-  stubPublish(new Error("restricted: unknown event kind"));
-  const members = stubMembers();
+  const publish = stubRelay({ memberPubkeys: [MO_PUBKEY] });
   try {
     const shared = { ...CAPTAIN, pubkey: MO_PUBKEY };
     const both = await installCommunityBot(
@@ -340,7 +359,10 @@ test("uninstallCommunityBot leaves a shared pubkey's relay membership intact", a
       RELAY_A,
     );
     await uninstallCommunityBot(both, MO, RELAY_A);
-    assert.equal(members.remove.mock.callCount(), 0);
+    assert.equal(
+      publishedKinds(publish).includes(KIND_RELAY_ADMIN_REMOVE_MEMBER),
+      false,
+    );
     const remaining = loadLocalCommunityBots(RELAY_A);
     assert.equal(remaining.length, 1);
     assert.equal(remaining[0].id, "captain");
