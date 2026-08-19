@@ -3,6 +3,9 @@ import test from "node:test";
 
 import {
   appendCommunityBotCandidates,
+  channelRoleForAddMember,
+  COMMUNITY_BOT_CHANNEL_ROLE,
+  communityBotAddMemberInput,
   communityBotAllowedPubkeys,
   communityBotMatchesQuery,
 } from "./addCandidates.ts";
@@ -27,4 +30,24 @@ test("appendCommunityBotCandidates injects installed bots for add-member search"
   assert.equal(merged[0].displayName, "Mo");
   assert.equal(merged[0].isAgent, true);
   assert.deepEqual(communityBotAllowedPubkeys([mo]), [mo.pubkey]);
+});
+
+test("channel add of a catalog bot sends role bot", () => {
+  assert.equal(COMMUNITY_BOT_CHANNEL_ROLE, "bot");
+  assert.deepEqual(communityBotAddMemberInput(mo.pubkey), {
+    pubkeys: [mo.pubkey],
+    role: "bot",
+  });
+  assert.equal(
+    channelRoleForAddMember({ pubkey: mo.pubkey, isAgent: true }, [mo]),
+    "bot",
+  );
+  assert.equal(
+    channelRoleForAddMember({ pubkey: mo.pubkey, isAgent: false }, [mo]),
+    "bot",
+  );
+  assert.equal(
+    channelRoleForAddMember({ pubkey: "aa".repeat(32), isAgent: false }, [mo]),
+    "member",
+  );
 });

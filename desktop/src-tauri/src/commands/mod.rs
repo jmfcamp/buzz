@@ -71,7 +71,7 @@ mod workspace;
 pub use crate::community_bots::{
     community_bots_connect, community_bots_disconnect, community_bots_get_status,
     community_bots_list_remote_agents, community_bots_resolve_identity,
-    community_bots_sign_profile,
+    community_bots_reveal_identity_secret, community_bots_sign_profile,
 };
 pub use agent_access::*;
 pub use agent_auth::*;

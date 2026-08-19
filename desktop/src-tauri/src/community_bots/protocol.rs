@@ -358,18 +358,6 @@ fn extract_agent_pubkey(value: &serde_json::Value) -> Option<String> {
     None
 }
 
-/// Pull a Buzz/Nostr pubkey out of a `config.get` payload when present.
-pub fn extract_buzz_plugin_pubkey(config: &serde_json::Value) -> Option<String> {
-    let channels = config
-        .get("channels")
-        .or_else(|| config.get("config").and_then(|inner| inner.get("channels")))?;
-    let buzz = channels.get("buzz")?;
-    first_hex_pubkey(buzz, &["publicKey", "public_key", "pubkey"]).or_else(|| {
-        buzz.get("identity")
-            .and_then(|identity| first_hex_pubkey(identity, &["pubkey", "publicKey", "public_key"]))
-    })
-}
-
 fn parse_scope_list(value: &serde_json::Value) -> Vec<String> {
     for key in ["scopes", "requestedScopes", "requested_scopes"] {
         if let Some(array) = value.get(key).and_then(serde_json::Value::as_array) {
@@ -385,7 +373,7 @@ fn parse_scope_list(value: &serde_json::Value) -> Vec<String> {
     Vec::new()
 }
 
-fn first_string(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
+pub(crate) fn first_string(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
     for key in keys {
         if let Some(text) = value.get(*key).and_then(serde_json::Value::as_str) {
             let trimmed = text.trim();
@@ -397,7 +385,7 @@ fn first_string(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
     None
 }
 
-fn first_hex_pubkey(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
+pub(crate) fn first_hex_pubkey(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
     first_string(value, keys).and_then(|raw| normalize_hex_pubkey(&raw))
 }
 

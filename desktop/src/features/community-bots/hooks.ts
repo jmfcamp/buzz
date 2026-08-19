@@ -114,12 +114,21 @@ export function useInstallCommunityBotMutation() {
     mutationFn: async (input: {
       agent: RemoteOpenClawAgent;
       name?: string;
+      pubkey?: string | null;
     }) => {
       const { agent } = input;
       const identity = await invokeTauri<ResolvedBotIdentity>(
         "community_bots_resolve_identity",
-        { agentId: agent.id, pubkey: agent.pubkey ?? null },
+        {
+          agentId: agent.id,
+          pubkey: input.pubkey ?? agent.pubkey ?? null,
+        },
       );
+      if (identity.minted) {
+        throw new Error(
+          "Install refused to mint a local nsec. Use the OpenClaw VPS Buzz public key.",
+        );
+      }
       const installed = queryClient.getQueryData<CommunityBot[]>([
         ...communityBotsQueryKey,
         relayUrl,

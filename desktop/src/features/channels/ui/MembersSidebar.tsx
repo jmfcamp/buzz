@@ -29,6 +29,7 @@ import {
 import { useCommunityBotsQuery } from "@/features/community-bots/hooks";
 import {
   appendCommunityBotCandidates,
+  channelRoleForAddMember,
   communityBotAllowedPubkeys,
 } from "@/features/community-bots/lib/addCandidates";
 import {
@@ -572,7 +573,7 @@ export function MembersSidebar({
 
       const result = await addMembersMutation.mutateAsync({
         pubkeys: [user.pubkey],
-        role: user.isAgent ? "bot" : "member",
+        role: channelRoleForAddMember(user, communityBotsQuery.data ?? []),
       });
       setInviteSubmissionErrors((prev) => [...prev, ...result.errors]);
     } finally {

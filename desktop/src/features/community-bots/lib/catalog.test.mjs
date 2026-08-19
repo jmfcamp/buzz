@@ -20,6 +20,24 @@ import { communityBotsStorageKey } from "./localCatalog.ts";
 
 const MO_PUBKEY = "22".repeat(32);
 
+test("parseCommunityBotsPayload drops secret-looking catalog rows", () => {
+  const bots = parseCommunityBotsPayload(
+    JSON.stringify({
+      version: 1,
+      bots: [
+        {
+          id: "mo",
+          name: "nsec1notallowed",
+          pubkey: MO_PUBKEY,
+          source: "openclaw",
+          privateKey: "aa".repeat(32),
+        },
+      ],
+    }),
+  );
+  assert.deepEqual(bots, []);
+});
+
 test("parseCommunityBotsPayload keeps valid openclaw bots", () => {
   const bots = parseCommunityBotsPayload(
     JSON.stringify({
@@ -221,6 +239,40 @@ test("publishCommunityBots writes the local catalog when 30624 is accepted", asy
   try {
     await publishCommunityBots([MO], RELAY_A);
     assert.deepEqual(loadLocalCommunityBots(RELAY_A), [MO]);
+  } finally {
+    mock.reset();
+  }
+});
+
+test("publishCommunityBots snapshot never includes nsec or privateKey", async () => {
+  installStorage();
+  const publish = stubRelay({ catalogError: null });
+  try {
+    await publishCommunityBots([MO], RELAY_A);
+    const catalog = publish.mock.calls
+      .map((call) => call.arguments[0])
+      .find((event) => event.kind === KIND_COMMUNITY_BOTS);
+    assert.ok(catalog);
+    const snapshot = JSON.stringify(catalog);
+    assert.equal(
+      /nsec|privateKey|private_key|"password"/i.test(snapshot),
+      false,
+    );
+    assert.deepEqual(JSON.parse(catalog.content), {
+      version: 1,
+      bots: [
+        {
+          id: "mo",
+          name: "Mo",
+          pubkey: MO_PUBKEY,
+          source: "openclaw",
+        },
+      ],
+    });
+    const local = globalThis.window.localStorage.getItem(
+      communityBotsStorageKey(RELAY_A),
+    );
+    assert.equal(/nsec|privateKey|private_key/i.test(local ?? ""), false);
   } finally {
     mock.reset();
   }

@@ -95,19 +95,10 @@ pub fn delete_gateway(relay_host: &str) -> Result<(), String> {
     store()?.delete(&gateway_secret_key(relay_host))
 }
 
-/// Load a minted bot nsec (hex) if this admin device created one.
+/// Load a previously minted bot nsec (hex), if this admin device ever created one.
+///
+/// Install no longer writes this key. The loader remains so leftover Mac-minted
+/// identities can still be inspected without minting new ones.
 pub fn load_minted_secret(relay_host: &str, agent_id: &str) -> Result<Option<String>, String> {
     store()?.load(&minted_identity_secret_key(relay_host, agent_id))
-}
-
-/// Persist a minted bot nsec (hex).
-pub fn store_minted_secret(
-    relay_host: &str,
-    agent_id: &str,
-    secret_hex: &str,
-) -> Result<(), String> {
-    store()?.store(
-        &minted_identity_secret_key(relay_host, agent_id),
-        secret_hex,
-    )
 }

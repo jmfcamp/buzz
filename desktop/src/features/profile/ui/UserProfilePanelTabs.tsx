@@ -10,6 +10,7 @@ import {
   Wrench,
 } from "lucide-react";
 
+import { CommunityBotIdentitySection } from "@/features/community-bots/ui/CommunityBotIdentitySection";
 import type { IdentityArchiveActions } from "@/features/identity-archive/hooks";
 import type { ManagedAgent, RestartDiffEntry } from "@/shared/api/types";
 import {
@@ -305,6 +306,7 @@ export function ProfileInfoTabContent({
           <ProfileFieldRows fields={infoFields} />
         </ProfileSectionGroup>
       ) : null}
+      <CommunityBotIdentitySection pubkey={pubkey} />
       <UserProfileAgentManagementRows
         archiveActions={archiveActions}
         canArchiveAgent={showArchiveAction}
