@@ -57,6 +57,8 @@ import {
   useUserStatusSubscription,
 } from "@/features/user-status/hooks";
 import { useCommunityEmojiLiveUpdates } from "@/features/custom-emoji/hooks";
+import { useCommunityPinnedSitesLiveUpdates } from "@/features/pinned-sites/hooks";
+import { hideAllPinWebviews } from "@/features/pinned-sites/lib/pinWebview";
 import { useArchiveSync } from "@/features/local-archive/archiveSyncManager";
 import { useObserverArchiveReconciliation } from "@/features/local-archive/useObserverArchiveSeed";
 import { useAgentMetricArchiveSeed } from "@/features/local-archive/useAgentMetricArchiveSeed";
@@ -137,6 +139,7 @@ export function AppShell() {
   useManagedAgentRuntimeReconciliation(communitiesHook.communities); // sync storage snapshot
   const {
     goAgents,
+    goPinnedSite,
     goChannel,
     goHome,
     goNewMessage,
@@ -149,7 +152,7 @@ export function AppShell() {
   } = useAppNavigation();
   const { canGoBack, canGoForward, goBack, goForward } =
     useBackForwardControls();
-  const { selectedChannelId, selectedView } = React.useMemo(
+  const { selectedChannelId, selectedPinId, selectedView } = React.useMemo(
     () => deriveShellRoute(location.pathname),
     [location.pathname],
   );
@@ -214,6 +217,12 @@ export function AppShell() {
   usePresenceSubscription();
   useUserStatusSubscription();
   useCommunityEmojiLiveUpdates();
+  useCommunityPinnedSitesLiveUpdates();
+  React.useEffect(() => {
+    if (selectedView !== "pin") {
+      void hideAllPinWebviews();
+    }
+  }, [selectedView]);
   useMembershipNotifications(identityQuery.data?.pubkey);
   const presenceSession = usePresenceSession(deferredPubkey);
   const selfStatusQuery = useUserStatusQuery(
@@ -848,6 +857,7 @@ export function AppShell() {
                           await goChannel(directMessage.id);
                         }}
                         onSelectAgents={() => void goAgents()}
+                        onSelectPinnedSite={(pinId) => void goPinnedSite(pinId)}
                         onSelectChannel={handleSidebarChannelSelect}
                         onOpenSearchResult={handleOpenSearchResult}
                         searchChannels={channels}
@@ -881,6 +891,7 @@ export function AppShell() {
                             : undefined
                         }
                         selectedChannelId={selectedChannelId}
+                        selectedPinId={selectedPinId}
                         selectedView={selectedView}
                         unreadChannelIds={unreadChannelIds}
                         previewActivityChannelIds={unreadThreadChannelIds}

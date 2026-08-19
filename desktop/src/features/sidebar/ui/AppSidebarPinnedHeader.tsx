@@ -1,5 +1,10 @@
 import { Activity, Bot, FolderGit2, Inbox, Zap } from "lucide-react";
 
+import type { AppView } from "@/app/AppShell.helpers";
+import { usePinnedSites } from "@/features/pinned-sites/hooks";
+import { getPinnedSiteIcon } from "@/features/pinned-sites/lib/icons";
+import type { PinnedSite } from "@/features/pinned-sites/lib/types";
+
 import { TopbarSearch } from "@/features/search/ui/TopbarSearch";
 import { FeatureGate } from "@/shared/features";
 import type { Channel, SearchHit } from "@/shared/api/types";
@@ -11,15 +16,6 @@ import {
   SidebarMenuItem,
 } from "@/shared/ui/sidebar";
 import { SidebarMenuLabel } from "@/shared/ui/sidebar-menu-label";
-
-type SidebarSelectedView =
-  | "home"
-  | "channel"
-  | "messages"
-  | "agents"
-  | "workflows"
-  | "pulse"
-  | "projects";
 
 type AppSidebarPinnedHeaderProps = {
   channelLabels: Record<string, string>;
@@ -41,10 +37,12 @@ type AppSidebarPrimaryMenuProps = {
   homeBadgeCount: number;
   onSelectAgents: () => void;
   onSelectHome: () => void;
+  onSelectPinnedSite: (pinId: string) => void;
   onSelectProjects: () => void;
   onSelectPulse: () => void;
   onSelectWorkflows: () => void;
-  selectedView: SidebarSelectedView;
+  selectedPinId: string | null;
+  selectedView: AppView;
 };
 
 export function AppSidebarPinnedHeader({
@@ -90,11 +88,14 @@ export function AppSidebarPrimaryMenu({
   homeBadgeCount,
   onSelectAgents,
   onSelectHome,
+  onSelectPinnedSite,
   onSelectProjects,
   onSelectPulse,
   onSelectWorkflows,
+  selectedPinId,
   selectedView,
 }: AppSidebarPrimaryMenuProps) {
+  const { pins } = usePinnedSites();
   return (
     <SidebarHeader
       className="relative z-40 cursor-default select-none px-2 pb-0 pt-0"
@@ -177,7 +178,42 @@ export function AppSidebarPrimaryMenu({
             </SidebarMenuButton>
           </SidebarMenuItem>
         </FeatureGate>
+        {pins.map((pin) => (
+          <PinnedSiteMenuItem
+            isActive={selectedView === "pin" && selectedPinId === pin.id}
+            key={pin.id}
+            onSelect={() => onSelectPinnedSite(pin.id)}
+            pin={pin}
+          />
+        ))}
       </SidebarMenu>
     </SidebarHeader>
+  );
+}
+
+function PinnedSiteMenuItem({
+  isActive,
+  onSelect,
+  pin,
+}: {
+  isActive: boolean;
+  onSelect: () => void;
+  pin: PinnedSite;
+}) {
+  const Icon = getPinnedSiteIcon(pin.icon);
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        className="data-[active=true]:font-normal"
+        data-testid={`open-pinned-site-${pin.id}`}
+        isActive={isActive}
+        onClick={onSelect}
+        tooltip={pin.name}
+        type="button"
+      >
+        <Icon className="h-4 w-4" />
+        <SidebarMenuLabel>{pin.name}</SidebarMenuLabel>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
   );
 }

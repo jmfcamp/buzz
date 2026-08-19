@@ -2,9 +2,20 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  deriveShellRoute,
   markAllReadSources,
   shouldBounceForChannelNotification,
 } from "./AppShell.helpers.ts";
+
+test("deriveShellRoute maps pinned site paths", () => {
+  assert.deepEqual(deriveShellRoute("/pins/wayfinder"), {
+    selectedChannelId: null,
+    selectedPinId: "wayfinder",
+    selectedView: "pin",
+  });
+  assert.equal(deriveShellRoute("/agents").selectedView, "agents");
+  assert.equal(deriveShellRoute("/").selectedView, "home");
+});
 
 test("shouldBounceForChannelNotification_allowsTopLevelChannelMessages", () => {
   assert.equal(shouldBounceForChannelNotification([["h", "channel"]]), true);
