@@ -1,3 +1,4 @@
+export const KIND_METADATA = 0;
 export const KIND_DELETION = 5;
 export const KIND_REACTION = 7;
 export const KIND_TEXT_NOTE = 1;

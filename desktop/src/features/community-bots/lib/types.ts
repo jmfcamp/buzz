@@ -1,3 +1,5 @@
+export const MAX_COMMUNITY_BOT_NAME_LEN = 80;
+
 export type CommunityBotSource = "openclaw";
 
 export type CommunityBot = {
@@ -42,6 +44,21 @@ export type RemoteOpenClawAgent = {
   name: string;
   pubkey?: string | null;
 };
+
+/** OpenClaw `agent.name`, then `agent.id` (mo, captain, wayfinder). */
+export function defaultRemoteAgentName(
+  agent: Pick<RemoteOpenClawAgent, "id" | "name">,
+): string {
+  return agent.name?.trim() || agent.id;
+}
+
+export function normalizeCommunityBotDisplayName(
+  value: string | undefined,
+  fallback: string,
+): string {
+  const trimmed = value?.trim() ?? "";
+  return trimmed || fallback.trim();
+}
 
 export type ResolvedBotIdentity = {
   pubkey: string;

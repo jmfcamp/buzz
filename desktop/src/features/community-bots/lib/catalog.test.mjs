@@ -317,6 +317,22 @@ test("installCommunityBot treats an already-member 9030 reject as success", asyn
   }
 });
 
+test("installCommunityBot persists the admin-chosen catalog name", async () => {
+  installStorage();
+  stubRelay({ catalogError: null });
+  try {
+    const next = await installCommunityBot(
+      [],
+      { ...MO, name: "Mo Desk" },
+      RELAY_A,
+    );
+    assert.equal(next[0].name, "Mo Desk");
+    assert.equal(loadLocalCommunityBots(RELAY_A)[0].name, "Mo Desk");
+  } finally {
+    mock.reset();
+  }
+});
+
 test("installCommunityBot adds a member once when the pubkey is new", async () => {
   installStorage();
   const publish = stubRelay();

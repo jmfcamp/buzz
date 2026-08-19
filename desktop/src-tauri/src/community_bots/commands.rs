@@ -1,6 +1,7 @@
 //! Tauri commands for the community Bots admin console.
 
-use nostr::Keys;
+use buzz_core_pkg::community_bots::MAX_BOT_NAME_LEN;
+use nostr::{Event, EventBuilder, Keys, Kind};
 use serde::Serialize;
 use tauri::State;
 
@@ -226,6 +227,81 @@ pub fn community_bots_resolve_identity(
     })
 }
 
+/// Sign a kind:0 profile as the minted bot key stored for this agent.
+///
+/// The admin identity never signs this event. Returns the signed event JSON
+/// for the frontend to publish via the existing relay client.
+#[tauri::command]
+pub fn community_bots_sign_profile(
+    state: State<'_, AppState>,
+    agent_id: String,
+    name: String,
+) -> Result<String, String> {
+    let host = relay_host(&state);
+    let agent_id = agent_id.trim();
+    if agent_id.is_empty() {
+        return Err("agent id is required".into());
+    }
+    let secret_hex = load_minted_secret(&host, agent_id)?
+        .ok_or_else(|| "no minted identity for this agent".to_string())?;
+    sign_minted_bot_profile(&secret_hex, &name)
+}
+
+fn normalize_bot_display_name(name: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("bot name is required".into());
+    }
+    if name.len() > MAX_BOT_NAME_LEN {
+        return Err(format!(
+            "bot name must be at most {MAX_BOT_NAME_LEN} characters"
+        ));
+    }
+    if profile_content_looks_secret(name) {
+        return Err("bot profile must not include secrets".into());
+    }
+    Ok(name.to_string())
+}
+
+fn community_bot_profile_content(name: &str) -> Result<String, String> {
+    let name = normalize_bot_display_name(name)?;
+    let content = serde_json::json!({
+        "name": name,
+        "display_name": name,
+    })
+    .to_string();
+    if profile_content_looks_secret(&content) {
+        return Err("bot profile must not include secrets".into());
+    }
+    Ok(content)
+}
+
+fn profile_content_looks_secret(content: &str) -> bool {
+    let lowered = content.to_ascii_lowercase();
+    lowered.contains("\"password\"")
+        || lowered.contains("\"nsec\"")
+        || lowered.contains("nsec1")
+        || lowered.contains("\"device_token\"")
+        || lowered.contains("\"devicetoken\"")
+        || lowered.contains("\"private_key\"")
+        || lowered.contains("\"privatekey\"")
+}
+
+fn sign_minted_bot_profile(secret_hex: &str, name: &str) -> Result<String, String> {
+    let keys = Keys::parse(secret_hex.trim())
+        .map_err(|error| format!("stored bot identity is invalid: {error}"))?;
+    let content = community_bot_profile_content(name)?;
+    let event = EventBuilder::new(Kind::Metadata, content)
+        .sign_with_keys(&keys)
+        .map_err(|error| format!("sign failed: {error}"))?;
+    let json = event.as_json();
+    let secret = secret_hex.trim().to_ascii_lowercase();
+    if !secret.is_empty() && json.to_ascii_lowercase().contains(&secret) {
+        return Err("bot profile must not include secrets".into());
+    }
+    Ok(json)
+}
+
 fn apply_outcome(secrets: &mut GatewaySecrets, outcome: &ConnectOutcome) {
     match outcome {
         ConnectOutcome::Pending {
@@ -349,6 +425,37 @@ mod tests {
         assert_eq!(status.request_id.as_deref(), Some("req-42"));
         assert_eq!(status.device_id.as_deref(), Some(device_id.as_str()));
         assert_eq!(status.requested_scopes, vec!["operator.write"]);
+    }
+
+    #[test]
+    fn minted_profile_is_kind_zero_signed_as_the_bot() {
+        let bot = Keys::generate();
+        let admin = Keys::generate();
+        let json =
+            sign_minted_bot_profile(&bot.secret_key().to_secret_hex(), "Mo Desk").expect("sign");
+        let event = Event::from_json(&json).expect("event json");
+        assert_eq!(event.kind, Kind::Metadata);
+        assert_eq!(event.pubkey, bot.public_key());
+        assert_ne!(event.pubkey, admin.public_key());
+        let content: serde_json::Value = serde_json::from_str(&event.content).expect("content");
+        assert_eq!(content["name"], "Mo Desk");
+        assert_eq!(content["display_name"], "Mo Desk");
+        assert_eq!(content.as_object().map(|object| object.len()), Some(2));
+        assert!(!profile_content_looks_secret(&event.content));
+        assert!(!json.to_ascii_lowercase().contains("nsec"));
+        assert!(!json.contains(&bot.secret_key().to_secret_hex()));
+    }
+
+    #[test]
+    fn minted_profile_rejects_empty_and_secret_names() {
+        let secret = Keys::generate().secret_key().to_secret_hex();
+        assert!(sign_minted_bot_profile(&secret, "   ").is_err());
+        assert!(sign_minted_bot_profile(&secret, "nsec1notasecret").is_err());
+        assert!(sign_minted_bot_profile(&secret, &"a".repeat(MAX_BOT_NAME_LEN + 1)).is_err());
+        let ok = sign_minted_bot_profile(&secret, " captain ").expect("trim");
+        let event = Event::from_json(&ok).expect("event json");
+        let content: serde_json::Value = serde_json::from_str(&event.content).expect("content");
+        assert_eq!(content["name"], "captain");
     }
 
     #[test]

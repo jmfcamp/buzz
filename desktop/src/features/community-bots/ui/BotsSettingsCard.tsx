@@ -9,9 +9,12 @@ import {
   useConnectCommunityBotsMutation,
   useDisconnectCommunityBotsMutation,
   useInstallCommunityBotMutation,
+  useRenameCommunityBotMutation,
   useUninstallCommunityBotMutation,
 } from "@/features/community-bots/hooks";
 import {
+  defaultRemoteAgentName,
+  MAX_COMMUNITY_BOT_NAME_LEN,
   pairingRequestIdLabel,
   type CommunityBot,
   type RemoteOpenClawAgent,
@@ -33,11 +36,15 @@ export function BotsSettingsCard() {
   const connectMutation = useConnectCommunityBotsMutation();
   const disconnectMutation = useDisconnectCommunityBotsMutation();
   const installMutation = useInstallCommunityBotMutation();
+  const renameMutation = useRenameCommunityBotMutation();
   const uninstallMutation = useUninstallCommunityBotMutation();
 
   const [url, setUrl] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [token, setToken] = React.useState("");
+  const [draftNames, setDraftNames] = React.useState<Record<string, string>>(
+    {},
+  );
 
   React.useEffect(() => {
     if (status?.url && !url) {
@@ -100,13 +107,34 @@ export function BotsSettingsCard() {
     }
   }
 
+  function nameForAgent(agent: RemoteOpenClawAgent): string {
+    return draftNames[agent.id] ?? defaultRemoteAgentName(agent);
+  }
+
+  function nameForInstalled(bot: CommunityBot): string {
+    return draftNames[bot.id] ?? bot.name;
+  }
+
   async function handleInstall(agent: RemoteOpenClawAgent) {
+    const name = nameForAgent(agent);
     try {
-      await installMutation.mutateAsync(agent);
-      toast.success(`Installed ${agent.name || agent.id} as a community bot.`);
+      await installMutation.mutateAsync({ agent, name });
+      toast.success(`Installed ${name} as a community bot.`);
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Could not install that bot.",
+      );
+    }
+  }
+
+  async function handleRename(bot: CommunityBot) {
+    const name = nameForInstalled(bot);
+    try {
+      await renameMutation.mutateAsync({ bot, name });
+      toast.success(`Updated ${name}.`);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Could not rename that bot.",
       );
     }
   }
@@ -310,15 +338,25 @@ export function BotsSettingsCard() {
                     const bot = installedById.get(agent.id);
                     return (
                       <div
-                        className="flex items-center gap-3 px-4 py-3"
+                        className="flex flex-wrap items-center gap-3 px-4 py-3"
                         data-testid={`settings-bots-agent-${agent.id}`}
                         key={agent.id}
                       >
                         <Bot className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium">
-                            {agent.name || agent.id}
-                          </p>
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <Input
+                            aria-label={`${agent.id} display name`}
+                            data-testid={`settings-bots-agent-name-${agent.id}`}
+                            disabled={Boolean(bot)}
+                            maxLength={MAX_COMMUNITY_BOT_NAME_LEN}
+                            onChange={(event) =>
+                              setDraftNames((current) => ({
+                                ...current,
+                                [agent.id]: event.target.value,
+                              }))
+                            }
+                            value={nameForAgent(agent)}
+                          />
                           <p className="truncate font-mono text-2xs text-muted-foreground">
                             {agent.id}
                           </p>
@@ -333,7 +371,10 @@ export function BotsSettingsCard() {
                         ) : (
                           <Button
                             data-testid={`settings-bots-install-${agent.id}`}
-                            disabled={installMutation.isPending}
+                            disabled={
+                              installMutation.isPending ||
+                              !nameForAgent(agent).trim()
+                            }
                             onClick={() => void handleInstall(agent)}
                             size="sm"
                             type="button"
@@ -352,31 +393,59 @@ export function BotsSettingsCard() {
           {installed.length > 0 ? (
             <SettingsOptionGroup title="Installed in this community">
               <div className="divide-y divide-border/60">
-                {installed.map((bot) => (
-                  <div
-                    className="flex items-center gap-3 px-4 py-3"
-                    data-testid={`settings-bots-installed-${bot.id}`}
-                    key={bot.id}
-                  >
-                    <Bot className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{bot.name}</p>
-                      <p className="truncate font-mono text-2xs text-muted-foreground">
-                        {bot.id}
-                      </p>
-                    </div>
-                    <Button
-                      data-testid={`settings-bots-uninstall-${bot.id}`}
-                      disabled={uninstallMutation.isPending}
-                      onClick={() => void handleUninstall(bot)}
-                      size="sm"
-                      type="button"
-                      variant="outline"
+                {installed.map((bot) => {
+                  const draftName = nameForInstalled(bot);
+                  const dirty = draftName.trim() !== bot.name;
+                  return (
+                    <div
+                      className="flex flex-wrap items-center gap-3 px-4 py-3"
+                      data-testid={`settings-bots-installed-${bot.id}`}
+                      key={bot.id}
                     >
-                      Uninstall
-                    </Button>
-                  </div>
-                ))}
+                      <Bot className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <Input
+                          aria-label={`${bot.id} display name`}
+                          data-testid={`settings-bots-installed-name-${bot.id}`}
+                          maxLength={MAX_COMMUNITY_BOT_NAME_LEN}
+                          onChange={(event) =>
+                            setDraftNames((current) => ({
+                              ...current,
+                              [bot.id]: event.target.value,
+                            }))
+                          }
+                          value={draftName}
+                        />
+                        <p className="truncate font-mono text-2xs text-muted-foreground">
+                          {bot.id}
+                        </p>
+                      </div>
+                      <Button
+                        data-testid={`settings-bots-rename-${bot.id}`}
+                        disabled={
+                          renameMutation.isPending ||
+                          !draftName.trim() ||
+                          !dirty
+                        }
+                        onClick={() => void handleRename(bot)}
+                        size="sm"
+                        type="button"
+                      >
+                        Save name
+                      </Button>
+                      <Button
+                        data-testid={`settings-bots-uninstall-${bot.id}`}
+                        disabled={uninstallMutation.isPending}
+                        onClick={() => void handleUninstall(bot)}
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                      >
+                        Uninstall
+                      </Button>
+                    </div>
+                  );
+                })}
               </div>
             </SettingsOptionGroup>
           ) : null}
