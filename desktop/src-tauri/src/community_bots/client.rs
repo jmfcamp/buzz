@@ -14,8 +14,8 @@ use super::protocol::{
     build_device_auth_payload_v3, device_id_from_public_key, parse_agents_list,
     parse_connect_challenge, parse_hello_auth, parse_pairing_required, public_key_base64url,
     public_key_from_secret, scopes_are_sufficient, sign_device_payload, RemoteAgent,
-    OPENCLAW_CLIENT_DISPLAY_NAME, OPENCLAW_CLIENT_ID, OPENCLAW_DEVICE_FAMILY,
-    REQUIRED_OPERATOR_SCOPES,
+    OPENCLAW_CLIENT_DISPLAY_NAME, OPENCLAW_CLIENT_ID, OPENCLAW_CLIENT_MODE, OPENCLAW_CLIENT_ROLE,
+    OPENCLAW_DEVICE_FAMILY, REQUIRED_OPERATOR_SCOPES,
 };
 use super::store::GatewaySecrets;
 
@@ -215,8 +215,8 @@ fn build_connect_frame(
     let payload = build_device_auth_payload_v3(
         &device_id,
         OPENCLAW_CLIENT_ID,
-        "operator",
-        "operator",
+        OPENCLAW_CLIENT_MODE,
+        OPENCLAW_CLIENT_ROLE,
         REQUIRED_OPERATOR_SCOPES,
         challenge.ts,
         signature_token,
@@ -252,9 +252,9 @@ fn build_connect_frame(
                 "displayName": OPENCLAW_CLIENT_DISPLAY_NAME,
                 "version": env!("CARGO_PKG_VERSION"),
                 "platform": platform,
-                "mode": "operator"
+                "mode": OPENCLAW_CLIENT_MODE
             },
-            "role": "operator",
+            "role": OPENCLAW_CLIENT_ROLE,
             "scopes": REQUIRED_OPERATOR_SCOPES,
             "caps": [],
             "commands": [],
@@ -322,5 +322,62 @@ fn normalize_platform(os: &str) -> String {
         "macos" => "macos".into(),
         "windows" => "windows".into(),
         _ => "linux".into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::community_bots::protocol::ConnectChallenge;
+
+    #[test]
+    fn connect_frame_sends_allowed_cli_mode_matching_signed_payload() {
+        let secrets = GatewaySecrets::new("wss://gateway.example/ws".into(), "secret".into(), None)
+            .expect("secrets");
+        let challenge = ConnectChallenge {
+            nonce: "nonce-1".into(),
+            ts: 1_737_264_000_000,
+        };
+        let frame = build_connect_frame(&secrets, &challenge, "buzz-1").expect("frame");
+        let params = &frame["params"];
+        let client = &params["client"];
+
+        assert_eq!(client["id"], OPENCLAW_CLIENT_ID);
+        assert_eq!(client["mode"], OPENCLAW_CLIENT_MODE);
+        assert_eq!(client["mode"], "cli");
+        assert_ne!(client["mode"], "operator");
+        assert_eq!(params["role"], OPENCLAW_CLIENT_ROLE);
+        assert_eq!(
+            params["scopes"],
+            json!(["operator.read", "operator.write", "operator.admin"])
+        );
+
+        let device_id = params["device"]["id"].as_str().expect("device id");
+        let platform = client["platform"].as_str().expect("platform");
+        let payload = build_device_auth_payload_v3(
+            device_id,
+            OPENCLAW_CLIENT_ID,
+            OPENCLAW_CLIENT_MODE,
+            OPENCLAW_CLIENT_ROLE,
+            REQUIRED_OPERATOR_SCOPES,
+            challenge.ts,
+            "",
+            &challenge.nonce,
+            platform,
+            OPENCLAW_DEVICE_FAMILY,
+        );
+        assert!(
+            payload.contains("|cli|cli|operator|"),
+            "signed payload must bind client.mode=cli, not the operator role: {payload}"
+        );
+        assert!(
+            !payload.contains("|cli|operator|operator|"),
+            "signed payload must not use operator as client_mode: {payload}"
+        );
+
+        let expected_signature =
+            sign_device_payload(&secrets.device_secret().expect("secret"), &payload)
+                .expect("signature");
+        assert_eq!(params["device"]["signature"], expected_signature);
     }
 }

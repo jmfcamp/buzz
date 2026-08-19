@@ -13,8 +13,25 @@ use sha2::{Digest, Sha256};
 pub const REQUIRED_OPERATOR_SCOPES: &[&str] =
     &["operator.read", "operator.write", "operator.admin"];
 
-/// Client id accepted by the OpenClaw connect schema.
+/// Client id accepted by the OpenClaw connect schema (`GATEWAY_CLIENT_IDS`).
 pub const OPENCLAW_CLIENT_ID: &str = "cli";
+
+/// Coarse client category for `connect.params.client.mode`.
+///
+/// OpenClaw's live `GATEWAY_CLIENT_MODES` allowlist is
+/// `webchat | cli | ui | backend | node | worker | probe | test`.
+/// `operator` is a **role**, not a mode. Official protocol docs still
+/// show `mode: "operator"` in examples; the schema rejects it with
+/// `INVALID_REQUEST: invalid connect params: at /client/mode`.
+///
+/// `cli` matches the official CLI (`id: "cli"` + `mode: "cli"`) and is
+/// the correct pairing for this non-browser desktop admin console.
+/// Remote password auth is the CLI's documented path, so this mode is
+/// not policy-blocked. The signed v3 `client_mode` must match this value.
+pub const OPENCLAW_CLIENT_MODE: &str = "cli";
+
+/// Handshake role. Distinct from [`OPENCLAW_CLIENT_MODE`].
+pub const OPENCLAW_CLIENT_ROLE: &str = "operator";
 
 /// Display name shown on the gateway pairing request.
 pub const OPENCLAW_CLIENT_DISPLAY_NAME: &str = "Hula Buzz";
@@ -331,12 +348,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn client_mode_is_allowed_and_is_not_the_operator_role() {
+        const ALLOWED: &[&str] = &[
+            "webchat", "cli", "ui", "backend", "node", "worker", "probe", "test",
+        ];
+        assert_eq!(OPENCLAW_CLIENT_MODE, "cli");
+        assert_eq!(OPENCLAW_CLIENT_ROLE, "operator");
+        assert_ne!(OPENCLAW_CLIENT_MODE, OPENCLAW_CLIENT_ROLE);
+        assert!(ALLOWED.contains(&OPENCLAW_CLIENT_MODE));
+        assert!(!ALLOWED.contains(&"operator"));
+    }
+
+    #[test]
     fn v3_payload_joins_fields() {
         let payload = build_device_auth_payload_v3(
             "abc",
-            "cli",
-            "operator",
-            "operator",
+            OPENCLAW_CLIENT_ID,
+            OPENCLAW_CLIENT_MODE,
+            OPENCLAW_CLIENT_ROLE,
             &["operator.read", "operator.write"],
             1737264000000,
             "",
@@ -346,7 +375,7 @@ mod tests {
         );
         assert_eq!(
             payload,
-            "v3|abc|cli|operator|operator|operator.read,operator.write|1737264000000||nonce-1|linux|desktop"
+            "v3|abc|cli|cli|operator|operator.read,operator.write|1737264000000||nonce-1|linux|desktop"
         );
     }
 
