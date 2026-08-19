@@ -79,30 +79,34 @@ test("settings list includes leftover bot-role members that are not in the catal
     ],
   });
 
+  assert.equal(items.length, 2);
+  const leftover = items.find((item) => item.pubkey === OLD_MO_PUBKEY);
+  const catalog = items.find((item) => item.pubkey === MO_PUBKEY);
   assert.deepEqual(
-    items.map((item) => ({
-      pubkey: item.pubkey,
-      displayName: item.displayName,
-      source: item.source,
-      archived: item.archived,
-    })),
-    [
-      {
-        pubkey: OLD_MO_PUBKEY,
-        displayName: "Mo",
-        source: "leftover",
-        archived: false,
-      },
-      {
-        pubkey: MO_PUBKEY,
-        displayName: "mo",
-        source: "catalog",
-        archived: false,
-      },
-    ],
+    { ...leftover, truncatedPubkey: leftover?.truncatedPubkey },
+    {
+      pubkey: OLD_MO_PUBKEY,
+      displayName: "Mo",
+      truncatedPubkey: truncatePubkey(OLD_MO_PUBKEY),
+      archived: false,
+      source: "leftover",
+    },
   );
-  assert.equal(items[0].truncatedPubkey, truncatePubkey(OLD_MO_PUBKEY));
-  assert.equal(items[1].truncatedPubkey, truncatePubkey(MO_PUBKEY));
+  assert.deepEqual(
+    { ...catalog, truncatedPubkey: catalog?.truncatedPubkey },
+    {
+      pubkey: MO_PUBKEY,
+      displayName: "mo",
+      truncatedPubkey: truncatePubkey(MO_PUBKEY),
+      archived: false,
+      source: "catalog",
+      catalogId: "mo",
+    },
+  );
+  assert.equal(
+    items.some((item) => item.pubkey === ADA_PUBKEY),
+    false,
+  );
 });
 
 test("catalog row wins when the same pubkey is also a leftover channel member", () => {
