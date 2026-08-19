@@ -385,7 +385,7 @@ fn parse_scope_list(value: &serde_json::Value) -> Vec<String> {
     Vec::new()
 }
 
-fn first_string(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
+pub(crate) fn first_string(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
     for key in keys {
         if let Some(text) = value.get(*key).and_then(serde_json::Value::as_str) {
             let trimmed = text.trim();
@@ -397,7 +397,7 @@ fn first_string(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
     None
 }
 
-fn first_hex_pubkey(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
+pub(crate) fn first_hex_pubkey(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
     first_string(value, keys).and_then(|raw| normalize_hex_pubkey(&raw))
 }
 

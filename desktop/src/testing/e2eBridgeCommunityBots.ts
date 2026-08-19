@@ -117,12 +117,13 @@ export function createCommunityBotsMock(options?: MockCommunityBotsOptions) {
         const provided =
           typeof payload.pubkey === "string" ? payload.pubkey : null;
         const match = remoteAgents.find((agent) => agent.id === agentId);
-        const minted = !provided && !match?.pubkey;
-        const pubkey = provided || match?.pubkey || "aa".repeat(32);
-        if (minted) {
-          mintedByAgent.set(agentId, pubkey);
+        const pubkey = provided || match?.pubkey || null;
+        if (!pubkey) {
+          throw new Error(
+            `This OpenClaw agent has no Buzz account yet. On the VPS run: openclaw channels add --channel buzz --account ${agentId}`,
+          );
         }
-        return { pubkey, minted };
+        return { pubkey, minted: false };
       }
       case "community_bots_sign_profile": {
         const agentId = String(payload.agentId ?? "");

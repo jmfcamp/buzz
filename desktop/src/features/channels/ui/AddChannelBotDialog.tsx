@@ -10,10 +10,18 @@ import {
 import { getActivePersonas } from "@/features/agents/lib/catalog";
 import { resolvePersonaRuntime } from "@/features/agents/lib/resolvePersonaRuntime";
 import { getUsableTeams } from "@/features/agents/lib/teamPersonas";
+import {
+  useAddChannelMembersMutation,
+  useChannelMembersQuery,
+} from "@/features/channels/hooks";
+import { AddChannelBotCommunitySection } from "@/features/channels/ui/AddChannelBotCommunitySection";
 import { AddChannelBotPersonasSection } from "@/features/channels/ui/AddChannelBotPersonasSection";
 import { AddChannelBotTeamsSection } from "@/features/channels/ui/AddChannelBotTeamsSection";
 import { useInChannelPersonaIds } from "@/features/channels/ui/useInChannelPersonaIds";
+import { useCommunityBotsQuery } from "@/features/community-bots/hooks";
+import { communityBotAddMemberInput } from "@/features/community-bots/lib/addCandidates";
 import type { AcpRuntime } from "@/shared/api/types";
+import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import { ChooserDialogContent } from "@/shared/ui/chooser-dialog-content";
 import { Dialog } from "@/shared/ui/dialog";
@@ -64,11 +72,24 @@ export function AddChannelBotDialog({
 }: AddChannelBotDialogProps) {
   const personasQuery = usePersonasQuery();
   const teamsQuery = useTeamsQuery();
+  const membersQuery = useChannelMembersQuery(channelId);
   const inChannelPersonaIds = useInChannelPersonaIds(
     channelId,
     open && channelId !== null,
   );
   const createBotsMutation = useCreateChannelManagedAgentsMutation(channelId);
+  const addMembersMutation = useAddChannelMembersMutation(channelId);
+  const communityBotsQuery = useCommunityBotsQuery(open && channelId !== null);
+  const inChannelBotPubkeys = React.useMemo(
+    () =>
+      new Set(
+        (membersQuery.data ?? []).map((member) =>
+          normalizePubkey(member.pubkey),
+        ),
+      ),
+    [membersQuery.data],
+  );
+  const communityBots = communityBotsQuery.data ?? [];
   const personas = React.useMemo(
     () => getActivePersonas(personasQuery.data ?? []),
     [personasQuery.data],
@@ -80,6 +101,8 @@ export function AddChannelBotDialog({
   const [selectedPersonaIds, setSelectedPersonaIds] = React.useState<string[]>(
     [],
   );
+  const [selectedCommunityPubkeys, setSelectedCommunityPubkeys] =
+    React.useState<string[]>([]);
   const [submissionNotice, setSubmissionNotice] = React.useState<string | null>(
     null,
   );
@@ -102,11 +125,19 @@ export function AddChannelBotDialog({
     );
   }, [inChannelPersonaIds, personas]);
 
+  React.useEffect(() => {
+    setSelectedCommunityPubkeys((current) =>
+      current.filter((pubkey) => !inChannelBotPubkeys.has(pubkey)),
+    );
+  }, [inChannelBotPubkeys]);
+
   function reset() {
     setSelectedPersonaIds([]);
+    setSelectedCommunityPubkeys([]);
     setSubmissionNotice(null);
     setSubmissionError(null);
     createBotsMutation.reset();
+    addMembersMutation.reset();
   }
 
   function handleOpenChange(next: boolean) {
@@ -135,7 +166,40 @@ export function AddChannelBotDialog({
   }
 
   async function handleSubmit() {
-    if (providers.length === 0 || selectedPersonas.length === 0) return;
+    setSubmissionNotice(null);
+    setSubmissionError(null);
+
+    if (selectedCommunityPubkeys.length > 0) {
+      try {
+        const result = await addMembersMutation.mutateAsync(
+          communityBotAddMemberInput(selectedCommunityPubkeys),
+        );
+        if (result.errors.length > 0) {
+          setSelectedCommunityPubkeys(
+            result.errors.map((error) => normalizePubkey(error.pubkey)),
+          );
+          setSubmissionError(
+            formatBatchFailureSummary(
+              result.errors.map((error) => ({
+                name: error.pubkey,
+                error: error.error,
+              })),
+            ),
+          );
+          return;
+        }
+        setSelectedCommunityPubkeys([]);
+      } catch {
+        return;
+      }
+    }
+
+    if (selectedPersonas.length === 0) {
+      handleOpenChange(false);
+      return;
+    }
+
+    if (providers.length === 0) return;
 
     const inputs = selectedPersonas.map((persona) => {
       const resolved = resolvePersonaRuntime(
@@ -156,9 +220,6 @@ export function AddChannelBotDialog({
         backend: { type: "local" as const },
       };
     });
-
-    setSubmissionNotice(null);
-    setSubmissionError(null);
 
     try {
       const result = await createBotsMutation.mutateAsync(inputs);
@@ -189,17 +250,21 @@ export function AddChannelBotDialog({
     }
   }
 
+  const selectedCount =
+    selectedPersonas.length + selectedCommunityPubkeys.length;
+  const isSubmitting =
+    createBotsMutation.isPending || addMembersMutation.isPending;
   const canSubmit =
-    providers.length > 0 &&
-    selectedPersonas.length > 0 &&
-    !providersLoading &&
-    !createBotsMutation.isPending;
-  const addButtonLabel = createBotsMutation.isPending
-    ? selectedPersonas.length > 1
-      ? `Adding ${selectedPersonas.length}…`
+    selectedCount > 0 &&
+    !isSubmitting &&
+    (selectedPersonas.length === 0 ||
+      (providers.length > 0 && !providersLoading));
+  const addButtonLabel = isSubmitting
+    ? selectedCount > 1
+      ? `Adding ${selectedCount}…`
       : "Adding…"
-    : selectedPersonas.length > 1
-      ? `Add ${selectedPersonas.length} agents`
+    : selectedCount > 1
+      ? `Add ${selectedCount} agents`
       : "Add agent";
 
   return (
@@ -235,8 +300,23 @@ export function AddChannelBotDialog({
         scrollAreaTestId="add-channel-bot-dialog-scroll-area"
         title="Add agents"
       >
+        <AddChannelBotCommunitySection
+          bots={communityBots}
+          canToggleSelections={!isSubmitting}
+          inChannelPubkeys={inChannelBotPubkeys}
+          isLoading={communityBotsQuery.isLoading || membersQuery.isLoading}
+          onToggleBot={(pubkey) => {
+            setSelectedCommunityPubkeys((current) =>
+              toggleValue(current, pubkey),
+            );
+            setSubmissionNotice(null);
+            setSubmissionError(null);
+          }}
+          selectedPubkeys={selectedCommunityPubkeys}
+        />
+
         <AddChannelBotPersonasSection
-          canToggleSelections={!createBotsMutation.isPending}
+          canToggleSelections={!isSubmitting}
           inChannelPersonaIds={inChannelPersonaIds}
           isLoading={personasQuery.isLoading}
           onCreateAgent={handleCreateAgent}
@@ -251,7 +331,7 @@ export function AddChannelBotDialog({
 
         {teams.length > 0 ? (
           <AddChannelBotTeamsSection
-            canToggleSelections={!createBotsMutation.isPending}
+            canToggleSelections={!isSubmitting}
             inChannelPersonaIds={inChannelPersonaIds}
             isLoading={teamsQuery.isLoading}
             onToggleTeam={handleToggleTeam}
@@ -261,7 +341,9 @@ export function AddChannelBotDialog({
           />
         ) : null}
 
-        {providers.length === 0 && !providersLoading ? (
+        {providers.length === 0 &&
+        !providersLoading &&
+        selectedCommunityPubkeys.length === 0 ? (
           <div className="flex gap-3 rounded-lg border border-warning/30 bg-warning-bg px-4 py-3">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
             <p className="text-sm text-warning">
@@ -293,6 +375,11 @@ export function AddChannelBotDialog({
         {createBotsMutation.error instanceof Error ? (
           <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             {createBotsMutation.error.message}
+          </p>
+        ) : null}
+        {addMembersMutation.error instanceof Error ? (
+          <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {addMembersMutation.error.message}
           </p>
         ) : null}
       </ChooserDialogContent>

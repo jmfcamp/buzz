@@ -19,6 +19,7 @@ import {
   mergeCommunityBots,
   resolveCommunityBotsRelayUrl,
 } from "./localCatalog";
+import { communityBotProfileLooksSecret } from "./profile";
 import type { CommunityBot, CommunityBotsPayload } from "./types";
 
 export const COMMUNITY_BOTS_D_TAG = "buzz:community-bots";
@@ -42,6 +43,13 @@ function parseBot(value: unknown): CommunityBot | null {
     return null;
   }
   if (candidate.source !== "openclaw") {
+    return null;
+  }
+  if (
+    communityBotProfileLooksSecret(id) ||
+    communityBotProfileLooksSecret(name) ||
+    communityBotProfileLooksSecret(JSON.stringify(candidate))
+  ) {
     return null;
   }
   return { id, name, pubkey, source: "openclaw" };
@@ -140,9 +148,13 @@ async function publishCommunityBotsToRelay(
       source: "openclaw",
     })),
   };
+  const serialized = JSON.stringify(payload);
+  if (communityBotProfileLooksSecret(serialized)) {
+    throw new Error("community bot catalog must not include secrets");
+  }
   const event = await signRelayEvent({
     kind: KIND_COMMUNITY_BOTS,
-    content: JSON.stringify(payload),
+    content: serialized,
     tags: [["d", COMMUNITY_BOTS_D_TAG]],
   });
   await relayClient.publishEvent(

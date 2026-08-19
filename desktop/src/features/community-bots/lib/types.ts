@@ -65,6 +65,35 @@ export type ResolvedBotIdentity = {
   minted: boolean;
 };
 
+export const MISSING_BUZZ_ACCOUNT_COMMAND =
+  "openclaw channels add --channel buzz --account";
+
+export function missingBuzzAccountMessage(agentId: string): string {
+  return `This OpenClaw agent has no Buzz account yet. On the VPS run: ${MISSING_BUZZ_ACCOUNT_COMMAND} ${agentId}`;
+}
+
+export function isMissingBuzzAccountError(error: unknown): boolean {
+  const message = (
+    error instanceof Error ? error.message : String(error)
+  ).toLowerCase();
+  return (
+    message.includes("no buzz account") ||
+    message.includes(MISSING_BUZZ_ACCOUNT_COMMAND)
+  );
+}
+
+/** Accept a confirmed 64-char hex pubkey only — never an nsec or npub. */
+export function parseConfirmedPublicHex(value: string): string | null {
+  const trimmed = value.trim().toLowerCase();
+  if (trimmed.startsWith("nsec1") || trimmed.startsWith("npub1")) {
+    return null;
+  }
+  if (/^[0-9a-f]{64}$/.test(trimmed)) {
+    return trimmed;
+  }
+  return null;
+}
+
 export const REQUIRED_OPERATOR_SCOPES = [
   "operator.read",
   "operator.write",

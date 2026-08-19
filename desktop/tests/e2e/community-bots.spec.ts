@@ -1,7 +1,23 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { installMockBridge } from "../helpers/bridge";
 import { openSettings } from "../helpers/settings";
+
+type CommandLogEntry = {
+  command: string;
+  payload?: Record<string, unknown>;
+};
+
+async function readCommandLog(page: Page) {
+  return page.evaluate(
+    () =>
+      (
+        window as Window & {
+          __BUZZ_E2E_COMMAND_LOG__?: CommandLogEntry[];
+        }
+      ).__BUZZ_E2E_COMMAND_LOG__ ?? [],
+  );
+}
 
 test("hides Bots settings from regular members", async ({ page }) => {
   await installMockBridge(page, {
@@ -114,4 +130,74 @@ test("admin can open Bots and any member can add an installed bot to a channel",
     page.getByTestId(`channel-user-search-result-${"22".repeat(32)}`),
   ).toBeVisible();
   await expect(page.getByText("Mo", { exact: true })).toBeVisible();
+
+  await page
+    .getByTestId(`channel-user-search-result-${"22".repeat(32)}`)
+    .click();
+  await expect
+    .poll(async () =>
+      (await readCommandLog(page)).filter(
+        (entry) => entry.command === "add_channel_members",
+      ),
+    )
+    .toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          command: "add_channel_members",
+          payload: expect.objectContaining({
+            pubkeys: ["22".repeat(32)],
+            role: "bot",
+          }),
+        }),
+      ]),
+    );
+});
+
+test("Install uses the VPS pubkey and does not mint an nsec", async ({
+  page,
+}) => {
+  await installMockBridge(page, {
+    relayRequiresMembership: true,
+    relayRole: "owner",
+    communityBots: { startConnected: true },
+  });
+  await page.goto("/");
+  await openSettings(page, "bots");
+
+  await page.getByTestId("settings-bots-install-mo").click();
+  await expect(page.getByTestId("settings-bots-installed-mo")).toBeVisible();
+
+  const resolveCalls = (await readCommandLog(page)).filter(
+    (entry) => entry.command === "community_bots_resolve_identity",
+  );
+  expect(resolveCalls).toHaveLength(1);
+  expect(resolveCalls[0]?.payload).toEqual(
+    expect.objectContaining({
+      agentId: "mo",
+      pubkey: "22".repeat(32),
+    }),
+  );
+});
+
+test("agents without a VPS Buzz pubkey must not mint", async ({ page }) => {
+  await installMockBridge(page, {
+    relayRequiresMembership: true,
+    relayRole: "owner",
+    communityBots: {
+      startConnected: true,
+      remoteAgents: [{ id: "wayfinder", name: "Wayfinder", pubkey: null }],
+    },
+  });
+  await page.goto("/");
+  await openSettings(page, "bots");
+
+  await expect(
+    page.getByTestId("settings-bots-agent-missing-wayfinder"),
+  ).toContainText("openclaw channels add --channel buzz --account wayfinder");
+  await expect(
+    page.getByTestId("settings-bots-install-wayfinder"),
+  ).toBeDisabled();
+  await expect(
+    page.getByTestId("settings-bots-agent-pubkey-wayfinder"),
+  ).toBeVisible();
 });

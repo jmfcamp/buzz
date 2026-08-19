@@ -15,12 +15,15 @@ import {
 import {
   defaultRemoteAgentName,
   MAX_COMMUNITY_BOT_NAME_LEN,
+  missingBuzzAccountMessage,
   pairingRequestIdLabel,
+  parseConfirmedPublicHex,
   type CommunityBot,
   type RemoteOpenClawAgent,
 } from "@/features/community-bots/lib/types";
 import { SettingsOptionGroup } from "@/features/settings/ui/SettingsOptionGroup";
 import { SettingsSectionHeader } from "@/features/settings/ui/SettingsSectionHeader";
+import { truncatePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 
@@ -45,6 +48,9 @@ export function BotsSettingsCard() {
   const [draftNames, setDraftNames] = React.useState<Record<string, string>>(
     {},
   );
+  const [draftPubkeys, setDraftPubkeys] = React.useState<
+    Record<string, string>
+  >({});
 
   React.useEffect(() => {
     if (status?.url && !url) {
@@ -115,10 +121,22 @@ export function BotsSettingsCard() {
     return draftNames[bot.id] ?? bot.name;
   }
 
+  function pubkeyForAgent(agent: RemoteOpenClawAgent): string | null {
+    return (
+      parseConfirmedPublicHex(agent.pubkey ?? "") ??
+      parseConfirmedPublicHex(draftPubkeys[agent.id] ?? "")
+    );
+  }
+
   async function handleInstall(agent: RemoteOpenClawAgent) {
     const name = nameForAgent(agent);
+    const pubkey = pubkeyForAgent(agent);
+    if (!pubkey) {
+      toast.error(missingBuzzAccountMessage(agent.id));
+      return;
+    }
     try {
-      await installMutation.mutateAsync({ agent, name });
+      await installMutation.mutateAsync({ agent, name, pubkey });
       toast.success(`Installed ${name} as a community bot.`);
     } catch (error) {
       toast.error(
@@ -155,7 +173,7 @@ export function BotsSettingsCard() {
   return (
     <section className="min-w-0" data-testid="settings-bots">
       <SettingsSectionHeader
-        description="Connect an OpenClaw gateway so its remote agents can be installed as community members. The VPS keeps them talking; this device is only the admin console."
+        description="Connect an OpenClaw gateway and install its VPS Buzz public identity as a community member. The gateway keeps talking; this device is only the admin console."
         title="Bots"
       />
 
@@ -336,6 +354,7 @@ export function BotsSettingsCard() {
                 ) : (
                   remoteAgents.map((agent) => {
                     const bot = installedById.get(agent.id);
+                    const vpsPubkey = pubkeyForAgent(agent);
                     return (
                       <div
                         className="flex flex-wrap items-center gap-3 px-4 py-3"
@@ -359,7 +378,39 @@ export function BotsSettingsCard() {
                           />
                           <p className="truncate font-mono text-2xs text-muted-foreground">
                             {agent.id}
+                            {vpsPubkey ? ` · ${truncatePubkey(vpsPubkey)}` : ""}
                           </p>
+                          {bot || vpsPubkey ? null : (
+                            <div className="space-y-1">
+                              <p
+                                className="text-2xs text-muted-foreground"
+                                data-testid={`settings-bots-agent-missing-${agent.id}`}
+                              >
+                                No Buzz account on the VPS. Run{" "}
+                                <code className="font-mono">
+                                  openclaw channels add --channel buzz --account{" "}
+                                  {agent.id}
+                                </code>{" "}
+                                or paste the 64-character public hex (never an
+                                nsec).
+                              </p>
+                              <Input
+                                aria-label={`${agent.id} public hex`}
+                                autoCapitalize="none"
+                                autoCorrect="off"
+                                data-testid={`settings-bots-agent-pubkey-${agent.id}`}
+                                onChange={(event) =>
+                                  setDraftPubkeys((current) => ({
+                                    ...current,
+                                    [agent.id]: event.target.value,
+                                  }))
+                                }
+                                placeholder="Public hex only"
+                                spellCheck={false}
+                                value={draftPubkeys[agent.id] ?? ""}
+                              />
+                            </div>
+                          )}
                         </div>
                         {bot ? (
                           <span
@@ -373,7 +424,8 @@ export function BotsSettingsCard() {
                             data-testid={`settings-bots-install-${agent.id}`}
                             disabled={
                               installMutation.isPending ||
-                              !nameForAgent(agent).trim()
+                              !nameForAgent(agent).trim() ||
+                              !vpsPubkey
                             }
                             onClick={() => void handleInstall(agent)}
                             size="sm"

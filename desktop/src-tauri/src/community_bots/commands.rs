@@ -9,14 +9,15 @@ use crate::app_state::AppState;
 use crate::relay::relay_ws_url_with_override;
 
 use super::client::{connect_failure_outcome, handshake, list_remote_agents, ConnectOutcome};
+use super::identity::resolve_vps_bot_identity;
 use super::protocol::{
-    normalize_hex_pubkey, relay_host_key, validate_gateway_url, RemoteAgent,
-    REQUIRED_OPERATOR_SCOPES,
+    relay_host_key, validate_gateway_url, RemoteAgent, REQUIRED_OPERATOR_SCOPES,
 };
 use super::store::{
-    delete_gateway, load_gateway, load_minted_secret, store_gateway, store_minted_secret,
-    GatewaySecrets,
+    delete_gateway, load_gateway, load_minted_secret, store_gateway, GatewaySecrets,
 };
+
+pub use super::identity::ResolvedBotIdentity;
 
 /// Connection state returned to the settings UI.
 #[derive(Debug, Clone, Serialize)]
@@ -36,16 +37,6 @@ pub struct CommunityBotsStatus {
     pub requested_scopes: Vec<String>,
     /// Scopes granted by the last successful hello-ok.
     pub approved_scopes: Vec<String>,
-}
-
-/// Identity used when installing a remote agent as a member.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ResolvedBotIdentity {
-    /// Hex pubkey to add as a community member.
-    pub pubkey: String,
-    /// True when this desktop minted the key because the VPS had none.
-    pub minted: bool,
 }
 
 fn requested_scopes() -> Vec<String> {
@@ -193,38 +184,16 @@ pub async fn community_bots_list_remote_agents(
     list_remote_agents(&secrets).await
 }
 
-/// Bind to a VPS Nostr identity or mint the smallest member key.
+/// Bind to the VPS Buzz public identity. Never mints an nsec on this device.
+///
+/// `pubkey` is the hex key from `channels.status` / a confirmed admin paste.
+/// A previously minted Mac key is ignored — those members stay offline.
 #[tauri::command]
 pub fn community_bots_resolve_identity(
-    state: State<'_, AppState>,
     agent_id: String,
     pubkey: Option<String>,
 ) -> Result<ResolvedBotIdentity, String> {
-    let host = relay_host(&state);
-    let agent_id = agent_id.trim();
-    if agent_id.is_empty() {
-        return Err("agent id is required".into());
-    }
-    if let Some(hex) = pubkey.as_deref().and_then(normalize_hex_pubkey) {
-        return Ok(ResolvedBotIdentity {
-            pubkey: hex,
-            minted: false,
-        });
-    }
-    if let Some(secret_hex) = load_minted_secret(&host, agent_id)? {
-        let keys = Keys::parse(secret_hex.trim())
-            .map_err(|error| format!("stored bot identity is invalid: {error}"))?;
-        return Ok(ResolvedBotIdentity {
-            pubkey: keys.public_key().to_hex(),
-            minted: true,
-        });
-    }
-    let keys = Keys::generate();
-    store_minted_secret(&host, agent_id, &keys.secret_key().to_secret_hex())?;
-    Ok(ResolvedBotIdentity {
-        pubkey: keys.public_key().to_hex(),
-        minted: true,
-    })
+    resolve_vps_bot_identity(&agent_id, pubkey.as_deref())
 }
 
 /// Sign a kind:0 profile as the minted bot key stored for this agent.
@@ -456,6 +425,23 @@ mod tests {
         let event = Event::from_json(&ok).expect("event json");
         let content: serde_json::Value = serde_json::from_str(&event.content).expect("content");
         assert_eq!(content["name"], "captain");
+    }
+
+    #[test]
+    fn resolve_identity_uses_vps_pubkey_and_does_not_mint() {
+        let vps = "22aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let resolved = community_bots_resolve_identity("mo".into(), Some(vps.into())).expect("vps");
+        assert_eq!(resolved.pubkey, vps);
+        assert!(
+            !resolved.minted,
+            "Install must not persist an nsec when the VPS pubkey is known"
+        );
+        let missing =
+            community_bots_resolve_identity("captain".into(), None).expect_err("no mint fallback");
+        assert!(
+            missing.contains("openclaw channels add --channel buzz --account captain"),
+            "{missing}"
+        );
     }
 
     #[test]

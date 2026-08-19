@@ -10,6 +10,9 @@ use serde_json::{json, Value};
 use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::{protocol::CloseFrame, Message};
 
+use super::identity::{
+    attach_buzz_identities, merge_buzz_identity_sources, strip_config_secrets, BuzzIdentity,
+};
 use super::protocol::{
     build_device_auth_payload_v3, device_id_from_public_key, parse_agents_list,
     parse_connect_challenge, parse_hello_auth, parse_pairing_required,
@@ -59,7 +62,7 @@ pub async fn handshake(secrets: &GatewaySecrets) -> Result<ConnectOutcome, Strin
 pub async fn list_remote_agents(secrets: &GatewaySecrets) -> Result<Vec<RemoteAgent>, String> {
     let mut session = GatewaySession::connect(&secrets.url).await?;
     match session.authenticate(secrets).await? {
-        ConnectOutcome::Connected { .. } => session.agents_list().await,
+        ConnectOutcome::Connected { .. } => session.list_agents_with_buzz_identities().await,
         ConnectOutcome::Pending { request_id, .. } => Err(format!(
             "gateway pairing still pending (request {request_id})"
         )),
@@ -116,28 +119,62 @@ impl GatewaySession {
         interpret_connect_response(response)
     }
 
-    async fn agents_list(&mut self) -> Result<Vec<RemoteAgent>, String> {
+    async fn rpc(&mut self, method: &str, params: Value) -> Result<Value, String> {
         let request_id = self.next_request_id();
         let frame = json!({
             "type": "req",
             "id": request_id,
-            "method": "agents.list",
-            "params": {}
+            "method": method,
+            "params": params
         });
         self.write
             .send(Message::Text(frame.to_string().into()))
             .await
-            .map_err(|error| format!("failed to request agents.list: {error}"))?;
+            .map_err(|error| format!("failed to request {method}: {error}"))?;
         let response = self.wait_for_response(&request_id).await?;
         if response.get("ok").and_then(Value::as_bool) != Some(true) {
             let message = response
                 .pointer("/error/message")
                 .and_then(Value::as_str)
-                .unwrap_or("agents.list failed");
-            return Err(message.to_string());
+                .unwrap_or("gateway method failed");
+            return Err(format!("{method}: {message}"));
         }
-        let payload = response.get("payload").cloned().unwrap_or(Value::Null);
+        Ok(response.get("payload").cloned().unwrap_or(Value::Null))
+    }
+
+    async fn agents_list(&mut self) -> Result<Vec<RemoteAgent>, String> {
+        let payload = self.rpc("agents.list", json!({})).await?;
         parse_agents_list(&payload)
+    }
+
+    async fn list_agents_with_buzz_identities(&mut self) -> Result<Vec<RemoteAgent>, String> {
+        let mut agents = self.agents_list().await?;
+        let identities = self.fetch_buzz_identities().await;
+        attach_buzz_identities(&mut agents, &identities);
+        Ok(agents)
+    }
+
+    /// Live `channels.status`, then secret-stripped `config.get`.
+    ///
+    /// Failures here must not block the agent list — Install can still ask
+    /// the admin to paste a public hex.
+    async fn fetch_buzz_identities(&mut self) -> Vec<BuzzIdentity> {
+        let status = self
+            .rpc("channels.status", json!({ "channel": "buzz" }))
+            .await
+            .ok();
+        let config = if status
+            .as_ref()
+            .is_some_and(|payload| !merge_buzz_identity_sources(Some(payload), None).is_empty())
+        {
+            None
+        } else {
+            self.rpc("config.get", json!({}))
+                .await
+                .ok()
+                .map(|payload| strip_config_secrets(&payload))
+        };
+        merge_buzz_identity_sources(status.as_ref(), config.as_ref())
     }
 
     fn next_request_id(&mut self) -> String {

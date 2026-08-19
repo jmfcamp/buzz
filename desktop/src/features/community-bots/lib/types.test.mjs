@@ -3,8 +3,11 @@ import test from "node:test";
 
 import {
   defaultRemoteAgentName,
+  isMissingBuzzAccountError,
+  missingBuzzAccountMessage,
   MISSING_PAIRING_REQUEST_ID,
   pairingRequestIdLabel,
+  parseConfirmedPublicHex,
 } from "./types.ts";
 
 test("defaultRemoteAgentName prefers OpenClaw name then agent id", () => {
@@ -16,6 +19,23 @@ test("defaultRemoteAgentName prefers OpenClaw name then agent id", () => {
   assert.equal(
     defaultRemoteAgentName({ id: "wayfinder", name: "" }),
     "wayfinder",
+  );
+});
+
+test("confirmed public hex rejects nsec and accepts 64-char hex", () => {
+  const hex = "22".repeat(32);
+  assert.equal(parseConfirmedPublicHex(hex), hex);
+  assert.equal(parseConfirmedPublicHex(` ${hex.toUpperCase()} `), hex);
+  assert.equal(parseConfirmedPublicHex("nsec1notallowed"), null);
+  assert.equal(parseConfirmedPublicHex("npub1notallowed"), null);
+  assert.equal(parseConfirmedPublicHex("zz".repeat(32)), null);
+  assert.match(
+    missingBuzzAccountMessage("mo"),
+    /openclaw channels add --channel buzz --account mo/,
+  );
+  assert.equal(
+    isMissingBuzzAccountError(new Error(missingBuzzAccountMessage("mo"))),
+    true,
   );
 });
 

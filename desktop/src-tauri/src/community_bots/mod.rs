@@ -5,6 +5,7 @@
 
 mod client;
 mod commands;
+mod identity;
 mod protocol;
 mod store;
 

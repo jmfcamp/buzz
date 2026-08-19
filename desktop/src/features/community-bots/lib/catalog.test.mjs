@@ -20,6 +20,24 @@ import { communityBotsStorageKey } from "./localCatalog.ts";
 
 const MO_PUBKEY = "22".repeat(32);
 
+test("parseCommunityBotsPayload drops secret-looking catalog rows", () => {
+  const bots = parseCommunityBotsPayload(
+    JSON.stringify({
+      version: 1,
+      bots: [
+        {
+          id: "mo",
+          name: "nsec1notallowed",
+          pubkey: MO_PUBKEY,
+          source: "openclaw",
+          privateKey: "aa".repeat(32),
+        },
+      ],
+    }),
+  );
+  assert.deepEqual(bots, []);
+});
+
 test("parseCommunityBotsPayload keeps valid openclaw bots", () => {
   const bots = parseCommunityBotsPayload(
     JSON.stringify({
