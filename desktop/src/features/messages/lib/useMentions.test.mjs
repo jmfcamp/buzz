@@ -6,7 +6,15 @@ import {
   getMentionOffsets,
   hasMention,
 } from "./hasMention.ts";
-import { extractMentionPubkeys } from "./extractMentionPubkeys.ts";
+import {
+  admitSendMentionPubkeys,
+  extractMentionPubkeys,
+} from "./extractMentionPubkeys.ts";
+
+const MO = "d5c385179f67f8965e567c6721bd93f494bc74ef0ed67499b5842589564083ae";
+const FIZZ = "1".repeat(64);
+const NON_MEMBER_AGENT = "2".repeat(64);
+const ADA = "3".repeat(64);
 
 // ── Plain @mention ────────────────────────────────────────────────────
 
@@ -178,6 +186,95 @@ test("manual prefix mentions choose the longest name at each offset", () => {
   });
 
   assert.deepEqual(pubkeys, ["fast-fizz-pubkey", "codex-pubkey"]);
+});
+
+test("admitSendMentionPubkeys: picker-selected catalog bot current member stays admitted", () => {
+  assert.deepEqual(
+    admitSendMentionPubkeys({
+      text: "@mo test",
+      selectedMentions: new Map([["mo", MO]]),
+      memberCandidates: [
+        {
+          displayName: "mo",
+          isMember: true,
+          pubkey: MO,
+        },
+      ],
+      agentIdentityPubkeys: new Set([MO]),
+      selectedAgentPubkeys: new Set([MO]),
+      admittedAgentPubkeys: new Set(),
+      memberPubkeys: [MO, ADA],
+      managedAgentPubkeys: [],
+      relayAgents: [],
+    }),
+    [MO],
+  );
+});
+
+test("admitSendMentionPubkeys: managed agents still require directory admission", () => {
+  const memberCandidates = [
+    { displayName: "Fizz", isMember: true, pubkey: FIZZ },
+    { displayName: "mo", isMember: true, pubkey: MO },
+  ];
+
+  assert.deepEqual(
+    admitSendMentionPubkeys({
+      text: "@Fizz @mo",
+      selectedMentions: new Map([
+        ["Fizz", FIZZ],
+        ["mo", MO],
+      ]),
+      memberCandidates,
+      agentIdentityPubkeys: new Set([FIZZ, MO]),
+      selectedAgentPubkeys: new Set([FIZZ, MO]),
+      admittedAgentPubkeys: new Set([FIZZ]),
+      memberPubkeys: [FIZZ, MO],
+      managedAgentPubkeys: [FIZZ],
+      relayAgents: [],
+    }),
+    [FIZZ, MO],
+  );
+
+  assert.deepEqual(
+    admitSendMentionPubkeys({
+      text: "@Fizz @mo",
+      selectedMentions: new Map([
+        ["Fizz", FIZZ],
+        ["mo", MO],
+      ]),
+      memberCandidates,
+      agentIdentityPubkeys: new Set([FIZZ, MO]),
+      selectedAgentPubkeys: new Set([FIZZ, MO]),
+      admittedAgentPubkeys: new Set(),
+      memberPubkeys: [FIZZ, MO],
+      managedAgentPubkeys: [FIZZ],
+      relayAgents: [],
+    }),
+    [MO],
+  );
+});
+
+test("admitSendMentionPubkeys: non-member agents stay gated", () => {
+  assert.deepEqual(
+    admitSendMentionPubkeys({
+      text: "@Remote @mo",
+      selectedMentions: new Map([
+        ["Remote", NON_MEMBER_AGENT],
+        ["mo", MO],
+      ]),
+      memberCandidates: [
+        { displayName: "mo", isMember: true, pubkey: MO },
+        { displayName: "Remote", isMember: false, pubkey: NON_MEMBER_AGENT },
+      ],
+      agentIdentityPubkeys: new Set([MO, NON_MEMBER_AGENT]),
+      selectedAgentPubkeys: new Set([MO, NON_MEMBER_AGENT]),
+      admittedAgentPubkeys: new Set(),
+      memberPubkeys: [MO],
+      managedAgentPubkeys: [],
+      relayAgents: [],
+    }),
+    [MO],
+  );
 });
 
 test("keeps manually typed prefix member mentions at distinct offsets", () => {
