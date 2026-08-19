@@ -11,9 +11,10 @@ import {
   useInstallCommunityBotMutation,
   useUninstallCommunityBotMutation,
 } from "@/features/community-bots/hooks";
-import type {
-  CommunityBot,
-  RemoteOpenClawAgent,
+import {
+  pairingRequestIdLabel,
+  type CommunityBot,
+  type RemoteOpenClawAgent,
 } from "@/features/community-bots/lib/types";
 import { SettingsOptionGroup } from "@/features/settings/ui/SettingsOptionGroup";
 import { SettingsSectionHeader } from "@/features/settings/ui/SettingsSectionHeader";
@@ -234,8 +235,8 @@ export function BotsSettingsCard() {
                 data-testid="settings-bots-pending"
               >
                 <p className="text-sm text-muted-foreground">
-                  Approve this exact device request on the OpenClaw gateway.
-                  Approving a read-only health check will not work.
+                  Approve this device on the OpenClaw gateway. Approving a
+                  read-only health check will not work.
                 </p>
                 <p className="text-sm">
                   Request id:{" "}
@@ -243,7 +244,16 @@ export function BotsSettingsCard() {
                     className="rounded bg-muted px-1.5 py-0.5 font-mono text-2xs"
                     data-testid="settings-bots-request-id"
                   >
-                    {status?.requestId}
+                    {pairingRequestIdLabel(status?.requestId)}
+                  </code>
+                </p>
+                <p className="text-sm">
+                  Device id:{" "}
+                  <code
+                    className="rounded bg-muted px-1.5 py-0.5 font-mono text-2xs"
+                    data-testid="settings-bots-device-id"
+                  >
+                    {status?.deviceId || "unavailable"}
                   </code>
                 </p>
                 <p className="text-sm">
@@ -252,6 +262,20 @@ export function BotsSettingsCard() {
                     {(status?.requestedScopes ?? []).join(", ")}
                   </span>
                 </p>
+                {!status?.requestId?.trim() ? (
+                  <p className="text-sm text-muted-foreground">
+                    The gateway did not send a request id. Run{" "}
+                    <code className="font-mono text-2xs">
+                      openclaw devices list
+                    </code>{" "}
+                    and approve the Hula Buzz row whose Device ID matches the
+                    one on screen (or{" "}
+                    <code className="font-mono text-2xs">
+                      openclaw devices approve --latest
+                    </code>{" "}
+                    if only one pending).
+                  </p>
+                ) : null}
               </div>
             </SettingsOptionGroup>
           ) : null}

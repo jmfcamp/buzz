@@ -22,11 +22,15 @@ export type MockCommunityBotsOptions = {
   connectResult?: "pending" | "connected" | "insufficient_scopes";
 };
 
+export const DEFAULT_COMMUNITY_BOT_DEVICE_ID =
+  "0736ef3394efb187aea8d47e3df7151a5f92b837a9d3448ad0ee6e6124c53f91";
+
 export type CommunityBotsStatus = {
   state: "disconnected" | "pending" | "connected" | "insufficient_scopes";
   url: string | null;
   hasPassword: boolean;
   requestId: string | null;
+  deviceId: string | null;
   requestedScopes: string[];
   approvedScopes: string[];
 };
@@ -59,6 +63,8 @@ export function createCommunityBotsMock(options?: MockCommunityBotsOptions) {
       url,
       hasPassword,
       requestId,
+      deviceId:
+        state === "disconnected" ? null : DEFAULT_COMMUNITY_BOT_DEVICE_ID,
       requestedScopes: DEFAULT_COMMUNITY_BOT_SCOPES,
       approvedScopes: approved ? [...DEFAULT_COMMUNITY_BOT_SCOPES] : [],
     };

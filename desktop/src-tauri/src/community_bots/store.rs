@@ -9,8 +9,8 @@ use crate::app_state::keyring_service;
 use crate::secret_store::SecretStore;
 
 use super::protocol::{
-    decode_device_secret, encode_device_secret, gateway_secret_key, generate_device_secret,
-    minted_identity_secret_key,
+    decode_device_secret, device_id_from_public_key, encode_device_secret, gateway_secret_key,
+    generate_device_secret, minted_identity_secret_key, public_key_from_secret,
 };
 
 /// Stored gateway connection for one community relay.
@@ -59,6 +59,12 @@ impl GatewaySecrets {
     /// Decode the persisted device secret.
     pub fn device_secret(&self) -> Result<[u8; 32], String> {
         decode_device_secret(&self.device_private_key)
+    }
+
+    /// OpenClaw device id: SHA-256 of the raw 32-byte Ed25519 public key, hex.
+    pub fn device_id(&self) -> Result<String, String> {
+        let public_key = public_key_from_secret(&self.device_secret()?);
+        Ok(device_id_from_public_key(&public_key))
     }
 }
 

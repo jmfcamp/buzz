@@ -163,10 +163,16 @@ pub struct ConnectChallenge {
 #[serde(rename_all = "camelCase")]
 pub struct PairingRequired {
     /// Exact pending request id to approve on the gateway.
+    ///
+    /// Empty when the gateway omitted it. The connect is still pending —
+    /// the admin matches this desktop's device id instead.
     pub request_id: String,
     /// Scopes this connect asked for (not a previous read-only request).
     pub requested_scopes: Vec<String>,
 }
+
+/// Codes the live OpenClaw gateway uses for "approve this device".
+const PAIRING_ERROR_CODES: &[&str] = &["PAIRING_REQUIRED", "NOT_PAIRED"];
 
 /// One remote OpenClaw agent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -200,27 +206,108 @@ pub fn parse_connect_challenge(payload: &serde_json::Value) -> Result<ConnectCha
     })
 }
 
-/// Extract PAIRING_REQUIRED details from a gateway error object.
+/// Extract pairing-required details from a gateway error object.
+///
+/// Live gateways return `NOT_PAIRED` with
+/// `pairing required: device is not approved yet`. Official docs still
+/// use `PAIRING_REQUIRED` plus `details.requestId`. Either is pending —
+/// a missing request id must not fail the connect.
 pub fn parse_pairing_required(error: &serde_json::Value) -> Option<PairingRequired> {
+    let details = error.get("details").unwrap_or(error);
     let code = error
         .get("code")
         .and_then(serde_json::Value::as_str)
-        .or_else(|| {
-            error
-                .get("details")
-                .and_then(|details| details.get("code"))
-                .and_then(serde_json::Value::as_str)
-        })?;
-    if code != "PAIRING_REQUIRED" {
+        .or_else(|| details.get("code").and_then(serde_json::Value::as_str))
+        .unwrap_or("");
+    let blob = flatten_error_text(error);
+    if !is_pairing_error_code(code) && !looks_like_pairing_required(&blob) {
         return None;
     }
-    let details = error.get("details").unwrap_or(error);
-    let request_id = first_string(details, &["requestId", "request_id"])?;
+    let request_id = first_string(details, &["requestId", "request_id"])
+        .or_else(|| first_string(error, &["requestId", "request_id"]))
+        .or_else(|| extract_request_id_from_text(&blob))
+        .unwrap_or_default();
     let requested_scopes = parse_scope_list(details);
     Some(PairingRequired {
         request_id,
         requested_scopes,
     })
+}
+
+/// Parse pairing from a close reason, formatted error, or JSON blob.
+pub fn parse_pairing_required_from_text(text: &str) -> Option<PairingRequired> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        if let Some(pairing) = parse_pairing_required(&value) {
+            return Some(pairing);
+        }
+        if let Some(error) = value.get("error") {
+            if let Some(pairing) = parse_pairing_required(error) {
+                return Some(pairing);
+            }
+        }
+    }
+    if !looks_like_pairing_required(trimmed) {
+        return None;
+    }
+    Some(PairingRequired {
+        request_id: extract_request_id_from_text(trimmed).unwrap_or_default(),
+        requested_scopes: Vec::new(),
+    })
+}
+
+fn is_pairing_error_code(code: &str) -> bool {
+    PAIRING_ERROR_CODES
+        .iter()
+        .any(|known| code.eq_ignore_ascii_case(known))
+}
+
+/// Message / close-reason phrases that mean "approve this device".
+fn looks_like_pairing_required(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    lower.contains("pairing required")
+        || lower.contains("not approved")
+        || lower.contains("not-paired")
+        || lower.contains("not_paired")
+}
+
+fn flatten_error_text(error: &serde_json::Value) -> String {
+    let mut parts = Vec::new();
+    for key in ["code", "message", "reason"] {
+        if let Some(text) = error.get(key).and_then(serde_json::Value::as_str) {
+            parts.push(text.to_string());
+        }
+    }
+    if let Some(details) = error.get("details") {
+        for key in ["code", "message", "reason", "requestId", "request_id"] {
+            if let Some(text) = details.get(key).and_then(serde_json::Value::as_str) {
+                parts.push(text.to_string());
+            }
+        }
+    }
+    parts.join(" ")
+}
+
+fn extract_request_id_from_text(text: &str) -> Option<String> {
+    let lower = text.to_ascii_lowercase();
+    for needle in ["requestid", "request_id", "request id"] {
+        let Some(idx) = lower.find(needle) else {
+            continue;
+        };
+        let rest = text[idx + needle.len()..].trim_start();
+        let rest = rest.trim_start_matches([':', '=', ' ', '\t', '"', '\'']);
+        let id: String = rest
+            .chars()
+            .take_while(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
+            .collect();
+        if !id.is_empty() {
+            return Some(id);
+        }
+    }
+    None
 }
 
 /// Parse `hello-ok.auth.scopes` and optional `deviceToken`.
@@ -469,6 +556,71 @@ mod tests {
         let parsed = parse_pairing_required(&error).expect("pairing");
         assert_eq!(parsed.request_id, "req-456");
         assert_eq!(parsed.requested_scopes, vec!["operator.write"]);
+    }
+
+    #[test]
+    fn pairing_required_accepts_not_paired_and_pairing_required() {
+        let not_paired = serde_json::json!({
+            "code": "NOT_PAIRED",
+            "message": "pairing required: device is not approved yet",
+            "details": {
+                "requestId": "req-not-paired",
+                "scopes": ["operator.read", "operator.write", "operator.admin"]
+            }
+        });
+        let parsed = parse_pairing_required(&not_paired).expect("NOT_PAIRED");
+        assert_eq!(parsed.request_id, "req-not-paired");
+        assert_eq!(
+            parsed.requested_scopes,
+            vec!["operator.read", "operator.write", "operator.admin"]
+        );
+
+        let pairing_required = serde_json::json!({
+            "code": "PAIRING_REQUIRED",
+            "details": { "requestId": "req-official" }
+        });
+        let parsed = parse_pairing_required(&pairing_required).expect("PAIRING_REQUIRED");
+        assert_eq!(parsed.request_id, "req-official");
+    }
+
+    #[test]
+    fn not_paired_without_request_id_is_still_pending() {
+        let error = serde_json::json!({
+            "code": "NOT_PAIRED",
+            "message": "pairing required: device is not approved yet"
+        });
+        let parsed = parse_pairing_required(&error).expect("pairing without request id");
+        assert!(parsed.request_id.is_empty(), "{}", parsed.request_id);
+        assert!(parsed.requested_scopes.is_empty());
+    }
+
+    #[test]
+    fn pairing_from_close_reason_and_formatted_error() {
+        let close = "OpenClaw gateway closed the connection (1008): pairing required: device is not approved yet";
+        let parsed = parse_pairing_required_from_text(close).expect("close reason");
+        assert!(parsed.request_id.is_empty());
+
+        let formatted = "NOT_PAIRED: pairing required: device is not approved yet";
+        let parsed = parse_pairing_required_from_text(formatted).expect("formatted");
+        assert!(parsed.request_id.is_empty());
+
+        let with_id = r#"{"code":"NOT_PAIRED","message":"not approved","details":{"request_id":"from-text"}}"#;
+        let parsed = parse_pairing_required_from_text(with_id).expect("json text");
+        assert_eq!(parsed.request_id, "from-text");
+
+        assert!(
+            parse_pairing_required_from_text("timed out waiting for connect.challenge").is_none()
+        );
+    }
+
+    #[test]
+    fn request_id_extracted_from_message_text() {
+        let error = serde_json::json!({
+            "code": "NOT_PAIRED",
+            "message": "pairing required: requestId=abc-99 device is not approved yet"
+        });
+        let parsed = parse_pairing_required(&error).expect("pairing");
+        assert_eq!(parsed.request_id, "abc-99");
     }
 
     #[test]
