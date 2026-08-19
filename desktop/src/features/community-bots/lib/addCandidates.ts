@@ -4,11 +4,11 @@ import type { CommunityBot } from "./types";
 
 export type CommunityBotAddCandidate = {
   pubkey: string;
-  displayName: string | null;
-  avatarUrl: string | null;
-  nip05Handle: string | null;
-  ownerPubkey: string | null;
-  isAgent: true;
+  displayName?: string | null;
+  avatarUrl?: string | null;
+  nip05Handle?: string | null;
+  ownerPubkey?: string | null;
+  isAgent?: boolean;
 };
 
 export function communityBotMatchesQuery(
