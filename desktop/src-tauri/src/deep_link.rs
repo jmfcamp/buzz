@@ -6,6 +6,10 @@ use url::Url;
 
 use crate::nostr_bind;
 
+/// Desktop URL scheme registered in `tauri.conf.json`. Distinct from official
+/// Buzz (`buzz://`) so this build can sit side-by-side without stealing links.
+const DEEP_LINK_SCHEME: &str = "hulabuzz";
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PendingCommunityDeepLink {
@@ -576,11 +580,11 @@ fn parse_nostr_bind_deep_link(url: &Url) -> Result<NostrBindDeepLinkPayload, Str
     })
 }
 
-/// Handle an incoming `buzz://` deep link URL.
+/// Handle an incoming `hulabuzz://` deep link URL.
 ///
 /// Currently supports:
-/// - `buzz://connect?relay=<ws(s)://...>` — emits `deep-link-connect` to the frontend
-/// - `buzz://repo|project|pr|issue?…` — emits `deep-link-entity` to the frontend
+/// - `hulabuzz://connect?relay=<ws(s)://...>` — emits `deep-link-connect` to the frontend
+/// - `hulabuzz://repo|project|pr|issue?…` — emits `deep-link-entity` to the frontend
 pub(crate) fn handle_deep_link_url(app: &tauri::AppHandle, url_str: &str) {
     let url = match Url::parse(url_str) {
         Ok(u) => u,
@@ -590,7 +594,7 @@ pub(crate) fn handle_deep_link_url(app: &tauri::AppHandle, url_str: &str) {
         }
     };
 
-    if url.scheme() != "buzz" {
+    if url.scheme() != DEEP_LINK_SCHEME {
         eprintln!("buzz-desktop: ignoring unsupported deep link scheme: {url_str}");
         return;
     }
@@ -606,8 +610,7 @@ pub(crate) fn handle_deep_link_url(app: &tauri::AppHandle, url_str: &str) {
             let _ = app.emit("deep-link-connect", relay_url);
         }
         Some("join") => {
-            // `buzz://join?relay=<ws(s)://...>&code=<invite code>` — fired by
-            // the relay's /invite/<code> landing page. The frontend claims the
+            // `hulabuzz://join?relay=<ws(s)://...>&code=<invite code>`. The frontend claims the
             // invite against the relay's HTTP API, then adds the workspace.
             let Some(payload) = parse_join_deep_link(&url) else {
                 eprintln!("buzz-desktop: join deep link missing/invalid relay or code: {url_str}");
