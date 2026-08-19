@@ -1,7 +1,7 @@
 //! Tauri commands for the community Bots admin console.
 
 use buzz_core_pkg::community_bots::MAX_BOT_NAME_LEN;
-use nostr::{Event, EventBuilder, Keys, Kind};
+use nostr::{Event, EventBuilder, JsonUtil, Keys, Kind};
 use serde::Serialize;
 use tauri::State;
 
