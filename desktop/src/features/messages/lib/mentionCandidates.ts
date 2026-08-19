@@ -1,11 +1,15 @@
 import { resolveTeamPersonas } from "@/features/agents/lib/teamPersonas";
+import { overlayCommunityBotDisplayName } from "@/features/community-bots/lib/displayName";
+import type { CommunityBot } from "@/features/community-bots/lib/types";
 import type {
   AgentPersona,
   AgentTeam,
+  ChannelMember,
   ChannelRole,
+  UserProfileSummary,
   UserSearchResult,
 } from "@/shared/api/types";
-import { truncatePubkey } from "@/shared/lib/pubkey";
+import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
 
 export function formatSearchUserDisplayName(user: UserSearchResult) {
   return user.displayName?.trim() || user.nip05Handle?.trim() || null;
@@ -55,6 +59,85 @@ export function mentionCandidateLabel(candidate: MentionCandidate) {
     candidate.displayName ??
     (candidate.pubkey ? truncatePubkey(candidate.pubkey) : "agent")
   );
+}
+
+/**
+ * Mention chip label for a current room member. Reuses the members-sidebar
+ * community-bots catalog overlay, then member / kind-0 / NIP-05 names, then
+ * the truncated pubkey so unnamed members still appear in autocomplete.
+ */
+export function resolveMentionMemberDisplayName(input: {
+  pubkey: string;
+  memberDisplayName?: string | null;
+  agentName?: string | null;
+  profileDisplayName?: string | null;
+  profileNip05?: string | null;
+  communityBots?: ReadonlyArray<CommunityBot>;
+}): string {
+  const catalogOrMember = overlayCommunityBotDisplayName(
+    input.memberDisplayName,
+    input.pubkey,
+    input.communityBots,
+  );
+  if (catalogOrMember) {
+    return catalogOrMember;
+  }
+
+  const next =
+    input.agentName?.trim() ||
+    overlayCommunityBotDisplayName(
+      input.profileDisplayName,
+      input.pubkey,
+      input.communityBots,
+    ) ||
+    input.profileNip05?.trim() ||
+    null;
+  return next || truncatePubkey(input.pubkey);
+}
+
+/** Build the identity candidate for one current channel member. */
+export function buildChannelMemberMentionCandidate(input: {
+  member: Pick<ChannelMember, "pubkey" | "displayName" | "isAgent" | "role">;
+  profile?: Pick<
+    UserProfileSummary,
+    "avatarUrl" | "displayName" | "isAgent" | "nip05Handle" | "ownerPubkey"
+  > | null;
+  agentName?: string | null;
+  isDirectoryAgent?: boolean;
+  managedAgentPersonaId?: string;
+  linkedPersonaId?: string;
+  personaName?: string | null;
+  communityBots?: ReadonlyArray<CommunityBot>;
+}): MentionCandidate & { pubkey: string } {
+  const pubkey = normalizePubkey(input.member.pubkey);
+  const profile = input.profile ?? null;
+  return {
+    kind: "identity",
+    pubkey,
+    displayName: resolveMentionMemberDisplayName({
+      pubkey,
+      memberDisplayName: input.member.displayName,
+      agentName: input.agentName,
+      profileDisplayName: profile?.displayName,
+      profileNip05: profile?.nip05Handle,
+      communityBots: input.communityBots,
+    }),
+    avatarUrl: profile?.avatarUrl ?? null,
+    isMember: true,
+    personaId: input.managedAgentPersonaId ?? input.linkedPersonaId,
+    isAgent:
+      input.member.isAgent === true ||
+      profile?.isAgent === true ||
+      input.member.role === "bot" ||
+      input.isDirectoryAgent === true,
+    ownerPubkey: profile?.ownerPubkey ?? null,
+    personaName: input.personaName ?? null,
+    role: input.member.role,
+    secondaryLabel:
+      profile?.displayName?.trim() && profile?.nip05Handle?.trim()
+        ? profile.nip05Handle
+        : null,
+  };
 }
 
 export function globalSearchIdentityKey(candidate: MentionCandidate) {
