@@ -22,6 +22,25 @@ test("Wayfinder appears in the primary menu and opens a site view", async ({
   await expect(page.getByTestId("open-agents-view")).toBeVisible();
 });
 
+test("Settings → Pinned sites shows the card, heading, and Add button", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await openSettings(page, "pinned-sites");
+
+  await expect(page.getByTestId("settings-view")).toBeVisible();
+  await expect(page.getByTestId("settings-sidebar")).toBeVisible();
+  await expect(page.getByTestId("settings-panel-pinned-sites")).toBeVisible();
+  await expect(page.getByTestId("settings-pinned-sites")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Pinned sites" }),
+  ).toBeVisible();
+  await expect(page.getByTestId("pinned-sites-add")).toBeVisible();
+  await expect(page.getByTestId("pinned-sites-add")).toHaveText("Add");
+  await expect(page.getByTestId("app-loading-gate")).toHaveCount(0);
+  await expect(page.getByTestId("boot-splash-overlay")).toHaveCount(0);
+});
+
 test("settings can add a personal pin to the primary menu", async ({
   page,
 }) => {

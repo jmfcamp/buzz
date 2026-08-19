@@ -93,16 +93,17 @@ export function PinnedSitesSettingsCard() {
         </SettingsOptionGroup>
       )}
 
-      <PinFormDialog
-        canShareCommunity={canShareCommunity}
-        onOpenChange={setCreateOpen}
-        onSave={async (draft) => {
-          await savePin({ draft });
-          toast.success("Pinned site added");
-        }}
-        open={createOpen}
-        pin={null}
-      />
+      {createOpen ? (
+        <PinFormDialog
+          canShareCommunity={canShareCommunity}
+          onOpenChange={setCreateOpen}
+          onSave={async (draft) => {
+            await savePin({ draft });
+            toast.success("Pinned site added");
+          }}
+          pin={null}
+        />
+      ) : null}
 
       {editing ? (
         <PinFormDialog
@@ -114,50 +115,50 @@ export function PinnedSitesSettingsCard() {
             await savePin({ id: editing.id, draft });
             toast.success("Pinned site updated");
           }}
-          open
           pin={editing}
         />
       ) : null}
 
-      <AlertDialog
-        onOpenChange={(open) => {
-          if (!open) setDeleteTarget(null);
-        }}
-        open={deleteTarget !== null}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete pinned site</AlertDialogTitle>
-            <AlertDialogDescription>
-              Remove &quot;{deleteTarget?.name}&quot; from the primary menu?
-              This does not delete the website.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => {
-                if (!deleteTarget) return;
-                void deletePin(deleteTarget)
-                  .then(() => {
-                    toast.success(`Deleted "${deleteTarget.name}"`);
-                    setDeleteTarget(null);
-                  })
-                  .catch((error) => {
-                    toast.error(
-                      error instanceof Error
-                        ? error.message
-                        : "Failed to delete pin",
-                    );
-                  });
-              }}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {deleteTarget ? (
+        <AlertDialog
+          onOpenChange={(open) => {
+            if (!open) setDeleteTarget(null);
+          }}
+          open
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete pinned site</AlertDialogTitle>
+              <AlertDialogDescription>
+                Remove &quot;{deleteTarget.name}&quot; from the primary menu?
+                This does not delete the website.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => {
+                  void deletePin(deleteTarget)
+                    .then(() => {
+                      toast.success(`Deleted "${deleteTarget.name}"`);
+                      setDeleteTarget(null);
+                    })
+                    .catch((error) => {
+                      toast.error(
+                        error instanceof Error
+                          ? error.message
+                          : "Failed to delete pin",
+                      );
+                    });
+                }}
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      ) : null}
     </section>
   );
 }
@@ -230,32 +231,24 @@ function PinFormDialog({
   canShareCommunity,
   onOpenChange,
   onSave,
-  open,
   pin,
 }: {
   canShareCommunity: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (draft: PinnedSiteDraft) => Promise<void>;
-  open: boolean;
   pin: PinnedSite | null;
 }) {
-  const [name, setName] = React.useState("");
-  const [url, setUrl] = React.useState("");
-  const [icon, setIcon] = React.useState<PinnedSiteIconId>("compass");
-  const [pollForChanges, setPollForChanges] = React.useState(false);
-  const [community, setCommunity] = React.useState(false);
+  const [name, setName] = React.useState(pin?.name ?? "");
+  const [url, setUrl] = React.useState(pin?.url ?? "");
+  const [icon, setIcon] = React.useState<PinnedSiteIconId>(
+    pin?.icon ?? "compass",
+  );
+  const [pollForChanges, setPollForChanges] = React.useState(
+    pin?.pollForChanges ?? false,
+  );
+  const [community, setCommunity] = React.useState(pin?.scope === "community");
   const [error, setError] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
-
-  React.useEffect(() => {
-    if (!open) return;
-    setName(pin?.name ?? "");
-    setUrl(pin?.url ?? "");
-    setIcon(pin?.icon ?? "compass");
-    setPollForChanges(pin?.pollForChanges ?? false);
-    setCommunity(pin?.scope === "community");
-    setError(null);
-  }, [open, pin]);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -278,7 +271,7 @@ function PinFormDialog({
   }
 
   return (
-    <Dialog onOpenChange={onOpenChange} open={open}>
+    <Dialog onOpenChange={onOpenChange} open>
       <ChooserDialogContent
         footer={
           <div className="flex justify-end gap-2">
@@ -337,7 +330,7 @@ function PinFormDialog({
               data-testid="pinned-site-icon-picker"
             >
               {PINNED_SITE_ICONS.map((entry) => {
-                const Icon = entry.Icon;
+                const Icon = getPinnedSiteIcon(entry.id);
                 const selected = icon === entry.id;
                 return (
                   <button

@@ -5,7 +5,7 @@ import { useMyRelayMembershipLookupQuery } from "@/features/community-members/ho
 import { useCommunities } from "@/features/communities/useCommunities";
 import { KIND_COMMUNITY_PINNED_SITES } from "@/shared/constants/kinds";
 import { relayClient } from "@/shared/api/relayClient";
-import { getIdentity } from "@/shared/api/tauriIdentity";
+import { useIdentityQuery } from "@/shared/api/hooks";
 import { canManageCommunityMembers } from "@/shared/api/relayMembers";
 
 import {
@@ -59,10 +59,7 @@ function draftToPin(draft: PinnedSiteDraft, id = createPinId()): PinnedSite {
 
 export function usePinnedSitesScope() {
   const { activeCommunity } = useCommunities();
-  const identityQuery = useQuery({
-    queryKey: ["identity"],
-    queryFn: getIdentity,
-  });
+  const identityQuery = useIdentityQuery();
   return {
     pubkey: identityQuery.data?.pubkey ?? "",
     relayUrl: activeCommunity?.relayUrl ?? "",
