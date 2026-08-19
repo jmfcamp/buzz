@@ -3,6 +3,7 @@ import { nip19 } from "nostr-tools";
 import * as React from "react";
 import { toast } from "sonner";
 
+import { overlayCommunityBotDisplayName } from "@/features/community-bots/lib/displayName";
 import {
   useChangeRelayMemberRoleMutation,
   useMyRelayMembershipLookupQuery,
@@ -32,6 +33,13 @@ import { VirtualizedList } from "@/shared/ui/VirtualizedList";
 import { CommunityInviteDialog } from "./CommunityInviteDialog";
 
 function formatDisplayName(member: RelayMember, displayName?: string | null) {
+  const catalogName = overlayCommunityBotDisplayName(
+    displayName,
+    member.pubkey,
+  );
+  if (catalogName) {
+    return catalogName;
+  }
   const trimmedDisplayName = displayName?.trim();
   if (
     trimmedDisplayName &&
@@ -273,7 +281,11 @@ export function CommunityMembersSettingsCard({
     return members.filter((member) => {
       const normalizedPubkey = normalizePubkey(member.pubkey);
       const profile = profiles?.[normalizedPubkey];
-      const displayName = profile?.displayName?.toLowerCase() ?? "";
+      const displayName = (
+        overlayCommunityBotDisplayName(profile?.displayName, member.pubkey) ??
+        profile?.displayName ??
+        ""
+      ).toLowerCase();
       const nip05 = profile?.nip05Handle?.toLowerCase() ?? "";
       const npub = npubFromPubkey(member.pubkey)?.toLowerCase() ?? "";
       return (

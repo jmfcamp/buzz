@@ -68,3 +68,21 @@ export function isAlreadyCommunityBotMemberError(error: unknown): boolean {
     message.includes("already a member") || message.includes("already exists")
   );
 }
+
+/** Official Buzz 9031 rejects with `member not found: <hex>` when the row is gone. */
+export function isAlreadyGoneCommunityBotMemberError(error: unknown): boolean {
+  const message = (
+    error instanceof Error ? error.message : String(error)
+  ).toLowerCase();
+  return (
+    message.includes("member not found") ||
+    message.includes("not a member") ||
+    message.includes("not-a-member") ||
+    message.includes("unknown member") ||
+    message.includes("unknown-member") ||
+    message.includes("already not a member") ||
+    message.includes("no such member") ||
+    message.includes("member missing") ||
+    message.includes("already gone")
+  );
+}

@@ -3,6 +3,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import * as React from "react";
 import { toast } from "sonner";
 
+import { overlayCommunityBotDisplayName } from "@/features/community-bots/lib/displayName";
 import {
   useAddRelayMemberMutation,
   useRelayMembersQuery,
@@ -48,7 +49,7 @@ const ROLE_OPTIONS: Array<{
 
 function formatSearchUserName(user: UserSearchResult) {
   return (
-    user.displayName?.trim() ||
+    overlayCommunityBotDisplayName(user.displayName, user.pubkey) ||
     user.nip05Handle?.trim() ||
     truncatePubkey(user.pubkey)
   );

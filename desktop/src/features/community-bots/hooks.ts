@@ -8,7 +8,6 @@ import {
 import { updateCachedChannelMemberDisplayName } from "@/features/channels/channelMemberProfileCache";
 import { useCommunities } from "@/features/communities/useCommunities";
 import { invokeTauri } from "@/shared/api/tauri";
-import type { RelayEvent } from "@/shared/api/types";
 
 import { fetchCommunityBots, uninstallCommunityBot } from "./lib/catalog";
 import {
@@ -94,17 +93,6 @@ export function useDisconnectCommunityBotsMutation() {
   });
 }
 
-async function signMintedCommunityBotProfile(
-  agentId: string,
-  name: string,
-): Promise<RelayEvent> {
-  const eventJson = await invokeTauri<string>("community_bots_sign_profile", {
-    agentId,
-    name,
-  });
-  return JSON.parse(eventJson) as RelayEvent;
-}
-
 async function refreshCommunityBotAppearance(
   queryClient: QueryClient,
   pubkey: string,
@@ -143,8 +131,6 @@ export function useInstallCommunityBotMutation() {
         displayName: input.name ?? defaultRemoteAgentName(agent),
         identity,
         relayUrl,
-        signMintedProfile: ({ agentId, name }) =>
-          signMintedCommunityBotProfile(agentId, name),
       });
     },
     onSuccess: async (next, input) => {
@@ -172,8 +158,6 @@ export function useRenameCommunityBotMutation() {
         bot: input.bot,
         displayName: input.name,
         relayUrl,
-        signMintedProfile: ({ agentId, name }) =>
-          signMintedCommunityBotProfile(agentId, name),
       });
     },
     onSuccess: async (next, input) => {

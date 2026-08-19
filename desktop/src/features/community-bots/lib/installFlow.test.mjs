@@ -12,7 +12,6 @@ import {
   completeCommunityBotInstall,
   completeCommunityBotRename,
 } from "./installFlow.ts";
-import { buildCommunityBotProfileContent } from "./profile.ts";
 
 const MO_PUBKEY = "22".repeat(32);
 const ADMIN_PUBKEY = "aa".repeat(32);
@@ -85,6 +84,11 @@ function stubRelay({
     if (event.kind === KIND_RELAY_ADMIN_ADD_MEMBER && addMemberError) {
       return Promise.reject(addMemberError);
     }
+    if (event.kind === KIND_METADATA) {
+      throw new Error(
+        "invalid: event pubkey does not match authenticated identity",
+      );
+    }
     return Promise.resolve();
   });
   mock.method(relayClient, "fetchEvents", async () => []);
@@ -98,19 +102,7 @@ function publishedEvents(publish) {
   return publish.mock.calls.map((call) => call.arguments[0]);
 }
 
-function signedBotProfile(name, pubkey = MO_PUBKEY) {
-  return {
-    id: "profile-mo",
-    pubkey,
-    kind: KIND_METADATA,
-    created_at: 1,
-    content: buildCommunityBotProfileContent(name),
-    tags: [],
-    sig: "00",
-  };
-}
-
-test("install defaults to the OpenClaw name and publishes catalog plus bot profile", async () => {
+test("install defaults to the OpenClaw name and never publishes kind 0", async () => {
   installStorage();
   const publish = stubRelay({ catalogError: null });
   try {
@@ -119,28 +111,27 @@ test("install defaults to the OpenClaw name and publishes catalog plus bot profi
       agent: AGENT,
       identity: { pubkey: MO_PUBKEY, minted: true },
       relayUrl: RELAY_A,
-      signMintedProfile: async ({ name }) => signedBotProfile(name),
     });
     assert.equal(next[0].name, "Mo");
+    assert.equal(loadLocalCommunityBots(RELAY_A)[0].name, "Mo");
     const events = publishedEvents(publish);
     assert.deepEqual(
       events.map((event) => event.kind),
-      [KIND_RELAY_ADMIN_ADD_MEMBER, KIND_COMMUNITY_BOTS, KIND_METADATA],
+      [KIND_RELAY_ADMIN_ADD_MEMBER, KIND_COMMUNITY_BOTS],
     );
-    const profile = events.find((event) => event.kind === KIND_METADATA);
-    assert.equal(profile.pubkey, MO_PUBKEY);
-    assert.notEqual(profile.pubkey, ADMIN_PUBKEY);
-    assert.deepEqual(JSON.parse(profile.content), {
-      name: "Mo",
-      display_name: "Mo",
-    });
-    assert.equal(JSON.parse(profile.content).nsec, undefined);
+    assert.equal(
+      events.some(
+        (event) =>
+          event.kind === KIND_METADATA && event.pubkey !== ADMIN_PUBKEY,
+      ),
+      false,
+    );
   } finally {
     mock.reset();
   }
 });
 
-test("install uses the admin-edited name for catalog and kind 0", async () => {
+test("install uses the admin-edited name for the catalog only", async () => {
   installStorage();
   const publish = stubRelay({ catalogError: null });
   try {
@@ -150,18 +141,14 @@ test("install uses the admin-edited name for catalog and kind 0", async () => {
       displayName: " Wayfinder Desk ",
       identity: { pubkey: MO_PUBKEY, minted: true },
       relayUrl: RELAY_A,
-      signMintedProfile: async ({ name }) => signedBotProfile(name),
     });
     assert.equal(next[0].id, "wayfinder");
     assert.equal(next[0].name, "Wayfinder Desk");
     assert.equal(loadLocalCommunityBots(RELAY_A)[0].name, "Wayfinder Desk");
-    const profile = publishedEvents(publish).find(
-      (event) => event.kind === KIND_METADATA,
+    assert.equal(
+      publishedEvents(publish).some((event) => event.kind === KIND_METADATA),
+      false,
     );
-    assert.deepEqual(JSON.parse(profile.content), {
-      name: "Wayfinder Desk",
-      display_name: "Wayfinder Desk",
-    });
   } finally {
     mock.reset();
   }
@@ -170,18 +157,13 @@ test("install uses the admin-edited name for catalog and kind 0", async () => {
 test("install skips kind 0 when the VPS provided the key", async () => {
   installStorage();
   const publish = stubRelay({ catalogError: null });
-  const signMintedProfile = mock.fn(async () => {
-    throw new Error("should not sign as a VPS-provided key");
-  });
   try {
     await completeCommunityBotInstall({
       current: [],
       agent: AGENT,
       identity: { pubkey: MO_PUBKEY, minted: false },
       relayUrl: RELAY_A,
-      signMintedProfile,
     });
-    assert.equal(signMintedProfile.mock.calls.length, 0);
     assert.equal(
       publishedEvents(publish).some((event) => event.kind === KIND_METADATA),
       false,
@@ -203,20 +185,19 @@ test("install keeps 9030 idempotent and 30624 unknown-kind local fallback", asyn
       displayName: "Mo Desk",
       identity: { pubkey: MO_PUBKEY, minted: true },
       relayUrl: RELAY_A,
-      signMintedProfile: async ({ name }) => signedBotProfile(name),
     });
     assert.equal(next[0].name, "Mo Desk");
     const kinds = publishedEvents(publish).map((event) => event.kind);
     assert.equal(kinds.includes(KIND_RELAY_ADMIN_ADD_MEMBER), false);
     assert.equal(kinds.includes(KIND_COMMUNITY_BOTS), true);
-    assert.equal(kinds.includes(KIND_METADATA), true);
+    assert.equal(kinds.includes(KIND_METADATA), false);
     assert.deepEqual(loadLocalCommunityBots(RELAY_A), next);
   } finally {
     mock.reset();
   }
 });
 
-test("rename updates the catalog and republishes a minted kind 0", async () => {
+test("rename updates the catalog only and does not publish kind 0", async () => {
   installStorage();
   const publish = stubRelay({ catalogError: null, memberPubkeys: [MO_PUBKEY] });
   try {
@@ -225,37 +206,36 @@ test("rename updates the catalog and republishes a minted kind 0", async () => {
       bot: MO,
       displayName: "Captain",
       relayUrl: RELAY_A,
-      signMintedProfile: async ({ name }) => signedBotProfile(name),
     });
     assert.equal(next[0].name, "Captain");
     assert.equal(loadLocalCommunityBots(RELAY_A)[0].name, "Captain");
-    const profile = publishedEvents(publish).find(
-      (event) => event.kind === KIND_METADATA,
+    assert.equal(
+      publishedEvents(publish).some((event) => event.kind === KIND_METADATA),
+      false,
     );
-    assert.equal(profile.pubkey, MO_PUBKEY);
-    assert.deepEqual(JSON.parse(profile.content), {
-      name: "Captain",
-      display_name: "Captain",
-    });
+    assert.equal(
+      publishedEvents(publish).some(
+        (event) => event.kind === KIND_COMMUNITY_BOTS,
+      ),
+      true,
+    );
   } finally {
     mock.reset();
   }
 });
 
-test("rename still persists the catalog when there is no minted key", async () => {
+test("rename still persists the catalog when 30624 is unknown", async () => {
   installStorage();
-  const publish = stubRelay({ catalogError: null });
+  const publish = stubRelay();
   try {
     const next = await completeCommunityBotRename({
       current: [MO],
       bot: MO,
       displayName: "Mo Desk",
       relayUrl: RELAY_A,
-      signMintedProfile: async () => {
-        throw new Error("no minted identity for this agent");
-      },
     });
     assert.equal(next[0].name, "Mo Desk");
+    assert.equal(loadLocalCommunityBots(RELAY_A)[0].name, "Mo Desk");
     assert.equal(
       publishedEvents(publish).some((event) => event.kind === KIND_METADATA),
       false,

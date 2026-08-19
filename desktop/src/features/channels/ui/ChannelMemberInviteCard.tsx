@@ -1,6 +1,7 @@
 import { Search, UserPlus, X } from "lucide-react";
 import * as React from "react";
 
+import { overlayCommunityBotDisplayName } from "@/features/community-bots/lib/displayName";
 import { parsePubkeyInput } from "@/shared/lib/nostrUtils";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { PubKey } from "@/shared/ui/PubKey";
@@ -17,7 +18,7 @@ import { UserAvatar } from "@/shared/ui/UserAvatar";
 
 function formatSearchUserName(user: UserSearchResult) {
   return (
-    user.displayName?.trim() ||
+    overlayCommunityBotDisplayName(user.displayName, user.pubkey) ||
     user.nip05Handle?.trim() ||
     truncatePubkey(user.pubkey)
   );

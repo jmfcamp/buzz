@@ -182,6 +182,7 @@ function stubRelay({
   catalogEvents = [],
   memberPubkeys = [],
   addMemberError,
+  removeMemberError,
 } = {}) {
   const publish = mock.method(relayClient, "publishEvent", (event) => {
     if (event.kind === KIND_COMMUNITY_BOTS) {
@@ -189,6 +190,9 @@ function stubRelay({
     }
     if (event.kind === KIND_RELAY_ADMIN_ADD_MEMBER && addMemberError) {
       return Promise.reject(addMemberError);
+    }
+    if (event.kind === KIND_RELAY_ADMIN_REMOVE_MEMBER && removeMemberError) {
+      return Promise.reject(removeMemberError);
     }
     return Promise.resolve();
   });
@@ -349,7 +353,7 @@ test("installCommunityBot adds a member once when the pubkey is new", async () =
 
 test("uninstallCommunityBot updates the local fallback when 30624 is rejected", async () => {
   installStorage();
-  const publish = stubRelay();
+  const publish = stubRelay({ memberPubkeys: [MO_PUBKEY] });
   try {
     const installed = await installCommunityBot([], MO, RELAY_A);
     const next = await uninstallCommunityBot(installed, MO, RELAY_A);
@@ -359,6 +363,61 @@ test("uninstallCommunityBot updates the local fallback when 30624 is rejected", 
       publishedKinds(publish).includes(KIND_RELAY_ADMIN_REMOVE_MEMBER),
       true,
     );
+  } finally {
+    mock.reset();
+  }
+});
+
+test("uninstallCommunityBot treats an already-gone 9031 reject as success", async () => {
+  installStorage();
+  const publish = stubRelay({
+    memberPubkeys: [MO_PUBKEY],
+    removeMemberError: new Error(`member not found: ${MO_PUBKEY}`),
+  });
+  try {
+    const installed = await installCommunityBot([], MO, RELAY_A);
+    const next = await uninstallCommunityBot(installed, MO, RELAY_A);
+    assert.deepEqual(next, []);
+    assert.deepEqual(loadLocalCommunityBots(RELAY_A), []);
+    assert.equal(
+      publishedKinds(publish).includes(KIND_RELAY_ADMIN_REMOVE_MEMBER),
+      true,
+    );
+  } finally {
+    mock.reset();
+  }
+});
+
+test("uninstallCommunityBot skips 9031 when listRelayMembers already omits them", async () => {
+  installStorage();
+  const publish = stubRelay({ memberPubkeys: [] });
+  try {
+    const installed = await installCommunityBot([], MO, RELAY_A);
+    const next = await uninstallCommunityBot(installed, MO, RELAY_A);
+    assert.deepEqual(next, []);
+    assert.deepEqual(loadLocalCommunityBots(RELAY_A), []);
+    assert.equal(
+      publishedKinds(publish).includes(KIND_RELAY_ADMIN_REMOVE_MEMBER),
+      false,
+    );
+  } finally {
+    mock.reset();
+  }
+});
+
+test("uninstallCommunityBot still fails on a hard 9031 error", async () => {
+  installStorage();
+  stubRelay({
+    memberPubkeys: [MO_PUBKEY],
+    removeMemberError: new Error("Timed out while updating relay access."),
+  });
+  try {
+    const installed = await installCommunityBot([], MO, RELAY_A);
+    await assert.rejects(
+      () => uninstallCommunityBot(installed, MO, RELAY_A),
+      /Timed out while updating relay access/,
+    );
+    assert.deepEqual(loadLocalCommunityBots(RELAY_A), installed);
   } finally {
     mock.reset();
   }

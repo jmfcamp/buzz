@@ -1,3 +1,4 @@
+import { overlayCommunityBotDisplayName } from "@/features/community-bots/lib/displayName";
 import type { ChannelMember } from "@/shared/api/types";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 
@@ -17,7 +18,10 @@ export function formatMemberName(
     return "You";
   }
 
-  return member.displayName ?? truncatePubkey(member.pubkey);
+  return (
+    overlayCommunityBotDisplayName(member.displayName, member.pubkey) ??
+    truncatePubkey(member.pubkey)
+  );
 }
 
 export function compareMembersByRole(
