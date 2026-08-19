@@ -58,6 +58,7 @@ import {
   globalSearchIdentityKey,
   type MentionCandidate,
   mentionCandidateLabel,
+  shouldAcceptMentionIdentityCandidate,
 } from "./mentionCandidates";
 const MENTION_DEBOUNCE_MS = 120;
 const MENTION_SUGGESTION_LIMIT = 50;
@@ -252,25 +253,27 @@ export function useMentions(
     const candidatesByPubkey = new Map<string, MentionCandidate>();
     const addCandidate = (candidate: MentionCandidate & { pubkey: string }) => {
       const pubkey = normalizePubkey(candidate.pubkey);
-      if (isArchivedDiscovery(pubkey)) {
-        return;
-      }
       // Room members stay mentionable — including role `bot` catalog
-      // identities that are not in the managed/relay agent directory.
+      // identities that are not in the managed/relay agent directory —
+      // but NIP-IA archive still excludes them. Catalog overlay must not
+      // resurrect an archived pubkey.
       if (
-        !candidate.isMember &&
-        shouldHideAgentFromMentions({
-          isAgent: candidate.isAgent === true,
-          isManagedAgent: candidate.isManagedAgent === true,
-          pubkey,
-          ownerPubkey: candidate.ownerPubkey,
-          currentPubkey,
-          mentionableAgentPubkeys,
-          directoryReady:
-            candidate.isManagedAgent === true
-              ? managedAgentDirectoryReady
-              : relayAgentDirectoryReady,
-          ownerOnly: agentAccessOwnerOnlyQuery.data,
+        !shouldAcceptMentionIdentityCandidate({
+          isArchived: isArchivedDiscovery(pubkey),
+          isMember: candidate.isMember === true,
+          hideAgent: shouldHideAgentFromMentions({
+            isAgent: candidate.isAgent === true,
+            isManagedAgent: candidate.isManagedAgent === true,
+            pubkey,
+            ownerPubkey: candidate.ownerPubkey,
+            currentPubkey,
+            mentionableAgentPubkeys,
+            directoryReady:
+              candidate.isManagedAgent === true
+                ? managedAgentDirectoryReady
+                : relayAgentDirectoryReady,
+            ownerOnly: agentAccessOwnerOnlyQuery.data,
+          }),
         })
       ) {
         return;
