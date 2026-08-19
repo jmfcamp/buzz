@@ -338,6 +338,7 @@ export function MembersSidebar({
       [...candidatesByPubkey.values()],
       communityBotsQuery.data ?? [],
       normalizedDeferredSearchQuery,
+      { isArchived: isArchivedDiscovery },
     );
     const coalescedCandidates = coalesceAgentAutocompleteCandidates(
       withCommunityBots,

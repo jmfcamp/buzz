@@ -20,6 +20,7 @@ import { AddChannelBotTeamsSection } from "@/features/channels/ui/AddChannelBotT
 import { useInChannelPersonaIds } from "@/features/channels/ui/useInChannelPersonaIds";
 import { useCommunityBotsQuery } from "@/features/community-bots/hooks";
 import { communityBotAddMemberInput } from "@/features/community-bots/lib/addCandidates";
+import { useIsArchivedPredicate } from "@/features/identity-archive/hooks";
 import type { AcpRuntime } from "@/shared/api/types";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
@@ -89,7 +90,14 @@ export function AddChannelBotDialog({
       ),
     [membersQuery.data],
   );
-  const communityBots = communityBotsQuery.data ?? [];
+  const isArchivedDiscovery = useIsArchivedPredicate();
+  const communityBots = React.useMemo(
+    () =>
+      (communityBotsQuery.data ?? []).filter(
+        (bot) => !isArchivedDiscovery(bot.pubkey),
+      ),
+    [communityBotsQuery.data, isArchivedDiscovery],
+  );
   const personas = React.useMemo(
     () => getActivePersonas(personasQuery.data ?? []),
     [personasQuery.data],

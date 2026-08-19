@@ -30,6 +30,7 @@ import type {
 } from "@/features/notifications/hooks";
 import type { SoundName, SoundSlot } from "@/features/notifications/lib/sound";
 import { BotsSettingsCard } from "@/features/community-bots/ui/BotsSettingsCard";
+import { CommunityAgentsSettingsCard } from "@/features/identity-archive/ui/CommunityAgentsSettingsCard";
 import { CommunityMembersSettingsCard } from "@/features/community-members/ui/CommunityMembersSettingsCard";
 import { CustomEmojiSettingsCard } from "@/features/custom-emoji/ui/CustomEmojiSettingsCard";
 import { LocalArchiveSettingsCard } from "@/features/local-archive/ui/LocalArchiveSettingsCard";
@@ -868,7 +869,12 @@ export function renderSettingsSection(
         <CommunityMembersSettingsCard currentPubkey={props.currentPubkey} />
       );
     case "bots":
-      return <BotsSettingsCard />;
+      return (
+        <>
+          <BotsSettingsCard />
+          <CommunityAgentsSettingsCard />
+        </>
+      );
     case "moderation":
       return <ModerationQueueCard />;
     case "custom-emoji":

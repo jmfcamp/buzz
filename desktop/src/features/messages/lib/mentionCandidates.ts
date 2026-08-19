@@ -236,3 +236,22 @@ export function formatTeamMention(
 ) {
   return `${teamName}(${members.map((member) => `@${member.displayName}`).join(" ")}) `;
 }
+
+/**
+ * Mention discovery gate. Archive always wins — even for current-room members
+ * and catalog `bot` identities that PR #16 keeps mentionable otherwise.
+ * Catalog overlay must not resurrect an archived pubkey.
+ */
+export function shouldAcceptMentionIdentityCandidate(input: {
+  isArchived: boolean;
+  isMember: boolean;
+  hideAgent: boolean;
+}): boolean {
+  if (input.isArchived) {
+    return false;
+  }
+  if (input.isMember) {
+    return true;
+  }
+  return !input.hideAgent;
+}

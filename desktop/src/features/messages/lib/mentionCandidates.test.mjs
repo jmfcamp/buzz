@@ -8,6 +8,7 @@ import {
   buildTeamMentionCandidates,
   formatTeamMention,
   resolveMentionMemberDisplayName,
+  shouldAcceptMentionIdentityCandidate,
 } from "./mentionCandidates.ts";
 
 const MO_PUBKEY = `${"d5c38517".padEnd(60, "0")}83ae`;
@@ -283,4 +284,53 @@ test("buildChannelMemberMentionCandidate labels a catalog bot and unnamed member
   });
   assert.equal(fizz.displayName, "Fizz");
   assert.equal(fizz.isAgent, true);
+});
+
+test("archived catalog or bot-role room members stay out of mention candidates", () => {
+  assert.equal(
+    shouldAcceptMentionIdentityCandidate({
+      isArchived: true,
+      isMember: true,
+      hideAgent: false,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldAcceptMentionIdentityCandidate({
+      isArchived: true,
+      isMember: false,
+      hideAgent: false,
+    }),
+    false,
+  );
+});
+
+test("unarchived catalog or bot-role room members stay mentionable", () => {
+  assert.equal(
+    shouldAcceptMentionIdentityCandidate({
+      isArchived: false,
+      isMember: true,
+      hideAgent: true,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldAcceptMentionIdentityCandidate({
+      isArchived: false,
+      isMember: false,
+      hideAgent: false,
+    }),
+    true,
+  );
+});
+
+test("non-member agents still honor the hide-agent directory gate", () => {
+  assert.equal(
+    shouldAcceptMentionIdentityCandidate({
+      isArchived: false,
+      isMember: false,
+      hideAgent: true,
+    }),
+    false,
+  );
 });

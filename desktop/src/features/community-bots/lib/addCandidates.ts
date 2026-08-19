@@ -31,7 +31,12 @@ export function communityBotMatchesQuery(
 /** Merge installed community bots into the channel add-member candidate list. */
 export function appendCommunityBotCandidates<
   T extends CommunityBotAddCandidate,
->(candidates: T[], bots: readonly CommunityBot[], query: string): T[] {
+>(
+  candidates: T[],
+  bots: readonly CommunityBot[],
+  query: string,
+  options?: { isArchived?: (pubkey: string) => boolean },
+): T[] {
   const next = [...candidates];
   const seen = new Set(
     next.map((candidate) => normalizePubkey(candidate.pubkey)),
@@ -40,6 +45,7 @@ export function appendCommunityBotCandidates<
     if (!communityBotMatchesQuery(bot, query)) continue;
     const pubkey = normalizePubkey(bot.pubkey);
     if (seen.has(pubkey)) continue;
+    if (options?.isArchived?.(pubkey)) continue;
     seen.add(pubkey);
     next.push({
       pubkey,
