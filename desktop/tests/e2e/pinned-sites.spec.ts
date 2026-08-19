@@ -55,7 +55,11 @@ test("deleting Wayfinder does not recreate it after reload", async ({
   await page.getByRole("button", { name: "Delete" }).click();
   await expect(wayfinderRow).toHaveCount(0);
 
-  await page.reload();
-  await expect(page.getByTestId("open-pinned-site-wayfinder")).toHaveCount(0);
+  await page.getByTestId("settings-back-to-app").click();
   await expect(page.getByTestId("open-agents-view")).toBeVisible();
+  await expect(page.getByTestId("open-pinned-site-wayfinder")).toHaveCount(0);
+
+  await page.reload();
+  await expect(page.getByTestId("open-agents-view")).toBeVisible();
+  await expect(page.getByTestId("open-pinned-site-wayfinder")).toHaveCount(0);
 });
