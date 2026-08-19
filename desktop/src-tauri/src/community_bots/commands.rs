@@ -8,7 +8,10 @@ use tauri::State;
 use crate::app_state::AppState;
 use crate::relay::relay_ws_url_with_override;
 
-use super::client::{connect_failure_outcome, handshake, list_remote_agents, ConnectOutcome};
+use super::client::{
+    connect_failure_outcome, handshake, list_remote_agents, reveal_buzz_account_secret,
+    ConnectOutcome,
+};
 use super::identity::resolve_vps_bot_identity;
 use super::protocol::{
     relay_host_key, validate_gateway_url, RemoteAgent, REQUIRED_OPERATOR_SCOPES,
@@ -18,6 +21,7 @@ use super::store::{
 };
 
 pub use super::identity::ResolvedBotIdentity;
+pub use super::secret::RevealedBotSecret;
 
 /// Connection state returned to the settings UI.
 #[derive(Debug, Clone, Serialize)]
@@ -194,6 +198,22 @@ pub fn community_bots_resolve_identity(
     pubkey: Option<String>,
 ) -> Result<ResolvedBotIdentity, String> {
     resolve_vps_bot_identity(&agent_id, pubkey.as_deref())
+}
+
+/// Fetch the VPS Buzz account nsec on demand. Never persists or logs it.
+///
+/// Current OpenClaw `config.get` redacts `privateKey`. When no parseable
+/// Buzz secret matching `pubkey` is returned, `nsec` is null and
+/// `unavailableReason` explains that the key stays on the VPS.
+#[tauri::command]
+pub async fn community_bots_reveal_identity_secret(
+    state: State<'_, AppState>,
+    pubkey: String,
+) -> Result<RevealedBotSecret, String> {
+    let host = relay_host(&state);
+    let secrets =
+        load_gateway(&host)?.ok_or_else(|| "no OpenClaw gateway is connected".to_string())?;
+    reveal_buzz_account_secret(&secrets, &pubkey).await
 }
 
 /// Sign a kind:0 profile as the minted bot key stored for this agent.

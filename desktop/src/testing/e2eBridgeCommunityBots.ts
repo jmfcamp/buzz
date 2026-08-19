@@ -1,5 +1,10 @@
+import { COMMUNITY_BOTS_D_TAG } from "@/features/community-bots/lib/catalog";
 import type { RelayEvent } from "@/shared/api/types";
 import { KIND_COMMUNITY_BOTS } from "@/shared/constants/kinds";
+
+/** Obvious fake — never a real Nostr secret. Used only by the E2E mock. */
+export const FAKE_COMMUNITY_BOT_NSEC =
+  "nsec1testonlynotarealkeyxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
 
 export const DEFAULT_COMMUNITY_BOT_SCOPES = [
   "operator.read",
@@ -20,6 +25,10 @@ export type MockCommunityBotsOptions = {
   startConnected?: boolean;
   startPending?: boolean;
   connectResult?: "pending" | "connected" | "insufficient_scopes";
+  /** Pre-seed a published catalog so profile views can treat these as installed. */
+  installedBots?: Array<{ id: string; name: string; pubkey: string }>;
+  /** When false, reveal returns the VPS-unavailable state instead of a fake nsec. */
+  revealSecret?: boolean;
 };
 
 export const DEFAULT_COMMUNITY_BOT_DEVICE_ID =
@@ -57,6 +66,25 @@ export function createCommunityBotsMock(options?: MockCommunityBotsOptions) {
   let requestId = state === "pending" ? DEFAULT_COMMUNITY_BOT_REQUEST_ID : null;
   const catalogEvents: RelayEvent[] = [];
   const mintedByAgent = new Map();
+  if (options?.installedBots?.length) {
+    catalogEvents.push({
+      id: "seed-community-bots",
+      pubkey: "aa".repeat(32),
+      created_at: 1,
+      kind: KIND_COMMUNITY_BOTS,
+      tags: [["d", COMMUNITY_BOTS_D_TAG]],
+      content: JSON.stringify({
+        version: 1,
+        bots: options.installedBots.map((bot) => ({
+          id: bot.id,
+          name: bot.name,
+          pubkey: bot.pubkey,
+          source: "openclaw",
+        })),
+      }),
+      sig: "00",
+    });
+  }
 
   function status(): CommunityBotsStatus {
     return {
@@ -124,6 +152,19 @@ export function createCommunityBotsMock(options?: MockCommunityBotsOptions) {
           );
         }
         return { pubkey, minted: false };
+      }
+      case "community_bots_reveal_identity_secret": {
+        if (options?.revealSecret === false) {
+          return {
+            nsec: null,
+            unavailableReason:
+              "Private key stays on the VPS; the gateway did not return it.",
+          };
+        }
+        return {
+          nsec: FAKE_COMMUNITY_BOT_NSEC,
+          unavailableReason: null,
+        };
       }
       case "community_bots_sign_profile": {
         const agentId = String(payload.agentId ?? "");

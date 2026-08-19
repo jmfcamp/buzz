@@ -82,6 +82,22 @@ export function isMissingBuzzAccountError(error: unknown): boolean {
   );
 }
 
+/** Shown when OpenClaw `config.get` withholds or redacts the Buzz nsec. */
+export const VPS_SECRET_UNAVAILABLE =
+  "Private key stays on the VPS; the gateway did not return it.";
+
+export type RevealedBotSecret = {
+  nsec: string | null;
+  unavailableReason: string | null;
+};
+
+export function canViewCommunityBotSecret(input: {
+  canManageCommunity: boolean;
+  isInstalledBot: boolean;
+}): boolean {
+  return input.canManageCommunity && input.isInstalledBot;
+}
+
 /** Accept a confirmed 64-char hex pubkey only — never an nsec or npub. */
 export function parseConfirmedPublicHex(value: string): string | null {
   const trimmed = value.trim().toLowerCase();

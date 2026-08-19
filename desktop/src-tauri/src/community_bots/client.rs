@@ -21,6 +21,7 @@ use super::protocol::{
     OPENCLAW_CLIENT_DISPLAY_NAME, OPENCLAW_CLIENT_ID, OPENCLAW_CLIENT_MODE, OPENCLAW_CLIENT_ROLE,
     OPENCLAW_DEVICE_FAMILY, REQUIRED_OPERATOR_SCOPES,
 };
+use super::secret::{extract_buzz_account_secret, RevealedBotSecret};
 use super::store::GatewaySecrets;
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
@@ -56,6 +57,31 @@ pub enum ConnectOutcome {
 pub async fn handshake(secrets: &GatewaySecrets) -> Result<ConnectOutcome, String> {
     let mut session = GatewaySession::connect(&secrets.url).await?;
     session.authenticate(secrets).await
+}
+
+/// Fetch the Buzz account nsec on demand. Never persists or logs the payload.
+pub async fn reveal_buzz_account_secret(
+    secrets: &GatewaySecrets,
+    expected_pubkey: &str,
+) -> Result<RevealedBotSecret, String> {
+    let mut session = GatewaySession::connect(&secrets.url).await?;
+    match session.authenticate(secrets).await? {
+        ConnectOutcome::Connected { .. } => {}
+        ConnectOutcome::Pending { request_id, .. } => {
+            return Err(format!(
+                "gateway pairing still pending (request {request_id})"
+            ));
+        }
+        ConnectOutcome::InsufficientScopes { .. } => {
+            return Err(
+                "gateway pairing is read-only; approve operator.write and operator.admin".into(),
+            );
+        }
+    }
+    // Live method only. Current OpenClaw redacts privateKey; older builds may
+    // still return a parseable Buzz account secret.
+    let config = session.rpc("config.get", json!({})).await?;
+    Ok(extract_buzz_account_secret(&config, expected_pubkey))
 }
 
 /// Connect, authenticate, and list remote agents (includes `main`).

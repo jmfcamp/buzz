@@ -12194,6 +12194,7 @@ export function maybeInstallE2eTauriMocks() {
       case "community_bots_disconnect":
       case "community_bots_list_remote_agents":
       case "community_bots_resolve_identity":
+      case "community_bots_reveal_identity_secret":
       case "community_bots_sign_profile":
         return mockCommunityBots.handleCommand(
           command,

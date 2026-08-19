@@ -244,6 +244,40 @@ test("publishCommunityBots writes the local catalog when 30624 is accepted", asy
   }
 });
 
+test("publishCommunityBots snapshot never includes nsec or privateKey", async () => {
+  installStorage();
+  const publish = stubRelay({ catalogError: null });
+  try {
+    await publishCommunityBots([MO], RELAY_A);
+    const catalog = publish.mock.calls
+      .map((call) => call.arguments[0])
+      .find((event) => event.kind === KIND_COMMUNITY_BOTS);
+    assert.ok(catalog);
+    const snapshot = JSON.stringify(catalog);
+    assert.equal(
+      /nsec|privateKey|private_key|"password"/i.test(snapshot),
+      false,
+    );
+    assert.deepEqual(JSON.parse(catalog.content), {
+      version: 1,
+      bots: [
+        {
+          id: "mo",
+          name: "Mo",
+          pubkey: MO_PUBKEY,
+          source: "openclaw",
+        },
+      ],
+    });
+    const local = globalThis.window.localStorage.getItem(
+      communityBotsStorageKey(RELAY_A),
+    );
+    assert.equal(/nsec|privateKey|private_key/i.test(local ?? ""), false);
+  } finally {
+    mock.reset();
+  }
+});
+
 test("publishCommunityBots still rejects hard publish failures without writing local", async () => {
   installStorage();
   stubRelay({

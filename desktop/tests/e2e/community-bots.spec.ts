@@ -1,7 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { FAKE_COMMUNITY_BOT_NSEC } from "../../src/testing/e2eBridgeCommunityBots";
 import { installMockBridge } from "../helpers/bridge";
 import { openSettings } from "../helpers/settings";
+
+const MO_PUBKEY = "22".repeat(32);
 
 type CommandLogEntry = {
   command: string;
@@ -177,6 +180,108 @@ test("Install uses the VPS pubkey and does not mint an nsec", async ({
       pubkey: "22".repeat(32),
     }),
   );
+});
+
+test("installed bot Identity opens the profile panel with pubkey and masked nsec", async ({
+  page,
+}) => {
+  await installMockBridge(page, {
+    relayRequiresMembership: true,
+    relayRole: "owner",
+    communityBots: { startConnected: true },
+  });
+  await page.goto("/");
+  await openSettings(page, "bots");
+
+  await page.getByTestId("settings-bots-install-mo").click();
+  await expect(page.getByTestId("settings-bots-installed-mo")).toBeVisible();
+
+  const beforeReveal = (await readCommandLog(page)).filter(
+    (entry) => entry.command === "community_bots_reveal_identity_secret",
+  );
+  expect(beforeReveal).toHaveLength(0);
+
+  await page.getByTestId("settings-bots-identity-mo").click();
+  await expect(page.getByTestId("user-profile-public-key")).toBeVisible();
+  await expect(page.getByTestId("community-bot-identity")).toBeVisible();
+  await expect(page.getByTestId("community-bot-pubkey")).toBeVisible();
+
+  await page.getByTestId("community-bot-pubkey").click();
+  await expect(page.getByText("npub", { exact: true })).toBeVisible();
+  await expect(page.getByText("hex", { exact: true })).toBeVisible();
+
+  await expect(page.getByTestId("nsec-value")).toHaveCount(0);
+  await page.getByTestId("community-bot-private-key-toggle").click();
+  await expect(page.getByTestId("nsec-value")).toBeVisible();
+  await expect(page.getByTestId("nsec-value")).not.toContainText("nsec1");
+
+  const afterFetch = (await readCommandLog(page)).filter(
+    (entry) => entry.command === "community_bots_reveal_identity_secret",
+  );
+  expect(afterFetch).toHaveLength(1);
+  expect(afterFetch[0]?.payload).toEqual(
+    expect.objectContaining({ pubkey: MO_PUBKEY }),
+  );
+  expect(JSON.stringify(afterFetch[0]?.payload)).not.toMatch(
+    /nsec1|privateKey/,
+  );
+
+  await page.getByTestId("nsec-reveal-toggle").click();
+  await expect(page.getByTestId("nsec-value")).toHaveText(
+    FAKE_COMMUNITY_BOT_NSEC,
+  );
+});
+
+test("member list opens the same bot identity panel", async ({ page }) => {
+  await installMockBridge(page, {
+    relayRequiresMembership: true,
+    relayRole: "admin",
+    communityBots: { startConnected: true },
+  });
+  await page.goto("/");
+  await openSettings(page, "bots");
+  await page.getByTestId("settings-bots-install-mo").click();
+  await expect(page.getByTestId("settings-bots-installed-mo")).toBeVisible();
+
+  await page.getByTestId("settings-back-to-app").click();
+  await expect(page.getByTestId("settings-view")).toHaveCount(0);
+
+  await page.getByTestId("channel-random").click();
+  await page.getByTestId("channel-members-trigger").click();
+  await expect(page.getByTestId("members-sidebar")).toBeVisible();
+  await page.getByTestId("channel-management-search-users").fill("mo");
+  await page.getByTestId(`channel-user-search-result-${MO_PUBKEY}`).click();
+  await expect(
+    page.getByTestId(`sidebar-member-open-profile-${MO_PUBKEY}`),
+  ).toBeVisible();
+  await page.getByTestId(`sidebar-member-open-profile-${MO_PUBKEY}`).click();
+
+  await expect(page.getByTestId("user-profile-public-key")).toBeVisible();
+  await expect(page.getByTestId("community-bot-identity")).toBeVisible();
+  await expect(page.getByTestId("community-bot-pubkey")).toBeVisible();
+});
+
+test("regular members cannot see a bot private key", async ({ page }) => {
+  await installMockBridge(page, {
+    relayRequiresMembership: true,
+    relayRole: "member",
+    communityBots: {
+      installedBots: [{ id: "mo", name: "Mo", pubkey: MO_PUBKEY }],
+    },
+  });
+  await page.goto(`/pulse?profile=${MO_PUBKEY}`);
+
+  await expect(page.getByTestId("user-profile-public-key")).toBeVisible();
+  await expect(page.getByTestId("community-bot-identity")).toHaveCount(0);
+  await expect(
+    page.getByTestId("community-bot-private-key-toggle"),
+  ).toHaveCount(0);
+  await expect(page.getByTestId("nsec-value")).toHaveCount(0);
+
+  const revealCalls = (await readCommandLog(page)).filter(
+    (entry) => entry.command === "community_bots_reveal_identity_secret",
+  );
+  expect(revealCalls).toHaveLength(0);
 });
 
 test("agents without a VPS Buzz pubkey must not mint", async ({ page }) => {

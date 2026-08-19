@@ -23,6 +23,7 @@ import {
 } from "@/features/community-bots/lib/types";
 import { SettingsOptionGroup } from "@/features/settings/ui/SettingsOptionGroup";
 import { SettingsSectionHeader } from "@/features/settings/ui/SettingsSectionHeader";
+import { useProfilePanel } from "@/shared/context/ProfilePanelContext";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
@@ -41,6 +42,7 @@ export function BotsSettingsCard() {
   const installMutation = useInstallCommunityBotMutation();
   const renameMutation = useRenameCommunityBotMutation();
   const uninstallMutation = useUninstallCommunityBotMutation();
+  const { openProfilePanel } = useProfilePanel();
 
   const [url, setUrl] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -472,6 +474,16 @@ export function BotsSettingsCard() {
                           {bot.id}
                         </p>
                       </div>
+                      <Button
+                        data-testid={`settings-bots-identity-${bot.id}`}
+                        disabled={!openProfilePanel}
+                        onClick={() => openProfilePanel?.(bot.pubkey)}
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                      >
+                        Identity
+                      </Button>
                       <Button
                         data-testid={`settings-bots-rename-${bot.id}`}
                         disabled={

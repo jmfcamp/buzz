@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  canViewCommunityBotSecret,
   defaultRemoteAgentName,
   isMissingBuzzAccountError,
   missingBuzzAccountMessage,
   MISSING_PAIRING_REQUEST_ID,
   pairingRequestIdLabel,
   parseConfirmedPublicHex,
+  VPS_SECRET_UNAVAILABLE,
 } from "./types.ts";
 
 test("defaultRemoteAgentName prefers OpenClaw name then agent id", () => {
@@ -37,6 +39,31 @@ test("confirmed public hex rejects nsec and accepts 64-char hex", () => {
     isMissingBuzzAccountError(new Error(missingBuzzAccountMessage("mo"))),
     true,
   );
+});
+
+test("canViewCommunityBotSecret requires an owner/admin and an installed bot", () => {
+  assert.equal(
+    canViewCommunityBotSecret({
+      canManageCommunity: true,
+      isInstalledBot: true,
+    }),
+    true,
+  );
+  assert.equal(
+    canViewCommunityBotSecret({
+      canManageCommunity: false,
+      isInstalledBot: true,
+    }),
+    false,
+  );
+  assert.equal(
+    canViewCommunityBotSecret({
+      canManageCommunity: true,
+      isInstalledBot: false,
+    }),
+    false,
+  );
+  assert.match(VPS_SECRET_UNAVAILABLE, /stays on the VPS/);
 });
 
 test("pairingRequestIdLabel falls back when the gateway omitted requestId", () => {

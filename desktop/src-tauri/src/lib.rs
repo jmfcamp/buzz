@@ -755,6 +755,7 @@ pub fn run() {
             community_bots_disconnect,
             community_bots_list_remote_agents,
             community_bots_resolve_identity,
+            community_bots_reveal_identity_secret,
             community_bots_sign_profile,
             add_relay_member,
             remove_relay_member,
