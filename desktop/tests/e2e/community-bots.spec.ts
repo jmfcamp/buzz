@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { FAKE_COMMUNITY_BOT_NSEC } from "../../src/testing/e2eBridgeCommunityBots";
-import { installMockBridge } from "../helpers/bridge";
+import { installMockBridge, TEST_IDENTITIES } from "../helpers/bridge";
 import { openSettings } from "../helpers/settings";
 
 const MO_PUBKEY = "22".repeat(32);
@@ -209,6 +209,7 @@ test("installed bot Identity opens the profile panel with pubkey and masked nsec
   await page.getByTestId("community-bot-pubkey").click();
   await expect(page.getByText("npub", { exact: true })).toBeVisible();
   await expect(page.getByText("hex", { exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
 
   await expect(page.getByTestId("nsec-value")).toHaveCount(0);
   await page.getByTestId("community-bot-private-key-toggle").click();
@@ -262,14 +263,19 @@ test("member list opens the same bot identity panel", async ({ page }) => {
 });
 
 test("regular members cannot see a bot private key", async ({ page }) => {
+  const alicePubkey = TEST_IDENTITIES.alice.pubkey;
   await installMockBridge(page, {
     relayRequiresMembership: true,
     relayRole: "member",
     communityBots: {
-      installedBots: [{ id: "mo", name: "Mo", pubkey: MO_PUBKEY }],
+      installedBots: [{ id: "alice-bot", name: "Alice", pubkey: alicePubkey }],
     },
   });
-  await page.goto(`/pulse?profile=${MO_PUBKEY}`);
+  await page.goto("/");
+  await page.getByTestId("channel-general").click();
+  await page.getByTestId("channel-members-trigger").click();
+  await expect(page.getByTestId("members-sidebar")).toBeVisible();
+  await page.getByTestId(`sidebar-member-open-profile-${alicePubkey}`).click();
 
   await expect(page.getByTestId("user-profile-public-key")).toBeVisible();
   await expect(page.getByTestId("community-bot-identity")).toHaveCount(0);
