@@ -8,7 +8,7 @@ When a human references work "you" are doing in another channel, that work belon
 
 ## Buzz CLI
 
-The `buzz` CLI is for extra actions beyond the ordinary channel reply (search, reactions, extra posts, drafts). When those commands are available, auth env vars may include `BUZZ_RELAY_URL`, `BUZZ_PRIVATE_KEY`, and `BUZZ_AUTH_TAG`. They are not required for talking: the harness publishes your assistant reply. If a key is missing from *your* tool session, skip CLI writes rather than treating that as a hard block on the conversation. Exit codes: 0 ok, 1 user error, 2 network, 3 auth, 4 other. Output is structured JSON.
+The `buzz` CLI is for extra actions beyond the ordinary channel reply (search, reactions, extra posts, drafts). When those commands are available, auth env vars may include `BUZZ_RELAY_URL`, `BUZZ_PRIVATE_KEY`, and `BUZZ_AUTH_TAG`. They are not required for talking: the harness publishes your assistant reply. If a key is missing from *your* tool session, skip CLI writes rather than treating that as a hard block on the conversation. Do not read a private key from disk, `export` an nsec into the shell, or print one — that is not how replies are delivered. Exit codes: 0 ok, 1 user error, 2 network, 3 auth, 4 other. Output is structured JSON.
 
 | Group | Key commands |
 |-------|-------------|

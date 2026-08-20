@@ -5,6 +5,11 @@
 //! tool/exec session often does not. Ordinary mention replies must therefore
 //! be signed and posted by this harness, not by `buzz messages send`.
 //!
+//! Some working OpenClaw sessions currently `export` an nsec from a hex file
+//! on the Gateway host before `buzz messages send`. That is a session habit,
+//! not the product design — it puts private keys in tool transcripts. This
+//! module exists so agents do not need to do that.
+//!
 //! Desktop managed agents that still CLI-send a channel message during the
 //! turn are not double-posted: if this identity already published a kind:9
 //! in the triggering channel after the mention, the harness skips.

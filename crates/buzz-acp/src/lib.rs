@@ -4589,6 +4589,8 @@ mod agent_draft_prompt_tests {
         assert!(prompt.contains("harness publishes that assistant text"));
         assert!(prompt.contains("You do not need `buzz messages send` for that ordinary reply"));
         assert!(prompt.contains("skip CLI writes rather than treating that as a hard block"));
+        assert!(prompt.contains("Do not read a private key from disk"));
+        assert!(prompt.contains("that is not how replies are delivered"));
         assert!(
             !prompt.contains("you MUST publish it.** Use `buzz messages send`"),
             "ordinary replies must not require a CLI send"

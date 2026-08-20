@@ -263,7 +263,7 @@ Forum event kinds:
 
 | Path | Ordinary mention reply |
 |------|------------------------|
-| **Default / VPS last-mile** | Harness publishes ACP assistant text. OpenClaw (and other agents whose tool session does not inherit `BUZZ_PRIVATE_KEY`) can talk without calling `buzz messages send`. |
+| **Default / VPS last-mile** | Harness publishes ACP assistant text. OpenClaw (and other agents whose tool session does not inherit `BUZZ_PRIVATE_KEY`) can talk without calling `buzz messages send`. Do not treat `export BUZZ_PRIVATE_KEY=$(cat ~/.openclaw/buzz-keys/…)` inside exec as the design — that puts nsecs in tool transcripts. |
 | **Desktop managed agent** | Still works if the agent CLI-sends: a kind:9 from this identity after the mention causes the harness to skip. Prefer letting the harness publish and not CLI-sending the same reply. |
 
 Heartbeat turns have no triggering channel and are not last-mile published; those still need the CLI when the agent has keys.
