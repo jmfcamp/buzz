@@ -83,4 +83,29 @@ mod tests {
             "ModalFuture::new returns Self; a bare `return;` on the sync nil-panel path is E0069"
         );
     }
+
+    #[test]
+    fn patched_rfd_async_nil_panel_cancels_before_callback_move() {
+        // dialog_callback is a non-Copy Fn. The async sheet path used to
+        // move it into RcBlock, then call it again on a nil panel (E0382).
+        let sheet = RFD_MODAL
+            .split("if unsafe { app.isRunning() }")
+            .nth(1)
+            .and_then(|s| s.split("} else {").next())
+            .expect("async sheet path in ModalFuture::new");
+        let build = sheet
+            .find("let Some(modal) = build_modal")
+            .expect("async nil-panel guard");
+        let block = sheet
+            .find("RcBlock::new")
+            .expect("sheet completion block");
+        assert!(
+            build < block,
+            "nil-panel cancel must run before dialog_callback moves into RcBlock (E0382)"
+        );
+        assert!(
+            sheet.contains("NSModalResponseCancel"),
+            "nil panel must complete the sheet path as cancelled"
+        );
+    }
 }
