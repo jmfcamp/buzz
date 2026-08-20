@@ -36,7 +36,13 @@ export function FileCard({
       <button
         ref={cardRef}
         type="button"
-        onClick={() => setPreviewOpen(true)}
+        onClick={(event) => {
+          // Forum post cards (and similar list rows) wrap Markdown in a
+          // clickable row. Without this, the row steals the click, navigates
+          // away, and unmounts the preview before it can open.
+          event.stopPropagation();
+          setPreviewOpen(true);
+        }}
         aria-label={`Preview ${filename}`}
         data-testid="file-card"
         className="my-1 inline-flex max-w-sm items-center gap-3 rounded-2xl border border-border/70 bg-muted/40 px-3 py-2 text-left no-underline transition-colors hover:bg-muted/70"
