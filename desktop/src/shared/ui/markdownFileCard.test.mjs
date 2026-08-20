@@ -47,6 +47,7 @@ test("resolveFileCard: builds a card for a generic file, preferring imeta filena
     href: PDF_URL,
     filename: "Q3-budget.pdf",
     size: 2048,
+    mime: "application/pdf",
   });
 });
 
@@ -63,6 +64,17 @@ test("resolveFileCard: falls back to link child text when imeta has no filename"
 test("resolveFileCard: falls back to URL tail when no filename or child text", () => {
   const card = resolveFileCard({ m: "application/octet-stream" }, PDF_URL, "");
   assert.equal(card?.filename, `${"a".repeat(64)}.pdf`);
+});
+
+test("resolveFileCard: forwards imeta MIME for preview routing", () => {
+  const url = `https://relay.example/media/${"c".repeat(64)}.html`;
+  const card = resolveFileCard(
+    { m: "text/html", filename: "note.html" },
+    url,
+    "",
+  );
+  assert.equal(card?.mime, "text/html");
+  assert.equal(card?.filename, "note.html");
 });
 
 test("resolveFileCard: octet-stream (no magic bytes) is treated as a file", () => {

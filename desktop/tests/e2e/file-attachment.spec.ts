@@ -88,6 +88,36 @@ async function uploadCommandCount(page: Page) {
   );
 }
 
+async function e2eCommands(page: Page) {
+  return page.evaluate(
+    () =>
+      (window as Window & { __BUZZ_E2E_COMMANDS__?: string[] })
+        .__BUZZ_E2E_COMMANDS__ ?? [],
+  );
+}
+
+async function openFilePreviewAndDownload(page: Page, filename: string) {
+  const card = page.getByTestId("file-card").last();
+  await expect(card).toBeVisible();
+  await expect(card).toContainText(filename);
+
+  await card.click();
+  const preview = page.getByTestId("file-preview-dialog");
+  await expect(preview).toBeVisible();
+  await expect(preview).toContainText(filename);
+  await expect(preview.getByTestId("file-preview-unavailable")).toBeVisible();
+
+  // Click opens the preview — download is a separate action.
+  expect(await e2eCommands(page)).not.toContain("download_file");
+
+  await preview.getByTestId("file-preview-download").click();
+  await expect.poll(() => e2eCommands(page)).toContain("download_file");
+
+  await page.keyboard.press("Escape");
+  await expect(preview).toHaveCount(0);
+  return card;
+}
+
 test("picker survives cancel, same-file retry, and multiple selection", async ({
   page,
 }) => {
@@ -215,26 +245,18 @@ test("upload a file and see a FileCard in the timeline", async ({ page }) => {
   await page.getByTestId("send-message").click();
   await expect(page.getByText("Sending")).toHaveCount(0);
 
-  // A FileCard renders in the timeline: a button carrying the filename. It
-  // downloads via the native `download_file` command (HTTP inside the app's
-  // tunnel + save dialog), NOT a plain `<a download>` link — a bare link
-  // escapes the webview to the OS browser and hits a corporate CDN page.
+  // A FileCard renders in the timeline: a button carrying the filename.
+  // Click opens an in-app preview; Download in that window invokes the
+  // native `download_file` command (HTTP inside the app's tunnel + save
+  // dialog), NOT a plain `<a download>` link — a bare link escapes the
+  // webview to the OS browser and hits a corporate CDN page.
   const card = page.getByTestId("file-card").last();
   await expect(card).toBeVisible();
   await expectCornerRadiusPx(card, 16);
   await expectSmoothCorners(card);
   await expect(card).toContainText("quarterly-report.pdf");
 
-  await card.click();
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () =>
-          (window as Window & { __BUZZ_E2E_COMMANDS__?: string[] })
-            .__BUZZ_E2E_COMMANDS__ ?? [],
-      ),
-    )
-    .toContain("download_file");
+  await openFilePreviewAndDownload(page, "quarterly-report.pdf");
 });
 
 test("sends immediately and keeps upload progress across channels", async ({
@@ -598,22 +620,14 @@ test("forum posts emit a FileCard for generic attachments, not a broken image", 
   await page.getByTestId("send-message").click();
 
   // The post renders through the shared Markdown component as a FileCard —
-  // a button carrying the filename that downloads via the native
-  // `download_file` command — NOT an inline image and NOT a bare link.
+  // a button carrying the filename that opens an in-app preview. Download
+  // from that window uses the native `download_file` command — NOT an
+  // inline image and NOT a bare link.
   const card = page.getByTestId("file-card");
   await expect(card).toBeVisible();
   await expect(card).toContainText("quarterly-report.pdf");
 
-  await card.click();
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () =>
-          (window as Window & { __BUZZ_E2E_COMMANDS__?: string[] })
-            .__BUZZ_E2E_COMMANDS__ ?? [],
-      ),
-    )
-    .toContain("download_file");
+  await openFilePreviewAndDownload(page, "quarterly-report.pdf");
 });
 
 test("a queued attachment can be removed without a mouse", async ({ page }) => {
@@ -700,4 +714,134 @@ test("a non-media attachment's remove button is named and keyboard-operable", as
   await expect(remove).toHaveCSS("opacity", "1");
   await page.keyboard.press("Enter");
   await expect(composer).not.toContainText("quarterly-report.pdf");
+});
+
+async function waitForMockLiveSubscription(page: Page, channelName: string) {
+  await expect
+    .poll(async () => {
+      return page.evaluate((name) => {
+        return (
+          (
+            window as Window & {
+              __BUZZ_E2E_HAS_MOCK_LIVE_SUBSCRIPTION__?: (input: {
+                channelName: string;
+              }) => boolean;
+            }
+          ).__BUZZ_E2E_HAS_MOCK_LIVE_SUBSCRIPTION__?.({ channelName: name }) ??
+          false
+        );
+      }, channelName);
+    })
+    .toBe(true);
+}
+
+function emitMockMessage(
+  page: Page,
+  channelName: string,
+  content: string,
+  extraTags: string[][],
+) {
+  return page.evaluate(
+    ({ channelName, content, extraTags }) => {
+      const emit = (
+        window as Window & {
+          __BUZZ_E2E_EMIT_MOCK_MESSAGE__?: (input: {
+            channelName: string;
+            content: string;
+            extraTags?: string[][];
+          }) => unknown;
+        }
+      ).__BUZZ_E2E_EMIT_MOCK_MESSAGE__;
+      if (!emit) {
+        throw new Error("Mock message emitter is unavailable.");
+      }
+      return emit({ channelName, content, extraTags });
+    },
+    { channelName, content, extraTags },
+  );
+}
+
+test("markdown and HTML attachments preview in-app without navigating", async ({
+  page,
+}) => {
+  const mdUrl = `https://mock.relay/media/${"1".repeat(64)}.md`;
+  const htmlUrl = `https://mock.relay/media/${"2".repeat(64)}.html`;
+
+  await page.route(mdUrl, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "text/markdown",
+      body: "# Hello preview\n\nA **bold** note.",
+    }),
+  );
+  await page.route(htmlUrl, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "text/html",
+      body: "<!DOCTYPE html><html><body><script>window.__XSS__=1</script><h1>Live?</h1></body></html>",
+    }),
+  );
+
+  await page.goto("/");
+  await page.getByTestId("channel-general").click();
+  await expect(page.getByTestId("chat-title")).toHaveText("general");
+  await waitForMockLiveSubscription(page, "general");
+
+  await emitMockMessage(page, "general", `[notes.md](${mdUrl})`, [
+    [
+      "imeta",
+      `url ${mdUrl}`,
+      "m text/markdown",
+      `x ${"1".repeat(64)}`,
+      "size 32",
+      "filename notes.md",
+    ],
+  ]);
+
+  const mdCard = page.getByTestId("file-card").filter({ hasText: "notes.md" });
+  await expect(mdCard).toBeVisible();
+  await mdCard.click();
+
+  const preview = page.getByTestId("file-preview-dialog");
+  await expect(preview).toBeVisible();
+  const markdown = preview.getByTestId("file-preview-markdown");
+  await expect(markdown).toBeVisible();
+  await expect(markdown).toContainText("Hello preview");
+  await expect(preview.locator("iframe")).toHaveCount(0);
+  expect(await e2eCommands(page)).not.toContain("download_file");
+
+  await page.keyboard.press("Escape");
+  await expect(preview).toHaveCount(0);
+
+  await emitMockMessage(page, "general", `[page.html](${htmlUrl})`, [
+    [
+      "imeta",
+      `url ${htmlUrl}`,
+      "m text/html",
+      `x ${"2".repeat(64)}`,
+      "size 96",
+      "filename page.html",
+    ],
+  ]);
+
+  const htmlCard = page
+    .getByTestId("file-card")
+    .filter({ hasText: "page.html" });
+  await expect(htmlCard).toBeVisible();
+  await htmlCard.click();
+
+  await expect(preview).toBeVisible();
+  const source = preview.getByTestId("file-preview-source");
+  await expect(source).toBeVisible();
+  await expect(source).toContainText("<script>window.__XSS__=1</script>");
+  await expect(preview.locator("iframe")).toHaveCount(0);
+  await expect(preview.getByRole("heading", { name: "Live?" })).toHaveCount(0);
+
+  const xssFlag = await page.evaluate(
+    () => (window as Window & { __XSS__?: number }).__XSS__,
+  );
+  expect(xssFlag).toBeUndefined();
+
+  await preview.getByTestId("file-preview-download").click();
+  await expect.poll(() => e2eCommands(page)).toContain("download_file");
 });

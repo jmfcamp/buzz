@@ -15,6 +15,8 @@ export type ResolvedFileCard = {
   href: string;
   filename: string;
   size?: number;
+  /** Imeta MIME (`m`). Used to choose the in-app preview kind. */
+  mime: string;
 };
 
 /**
@@ -118,7 +120,7 @@ export function resolveSnapshotCard(
 }
 
 /**
- * Decide whether a markdown link should render as a generic-file download
+ * Decide whether a markdown link should render as a generic-file preview
  * card. A link qualifies when its href matches an imeta entry whose MIME is
  * neither image nor video (media goes through the `img` renderer instead).
  *
@@ -142,5 +144,10 @@ export function resolveFileCard(
   }
   const filename =
     entry.filename || childText.trim() || href.split("/").pop() || "file";
-  return { href: rewriteRelayUrl(href), filename, size: entry.size };
+  return {
+    href: rewriteRelayUrl(href),
+    filename,
+    size: entry.size,
+    mime: entry.m,
+  };
 }
