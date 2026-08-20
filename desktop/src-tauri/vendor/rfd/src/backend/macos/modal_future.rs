@@ -109,8 +109,10 @@ impl<R: 'static + Default, D: AsModal + 'static> ModalFuture<R, D> {
 
             if let Some(mtm) = MainThreadMarker::new() {
                 let Some(modal) = build_modal(mtm) else {
-                    dialog_callback(state, NSModalResponseCancel);
-                    return;
+                    // Constructor returns Self: complete as cancelled rather
+                    // than `return;` (E0069). Nil NSOpenPanel/NSSavePanel.
+                    dialog_callback(state.clone(), NSModalResponseCancel);
+                    return Self { state };
                 };
                 let inner = modal.inner_modal().retain();
 
