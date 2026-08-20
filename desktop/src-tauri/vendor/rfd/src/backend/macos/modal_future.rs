@@ -87,16 +87,19 @@ impl<R: 'static + Default, D: AsModal + 'static> ModalFuture<R, D> {
             run_on_main(move |mtm| {
                 let window = window;
 
+                // Stock rfd builds the panel, then moves dialog_callback into
+                // RcBlock. After Option<D>, the nil-panel cancel must run
+                // first — the Fn is not Copy (E0382).
+                let Some(modal) = build_modal(mtm) else {
+                    dialog_callback(state, NSModalResponseCancel);
+                    return;
+                };
+
                 let completion = {
                     let state = state.clone();
                     block2::RcBlock::new(move |result| {
                         dialog_callback(state.clone(), result);
                     })
-                };
-
-                let Some(modal) = build_modal(mtm) else {
-                    dialog_callback(state, NSModalResponseCancel);
-                    return;
                 };
                 let inner = modal.inner_modal().retain();
 
