@@ -96,9 +96,7 @@ mod tests {
         let build = sheet
             .find("let Some(modal) = build_modal")
             .expect("async nil-panel guard");
-        let block = sheet
-            .find("RcBlock::new")
-            .expect("sheet completion block");
+        let block = sheet.find("RcBlock::new").expect("sheet completion block");
         assert!(
             build < block,
             "nil-panel cancel must run before dialog_callback moves into RcBlock (E0382)"
