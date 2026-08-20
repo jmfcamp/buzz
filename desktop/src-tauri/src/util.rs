@@ -1,5 +1,12 @@
 use chrono::Utc;
 
+// tray_menu (and its file-panel child) is macOS-only. Include the same
+// module under test so Linux CI still checks the vendored nil-NSOpenPanel
+// guards.
+#[cfg(test)]
+#[path = "macos_file_panel.rs"]
+mod macos_file_panel;
+
 pub fn now_iso() -> String {
     Utc::now().to_rfc3339()
 }
