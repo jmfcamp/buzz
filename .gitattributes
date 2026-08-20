@@ -6,3 +6,6 @@
 # patches/*.patch with `\n`-joined patterns. Normalize to LF in the working
 # copy on every platform; the stored blobs are already LF.
 * text=auto eol=lf
+
+# Patched crates.io copies (nil-safe NSOpenPanel). Not first-party source.
+desktop/src-tauri/vendor/** linguist-vendored

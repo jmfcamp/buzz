@@ -15,6 +15,8 @@ mod initial_window;
 mod key_backup;
 mod link_preview_tags;
 mod linux_media;
+#[cfg(any(target_os = "macos", test))]
+mod macos_file_panel;
 #[cfg(target_os = "macos")]
 mod macos_notifications;
 mod managed_agents;
@@ -313,6 +315,7 @@ pub fn run() {
             let app_handle = app.handle().clone();
             #[cfg(target_os = "macos")]
             {
+                macos_file_panel::ensure_regular_activation();
                 tray_menu::init(&app_handle)?;
                 macos_notifications::init(&app_handle)?;
             }

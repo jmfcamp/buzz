@@ -6,6 +6,13 @@
     <string>Hula Buzz</string>
     <key>CFBundleName</key>
     <string>Hula Buzz</string>
+    <!-- Regular activating UI app. LSUIElement would mark the process
+         Background and AppKit's file-dialog XPC can then return a nil
+         NSOpenPanel (crash on attach). -->
+    <key>LSUIElement</key>
+    <false/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Buzz needs microphone access for voice huddles.</string>
     <key>NSCameraUsageDescription</key>

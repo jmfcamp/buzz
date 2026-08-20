@@ -53,7 +53,7 @@ webkit2gtk = { version = "=2.0.2", features = ["v2_22"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = { version = "0.6", default-features = false, features = ["std"] }
 objc2 = { version = "0.6.4", default-features = false }
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSEvent", "NSHapticFeedback", "NSMenu", "NSMenuItem", "NSStatusItem", "block2"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSApplication", "NSEvent", "NSHapticFeedback", "NSMenu", "NSMenuItem", "NSStatusItem", "block2"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSDictionary", "NSError", "NSBundle", "NSObject", "NSProcessInfo", "NSString"] }
 objc2-user-notifications = { version = "0.3.2", default-features = false, features = ["block2", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationSettings", "UNNotificationTrigger", "UNUserNotificationCenter"] }
 keyring = { version = "3.6.3", default-features = false, features = ["apple-native", "vendored"], optional = true }
@@ -155,3 +155,11 @@ tokio = { version = "1", features = ["test-util"] }
 # The relay's media validation, so the snapshot-sharing tests can prove the
 # full export → sanitize → relay-accept → import contract end to end.
 buzz_media_pkg = { package = "buzz-media", path = "../../crates/buzz-media" }
+
+# wry 0.55.1 / rfd 0.16.0 still panic when +[NSOpenPanel openPanel] returns
+# nil (macOS 26, ad-hoc local builds). Upstream wry#1716 is unmerged and
+# wry 0.56.1 still calls the typed binding. Patch in-tree; drop when a
+# crates.io release retains nil and cancels instead of aborting.
+[patch.crates-io]
+wry = { path = "vendor/wry" }
+rfd = { path = "vendor/rfd" }
