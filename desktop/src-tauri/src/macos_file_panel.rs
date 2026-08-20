@@ -25,9 +25,6 @@ pub(crate) fn ensure_regular_activation() {
     NSApplication::activate(&app);
 }
 
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn ensure_regular_activation() {}
-
 #[cfg(test)]
 mod tests {
     const WRY_UI_DELEGATE: &str = include_str!(concat!(
