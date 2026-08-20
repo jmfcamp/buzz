@@ -35,6 +35,10 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/vendor/rfd/src/backend/macos/file_dialog/panel_ffi.rs"
     ));
+    const RFD_MODAL: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/vendor/rfd/src/backend/macos/modal_future.rs"
+    ));
 
     #[test]
     fn patched_wry_cancels_when_nsopenpanel_is_nil() {
@@ -65,6 +69,18 @@ mod tests {
         assert!(
             !RFD_PANEL.contains("NSSavePanel::savePanel(mtm)"),
             "typed NSSavePanel::savePanel panics on nil"
+        );
+    }
+
+    #[test]
+    fn patched_rfd_nil_panel_returns_cancelled_future() {
+        assert!(
+            RFD_MODAL.contains("NSModalResponseCancel"),
+            "nil panel must complete the modal future as cancelled"
+        );
+        assert!(
+            RFD_MODAL.contains("return Self { state }"),
+            "ModalFuture::new returns Self; a bare `return;` on the sync nil-panel path is E0069"
         );
     }
 }
