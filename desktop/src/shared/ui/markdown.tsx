@@ -1321,7 +1321,7 @@ export function createMarkdownComponents(
     }
 
     // Generic file attachment: a `[filename](url)` link whose href matches an
-    // imeta entry with a non-image, non-video MIME. Render a download card
+    // imeta entry with a non-image, non-video MIME. Render a preview card
     // instead of a plain link. (Media uses the `img` renderer, not this path.)
     const card = resolveFileCard(
       href ? imetaByUrl?.get(href) : undefined,
@@ -1330,7 +1330,12 @@ export function createMarkdownComponents(
     );
     if (card) {
       return (
-        <FileCard href={card.href} filename={card.filename} size={card.size} />
+        <FileCard
+          href={card.href}
+          filename={card.filename}
+          mime={card.mime}
+          size={card.size}
+        />
       );
     }
 
