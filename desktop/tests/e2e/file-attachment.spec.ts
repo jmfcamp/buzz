@@ -845,3 +845,69 @@ test("markdown and HTML attachments preview in-app without navigating", async ({
   await preview.getByTestId("file-preview-download").click();
   await expect.poll(() => e2eCommands(page)).toContain("download_file");
 });
+
+test("files above 10 MiB stay download-only; 3 MiB markdown still previews", async ({
+  page,
+}) => {
+  const hugeUrl = `https://mock.relay/media/${"3".repeat(64)}.md`;
+  const midUrl = `https://mock.relay/media/${"4".repeat(64)}.md`;
+
+  await page.route(midUrl, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "text/markdown",
+      body: "# Mid-size preview\n\nFits under 10 MiB.",
+    }),
+  );
+
+  await page.goto("/");
+  await page.getByTestId("channel-general").click();
+  await expect(page.getByTestId("chat-title")).toHaveText("general");
+  await waitForMockLiveSubscription(page, "general");
+
+  await emitMockMessage(page, "general", `[huge.md](${hugeUrl})`, [
+    [
+      "imeta",
+      `url ${hugeUrl}`,
+      "m text/markdown",
+      `x ${"3".repeat(64)}`,
+      `size ${10 * 1024 * 1024 + 1}`,
+      "filename huge.md",
+    ],
+  ]);
+
+  const hugeCard = page.getByTestId("file-card").filter({ hasText: "huge.md" });
+  await expect(hugeCard).toBeVisible();
+  await hugeCard.click();
+
+  const preview = page.getByTestId("file-preview-dialog");
+  await expect(preview).toBeVisible();
+  await expect(preview.getByTestId("file-preview-unavailable")).toBeVisible();
+  await expect(preview).toContainText("too large to preview");
+  expect(await e2eCommands(page)).not.toContain("download_file");
+
+  await preview.getByTestId("file-preview-download").click();
+  await expect.poll(() => e2eCommands(page)).toContain("download_file");
+
+  await page.keyboard.press("Escape");
+  await expect(preview).toHaveCount(0);
+
+  await emitMockMessage(page, "general", `[mid.md](${midUrl})`, [
+    [
+      "imeta",
+      `url ${midUrl}`,
+      "m text/markdown",
+      `x ${"4".repeat(64)}`,
+      `size ${3 * 1024 * 1024}`,
+      "filename mid.md",
+    ],
+  ]);
+
+  const midCard = page.getByTestId("file-card").filter({ hasText: "mid.md" });
+  await expect(midCard).toBeVisible();
+  await midCard.click();
+  await expect(preview).toBeVisible();
+  const markdown = preview.getByTestId("file-preview-markdown");
+  await expect(markdown).toBeVisible();
+  await expect(markdown).toContainText("Mid-size preview");
+});

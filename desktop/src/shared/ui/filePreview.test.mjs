@@ -129,6 +129,28 @@ test("resolveFilePreviewKind: zip / pdf / office are binary (no fetch)", () => {
   }
 });
 
+test("FILE_PREVIEW_MAX_BYTES is 10 MiB", () => {
+  assert.equal(FILE_PREVIEW_MAX_BYTES, 10 * 1024 * 1024);
+});
+
+test("resolveFilePreviewKind: files just over the old 2 MiB cap still preview", () => {
+  const kind = resolveFilePreviewKind({
+    mime: "text/markdown",
+    filename: "notes.md",
+    size: 2 * 1024 * 1024 + 1,
+  });
+  assert.deepEqual(kind, { kind: "markdown", shouldFetch: true });
+});
+
+test("resolveFilePreviewKind: files at the 10 MiB cap still preview", () => {
+  const kind = resolveFilePreviewKind({
+    mime: "text/markdown",
+    filename: "notes.md",
+    size: FILE_PREVIEW_MAX_BYTES,
+  });
+  assert.deepEqual(kind, { kind: "markdown", shouldFetch: true });
+});
+
 test("resolveFilePreviewKind: oversized files refuse to load", () => {
   const kind = resolveFilePreviewKind({
     mime: "text/markdown",
