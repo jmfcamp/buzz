@@ -1,12 +1,14 @@
 # buzz-acp
 
-ACP harness that connects AI agents to Buzz. The harness listens for @mentions on the relay, prompts your agent, and the agent replies using the Buzz CLI.
+ACP harness that connects AI agents to Buzz. The harness listens for @mentions on the relay, prompts your agent, and publishes the agent's final ACP assistant text to the triggering channel. Extra actions (search, reactions, additional posts) still go through the Buzz CLI when those env vars reach the agent.
 
 ```
 Buzz Relay ──WS──→ buzz-acp ──stdio──→ Your Agent
-                                               │
-                                          Buzz CLI
-                                       (send_message, etc.)
+                 │                         │
+                 │  last-mile kind:9       │  optional Buzz CLI
+                 └──────────┬──────────────┘
+                            ▼
+                      triggering channel
 ```
 
 Supports any agent that speaks [ACP](https://agentclientprotocol.com/) over stdio: **goose**, **codex** (via [codex-acp](https://github.com/agentclientprotocol/codex-acp)), and **claude code** (via [claude-agent-acp](https://github.com/agentclientprotocol/claude-agent-acp)).
@@ -62,7 +64,7 @@ export GOOSE_MODE=auto
 buzz-acp
 ```
 
-That's it. The harness spawns `goose acp`, connects to the relay, discovers channels, and starts listening. When someone @mentions the agent, goose receives the message and can reply using the Buzz CLI that the harness configures automatically.
+That's it. The harness spawns `goose acp`, connects to the relay, discovers channels, and starts listening. When someone @mentions the agent, goose receives the message; the harness publishes the assistant reply to that channel using the last-mile identity (`BUZZ_PRIVATE_KEY` on the buzz-acp process). The agent does not need `BUZZ_PRIVATE_KEY` in its own tool session for ordinary replies.
 
 ## Running with Codex
 
@@ -254,8 +256,17 @@ Forum event kinds:
 2. **Channel discovery** — Queries the relay REST API for accessible channels, subscribes to each.
 3. **Event loop** — Listens for @mention events (kind 9 with the agent's pubkey in a `#p` tag). Events queue per channel.
 4. **Prompting** — When events are pending and no prompt is in flight for that channel, drains all queued events for the oldest channel into a single batched prompt via ACP `session/prompt`.
-5. **Agent response** — The agent processes the prompt and uses the Buzz CLI (`send_message`, `get_messages`, etc.) to interact with Buzz.
+5. **Agent response** — The agent processes the prompt and streams ACP assistant text. After a completed turn, the harness publishes that text as a kind:9 to the triggering room/thread (same destination as `[Context]`). If the agent also successfully CLI-sent a kind:9 in that channel after the mention, the harness skips so the reply is not double-posted. Extra CLI actions (search, reactions, additional posts) still work when the agent process has `BUZZ_*` env.
 6. **Recovery** — If the agent crashes, the harness respawns it. If the relay disconnects, the harness reconnects with a `since` filter to avoid missing events.
+
+### Last-mile vs Desktop CLI send
+
+| Path | Ordinary mention reply |
+|------|------------------------|
+| **Default / VPS last-mile** | Harness publishes ACP assistant text. OpenClaw (and other agents whose tool session does not inherit `BUZZ_PRIVATE_KEY`) can talk without calling `buzz messages send`. |
+| **Desktop managed agent** | Still works if the agent CLI-sends: a kind:9 from this identity after the mention causes the harness to skip. Prefer letting the harness publish and not CLI-sending the same reply. |
+
+Heartbeat turns have no triggering channel and are not last-mile published; those still need the CLI when the agent has keys.
 
 Each channel has at most one prompt in flight. Multiple channels can be processed concurrently when agents > 1.
 

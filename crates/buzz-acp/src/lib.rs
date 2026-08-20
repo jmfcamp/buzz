@@ -4,6 +4,7 @@ mod acp;
 mod config;
 mod engram_fetch;
 mod filter;
+mod last_mile;
 mod observer;
 mod pool;
 mod pool_lifecycle;
@@ -4580,6 +4581,18 @@ mod agent_draft_prompt_tests {
         assert!(prompt.contains("CI and live workflow evidence answer different questions"));
         assert!(prompt.contains("record the invariant in the same session"));
         assert!(prompt.contains("update the team's shared guidance"));
+    }
+
+    #[test]
+    fn shared_base_prompt_teaches_harness_publishes_ordinary_replies() {
+        let prompt = include_str!("base_prompt.md");
+        assert!(prompt.contains("harness publishes that assistant text"));
+        assert!(prompt.contains("You do not need `buzz messages send` for that ordinary reply"));
+        assert!(prompt.contains("skip CLI writes rather than treating that as a hard block"));
+        assert!(
+            !prompt.contains("you MUST publish it.** Use `buzz messages send`"),
+            "ordinary replies must not require a CLI send"
+        );
     }
 
     #[test]
