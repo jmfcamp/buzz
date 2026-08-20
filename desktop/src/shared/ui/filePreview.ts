@@ -10,8 +10,8 @@
  * (not `serve_inline`); the desktop renderer must not undo that.
  */
 
-/** Refuse to materialize huge attachments in the preview pane. */
-export const FILE_PREVIEW_MAX_BYTES = 2 * 1024 * 1024;
+/** Refuse to materialize attachments larger than 10 MiB in the preview pane. */
+export const FILE_PREVIEW_MAX_BYTES = 10 * 1024 * 1024;
 
 export type FilePreviewKind =
   | "markdown"
