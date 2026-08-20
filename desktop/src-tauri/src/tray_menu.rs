@@ -3,8 +3,11 @@
 //! The webview owns the live agent-turn state. It sends the small display
 //! projection here so the native menu can remain useful while Buzz is hidden.
 
-// Mouse back/forward (X1/X2 buttons and swipe) is also macOS-only native I/O;
-// group it here so both platform-layer init paths share one call site in lib.rs.
+// macOS-only native I/O lives beside the tray init so lib.rs stays one call
+// site (file-size ratchet). Mouse back/forward and the NSOpenPanel crash
+// guard both run from `init`.
+#[path = "macos_file_panel.rs"]
+mod macos_file_panel;
 #[path = "mouse_nav.rs"]
 pub(crate) mod mouse_nav;
 
@@ -474,6 +477,7 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, id: &str) {
 
 /// Installs the persistent Buzz tray icon with the initial empty activity menu.
 pub fn init<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
+    macos_file_panel::ensure_regular_activation();
     let preview_activities = preview_activities();
     let preview_recent_activities = preview_recent_activities();
     let activities = preview_activities.as_deref().unwrap_or(&[]);
