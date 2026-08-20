@@ -1191,8 +1191,10 @@ pub(crate) fn format_event_block(
 /// top level.
 fn append_reply_instruction(s: &mut String, event_id: &str) {
     s.push_str(&format!(
-        "\nIMPORTANT: For ordinary replies in this turn, use `--reply-to {event_id}` \
-         on `buzz messages send` so the conversation stays threaded. \
+        "\nIMPORTANT: The harness publishes your assistant reply to this conversation, \
+         threaded at {event_id}. You do not need `buzz messages send` for that ordinary reply. \
+         If you send extra messages with the CLI, use `--reply-to {event_id}` \
+         so they stay threaded. \
          If the human explicitly asks for a channel-root, top-level, \
          or broadcast post, send that message without `--reply-to`. \
          If the requested destination is ambiguous, ask before sending."
@@ -1206,10 +1208,11 @@ fn append_reply_instruction(s: &mut String, event_id: &str) {
 /// choice open) prevents replying into a stale/unrelated prior thread.
 fn append_new_thread_reply_instruction(s: &mut String, event_id: &str) {
     s.push_str(&format!(
-        "\nIMPORTANT: This is a new top-level message. For ordinary replies in \
-         this turn, use `--reply-to {event_id}` on `buzz messages send` — the \
-         triggering message is the thread root. Do NOT reply into any other \
-         (older) thread. If the human explicitly asks for a channel-root, \
+        "\nIMPORTANT: This is a new top-level message. The harness publishes your \
+         assistant reply as a thread rooted at {event_id}. You do not need \
+         `buzz messages send` for that ordinary reply. Do NOT reply into any other \
+         (older) thread. If you send extra messages with the CLI, use \
+         `--reply-to {event_id}`. If the human explicitly asks for a channel-root, \
          top-level, or broadcast post, send that message without `--reply-to`."
     ));
 }
@@ -1249,7 +1252,7 @@ fn turn_is_human_facing(
 ///
 /// Returns `None` for agent↔agent turns, leaving the agent free to nest deeply
 /// (intentional for agent coordination).
-fn resolve_reply_anchor(
+pub(crate) fn resolve_reply_anchor(
     sender_pubkey: &str,
     thread_tags: &ThreadTags,
     triggering_event_id: &str,
@@ -4273,8 +4276,8 @@ mod tests {
             "human-facing thread reply should anchor to the thread root"
         );
         assert!(
-            prompt.contains("For ordinary replies in this turn"),
-            "channel thread reply should describe reply-to as the default"
+            prompt.contains("The harness publishes your assistant reply"),
+            "channel thread reply should say the harness publishes the ordinary reply"
         );
         assert!(
             prompt.contains("send that message without `--reply-to`"),

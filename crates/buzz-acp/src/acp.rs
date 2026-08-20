@@ -214,6 +214,10 @@ pub struct AcpClient {
     standard_usage: StandardUsageTracker,
     /// Known adapter identity for prompt-response usage mapping.
     standard_adapter: Option<StandardAdapterKind>,
+    /// Concatenated `agent_message_chunk` text for the in-flight turn.
+    /// Cleared at the start of each `session/prompt`; taken after the turn
+    /// so last-mile can publish the assistant reply without a CLI send.
+    assistant_text: String,
 }
 
 /// Recursively merge `overlay` into `base`, with `overlay` winning on scalar/shape
@@ -563,6 +567,7 @@ impl AcpClient {
             goose_usage: UsageTracker::default(),
             standard_usage: StandardUsageTracker::default(),
             standard_adapter,
+            assistant_text: String::new(),
         })
     }
 
@@ -790,6 +795,7 @@ impl AcpClient {
         // misattributed to this turn.
         self.goose_usage.begin_turn(session_id);
         self.standard_usage.begin_turn(session_id);
+        self.assistant_text.clear();
 
         self.last_prompt_id = Some(self.next_id);
         let id = self.next_id;
@@ -888,6 +894,11 @@ impl AcpClient {
         let goose_usage = self.goose_usage.take();
         let standard_usage = self.standard_usage.take();
         goose_usage.or(standard_usage)
+    }
+
+    /// Consume concatenated `agent_message_chunk` text for this turn.
+    pub fn take_assistant_text(&mut self) -> String {
+        std::mem::take(&mut self.assistant_text)
     }
 
     /// Notify the usage tracker that buzz-acp just spawned a new session.
@@ -1756,10 +1767,14 @@ impl AcpClient {
             "agent_message_chunk" => {
                 if let Some(text) = update["content"]["text"].as_str() {
                     tracing::info!(target: "acp::stream", "{text}");
+                    self.assistant_text.push_str(text);
                 }
                 false
             }
             "tool_call" => {
+                if !self.assistant_text.is_empty() && !self.assistant_text.ends_with('\n') {
+                    self.assistant_text.push_str("\n\n");
+                }
                 let title = update
                     .get("title")
                     .and_then(|v| v.as_str())
@@ -3720,6 +3735,60 @@ mod tests {
         AcpClient::spawn("cat", &[], &[], false)
             .await
             .expect("spawn cat as inert client")
+    }
+
+    fn agent_message_chunk(text: &str) -> serde_json::Value {
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+                "sessionId": "test-session",
+                "update": {
+                    "sessionUpdate": "agent_message_chunk",
+                    "content": {"type": "text", "text": text},
+                },
+            }
+        })
+    }
+
+    fn tool_call_update() -> serde_json::Value {
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "session/update",
+            "params": {
+                "sessionId": "test-session",
+                "update": {
+                    "sessionUpdate": "tool_call",
+                    "title": "search",
+                    "kind": "other",
+                },
+            }
+        })
+    }
+
+    #[tokio::test]
+    async fn assistant_text_concatenates_message_chunks() {
+        let mut client = spawn_inert_client().await;
+        let _ = client.handle_session_update(&agent_message_chunk("Hello "));
+        let _ = client.handle_session_update(&agent_message_chunk("world"));
+        assert_eq!(client.take_assistant_text(), "Hello world");
+        assert_eq!(
+            client.take_assistant_text(),
+            "",
+            "take_assistant_text must clear the buffer"
+        );
+    }
+
+    #[tokio::test]
+    async fn assistant_text_separates_messages_around_tool_calls() {
+        let mut client = spawn_inert_client().await;
+        let _ = client.handle_session_update(&agent_message_chunk("Looking it up"));
+        let _ = client.handle_session_update(&tool_call_update());
+        let _ = client.handle_session_update(&agent_message_chunk("The answer is 42."));
+        assert_eq!(
+            client.take_assistant_text(),
+            "Looking it up\n\nThe answer is 42."
+        );
     }
 
     /// Build a `session/update` JSON-RPC notification carrying a

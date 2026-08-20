@@ -2632,6 +2632,12 @@ pub async fn run_prompt_task(
                             &source,
                             &control_signal,
                         );
+                        maybe_publish_last_mile_reply(
+                            &mut agent.acp,
+                            &ctx.rest_client,
+                            batch.as_ref(),
+                            &StopReason::EndTurn,
+                        );
                         let usage = agent.acp.take_turn_usage();
                         publish_agent_turn_metric(
                             &ctx,
@@ -2705,6 +2711,12 @@ pub async fn run_prompt_task(
             }
 
             let core_stop = acp_stop_to_core(&stop_reason);
+            maybe_publish_last_mile_reply(
+                &mut agent.acp,
+                &ctx.rest_client,
+                batch.as_ref(),
+                &stop_reason,
+            );
             let usage = agent.acp.take_turn_usage();
             publish_agent_turn_metric(
                 &ctx,
@@ -4533,6 +4545,27 @@ pub(crate) async fn reaction_add(rest: &crate::relay::RestClient, event_id: &str
         Ok(Err(e)) => tracing::debug!(event_id, emoji, "reaction add failed: {e}"),
         Err(_) => tracing::debug!(event_id, emoji, "reaction add timed out"),
     }
+}
+
+/// Publish the collected ACP assistant text to the triggering channel when
+/// the turn completed and the agent did not already CLI-send a kind:9.
+fn maybe_publish_last_mile_reply(
+    acp: &mut AcpClient,
+    rest: &RestClient,
+    batch: Option<&FlushBatch>,
+    stop_reason: &StopReason,
+) {
+    let text = acp.take_assistant_text();
+    if !matches!(
+        stop_reason,
+        StopReason::EndTurn | StopReason::MaxTokens | StopReason::MaxTurnRequests
+    ) {
+        return;
+    }
+    let Some(batch) = batch else {
+        return;
+    };
+    crate::last_mile::spawn_publish_assistant_reply(rest.clone(), batch, text);
 }
 
 /// Best-effort: post a visible failure notice (kind:9) to a channel after a
