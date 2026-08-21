@@ -5,31 +5,49 @@
  * that dialog may show — never how to fetch. Bytes still come from the
  * authenticated Tauri `fetch_media_bytes` / `download_file` path.
  *
- * HTML is never a live document: no webview navigation, no unsandboxed
- * iframe, no `allow-scripts`. The relay serves HTML as an inert download
- * (not `serve_inline`); the desktop renderer must not undo that.
+ * HTML renders as a laid-out page in a uniquely origin-isolated iframe
+ * (`srcdoc` from fetched bytes, empty sandbox). The main Buzz webview never
+ * navigates to the blob, and the iframe `src` is never the relay `/media/`
+ * URL. The sandbox token list is the empty string — it cannot grow script
+ * or same-origin privileges without changing this type.
  */
 
 /** Refuse to materialize attachments larger than 10 MiB in the preview pane. */
 export const FILE_PREVIEW_MAX_BYTES = 10 * 1024 * 1024;
 
-export type FilePreviewKind =
-  | "markdown"
-  | "html-source"
-  | "text"
-  | "unavailable";
+/**
+ * The only legal iframe sandbox for HTML previews. An empty string means
+ * unique opaque origin, no scripts, no same-origin, no popups, no forms.
+ * There is no token list a caller can append to.
+ */
+export const HTML_PREVIEW_IFRAME_SANDBOX = "" as const;
+
+export type FilePreviewKind = "markdown" | "html" | "text" | "unavailable";
 
 export type FilePreviewUnavailableReason = "binary" | "too-large" | "not-text";
 
+export type HtmlIframeSandbox = typeof HTML_PREVIEW_IFRAME_SANDBOX;
+
 /**
- * Inert HTML preview contract. Every field that could point a webview or
- * iframe at attachment bytes is fixed to a safe value so a caller cannot
- * "upgrade" HTML into a live page without changing this type.
+ * Locked-down iframe descriptor for rendered HTML. `src` is always null so
+ * the dialog cannot point the frame at `fetchUrl` / `/media/`. Content is
+ * assigned via `srcdoc` from bytes already fetched through Tauri.
+ */
+export type HtmlIframePlan = {
+  src: null;
+  srcdoc: true;
+  sandbox: HtmlIframeSandbox;
+};
+
+/**
+ * HTML preview contract. Default view is a rendered page; scripts stay
+ * structurally forbidden. Every field that could navigate the webview or
+ * load the relay URL in a frame is fixed to a safe value.
  */
 export type HtmlSafetyPlan = {
-  mode: "source";
+  mode: "rendered";
   iframeSrc: null;
-  iframeSandbox: null;
+  iframeSandbox: HtmlIframeSandbox;
   navigateTo: null;
   allowScripts: false;
 };
@@ -47,8 +65,8 @@ export type FilePreviewRenderPlan = {
   fetchUrl: string;
   /** Always null — the main webview must never navigate to the blob. */
   navigateUrl: null;
-  /** Always null — no iframe, sandboxed or otherwise, in the default plan. */
-  iframe: null;
+  /** HTML only: srcdoc iframe with an empty sandbox. All other kinds: null. */
+  iframe: HtmlIframePlan | null;
   html: HtmlSafetyPlan | null;
 };
 
@@ -212,13 +230,37 @@ function isKnownBinary(mime: string, ext: string): boolean {
   );
 }
 
+export function htmlIframePlan(): HtmlIframePlan {
+  return {
+    src: null,
+    srcdoc: true,
+    sandbox: HTML_PREVIEW_IFRAME_SANDBOX,
+  };
+}
+
 export function htmlSafetyPlan(): HtmlSafetyPlan {
   return {
-    mode: "source",
+    mode: "rendered",
     iframeSrc: null,
-    iframeSandbox: null,
+    iframeSandbox: HTML_PREVIEW_IFRAME_SANDBOX,
     navigateTo: null,
     allowScripts: false,
+  };
+}
+
+/**
+ * Props the dialog may pass to the HTML preview iframe. `src` is omitted
+ * on purpose — callers must not add a navigable URL.
+ */
+export function htmlPreviewFrameProps(srcdoc: string): {
+  referrerPolicy: "no-referrer";
+  sandbox: HtmlIframeSandbox;
+  srcDoc: string;
+} {
+  return {
+    referrerPolicy: "no-referrer",
+    sandbox: HTML_PREVIEW_IFRAME_SANDBOX,
+    srcDoc: srcdoc,
   };
 }
 
@@ -246,7 +288,7 @@ export function resolveFilePreviewKind(input: {
   // HTML wins over every other guess so a `.md.html` (or text/html + .md)
   // attachment can never fall through to the markdown renderer as a live page.
   if (isHtml(mime, ext)) {
-    return { kind: "html-source", shouldFetch: true };
+    return { kind: "html", shouldFetch: true };
   }
   if (isMarkdown(mime, ext)) {
     return { kind: "markdown", shouldFetch: true };
@@ -263,8 +305,9 @@ export function resolveFilePreviewKind(input: {
 }
 
 /**
- * Build the dialog's render plan. HTML plans are structurally inert: there
- * is no field a caller can set to navigate the webview or mount an iframe.
+ * Build the dialog's render plan. HTML plans render in a srcdoc iframe
+ * whose sandbox cannot be upgraded to scripts or same-origin. There is no
+ * field a caller can set to navigate the main webview or load `/media/`.
  */
 export function planFilePreviewRender(input: {
   href: string;
@@ -273,14 +316,15 @@ export function planFilePreviewRender(input: {
   size?: number;
 }): FilePreviewRenderPlan {
   const resolved = resolveFilePreviewKind(input);
+  const isHtmlKind = resolved.kind === "html";
   return {
     kind: resolved.kind,
     reason: resolved.reason,
     shouldFetch: resolved.shouldFetch,
     fetchUrl: input.href,
     navigateUrl: null,
-    iframe: null,
-    html: resolved.kind === "html-source" ? htmlSafetyPlan() : null,
+    iframe: isHtmlKind ? htmlIframePlan() : null,
+    html: isHtmlKind ? htmlSafetyPlan() : null,
   };
 }
 
@@ -332,7 +376,7 @@ export function previewSourceLanguage(
   filename: string,
   mime?: string,
 ): string {
-  if (kind === "html-source") return "html";
+  if (kind === "html") return "html";
   const ext = fileExtension(filename);
   const mimeNorm = normalizeMime(mime);
   if (kind === "text") {

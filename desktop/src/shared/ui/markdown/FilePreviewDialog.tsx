@@ -10,13 +10,16 @@ import { Dialog } from "@/shared/ui/dialog";
 import {
   fileTypeLabel,
   formatFileSize,
+  htmlPreviewFrameProps,
   planFilePreviewRender,
   previewSourceLanguage,
   resolveFetchedPreview,
   type FilePreviewKind,
+  type FilePreviewRenderPlan,
   type FilePreviewUnavailableReason,
 } from "@/shared/ui/filePreview";
 import { Spinner } from "@/shared/ui/spinner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 
 import { SyntaxHighlightedCode } from "./CodeBlock";
 
@@ -125,11 +128,11 @@ export function FilePreviewDialog({
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <ChooserDialogContent
-        className="max-w-3xl"
+        className={plan.kind === "html" ? "max-w-5xl" : "max-w-3xl"}
         data-testid="file-preview-dialog"
         headerSubtitle={subtitle || "File attachment"}
         headerTestId="file-preview-header"
-        scrollAreaClassName="min-h-48"
+        scrollAreaClassName={plan.kind === "html" ? "min-h-0" : "min-h-48"}
         scrollAreaTestId="file-preview-body"
         title={filename}
         footer={
@@ -153,7 +156,12 @@ export function FilePreviewDialog({
         }
         footerTestId="file-preview-footer"
       >
-        <FilePreviewBody filename={filename} mime={mime} state={state} />
+        <FilePreviewBody
+          filename={filename}
+          mime={mime}
+          plan={plan}
+          state={state}
+        />
       </ChooserDialogContent>
     </Dialog>
   );
@@ -162,10 +170,12 @@ export function FilePreviewDialog({
 function FilePreviewBody({
   filename,
   mime,
+  plan,
   state,
 }: {
   filename: string;
   mime?: string;
+  plan: FilePreviewRenderPlan;
   state: PreviewState;
 }) {
   if (state.status === "loading" || state.status === "idle") {
@@ -200,6 +210,17 @@ function FilePreviewBody({
     );
   }
 
+  if (state.kind === "html") {
+    return (
+      <HtmlPreview
+        filename={filename}
+        mime={mime}
+        plan={plan}
+        text={state.text}
+      />
+    );
+  }
+
   if (state.kind === "markdown") {
     return (
       <div
@@ -220,18 +241,110 @@ function FilePreviewBody({
     );
   }
 
-  const language = previewSourceLanguage(state.kind, filename, mime);
+  return (
+    <SourcePreview
+      filename={filename}
+      kind={state.kind}
+      mime={mime}
+      text={state.text}
+    />
+  );
+}
+
+function HtmlPreview({
+  filename,
+  mime,
+  plan,
+  text,
+}: {
+  filename: string;
+  mime?: string;
+  plan: FilePreviewRenderPlan;
+  text: string;
+}) {
+  const html = plan.html;
+  const iframe = plan.iframe;
+  // Refuse to mount a frame unless the plan is the locked rendered contract.
+  if (
+    !html ||
+    !iframe ||
+    html.mode !== "rendered" ||
+    html.allowScripts ||
+    html.navigateTo != null ||
+    html.iframeSrc != null ||
+    iframe.src != null ||
+    iframe.sandbox !== ""
+  ) {
+    return (
+      <Unavailable
+        data-testid="file-preview-unavailable"
+        detail="This HTML file cannot be previewed safely."
+        title="No preview"
+      />
+    );
+  }
+
+  const frame = htmlPreviewFrameProps(text);
+
+  return (
+    <Tabs className="flex min-h-0 flex-col" defaultValue="preview">
+      <TabsList className="self-start" data-testid="file-preview-html-tabs">
+        <TabsTrigger
+          data-testid="file-preview-html-tab-preview"
+          value="preview"
+        >
+          Preview
+        </TabsTrigger>
+        <TabsTrigger data-testid="file-preview-html-tab-source" value="source">
+          Source
+        </TabsTrigger>
+      </TabsList>
+      <TabsContent className="mt-3 min-h-0" value="preview">
+        <iframe
+          className="h-[min(60vh,36rem)] w-full rounded-2xl border border-border/70 bg-background"
+          data-preview-kind="html"
+          data-testid="file-preview-html"
+          referrerPolicy={frame.referrerPolicy}
+          sandbox={frame.sandbox}
+          srcDoc={frame.srcDoc}
+          title={`Preview of ${filename}`}
+        />
+      </TabsContent>
+      <TabsContent className="mt-3" value="source">
+        <SourcePreview
+          filename={filename}
+          kind="html"
+          mime={mime}
+          text={text}
+        />
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+function SourcePreview({
+  filename,
+  kind,
+  mime,
+  text,
+}: {
+  filename: string;
+  kind: Exclude<FilePreviewKind, "unavailable">;
+  mime?: string;
+  text: string;
+}) {
+  const language = previewSourceLanguage(kind, filename, mime);
   return (
     <pre
       className="min-h-48 overflow-auto rounded-2xl border border-border/70 bg-muted/60 px-3 py-3"
-      data-preview-kind={state.kind}
+      data-preview-kind={kind === "html" ? "html-source" : kind}
       data-testid="file-preview-source"
     >
       {language ? (
-        <SyntaxHighlightedCode code={state.text} language={language} />
+        <SyntaxHighlightedCode code={text} language={language} />
       ) : (
         <code className="block whitespace-pre-wrap font-mono text-sm text-foreground">
-          {state.text}
+          {text}
         </code>
       )}
     </pre>

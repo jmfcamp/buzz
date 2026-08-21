@@ -8,6 +8,9 @@ import {
   fileExtension,
   fileTypeLabel,
   formatFileSize,
+  HTML_PREVIEW_IFRAME_SANDBOX,
+  htmlIframePlan,
+  htmlPreviewFrameProps,
   htmlSafetyPlan,
   planFilePreviewRender,
   previewSourceLanguage,
@@ -21,14 +24,20 @@ const MEDIA_TXT = `https://relay.example/media/${"e".repeat(64)}.txt`;
 const MEDIA_ZIP = `https://relay.example/media/${"f".repeat(64)}.zip`;
 const MEDIA_BIN = `https://relay.example/media/${"0".repeat(64)}`;
 
-function assertInertHtmlPlan(plan) {
-  assert.equal(plan.kind, "html-source");
+function assertRenderedHtmlPlan(plan) {
+  assert.equal(plan.kind, "html");
   assert.equal(plan.navigateUrl, null);
-  assert.equal(plan.iframe, null);
-  assert.ok(plan.html, "HTML attachments must carry an inert safety plan");
-  assert.equal(plan.html.mode, "source");
+  assert.ok(plan.iframe, "HTML attachments render in a sandboxed iframe");
+  assert.equal(plan.iframe.src, null);
+  assert.equal(plan.iframe.srcdoc, true);
+  assert.equal(plan.iframe.sandbox, HTML_PREVIEW_IFRAME_SANDBOX);
+  assert.equal(plan.iframe.sandbox, "");
+  assert.equal(plan.iframe.sandbox.includes("allow-scripts"), false);
+  assert.equal(plan.iframe.sandbox.includes("allow-same-origin"), false);
+  assert.ok(plan.html, "HTML attachments must carry a rendered safety plan");
+  assert.equal(plan.html.mode, "rendered");
   assert.equal(plan.html.iframeSrc, null);
-  assert.equal(plan.html.iframeSandbox, null);
+  assert.equal(plan.html.iframeSandbox, "");
   assert.equal(plan.html.navigateTo, null);
   assert.equal(plan.html.allowScripts, false);
   // fetchUrl is the authenticated IPC argument — never a document URL.
@@ -36,6 +45,7 @@ function assertInertHtmlPlan(plan) {
   assert.notEqual(plan.fetchUrl, plan.navigateUrl);
   assert.notEqual(plan.fetchUrl, plan.html.iframeSrc);
   assert.notEqual(plan.fetchUrl, plan.html.navigateTo);
+  assert.notEqual(plan.fetchUrl, plan.iframe.src);
 }
 
 test("resolveFilePreviewKind: markdown MIME renders as markdown", () => {
@@ -63,26 +73,23 @@ test("resolveFilePreviewKind: .markdown extension is markdown", () => {
   );
 });
 
-test("resolveFilePreviewKind: HTML MIME is source-only, not a live page", () => {
+test("resolveFilePreviewKind: HTML MIME is a rendered page, still fetched", () => {
   const kind = resolveFilePreviewKind({
     mime: "text/html",
     filename: "page.html",
   });
-  assert.deepEqual(kind, { kind: "html-source", shouldFetch: true });
+  assert.deepEqual(kind, { kind: "html", shouldFetch: true });
 });
 
-test("resolveFilePreviewKind: .html / .htm extensions are html-source", () => {
+test("resolveFilePreviewKind: .html / .htm extensions are html", () => {
   assert.equal(
     resolveFilePreviewKind({
       mime: "application/octet-stream",
       filename: "index.html",
     }).kind,
-    "html-source",
+    "html",
   );
-  assert.equal(
-    resolveFilePreviewKind({ filename: "legacy.HTM" }).kind,
-    "html-source",
-  );
+  assert.equal(resolveFilePreviewKind({ filename: "legacy.HTM" }).kind, "html");
 });
 
 test("resolveFilePreviewKind: HTML wins over a .md suffix (file.md.html)", () => {
@@ -91,8 +98,17 @@ test("resolveFilePreviewKind: HTML wins over a .md suffix (file.md.html)", () =>
       mime: "text/html",
       filename: "file.md.html",
     }).kind,
-    "html-source",
+    "html",
   );
+});
+
+test("resolveFilePreviewKind: 3.3 MiB HTML is under the 10 MiB cap", () => {
+  const kind = resolveFilePreviewKind({
+    mime: "text/html",
+    filename: "report.html",
+    size: Math.ceil(3.3 * 1024 * 1024),
+  });
+  assert.deepEqual(kind, { kind: "html", shouldFetch: true });
 });
 
 test("resolveFilePreviewKind: text/plain, csv, json are text", () => {
@@ -173,35 +189,52 @@ test("resolveFilePreviewKind: octet-stream without extension is sniffed", () => 
   assert.equal(kind.shouldFetch, true);
 });
 
-test("planFilePreviewRender: HTML is never a webview navigation or iframe", () => {
+test("planFilePreviewRender: HTML is a sandboxed srcdoc page, never /media/ src", () => {
   const plan = planFilePreviewRender({
     href: MEDIA_HTML,
     mime: "text/html",
     filename: "xss.html",
     size: 80,
   });
-  assertInertHtmlPlan(plan);
+  assertRenderedHtmlPlan(plan);
   assert.equal(plan.shouldFetch, true);
 });
 
-test("planFilePreviewRender: HTML octet-stream .html is still inert", () => {
+test("planFilePreviewRender: HTML octet-stream .html is still sandboxed", () => {
   const plan = planFilePreviewRender({
     href: MEDIA_HTML,
     mime: "application/octet-stream",
     filename: "note.html",
   });
-  assertInertHtmlPlan(plan);
+  assertRenderedHtmlPlan(plan);
 });
 
-test("htmlSafetyPlan: structurally forbids scripts and live documents", () => {
+test("htmlSafetyPlan: rendered page cannot upgrade to scripts or same-origin", () => {
   const plan = htmlSafetyPlan();
-  assert.equal(plan.mode, "source");
+  assert.equal(plan.mode, "rendered");
   assert.equal(plan.allowScripts, false);
   assert.equal(plan.iframeSrc, null);
-  assert.equal(plan.iframeSandbox, null);
+  assert.equal(plan.iframeSandbox, "");
   assert.equal(plan.navigateTo, null);
-  // No sandbox token list exists to accidentally include allow-scripts.
-  assert.ok(!("sandbox" in plan));
+  assert.equal(plan.iframeSandbox.includes("allow-scripts"), false);
+  assert.equal(plan.iframeSandbox.includes("allow-same-origin"), false);
+});
+
+test("htmlIframePlan: srcdoc only, empty sandbox, no navigable src", () => {
+  const iframe = htmlIframePlan();
+  assert.equal(iframe.src, null);
+  assert.equal(iframe.srcdoc, true);
+  assert.equal(iframe.sandbox, "");
+  assert.equal(iframe.sandbox.includes("allow-scripts"), false);
+});
+
+test("htmlPreviewFrameProps: srcDoc from fetched bytes, no src field", () => {
+  const props = htmlPreviewFrameProps("<h1>Hi</h1>");
+  assert.equal(props.srcDoc, "<h1>Hi</h1>");
+  assert.equal(props.sandbox, "");
+  assert.equal(props.referrerPolicy, "no-referrer");
+  assert.equal("src" in props, false);
+  assert.equal(props.sandbox.includes("allow-scripts"), false);
 });
 
 test("planFilePreviewRender: markdown / text never grow an iframe", () => {
@@ -287,24 +320,29 @@ test("resolveFetchedPreview: fetched payload over the cap is refused", () => {
   assert.deepEqual(result, { kind: "unavailable", reason: "too-large" });
 });
 
-test("previewSourceLanguage: HTML is highlighted as html, never empty-as-document", () => {
+test("previewSourceLanguage: HTML source tab is highlighted as html", () => {
   assert.equal(
-    previewSourceLanguage("html-source", "index.html", "text/html"),
+    previewSourceLanguage("html", "index.html", "text/html"),
     "html",
   );
   assert.equal(previewSourceLanguage("text", "data.json"), "json");
   assert.equal(previewSourceLanguage("markdown", "notes.md"), "");
 });
 
-test("FilePreviewDialog source never navigates or mounts an HTML iframe", () => {
+test("FilePreviewDialog HTML iframe is sandboxed and never points at /media/", () => {
   const src = readFileSync(
     new URL("./markdown/FilePreviewDialog.tsx", import.meta.url),
     "utf8",
   );
-  assert.equal(src.includes("<iframe"), false);
+  assert.equal(src.includes("<iframe"), true);
+  assert.equal(src.includes("srcDoc"), true);
+  assert.equal(src.includes("sandbox={frame.sandbox}"), true);
   assert.equal(src.includes("allow-scripts"), false);
-  assert.equal(src.includes("srcdoc"), false);
-  assert.equal(src.includes("sandbox="), false);
+  assert.equal(src.includes("allow-same-origin"), false);
+  // iframe src is never bound to the relay URL or fetchUrl.
+  assert.equal(/<iframe[\s\S]*?\ssrc=\{/.test(src), false);
+  assert.equal(/src=\{href\}/.test(src), false);
+  assert.equal(/src=\{plan\.fetchUrl\}/.test(src), false);
   // Download is a <button> that invokes Tauri — not an <a href={mediaUrl}>.
   assert.equal(/<a\b[^>]*href=\{href\}/.test(src), false);
   assert.equal(/window\.location/.test(src), false);
