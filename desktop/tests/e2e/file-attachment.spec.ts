@@ -766,6 +766,8 @@ test("markdown and HTML attachments preview in-app without navigating", async ({
 }) => {
   const mdUrl = `https://mock.relay/media/${"1".repeat(64)}.md`;
   const htmlUrl = `https://mock.relay/media/${"2".repeat(64)}.html`;
+  const htmlBody =
+    "<!DOCTYPE html><html><body><script>window.__XSS__=1</script><h1>Live?</h1></body></html>";
 
   await page.route(mdUrl, (route) =>
     route.fulfill({
@@ -778,7 +780,7 @@ test("markdown and HTML attachments preview in-app without navigating", async ({
     route.fulfill({
       status: 200,
       contentType: "text/html",
-      body: "<!DOCTYPE html><html><body><script>window.__XSS__=1</script><h1>Live?</h1></body></html>",
+      body: htmlBody,
     }),
   );
 
@@ -831,16 +833,42 @@ test("markdown and HTML attachments preview in-app without navigating", async ({
   await htmlCard.click();
 
   await expect(preview).toBeVisible();
-  const source = preview.getByTestId("file-preview-source");
-  await expect(source).toBeVisible();
-  await expect(source).toContainText("<script>window.__XSS__=1</script>");
-  await expect(preview.locator("iframe")).toHaveCount(0);
+  const iframe = preview.getByTestId("file-preview-html");
+  await expect(iframe).toBeVisible();
+  await expect(iframe).toHaveAttribute("sandbox", "");
+  const sandbox = await iframe.getAttribute("sandbox");
+  expect(sandbox ?? "").not.toContain("allow-scripts");
+  expect(sandbox ?? "").not.toContain("allow-same-origin");
+  const iframeSrc = await iframe.getAttribute("src");
+  expect(iframeSrc === null || iframeSrc === "").toBeTruthy();
+  expect(iframeSrc ?? "").not.toContain("/media/");
+  await expect(iframe).toHaveAttribute("srcdoc", /<h1>Live\?<\/h1>/);
+
+  const frame = preview.frameLocator('[data-testid="file-preview-html"]');
+  await expect(frame.getByRole("heading", { name: "Live?" })).toBeVisible();
   await expect(preview.getByRole("heading", { name: "Live?" })).toHaveCount(0);
 
   const xssFlag = await page.evaluate(
     () => (window as Window & { __XSS__?: number }).__XSS__,
   );
   expect(xssFlag).toBeUndefined();
+
+  const frameXss = await iframe.evaluate((node) => {
+    const frameEl = node as HTMLIFrameElement;
+    try {
+      return frameEl.contentWindow
+        ? (frameEl.contentWindow as Window & { __XSS__?: number }).__XSS__
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  });
+  expect(frameXss).toBeUndefined();
+
+  await preview.getByTestId("file-preview-html-tab-source").click();
+  const source = preview.getByTestId("file-preview-source");
+  await expect(source).toBeVisible();
+  await expect(source).toContainText("<script>window.__XSS__=1</script>");
 
   await preview.getByTestId("file-preview-download").click();
   await expect.poll(() => e2eCommands(page)).toContain("download_file");
