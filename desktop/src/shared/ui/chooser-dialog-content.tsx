@@ -18,11 +18,19 @@ type ChooserDialogContentProps = React.ComponentPropsWithoutRef<
   footerTestId?: string;
   contentClassName?: string;
   headerClassName?: string;
+  /**
+   * Put title, subtitle, and `headerTrailing` on one toolbar row.
+   * Long titles truncate instead of wrapping into a second block.
+   */
+  headerInline?: boolean;
   headerSubtitle?: React.ReactNode;
   headerTestId?: string;
+  /** Controls that sit on the title row (tabs, icon buttons). */
+  headerTrailing?: React.ReactNode;
   scrollAreaClassName?: string;
   scrollAreaTestId?: string;
   title: React.ReactNode;
+  titleClassName?: string;
 };
 
 export const ChooserDialogContent = React.forwardRef<
@@ -39,11 +47,14 @@ export const ChooserDialogContent = React.forwardRef<
       footerClassName,
       footerTestId,
       headerClassName,
+      headerInline = false,
       headerSubtitle,
       headerTestId,
+      headerTrailing,
       scrollAreaClassName,
       scrollAreaTestId,
       title,
+      titleClassName,
       "aria-describedby": ariaDescribedBy,
       ...props
     },
@@ -59,12 +70,38 @@ export const ChooserDialogContent = React.forwardRef<
       {...props}
     >
       <DialogHeader
-        className={cn("shrink-0 px-6 py-5 pr-14", headerClassName)}
+        className={cn(
+          "shrink-0 px-6 pr-14",
+          headerInline ? "flex-row items-center gap-3 space-y-0 py-3" : "py-5",
+          headerClassName,
+        )}
+        data-header-layout={headerInline ? "toolbar" : "stack"}
         data-testid={headerTestId}
       >
-        <DialogTitle>{title}</DialogTitle>
-        {headerSubtitle ? (
-          <DialogDescription>{headerSubtitle}</DialogDescription>
+        <div
+          className={cn(
+            "min-w-0",
+            headerInline && "flex min-w-0 flex-1 items-center gap-2",
+          )}
+        >
+          <DialogTitle
+            className={cn(
+              headerInline && "min-w-0 flex-1 truncate",
+              titleClassName,
+            )}
+          >
+            {title}
+          </DialogTitle>
+          {headerSubtitle ? (
+            <DialogDescription className={cn(headerInline && "shrink-0")}>
+              {headerSubtitle}
+            </DialogDescription>
+          ) : null}
+        </div>
+        {headerTrailing ? (
+          <div className="flex shrink-0 items-center gap-2">
+            {headerTrailing}
+          </div>
         ) : null}
       </DialogHeader>
 

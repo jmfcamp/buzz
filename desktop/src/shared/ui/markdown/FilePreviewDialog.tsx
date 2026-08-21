@@ -1,9 +1,10 @@
 import * as React from "react";
-import { Download } from "lucide-react";
+import { Download, Maximize2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { fetchMediaBytes } from "@/shared/api/tauriMedia";
 import { invokeTauri } from "@/shared/api/tauri";
+import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { ChooserDialogContent } from "@/shared/ui/chooser-dialog-content";
 import { Dialog } from "@/shared/ui/dialog";
@@ -39,6 +40,8 @@ type PreviewState =
   | { status: "unavailable"; reason: FilePreviewUnavailableReason }
   | { status: "error"; message: string };
 
+type PreviewTab = "preview" | "source";
+
 function unavailableCopy(reason: FilePreviewUnavailableReason): string {
   if (reason === "too-large") {
     return "This file is too large to preview. Download it to open it locally.";
@@ -54,6 +57,33 @@ function downloadAttachment(url: string, filename: string) {
     const msg = err instanceof Error ? err.message : "Download failed";
     toast.error(msg);
   });
+}
+
+function PreviewSourceTabs({ kind }: { kind: "html" | "markdown" }) {
+  return (
+    <TabsList data-preview-kind={kind} data-testid="file-preview-tabs">
+      <TabsTrigger
+        data-testid={
+          kind === "html"
+            ? "file-preview-html-tab-preview"
+            : "file-preview-tab-preview"
+        }
+        value="preview"
+      >
+        Preview
+      </TabsTrigger>
+      <TabsTrigger
+        data-testid={
+          kind === "html"
+            ? "file-preview-html-tab-source"
+            : "file-preview-tab-source"
+        }
+        value="source"
+      >
+        Source
+      </TabsTrigger>
+    </TabsList>
+  );
 }
 
 export function FilePreviewDialog({
@@ -76,10 +106,17 @@ export function FilePreviewDialog({
     [filename, href, mime, size],
   );
   const [state, setState] = React.useState<PreviewState>({ status: "idle" });
+  const [tab, setTab] = React.useState<PreviewTab>("preview");
+  const [fullscreen, setFullscreen] = React.useState(false);
+
+  const tabKind =
+    plan.kind === "html" || plan.kind === "markdown" ? plan.kind : null;
 
   React.useEffect(() => {
     if (!open) {
       setState({ status: "idle" });
+      setTab("preview");
+      setFullscreen(false);
       return;
     }
     if (!plan.shouldFetch) {
@@ -124,56 +161,125 @@ export function FilePreviewDialog({
   const typeLabel = fileTypeLabel(mime, filename);
   const sizeLabel = size != null ? formatFileSize(size) : "";
   const subtitle = [typeLabel, sizeLabel].filter(Boolean).join(" · ");
+  const showHtmlFullscreen =
+    plan.kind === "html" && (fullscreen || tab === "preview");
+
+  const headerTrailing = tabKind ? (
+    <>
+      <PreviewSourceTabs kind={tabKind} />
+      {showHtmlFullscreen ? (
+        fullscreen ? (
+          <Button
+            data-testid="file-preview-exit-fullscreen"
+            onClick={() => setFullscreen(false)}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            Exit
+          </Button>
+        ) : (
+          <Button
+            aria-label="Fullscreen"
+            data-testid="file-preview-fullscreen"
+            onClick={() => setFullscreen(true)}
+            size="icon"
+            type="button"
+            variant="ghost"
+          >
+            <Maximize2 />
+          </Button>
+        )
+      ) : null}
+    </>
+  ) : null;
+
+  const dialog = (
+    <ChooserDialogContent
+      className={cn(
+        plan.kind === "html" ? "max-w-5xl" : "max-w-3xl",
+        fullscreen &&
+          "h-[calc(100vh-2rem)] max-h-none w-[calc(100vw-2rem)] max-w-none",
+      )}
+      contentClassName={cn(
+        "py-3",
+        (plan.kind === "html" || fullscreen) && "flex min-h-0 flex-1 flex-col",
+      )}
+      data-fullscreen={fullscreen ? "true" : "false"}
+      data-testid="file-preview-dialog"
+      headerInline
+      headerSubtitle={subtitle}
+      headerTestId="file-preview-header"
+      headerTrailing={headerTrailing}
+      onEscapeKeyDown={(event) => {
+        if (!fullscreen) return;
+        event.preventDefault();
+        setFullscreen(false);
+      }}
+      scrollAreaClassName={cn(
+        plan.kind === "html" || fullscreen ? "min-h-0" : "min-h-48",
+        (plan.kind === "html" || fullscreen) && "flex flex-col",
+      )}
+      scrollAreaTestId="file-preview-body"
+      title={filename}
+      titleClassName="text-base"
+      footer={
+        <div className="flex w-full items-center justify-end gap-2">
+          <Button
+            onClick={() => onOpenChange(false)}
+            type="button"
+            variant="outline"
+          >
+            Close
+          </Button>
+          <Button
+            data-testid="file-preview-download"
+            onClick={() => downloadAttachment(href, filename)}
+            type="button"
+          >
+            <Download />
+            Download
+          </Button>
+        </div>
+      }
+      footerTestId="file-preview-footer"
+    >
+      <FilePreviewBody
+        filename={filename}
+        fullscreen={fullscreen}
+        mime={mime}
+        plan={plan}
+        state={state}
+      />
+    </ChooserDialogContent>
+  );
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
-      <ChooserDialogContent
-        className={plan.kind === "html" ? "max-w-5xl" : "max-w-3xl"}
-        data-testid="file-preview-dialog"
-        headerSubtitle={subtitle || "File attachment"}
-        headerTestId="file-preview-header"
-        scrollAreaClassName={plan.kind === "html" ? "min-h-0" : "min-h-48"}
-        scrollAreaTestId="file-preview-body"
-        title={filename}
-        footer={
-          <div className="flex w-full items-center justify-end gap-2">
-            <Button
-              onClick={() => onOpenChange(false)}
-              type="button"
-              variant="outline"
-            >
-              Close
-            </Button>
-            <Button
-              data-testid="file-preview-download"
-              onClick={() => downloadAttachment(href, filename)}
-              type="button"
-            >
-              <Download />
-              Download
-            </Button>
-          </div>
-        }
-        footerTestId="file-preview-footer"
-      >
-        <FilePreviewBody
-          filename={filename}
-          mime={mime}
-          plan={plan}
-          state={state}
-        />
-      </ChooserDialogContent>
+      {tabKind ? (
+        <Tabs
+          className="contents"
+          onValueChange={(value) => setTab(value as PreviewTab)}
+          value={tab}
+        >
+          {dialog}
+        </Tabs>
+      ) : (
+        dialog
+      )}
     </Dialog>
   );
 }
 
 function FilePreviewBody({
   filename,
+  fullscreen,
   mime,
   plan,
   state,
 }: {
   filename: string;
+  fullscreen: boolean;
   mime?: string;
   plan: FilePreviewRenderPlan;
   state: PreviewState;
@@ -214,6 +320,7 @@ function FilePreviewBody({
     return (
       <HtmlPreview
         filename={filename}
+        fullscreen={fullscreen}
         mime={mime}
         plan={plan}
         text={state.text}
@@ -223,21 +330,7 @@ function FilePreviewBody({
 
   if (state.kind === "markdown") {
     return (
-      <div
-        className="min-w-0"
-        data-preview-kind="markdown"
-        data-testid="file-preview-markdown"
-      >
-        <React.Suspense
-          fallback={
-            <div className="flex min-h-48 items-center justify-center">
-              <Spinner className="h-6 w-6" />
-            </div>
-          }
-        >
-          <Markdown content={state.text} interactive={false} />
-        </React.Suspense>
-      </div>
+      <MarkdownPreview filename={filename} mime={mime} text={state.text} />
     );
   }
 
@@ -253,11 +346,13 @@ function FilePreviewBody({
 
 function HtmlPreview({
   filename,
+  fullscreen,
   mime,
   plan,
   text,
 }: {
   filename: string;
+  fullscreen: boolean;
   mime?: string;
   plan: FilePreviewRenderPlan;
   text: string;
@@ -287,30 +382,28 @@ function HtmlPreview({
   const frame = htmlPreviewFrameProps(text);
 
   return (
-    <Tabs className="flex min-h-0 flex-col" defaultValue="preview">
-      <TabsList className="self-start" data-testid="file-preview-html-tabs">
-        <TabsTrigger
-          data-testid="file-preview-html-tab-preview"
-          value="preview"
-        >
-          Preview
-        </TabsTrigger>
-        <TabsTrigger data-testid="file-preview-html-tab-source" value="source">
-          Source
-        </TabsTrigger>
-      </TabsList>
-      <TabsContent className="mt-3 min-h-0" value="preview">
-        <iframe
-          className="h-[min(60vh,36rem)] w-full rounded-2xl border border-border/70 bg-background"
-          data-preview-kind="html"
-          data-testid="file-preview-html"
-          referrerPolicy={frame.referrerPolicy}
-          sandbox={frame.sandbox}
-          srcDoc={frame.srcDoc}
-          title={`Preview of ${filename}`}
-        />
+    <>
+      <TabsContent
+        className={cn("mt-0 min-h-0", fullscreen && "flex flex-1 flex-col")}
+        forceMount
+        value="preview"
+      >
+        <div className={cn(fullscreen && "relative min-h-0 flex-1")}>
+          <iframe
+            className={cn(
+              "w-full rounded-2xl border border-border/70 bg-background",
+              fullscreen ? "absolute inset-0 h-full" : "h-[min(60vh,36rem)]",
+            )}
+            data-preview-kind="html"
+            data-testid="file-preview-html"
+            referrerPolicy={frame.referrerPolicy}
+            sandbox={frame.sandbox}
+            srcDoc={frame.srcDoc}
+            title={`Preview of ${filename}`}
+          />
+        </div>
       </TabsContent>
-      <TabsContent className="mt-3" value="source">
+      <TabsContent className="mt-0" value="source">
         <SourcePreview
           filename={filename}
           kind="html"
@@ -318,7 +411,47 @@ function HtmlPreview({
           text={text}
         />
       </TabsContent>
-    </Tabs>
+    </>
+  );
+}
+
+function MarkdownPreview({
+  filename,
+  mime,
+  text,
+}: {
+  filename: string;
+  mime?: string;
+  text: string;
+}) {
+  return (
+    <>
+      <TabsContent className="mt-0 min-w-0" value="preview">
+        <div
+          className="min-w-0"
+          data-preview-kind="markdown"
+          data-testid="file-preview-markdown"
+        >
+          <React.Suspense
+            fallback={
+              <div className="flex min-h-48 items-center justify-center">
+                <Spinner className="h-6 w-6" />
+              </div>
+            }
+          >
+            <Markdown content={text} interactive={false} />
+          </React.Suspense>
+        </div>
+      </TabsContent>
+      <TabsContent className="mt-0" value="source">
+        <SourcePreview
+          filename={filename}
+          kind="markdown"
+          mime={mime}
+          text={text}
+        />
+      </TabsContent>
+    </>
   );
 }
 
