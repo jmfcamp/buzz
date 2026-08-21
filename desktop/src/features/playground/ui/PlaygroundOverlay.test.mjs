@@ -241,15 +241,43 @@ test("PIN is hidden when empty and fullscreen fills the window", async () => {
   assert.match(overlay.className, /fixed/);
   assert.match(overlay.className, /inset-0/);
   const gap = screen.getByTestId(PLAYGROUND_FULLSCREEN_TITLEBAR_GAP_TEST_ID);
-  const { playgroundOverlaySurfaceIsOpaque } = await import(
-    "../lib/overlayLayout.ts"
-  );
+  const chrome = screen.getByTestId("playground-chrome");
+  const {
+    playgroundFullscreenDragRegionIsGapOnly,
+    playgroundFullscreenOverlayIsPortaled,
+    playgroundOverlaySurfaceIsOpaque,
+  } = await import("../lib/overlayLayout.ts");
   assert.equal(playgroundOverlaySurfaceIsOpaque(overlay.className), true);
   assert.equal(playgroundOverlaySurfaceIsOpaque(gap.className), true);
-  assert.ok(overlay.contains(gap));
-  assert.ok(
-    gap.compareDocumentPosition(screen.getByTestId("playground-chrome")) & 4,
+  assert.equal(playgroundOverlaySurfaceIsOpaque(chrome.className), true);
+  assert.match(overlay.style.backgroundColor, /--background/);
+  assert.match(gap.style.backgroundColor, /--background/);
+  assert.match(chrome.style.backgroundColor, /--background/);
+  assert.doesNotMatch(overlay.className, /backdrop-blur|\/\d+/);
+  assert.doesNotMatch(gap.className, /backdrop-blur|\/\d+/);
+  assert.doesNotMatch(chrome.className, /backdrop-blur|\/\d+/);
+  assert.doesNotMatch(
+    screen.getByTestId("playground-mode-row").className,
+    /backdrop-blur|\/\d+/,
   );
+  assert.equal(playgroundFullscreenOverlayIsPortaled(overlay), true);
+  assert.equal(playgroundFullscreenDragRegionIsGapOnly(gap, chrome), true);
+  assert.ok(overlay.contains(gap));
+  assert.ok(gap.compareDocumentPosition(chrome) & 4);
+  for (const testId of [
+    "playground-dispose",
+    "playground-back",
+    "playground-inspect",
+    "playground-fullscreen",
+    "playground-dismiss",
+    "playground-mode-desktop",
+    "playground-mode-responsive",
+    "playground-mode-mobile",
+  ]) {
+    const control = screen.getByTestId(testId);
+    assert.ok(chrome.contains(control));
+    assert.equal(gap.contains(control), false);
+  }
   assert.match(
     screen
       .getByTestId("playground-webview-host")
@@ -329,7 +357,7 @@ test("overlay chrome is fully opaque", async () => {
   );
   const overlay = screen.getByTestId("playground-overlay");
   assert.equal(playgroundOverlaySurfaceIsOpaque(overlay.className), true);
-  assert.doesNotMatch(overlay.className, /\/95/);
+  assert.doesNotMatch(overlay.className, /\/\d+/);
   assert.doesNotMatch(overlay.className, /backdrop-blur/);
   assert.match(
     screen.getByTestId("playground-chrome").className,
@@ -337,7 +365,11 @@ test("overlay chrome is fully opaque", async () => {
   );
   assert.doesNotMatch(
     screen.getByTestId("playground-chrome").className,
-    /\/95/,
+    /\/\d+/,
+  );
+  assert.equal(
+    screen.getByTestId("playground-overlay").parentElement === document.body,
+    false,
   );
 });
 

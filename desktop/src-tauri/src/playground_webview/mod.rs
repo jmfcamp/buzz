@@ -613,11 +613,14 @@ pub async fn playground_webview_inspect(
             .get(&sid)
             .and_then(|session| session.last_bounds.clone())
     });
-    // Detach-then-show on macOS so WebKit cannot dock into the stage or
-    // main window. Do not call open_devtools() here — that show()s attached
-    // by default and shoves the page out of its rectangle.
-    inspect::open_playground_inspector(&webview)?;
-    inspect::restore_main_window_size(&app, window_size);
+    // Lock the Buzz window *before* show so a briefly docked inspector
+    // cannot grow/shrink it (that flash hides the left menu). Detach-then-show
+    // on macOS. Do not call open_devtools() or set_size().
+    inspect::lock_main_window_size(&app, window_size);
+    if let Err(error) = inspect::open_playground_inspector(&webview) {
+        inspect::unlock_main_window_size(&app);
+        return Err(error);
+    }
     if let Some(before) = bounds.as_ref() {
         let keep = inspect::resolved_stage_bounds_after_inspect(
             before,
@@ -626,7 +629,7 @@ pub async fn playground_webview_inspect(
         );
         apply_bounds(&app, &sid, &keep)?;
     }
-    inspect::schedule_inspect_stage_restore(app.clone(), sid, window_size);
+    inspect::schedule_inspect_stage_restore(app.clone(), sid);
     Ok(PlaygroundInspectResult { webview_id })
 }
 
@@ -902,6 +905,10 @@ mod tests {
         assert_eq!(
             inspect::resolved_window_size_after_inspect((1280, 800), (1800, 800)),
             (1280, 800)
+        );
+        assert_eq!(
+            inspect::inspect_set_size_after_open((1280, 800), (1800, 800)),
+            None
         );
         let before = PlaygroundBounds {
             x: 40.0,
