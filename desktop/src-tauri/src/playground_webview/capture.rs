@@ -60,6 +60,7 @@ fn snapshot_playground_webview(webview: &Webview) -> Result<Vec<u8>, String> {
 #[cfg(target_os = "macos")]
 fn snapshot_wkwebview(webview: &Webview) -> Result<Vec<u8>, String> {
     use block2::RcBlock;
+    use objc2::MainThreadMarker;
     use objc2_app_kit::NSImage;
     use objc2_foundation::NSError;
     use objc2_web_kit::{WKSnapshotConfiguration, WKWebView};
@@ -69,9 +70,13 @@ fn snapshot_wkwebview(webview: &Webview) -> Result<Vec<u8>, String> {
         .with_webview(move |platform| {
             // SAFETY: Tauri's macOS PlatformWebview::inner is the WKWebView
             // pointer for this child view. takeSnapshot captures that view
-            // only — not the host window or the display.
+            // only — not the host window or the display. WKWebView is
+            // MainThreadOnly; with_webview runs on the AppKit main thread, so
+            // the marker is taken from that live object (not constructed
+            // unchecked).
             let view: &WKWebView = unsafe { &*platform.inner().cast::<WKWebView>() };
-            let config = WKSnapshotConfiguration::new();
+            let mtm = MainThreadMarker::from(view);
+            let config = unsafe { WKSnapshotConfiguration::new(mtm) };
             let block = RcBlock::new(move |image: *mut NSImage, error: *mut NSError| {
                 if !error.is_null() {
                     let _ = tx.send(Err("playground webview snapshot failed".into()));
@@ -108,9 +113,12 @@ fn ns_image_png(image: &objc2_app_kit::NSImage) -> Result<Vec<u8>, String> {
         .ok_or_else(|| "playground snapshot produced no image data".to_string())?;
     let rep = NSBitmapImageRep::imageRepWithData(&tiff)
         .ok_or_else(|| "playground snapshot image decode failed".to_string())?;
-    let png = rep
-        .representationUsingType_properties(NSBitmapImageFileType::PNG, Some(&NSDictionary::new()))
-        .ok_or_else(|| "playground snapshot png encode failed".to_string())?;
+    // SAFETY: empty property dict is AppKit's default for PNG encode.
+    // objc2 0.3.2 takes `&NSDictionary`, not `Option`, and the method is unsafe.
+    let png = unsafe {
+        rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new())
+    }
+    .ok_or_else(|| "playground snapshot png encode failed".to_string())?;
     Ok(png.to_vec())
 }
 
