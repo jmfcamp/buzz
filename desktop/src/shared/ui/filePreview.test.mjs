@@ -12,6 +12,7 @@ import {
   htmlIframePlan,
   htmlPreviewFrameProps,
   htmlSafetyPlan,
+  isLockedHtmlPreviewSandbox,
   planFilePreviewRender,
   previewSourceLanguage,
   resolveFetchedPreview,
@@ -24,22 +25,28 @@ const MEDIA_TXT = `https://relay.example/media/${"e".repeat(64)}.txt`;
 const MEDIA_ZIP = `https://relay.example/media/${"f".repeat(64)}.zip`;
 const MEDIA_BIN = `https://relay.example/media/${"0".repeat(64)}`;
 
+function assertLockedSandbox(sandbox) {
+  assert.equal(sandbox, HTML_PREVIEW_IFRAME_SANDBOX);
+  assert.equal(isLockedHtmlPreviewSandbox(sandbox), true);
+  assert.equal(sandbox.includes("allow-scripts"), true);
+  assert.equal(sandbox.includes("allow-forms"), true);
+  assert.equal(sandbox.includes("allow-same-origin"), false);
+  assert.equal(sandbox.includes("allow-top-navigation"), false);
+}
+
 function assertRenderedHtmlPlan(plan) {
   assert.equal(plan.kind, "html");
   assert.equal(plan.navigateUrl, null);
   assert.ok(plan.iframe, "HTML attachments render in a sandboxed iframe");
   assert.equal(plan.iframe.src, null);
   assert.equal(plan.iframe.srcdoc, true);
-  assert.equal(plan.iframe.sandbox, HTML_PREVIEW_IFRAME_SANDBOX);
-  assert.equal(plan.iframe.sandbox, "");
-  assert.equal(plan.iframe.sandbox.includes("allow-scripts"), false);
-  assert.equal(plan.iframe.sandbox.includes("allow-same-origin"), false);
+  assertLockedSandbox(plan.iframe.sandbox);
   assert.ok(plan.html, "HTML attachments must carry a rendered safety plan");
   assert.equal(plan.html.mode, "rendered");
   assert.equal(plan.html.iframeSrc, null);
-  assert.equal(plan.html.iframeSandbox, "");
+  assertLockedSandbox(plan.html.iframeSandbox);
   assert.equal(plan.html.navigateTo, null);
-  assert.equal(plan.html.allowScripts, false);
+  assert.equal(plan.html.allowScripts, true);
   // fetchUrl is the authenticated IPC argument — never a document URL.
   assert.equal(plan.fetchUrl, MEDIA_HTML);
   assert.notEqual(plan.fetchUrl, plan.navigateUrl);
@@ -209,32 +216,52 @@ test("planFilePreviewRender: HTML octet-stream .html is still sandboxed", () => 
   assertRenderedHtmlPlan(plan);
 });
 
-test("htmlSafetyPlan: rendered page cannot upgrade to scripts or same-origin", () => {
+test("htmlSafetyPlan: guest scripts on, same-origin and top-nav off", () => {
   const plan = htmlSafetyPlan();
   assert.equal(plan.mode, "rendered");
-  assert.equal(plan.allowScripts, false);
+  assert.equal(plan.allowScripts, true);
   assert.equal(plan.iframeSrc, null);
-  assert.equal(plan.iframeSandbox, "");
+  assertLockedSandbox(plan.iframeSandbox);
   assert.equal(plan.navigateTo, null);
-  assert.equal(plan.iframeSandbox.includes("allow-scripts"), false);
-  assert.equal(plan.iframeSandbox.includes("allow-same-origin"), false);
 });
 
-test("htmlIframePlan: srcdoc only, empty sandbox, no navigable src", () => {
+test("htmlIframePlan: srcdoc only, locked script sandbox, no navigable src", () => {
   const iframe = htmlIframePlan();
   assert.equal(iframe.src, null);
   assert.equal(iframe.srcdoc, true);
-  assert.equal(iframe.sandbox, "");
-  assert.equal(iframe.sandbox.includes("allow-scripts"), false);
+  assertLockedSandbox(iframe.sandbox);
 });
 
 test("htmlPreviewFrameProps: srcDoc from fetched bytes, no src field", () => {
   const props = htmlPreviewFrameProps("<h1>Hi</h1>");
   assert.equal(props.srcDoc, "<h1>Hi</h1>");
-  assert.equal(props.sandbox, "");
+  assertLockedSandbox(props.sandbox);
   assert.equal(props.referrerPolicy, "no-referrer");
   assert.equal("src" in props, false);
-  assert.equal(props.sandbox.includes("allow-scripts"), false);
+});
+
+test("isLockedHtmlPreviewSandbox: rejects empty, same-origin, and top-nav", () => {
+  assert.equal(isLockedHtmlPreviewSandbox(HTML_PREVIEW_IFRAME_SANDBOX), true);
+  assert.equal(isLockedHtmlPreviewSandbox(""), false);
+  assert.equal(
+    isLockedHtmlPreviewSandbox(
+      `${HTML_PREVIEW_IFRAME_SANDBOX} allow-same-origin`,
+    ),
+    false,
+  );
+  assert.equal(
+    isLockedHtmlPreviewSandbox(
+      `${HTML_PREVIEW_IFRAME_SANDBOX} allow-top-navigation`,
+    ),
+    false,
+  );
+  assert.equal(
+    isLockedHtmlPreviewSandbox(
+      `${HTML_PREVIEW_IFRAME_SANDBOX} allow-top-navigation-by-user-activation`,
+    ),
+    false,
+  );
+  assert.equal(isLockedHtmlPreviewSandbox("allow-scripts"), false);
 });
 
 test("planFilePreviewRender: markdown / text never grow an iframe", () => {
@@ -337,8 +364,8 @@ test("FilePreviewDialog HTML iframe is sandboxed and never points at /media/", (
   assert.equal(src.includes("<iframe"), true);
   assert.equal(src.includes("srcDoc"), true);
   assert.equal(src.includes("sandbox={frame.sandbox}"), true);
-  assert.equal(src.includes("allow-scripts"), false);
-  assert.equal(src.includes("allow-same-origin"), false);
+  assert.equal(src.includes("isLockedHtmlPreviewSandbox"), true);
+  assert.equal(src.includes("allow-same-origin"), true); // refuse-to-mount comment
   // iframe src is never bound to the relay URL or fetchUrl.
   assert.equal(/<iframe[\s\S]*?\ssrc=\{/.test(src), false);
   assert.equal(/src=\{href\}/.test(src), false);
@@ -352,7 +379,26 @@ test("FilePreviewDialog HTML iframe is sandboxed and never points at /media/", (
   assert.equal(src.includes("file-preview-exit-fullscreen"), true);
   assert.equal(src.includes("setFullscreen"), true);
   assert.equal(/iframeSrc\s*=/.test(src), false);
-  assert.equal(src.includes("allowScripts"), true); // only the refuse-to-mount guard
+  assert.equal(src.includes("allowScripts"), true); // refuse-to-mount requires true
+});
+
+test("non-interactive markdown keeps fenced code in a pre so lines stack", () => {
+  const fences = readFileSync(
+    new URL("./markdown/fencedBlocks.tsx", import.meta.url),
+    "utf8",
+  );
+  const css = readFileSync(
+    new URL("../styles/globals/markdown.css", import.meta.url),
+    "utf8",
+  );
+  assert.equal(
+    fences.includes("if (!interactive) return <span>{children}</span>"),
+    false,
+  );
+  assert.equal(fences.includes('<pre className="overflow-x-auto">'), true);
+  assert.equal(fences.includes("PlaygroundCard"), true);
+  assert.equal(css.includes(":not(pre) > code:not(.code-block-lines)"), true);
+  assert.match(css, /\.code-block-lines \[data-line\]\s*\{\s*display:\s*block/);
 });
 
 test("FilePreviewDialog chrome is one toolbar row; markdown has Preview/Source", () => {

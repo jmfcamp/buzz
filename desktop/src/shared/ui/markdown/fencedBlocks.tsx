@@ -68,7 +68,6 @@ export function MarkdownFencedPre({
   children?: React.ReactNode;
   interactive: boolean;
 }) {
-  if (!interactive) return <span>{children}</span>;
   let language = "";
   let playgroundChild: React.ReactNode | undefined;
   React.Children.forEach(children, (child) => {
@@ -87,6 +86,13 @@ export function MarkdownFencedPre({
   });
   if (language === "playground" || playgroundChild !== undefined) {
     return playgroundChild ?? null;
+  }
+  if (!interactive) {
+    // Keep a real <pre>. A <span> unwrap makes
+    // `.message-markdown :not(pre) > code` treat the fenced
+    // `.code-block-lines` as an inline-flex chip, so sibling
+    // [data-line] spans concatenate into one horizontal row.
+    return <pre className="overflow-x-auto">{children}</pre>;
   }
   return <MarkdownCodeBlock language={language}>{children}</MarkdownCodeBlock>;
 }

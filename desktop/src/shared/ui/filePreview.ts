@@ -6,21 +6,28 @@
  * authenticated Tauri `fetch_media_bytes` / `download_file` path.
  *
  * HTML renders as a laid-out page in a uniquely origin-isolated iframe
- * (`srcdoc` from fetched bytes, empty sandbox). The main Buzz webview never
- * navigates to the blob, and the iframe `src` is never the relay `/media/`
- * URL. The sandbox token list is the empty string — it cannot grow script
- * or same-origin privileges without changing this type.
+ * (`srcdoc` from fetched bytes). Guest scripts run *inside* that frame so
+ * in-page navigation (tabs, routers, onclick) works. The sandbox must never
+ * include `allow-same-origin` (`srcdoc` + scripts + same-origin is a parent
+ * escape) or top-navigation tokens. The main Buzz webview never navigates
+ * to the blob, and the iframe `src` is never the relay `/media/` URL.
  */
 
 /** Refuse to materialize attachments larger than 10 MiB in the preview pane. */
 export const FILE_PREVIEW_MAX_BYTES = 10 * 1024 * 1024;
 
 /**
- * The only legal iframe sandbox for HTML previews. An empty string means
- * unique opaque origin, no scripts, no same-origin, no popups, no forms.
- * There is no token list a caller can append to.
+ * The only legal iframe sandbox for HTML previews. Scripts/forms/modals/popups
+ * run in the frame; the origin stays opaque. Callers cannot append tokens.
  */
-export const HTML_PREVIEW_IFRAME_SANDBOX = "" as const;
+export const HTML_PREVIEW_IFRAME_SANDBOX =
+  "allow-scripts allow-forms allow-modals allow-popups" as const;
+
+const HTML_PREVIEW_FORBIDDEN_SANDBOX_TOKENS = [
+  "allow-same-origin",
+  "allow-top-navigation",
+  "allow-top-navigation-by-user-activation",
+] as const;
 
 export type FilePreviewKind = "markdown" | "html" | "text" | "unavailable";
 
@@ -40,17 +47,31 @@ export type HtmlIframePlan = {
 };
 
 /**
- * HTML preview contract. Default view is a rendered page; scripts stay
- * structurally forbidden. Every field that could navigate the webview or
- * load the relay URL in a frame is fixed to a safe value.
+ * HTML preview contract. Default view is a rendered page; guest JS is
+ * allowed only inside the uniquely-origin iframe. Every field that could
+ * navigate the webview or load the relay URL in a frame is fixed to a
+ * safe value.
  */
 export type HtmlSafetyPlan = {
   mode: "rendered";
   iframeSrc: null;
   iframeSandbox: HtmlIframeSandbox;
   navigateTo: null;
-  allowScripts: false;
+  allowScripts: true;
 };
+
+/**
+ * True only for the locked preview sandbox: scripts on, same-origin and
+ * top-navigation off, exact token list.
+ */
+export function isLockedHtmlPreviewSandbox(sandbox: string): boolean {
+  if (sandbox !== HTML_PREVIEW_IFRAME_SANDBOX) return false;
+  const tokens = sandbox.split(/\s+/).filter(Boolean);
+  if (!tokens.includes("allow-scripts")) return false;
+  return !HTML_PREVIEW_FORBIDDEN_SANDBOX_TOKENS.some((token) =>
+    tokens.includes(token),
+  );
+}
 
 export type FilePreviewRenderPlan = {
   kind: FilePreviewKind;
@@ -65,7 +86,7 @@ export type FilePreviewRenderPlan = {
   fetchUrl: string;
   /** Always null — the main webview must never navigate to the blob. */
   navigateUrl: null;
-  /** HTML only: srcdoc iframe with an empty sandbox. All other kinds: null. */
+  /** HTML only: srcdoc iframe with the locked script sandbox. Other kinds: null. */
   iframe: HtmlIframePlan | null;
   html: HtmlSafetyPlan | null;
 };
@@ -244,7 +265,7 @@ export function htmlSafetyPlan(): HtmlSafetyPlan {
     iframeSrc: null,
     iframeSandbox: HTML_PREVIEW_IFRAME_SANDBOX,
     navigateTo: null,
-    allowScripts: false,
+    allowScripts: true,
   };
 }
 
@@ -306,8 +327,9 @@ export function resolveFilePreviewKind(input: {
 
 /**
  * Build the dialog's render plan. HTML plans render in a srcdoc iframe
- * whose sandbox cannot be upgraded to scripts or same-origin. There is no
- * field a caller can set to navigate the main webview or load `/media/`.
+ * whose sandbox allows guest scripts but never same-origin or top
+ * navigation. There is no field a caller can set to navigate the main
+ * webview or load `/media/`.
  */
 export function planFilePreviewRender(input: {
   href: string;
