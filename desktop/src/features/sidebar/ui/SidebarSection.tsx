@@ -38,6 +38,7 @@ import {
 } from "@/shared/ui/sidebar";
 import { ChannelActivityPopover } from "@/features/sidebar/ui/ChannelActivityPopover";
 import { useAppShell } from "@/app/AppShellContext";
+import { parkPlaygroundThen } from "@/features/playground/lib/sessions";
 
 const SECTION_LABEL_BUTTON_CLASS =
   "group/section-label flex w-fit max-w-[calc(100%-3rem)] cursor-pointer appearance-none items-center gap-1 text-left transition-colors hover:text-sidebar-foreground focus-visible:text-sidebar-foreground";
@@ -312,7 +313,7 @@ export function ChannelMenuButton({
       data-channel-id={channel.id}
       data-testid={`channel-${channel.name}`}
       isActive={isActive}
-      onClick={() => onSelectChannel(channel.id)}
+      onClick={parkPlaygroundThen(() => onSelectChannel(channel.id))}
       tooltip={resolvedLabel}
       type="button"
     >

@@ -1,20 +1,24 @@
 import { isTauri } from "@tauri-apps/api/core";
-import { AppWindow, ExternalLink } from "lucide-react";
+import { AppWindow, Copy } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
+import { copyTextToClipboard } from "@/shared/lib/clipboard";
 import { Button } from "@/shared/ui/button";
 import {
   Attachment,
   AttachmentActions,
   AttachmentContent,
-  AttachmentDescription,
   AttachmentMedia,
   AttachmentTitle,
 } from "@/shared/ui/attachment";
 
 import { probePlaygroundUrl } from "../lib/probe";
-import { addPlaygroundSession } from "../lib/sessions";
+import {
+  addPlaygroundSession,
+  hasPlaygroundSession,
+  showPlaygroundSession,
+} from "../lib/sessions";
 import type { PlaygroundCard as PlaygroundCardData } from "../lib/types";
 
 function canHostPlayground(): boolean {
@@ -26,6 +30,15 @@ function canHostPlayground(): boolean {
 }
 
 async function openPlaygroundInBrowser(url: string) {
+  if (import.meta.env.MODE === "test") {
+    const stub = (
+      globalThis as { __BUZZ_PLAYGROUND_OPEN_URL__?: (nextUrl: string) => void }
+    ).__BUZZ_PLAYGROUND_OPEN_URL__;
+    if (stub) {
+      stub(url);
+      return;
+    }
+  }
   try {
     const { openUrl } = await import("@tauri-apps/plugin-opener");
     await openUrl(url);
@@ -38,8 +51,16 @@ export function PlaygroundCard({ card }: { card: PlaygroundCardData }) {
   const [busy, setBusy] = React.useState(false);
   const host = canHostPlayground();
 
-  async function handleAdd() {
+  async function handleOpen() {
     if (busy) return;
+    if (!host) {
+      void openPlaygroundInBrowser(card.url);
+      return;
+    }
+    if (hasPlaygroundSession(card.sid)) {
+      showPlaygroundSession(card.sid);
+      return;
+    }
     setBusy(true);
     try {
       const result = await probePlaygroundUrl(card.url);
@@ -57,63 +78,71 @@ export function PlaygroundCard({ card }: { card: PlaygroundCardData }) {
     }
   }
 
+  function handleUrlClick(event: React.MouseEvent<HTMLAnchorElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    void openPlaygroundInBrowser(card.url);
+  }
+
+  function handleCopyPin(event: React.MouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    copyTextToClipboard(card.pin, "PIN copied");
+  }
+
   return (
-    <Attachment
-      className="my-2 max-w-md"
-      data-testid="playground-card"
-      orientation="vertical"
-    >
-      <div className="flex min-w-0 items-start gap-3">
-        <AttachmentMedia>
-          <AppWindow />
-        </AttachmentMedia>
-        <AttachmentContent>
-          <AttachmentTitle data-testid="playground-card-name">
-            {card.name}
-          </AttachmentTitle>
-          <AttachmentDescription data-testid="playground-card-url">
-            {card.url}
-          </AttachmentDescription>
-          <p className="mt-1 text-xs text-muted-foreground">
-            PIN{" "}
-            <span
-              className="font-mono text-foreground"
-              data-testid="playground-card-pin"
-            >
-              {card.pin}
-            </span>
-            {card.stack ? (
-              <>
-                {" "}
-                · <span data-testid="playground-card-stack">{card.stack}</span>
-              </>
-            ) : null}
-          </p>
-        </AttachmentContent>
-      </div>
+    <Attachment className="my-2 max-w-md" data-testid="playground-card">
+      <AttachmentMedia>
+        <AppWindow />
+      </AttachmentMedia>
+      <AttachmentContent>
+        <AttachmentTitle data-testid="playground-card-name">
+          {card.name}
+        </AttachmentTitle>
+        <a
+          className="block truncate text-xs leading-4 text-muted-foreground hover:text-foreground hover:underline"
+          data-testid="playground-card-url"
+          href={card.url}
+          onClick={handleUrlClick}
+          rel="noopener noreferrer"
+        >
+          {card.url}
+        </a>
+        <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+          PIN{" "}
+          <span
+            className="font-mono text-foreground"
+            data-testid="playground-card-pin"
+          >
+            {card.pin}
+          </span>
+          <button
+            aria-label="Copy PIN"
+            className="inline-flex h-5 w-5 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+            data-testid="playground-card-copy-pin"
+            onClick={handleCopyPin}
+            type="button"
+          >
+            <Copy className="h-3 w-3" />
+          </button>
+          {card.stack ? (
+            <>
+              {" "}
+              · <span data-testid="playground-card-stack">{card.stack}</span>
+            </>
+          ) : null}
+        </p>
+      </AttachmentContent>
       <AttachmentActions>
-        {host ? (
-          <Button
-            data-testid="playground-card-add"
-            disabled={busy}
-            onClick={() => void handleAdd()}
-            size="sm"
-            type="button"
-          >
-            Add
-          </Button>
-        ) : (
-          <Button
-            data-testid="playground-card-open"
-            onClick={() => void openPlaygroundInBrowser(card.url)}
-            size="sm"
-            type="button"
-            variant="secondary"
-          >
-            <ExternalLink />
-            Open in browser
-          </Button>
-        )}
+        <Button
+          data-testid="playground-card-open"
+          disabled={busy}
+          onClick={() => void handleOpen()}
+          size="sm"
+          type="button"
+        >
+          Open
+        </Button>
       </AttachmentActions>
     </Attachment>
   );

@@ -1,13 +1,21 @@
 import { AppWindow } from "lucide-react";
+import { useSyncExternalStore } from "react";
 
 import { SidebarMenuButton, SidebarMenuItem } from "@/shared/ui/sidebar";
 import { SidebarMenuLabel } from "@/shared/ui/sidebar-menu-label";
 
-import { usePlaygroundSessions } from "../hooks";
-import { showPlaygroundSession } from "../lib/sessions";
+import {
+  getPlaygroundStore,
+  showPlaygroundSession,
+  subscribePlayground,
+} from "../lib/sessions";
 
 export function PlaygroundMenuItems() {
-  const { sessions, overlaySid } = usePlaygroundSessions();
+  const { sessions, overlaySid } = useSyncExternalStore(
+    subscribePlayground,
+    getPlaygroundStore,
+    getPlaygroundStore,
+  );
   const rows = [...sessions.values()];
   if (rows.length === 0) return null;
 
