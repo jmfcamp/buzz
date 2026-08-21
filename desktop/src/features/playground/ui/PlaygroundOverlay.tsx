@@ -3,10 +3,15 @@ import { createPortal } from "react-dom";
 
 import { cn } from "@/shared/lib/cn";
 
-import type { PlaygroundConversation } from "../lib/conversation";
 import {
+  playgroundConversationHasOpenThread,
+  type PlaygroundConversation,
+} from "../lib/conversation";
+import {
+  PLAYGROUND_CHANNEL_THREAD_PANEL_TEST_ID,
   playgroundOverlayPlacement,
   playgroundOverlayShouldPortal,
+  readPlaygroundDockThreadEdge,
 } from "../lib/dock";
 import {
   PLAYGROUND_DOCK_RESIZE_HANDLE_CLASS,
@@ -44,8 +49,18 @@ export function PlaygroundOverlay({
     return typeof window === "undefined" ? 0 : window.innerWidth;
   }, []);
 
+  const getThreadEdge = React.useCallback(() => {
+    if (!playgroundConversationHasOpenThread(conversation)) return null;
+    const main = overlayRef.current?.parentElement;
+    if (!main) return null;
+    const thread = main.querySelector(
+      `[data-testid="${PLAYGROUND_CHANNEL_THREAD_PANEL_TEST_ID}"]`,
+    );
+    return readPlaygroundDockThreadEdge(main, thread);
+  }, [conversation]);
+
   const { onResetWidth, onResizeStart, prepareDockWidth, widthPx } =
-    usePlaygroundDockWidth(getMainWidth);
+    usePlaygroundDockWidth(getMainWidth, getThreadEdge);
 
   const bumpStageLayout = React.useCallback(() => {
     setLayoutEpoch((value) => value + 1);

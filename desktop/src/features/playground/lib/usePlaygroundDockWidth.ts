@@ -6,34 +6,45 @@ import {
   persistPlaygroundDockWidth,
   readStoredPlaygroundDockWidth,
   resolvePlaygroundDockWidth,
+  resolvePlaygroundDockWidthOnDock,
+  type PlaygroundDockThreadEdge,
 } from "./dock";
 
 /**
  * Left-dock width, persisted like the thread pane (`sessionStorage`).
- * Dragging the right edge grows/shrinks the preview; double-click resets to
- * half of the current main inset.
+ * Dragging the right edge grows/shrinks the preview and wins later docks.
+ * Double-click resets to half of the current main inset. Dock-action snap
+ * to an open thread only runs when the user has not resized.
  */
-export function usePlaygroundDockWidth(getMainWidth: () => number) {
+export function usePlaygroundDockWidth(
+  getMainWidth: () => number,
+  getThreadEdge?: () => PlaygroundDockThreadEdge | null,
+) {
   const [widthPx, setWidthPx] = React.useState(() =>
     resolvePlaygroundDockWidth(getMainWidth()),
   );
-  const persistEnabledRef = React.useRef(
-    readStoredPlaygroundDockWidth() != null,
-  );
+  const userResizedRef = React.useRef(readStoredPlaygroundDockWidth() != null);
 
   React.useEffect(() => {
-    if (!persistEnabledRef.current) return;
+    if (!userResizedRef.current) return;
     persistPlaygroundDockWidth(widthPx);
   }, [widthPx]);
 
   const prepareDockWidth = React.useCallback(() => {
-    persistEnabledRef.current = true;
-    setWidthPx(resolvePlaygroundDockWidth(getMainWidth()));
-  }, [getMainWidth]);
+    setWidthPx(
+      resolvePlaygroundDockWidthOnDock({
+        mainWidth: getMainWidth(),
+        threadEdge: getThreadEdge?.() ?? null,
+        userResized: userResizedRef.current,
+      }),
+    );
+  }, [getMainWidth, getThreadEdge]);
 
   const onResizeStart = React.useCallback(
     (event: React.PointerEvent<HTMLButtonElement>) => {
       event.preventDefault();
+      event.stopPropagation();
+      event.currentTarget.setPointerCapture?.(event.pointerId);
 
       const startX = event.clientX;
       const startWidth = widthPx;
@@ -42,6 +53,7 @@ export function usePlaygroundDockWidth(getMainWidth: () => number) {
 
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
+      userResizedRef.current = true;
 
       const handlePointerMove = (moveEvent: PointerEvent) => {
         const deltaX = moveEvent.clientX - startX;
@@ -63,6 +75,7 @@ export function usePlaygroundDockWidth(getMainWidth: () => number) {
   );
 
   const onResetWidth = React.useCallback(() => {
+    userResizedRef.current = true;
     setWidthPx(defaultPlaygroundDockWidth(getMainWidth()));
   }, [getMainWidth]);
 

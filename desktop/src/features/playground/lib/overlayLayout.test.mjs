@@ -11,6 +11,7 @@ import {
   PLAYGROUND_DOCK_RESIZE_HANDLE_CLASS,
   PLAYGROUND_RESIZE_HANDLE_CLASS,
   PLAYGROUND_RESIZE_HANDLE_GUTTER_CLASS,
+  PLAYGROUND_RESIZE_HANDLE_PX,
   PLAYGROUND_WINDOWED_OVERLAY_CLASS,
   playgroundFullscreenDragRegionIsGapOnly,
   playgroundFullscreenOverlayIsPortaled,
@@ -44,7 +45,10 @@ test("overlay surface is fully opaque", () => {
   assert.doesNotMatch(PLAYGROUND_DOCKED_OVERLAY_CLASS, /backdrop-blur|\/\d+/);
   assert.doesNotMatch(PLAYGROUND_DOCKED_OVERLAY_CLASS, /inset-0/);
   assert.match(PLAYGROUND_DOCKED_OVERLAY_CLASS, /left-0/);
+  assert.match(PLAYGROUND_DOCKED_OVERLAY_CLASS, /pr-2/);
   assert.match(PLAYGROUND_DOCK_RESIZE_HANDLE_CLASS, /cursor-col-resize/);
+  assert.match(PLAYGROUND_DOCK_RESIZE_HANDLE_CLASS, /\bw-2\b/);
+  assert.doesNotMatch(PLAYGROUND_DOCK_RESIZE_HANDLE_CLASS, /translate-x/);
   assert.equal(
     playgroundOverlayPlacementClass("dock"),
     PLAYGROUND_DOCKED_OVERLAY_CLASS,
@@ -115,11 +119,14 @@ test("fullscreen overlay is portaled onto document.body", () => {
 });
 
 test("resize handles sit outside the webview host", () => {
+  assert.equal(PLAYGROUND_RESIZE_HANDLE_PX, 8);
   assert.match(PLAYGROUND_RESIZE_HANDLE_GUTTER_CLASS, /pr-2/);
   assert.match(PLAYGROUND_RESIZE_HANDLE_GUTTER_CLASS, /pb-2/);
   assert.match(PLAYGROUND_RESIZE_HANDLE_CLASS.x, /w-2/);
   assert.match(PLAYGROUND_RESIZE_HANDLE_CLASS.y, /h-2/);
   assert.match(PLAYGROUND_RESIZE_HANDLE_CLASS.xy, /h-2/);
+  assert.match(PLAYGROUND_DOCK_RESIZE_HANDLE_CLASS, /\bw-2\b/);
+  assert.match(PLAYGROUND_DOCKED_OVERLAY_CLASS, /pr-2/);
   const host = { contains: (node) => node === host };
   const handle = {};
   assert.equal(playgroundResizeHandleSitsOutsideHost(host, handle), true);

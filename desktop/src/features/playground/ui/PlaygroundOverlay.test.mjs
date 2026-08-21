@@ -101,6 +101,9 @@ test("overlay shows chrome PIN and parks on Dismiss", async () => {
   const dock = screen.getByTestId("playground-dock");
   assert.equal(dock.getAttribute("aria-label"), "Dock left");
   assert.ok(dock.querySelector("svg"));
+  const fullscreen = screen.getByTestId("playground-fullscreen");
+  assert.ok(fullscreen.compareDocumentPosition(dock) & 4);
+  assert.ok(dock.compareDocumentPosition(dismiss) & 4);
   assert.equal(
     screen.getByTestId("playground-overlay").getAttribute("data-docked"),
     null,
@@ -197,6 +200,13 @@ test("Screenshot is hidden without a channel and stages a draft with one", async
     screen.getByTestId("playground-screenshot").getAttribute("aria-label"),
     "Screenshot",
   );
+  const screenshot = screen.getByTestId("playground-screenshot");
+  const fullscreen = screen.getByTestId("playground-fullscreen");
+  const dock = screen.getByTestId("playground-dock");
+  const dismiss = screen.getByTestId("playground-dismiss");
+  assert.ok(screenshot.compareDocumentPosition(fullscreen) & 4);
+  assert.ok(fullscreen.compareDocumentPosition(dock) & 4);
+  assert.ok(dock.compareDocumentPosition(dismiss) & 4);
   const { act } = await import("@testing-library/react");
   await act(async () => {
     await fireEvent.click(screen.getByTestId("playground-screenshot"));
@@ -546,6 +556,8 @@ test("collapse docks to a left pane and expand restores the full overlay", async
   );
   const handle = screen.getByTestId(PLAYGROUND_DOCK_RESIZE_HANDLE_TEST_ID);
   assert.ok(overlay.contains(handle));
+  assert.match(handle.className, /\bw-2\b/);
+  assert.match(overlay.className, /pr-2/);
   assert.equal(
     overlay.contains(screen.getByTestId("playground-webview-host")) &&
       !screen.getByTestId("playground-webview-host").contains(handle),
@@ -653,4 +665,117 @@ test("fullscreen from dock returns to dock; dismiss still parks", async () => {
     listPlaygroundSessions().some((item) => item.sid === "demo-dock-fs"),
     true,
   );
+});
+
+function stubThreadPanel(thread, { mainLeft = 256, mainWidth, threadWidth }) {
+  thread.getBoundingClientRect = () => ({
+    x: mainLeft + mainWidth - threadWidth,
+    y: 0,
+    width: threadWidth,
+    height: 720,
+    top: 0,
+    left: mainLeft + mainWidth - threadWidth,
+    right: mainLeft + mainWidth,
+    bottom: 720,
+    toJSON() {},
+  });
+}
+
+test("dock button snaps flush to an open thread pane", async () => {
+  const { createElement } = await import("react");
+  const { render, screen, fireEvent } = await import("@testing-library/react");
+  const { PlaygroundOverlay } = await import("./PlaygroundOverlay.tsx");
+  const { addPlaygroundSession, configurePlaygroundScope } = await import(
+    "../lib/sessions.ts"
+  );
+  const { PLAYGROUND_CHANNEL_THREAD_PANEL_TEST_ID } = await import(
+    "../lib/dock.ts"
+  );
+  const { PLAYGROUND_DOCK_RESIZE_HANDLE_TEST_ID } = await import(
+    "../lib/overlayLayout.ts"
+  );
+
+  configurePlaygroundScope("pub", "wss://relay.example.com");
+  const session = addPlaygroundSession({
+    hula: "playground",
+    v: 1,
+    name: "Demo",
+    url: "https://app.example.com",
+    sid: "demo-dock-thread",
+  });
+  render(
+    createElement(
+      "div",
+      { "data-testid": "playground-main-standin" },
+      createElement(
+        "div",
+        { "data-testid": PLAYGROUND_CHANNEL_THREAD_PANEL_TEST_ID },
+        "thread",
+      ),
+      createElement(PlaygroundOverlay, {
+        conversation: { channelId: "hula-id", draftKey: "thread:root-1" },
+        session,
+      }),
+    ),
+  );
+
+  const overlay = screen.getByTestId("playground-overlay");
+  stubMainWidth(overlay, 1000);
+  stubThreadPanel(screen.getByTestId(PLAYGROUND_CHANNEL_THREAD_PANEL_TEST_ID), {
+    mainWidth: 1000,
+    threadWidth: 380,
+  });
+
+  await fireEvent.click(screen.getByTestId("playground-dock"));
+  assert.equal(overlay.getAttribute("data-docked"), "true");
+  assert.equal(overlay.style.width, "620px");
+
+  const handle = screen.getByTestId(PLAYGROUND_DOCK_RESIZE_HANDLE_TEST_ID);
+  await fireEvent.pointerDown(handle, { clientX: 876, clientY: 200 });
+  await fireEvent.pointerMove(window, { clientX: 926, clientY: 200 });
+  await fireEvent.pointerUp(window);
+  assert.equal(overlay.style.width, "670px");
+
+  await fireEvent.click(screen.getByTestId("playground-dock"));
+  assert.equal(overlay.getAttribute("data-docked"), null);
+
+  stubThreadPanel(screen.getByTestId(PLAYGROUND_CHANNEL_THREAD_PANEL_TEST_ID), {
+    mainWidth: 1000,
+    threadWidth: 420,
+  });
+  await fireEvent.click(screen.getByTestId("playground-dock"));
+  assert.equal(overlay.style.width, "670px");
+});
+
+test("dock button without a thread keeps the half-inset default", async () => {
+  const { createElement } = await import("react");
+  const { render, screen, fireEvent } = await import("@testing-library/react");
+  const { PlaygroundOverlay } = await import("./PlaygroundOverlay.tsx");
+  const { addPlaygroundSession, configurePlaygroundScope } = await import(
+    "../lib/sessions.ts"
+  );
+
+  configurePlaygroundScope("pub", "wss://relay.example.com");
+  const session = addPlaygroundSession({
+    hula: "playground",
+    v: 1,
+    name: "Demo",
+    url: "https://app.example.com",
+    sid: "demo-dock-no-thread",
+  });
+  render(
+    createElement(
+      "div",
+      { "data-testid": "playground-main-standin" },
+      createElement(PlaygroundOverlay, {
+        conversation: { channelId: "hula-id", draftKey: "hula-id" },
+        session,
+      }),
+    ),
+  );
+
+  const overlay = screen.getByTestId("playground-overlay");
+  stubMainWidth(overlay, 1000);
+  await fireEvent.click(screen.getByTestId("playground-dock"));
+  assert.equal(overlay.style.width, "500px");
 });
