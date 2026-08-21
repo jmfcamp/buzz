@@ -12,6 +12,7 @@ import {
   fileTypeLabel,
   formatFileSize,
   htmlPreviewFrameProps,
+  isLockedHtmlPreviewSandbox,
   planFilePreviewRender,
   previewSourceLanguage,
   resolveFetchedPreview,
@@ -359,16 +360,18 @@ function HtmlPreview({
 }) {
   const html = plan.html;
   const iframe = plan.iframe;
-  // Refuse to mount a frame unless the plan is the locked rendered contract.
+  // Refuse to mount unless the plan is the locked contract: guest scripts
+  // inside the frame, unique origin (no allow-same-origin), no top-nav.
   if (
     !html ||
     !iframe ||
     html.mode !== "rendered" ||
-    html.allowScripts ||
+    html.allowScripts !== true ||
     html.navigateTo != null ||
     html.iframeSrc != null ||
     iframe.src != null ||
-    iframe.sandbox !== ""
+    !isLockedHtmlPreviewSandbox(iframe.sandbox) ||
+    !isLockedHtmlPreviewSandbox(html.iframeSandbox)
   ) {
     return (
       <Unavailable

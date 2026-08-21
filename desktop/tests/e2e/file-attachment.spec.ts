@@ -766,14 +766,25 @@ test("markdown and HTML attachments preview in-app without navigating", async ({
 }) => {
   const mdUrl = `https://mock.relay/media/${"1".repeat(64)}.md`;
   const htmlUrl = `https://mock.relay/media/${"2".repeat(64)}.html`;
+  const mdBody = [
+    "# Hello preview",
+    "",
+    "A **bold** note.",
+    "",
+    "```js",
+    "const a = 1;",
+    "const b = 2;",
+    "```",
+    "",
+  ].join("\n");
   const htmlBody =
-    "<!DOCTYPE html><html><body><script>window.__XSS__=1</script><h1>Live?</h1></body></html>";
+    '<!DOCTYPE html><html><body><script>window.__XSS__=1;document.documentElement.dataset.guestJs=\'1\';</script><h1>Live?</h1><button type="button" onclick="document.getElementById(\'panel\').hidden=false">Show tab</button><p id="panel" hidden>In-page nav</p></body></html>';
 
   await page.route(mdUrl, (route) =>
     route.fulfill({
       status: 200,
       contentType: "text/markdown",
-      body: "# Hello preview\n\nA **bold** note.",
+      body: mdBody,
     }),
   );
   await page.route(htmlUrl, (route) =>
@@ -824,6 +835,15 @@ test("markdown and HTML attachments preview in-app without navigating", async ({
   const markdown = preview.getByTestId("file-preview-markdown");
   await expect(markdown).toBeVisible();
   await expect(markdown).toContainText("Hello preview");
+  const fenceLines = markdown.locator("[data-line]");
+  await expect(fenceLines).toHaveCount(2);
+  await expect(fenceLines.nth(0)).toContainText("const a = 1;");
+  await expect(fenceLines.nth(1)).toContainText("const b = 2;");
+  await waitForAnimations(page);
+  const firstLine = await fenceLines.nth(0).boundingBox();
+  const secondLine = await fenceLines.nth(1).boundingBox();
+  expect(firstLine && secondLine).toBeTruthy();
+  expect(secondLine?.y ?? 0).toBeGreaterThan(firstLine?.y ?? 0);
   await expect(preview.locator("iframe")).toHaveCount(0);
 
   await preview.getByTestId("file-preview-tab-source").click();
@@ -866,10 +886,10 @@ test("markdown and HTML attachments preview in-app without navigating", async ({
 
   const iframe = preview.getByTestId("file-preview-html");
   await expect(iframe).toBeVisible();
-  await expect(iframe).toHaveAttribute("sandbox", "");
   const sandbox = await iframe.getAttribute("sandbox");
-  expect(sandbox ?? "").not.toContain("allow-scripts");
+  expect(sandbox ?? "").toContain("allow-scripts");
   expect(sandbox ?? "").not.toContain("allow-same-origin");
+  expect(sandbox ?? "").not.toContain("allow-top-navigation");
   const iframeSrc = await iframe.getAttribute("src");
   expect(iframeSrc === null || iframeSrc === "").toBeTruthy();
   expect(iframeSrc ?? "").not.toContain("/media/");
@@ -878,23 +898,29 @@ test("markdown and HTML attachments preview in-app without navigating", async ({
   const frame = preview.frameLocator('[data-testid="file-preview-html"]');
   await expect(frame.getByRole("heading", { name: "Live?" })).toBeVisible();
   await expect(preview.getByRole("heading", { name: "Live?" })).toHaveCount(0);
+  await expect(frame.locator("html")).toHaveAttribute("data-guest-js", "1");
+  await frame.getByRole("button", { name: "Show tab" }).click();
+  await expect(frame.getByText("In-page nav")).toBeVisible();
 
   const xssFlag = await page.evaluate(
     () => (window as Window & { __XSS__?: number }).__XSS__,
   );
   expect(xssFlag).toBeUndefined();
 
-  const frameXss = await iframe.evaluate((node) => {
+  // Unique origin: the parent must not be able to read frame globals.
+  const parentReadOfFrame = await iframe.evaluate((node) => {
     const frameEl = node as HTMLIFrameElement;
     try {
       return frameEl.contentWindow
         ? (frameEl.contentWindow as Window & { __XSS__?: number }).__XSS__
         : undefined;
     } catch {
-      return undefined;
+      return "blocked";
     }
   });
-  expect(frameXss).toBeUndefined();
+  expect(
+    parentReadOfFrame === undefined || parentReadOfFrame === "blocked",
+  ).toBe(true);
 
   await header.getByTestId("file-preview-fullscreen").click();
   await expect(preview).toHaveAttribute("data-fullscreen", "true");
@@ -903,7 +929,9 @@ test("markdown and HTML attachments preview in-app without navigating", async ({
   expect(fullscreenBox?.height ?? 0).toBeGreaterThan(
     (viewport?.height ?? 720) * 0.75,
   );
-  await expect(iframe).toHaveAttribute("sandbox", "");
+  const fullscreenSandbox = await iframe.getAttribute("sandbox");
+  expect(fullscreenSandbox ?? "").toContain("allow-scripts");
+  expect(fullscreenSandbox ?? "").not.toContain("allow-same-origin");
   const fullscreenSrc = await iframe.getAttribute("src");
   expect(fullscreenSrc === null || fullscreenSrc === "").toBeTruthy();
   expect(fullscreenSrc ?? "").not.toContain("/media/");
@@ -928,7 +956,7 @@ test("markdown and HTML attachments preview in-app without navigating", async ({
   await preview.getByTestId("file-preview-html-tab-source").click();
   const source = preview.getByTestId("file-preview-source");
   await expect(source).toBeVisible();
-  await expect(source).toContainText("<script>window.__XSS__=1</script>");
+  await expect(source).toContainText("window.__XSS__=1");
   await expect(header.getByTestId("file-preview-fullscreen")).toHaveCount(0);
 
   await expect(

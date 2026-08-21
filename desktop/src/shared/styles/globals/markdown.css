@@ -66,7 +66,7 @@
 
 .message-markdown .mention-chip,
 .message-markdown .inline-code-chip,
-.message-markdown :not(pre) > code {
+.message-markdown :not(pre) > code:not(.code-block-lines) {
   box-sizing: border-box;
   display: inline-flex;
   align-items: center;
@@ -135,7 +135,7 @@
 
 .message-markdown.inbox-preview-markdown .mention-chip,
 .message-markdown.inbox-preview-markdown .inline-code-chip,
-.message-markdown.inbox-preview-markdown :not(pre) > code {
+.message-markdown.inbox-preview-markdown :not(pre) > code:not(.code-block-lines) {
   display: inline;
   overflow: visible;
   overflow-wrap: normal;
@@ -221,7 +221,7 @@
 }
 
 .message-markdown .inline-code-chip,
-.message-markdown :not(pre) > code {
+.message-markdown :not(pre) > code:not(.code-block-lines) {
   font-size: var(--inline-code-font-size);
   font-family: ui-monospace, monospace;
   background: hsl(var(--muted));
