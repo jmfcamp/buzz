@@ -9,6 +9,7 @@ mod deep_link;
 mod egress_guard;
 mod event_sync;
 mod events;
+mod html_preview;
 mod huddle;
 mod identity_storage;
 mod initial_window;
@@ -270,7 +271,15 @@ pub fn run() {
                 responder.respond(response);
             });
         })
+        .register_asynchronous_uri_scheme_protocol("html-preview", |ctx, request, responder| {
+            let app = ctx.app_handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let response = html_preview::handle_html_preview(&app, &request);
+                responder.respond(response);
+            });
+        })
         .manage(build_app_state())
+        .manage(html_preview::HtmlPreviewStore::default())
         .manage(ClipboardState::new())
         .manage(PendingCommunityDeepLinks::default())
         .manage(PendingNavigationDeepLinks::default())
@@ -715,6 +724,8 @@ pub fn run() {
             save_png_data_url,
             download_file,
             fetch_media_bytes,
+            html_preview::register_html_preview,
+            html_preview::revoke_html_preview,
             copy_image_to_clipboard,
             copy_text_to_clipboard,
             read_clipboard_text,

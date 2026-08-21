@@ -192,6 +192,26 @@ fn connect_src_allows_ipc_and_cleartext_relays() {
 }
 
 #[test]
+fn frame_src_allows_isolated_html_preview_origins() {
+    // HTML attachments render in `html-preview://` (or a blob: URL in E2E).
+    // Parent CSP must frame those origins without opening `script-src`
+    // `'unsafe-inline'` on the app shell — srcdoc guests inherit that
+    // script-src and go inert.
+    let allowed = sources("frame-src");
+    for source in [
+        "'self'",
+        "html-preview:",
+        "http://html-preview.localhost",
+        "blob:",
+    ] {
+        assert!(
+            allowed.contains(&source.to_owned()),
+            "frame-src must allow {source}"
+        );
+    }
+}
+
+#[test]
 fn script_src_stays_free_of_unsafe_inline_and_eval() {
     let allowed = sources("script-src");
     // The inline boot script in index.html is covered by Tauri's build-time

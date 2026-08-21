@@ -778,7 +778,7 @@ test("markdown and HTML attachments preview in-app without navigating", async ({
     "",
   ].join("\n");
   const htmlBody =
-    '<!DOCTYPE html><html><body><script>window.__XSS__=1;document.documentElement.dataset.guestJs=\'1\';</script><h1>Live?</h1><button type="button" onclick="document.getElementById(\'panel\').hidden=false">Show tab</button><p id="panel" hidden>In-page nav</p></body></html>';
+    '<!DOCTYPE html><html><head><style>@keyframes spin{to{transform:rotate(360deg)}}#spin{animation:spin 1s linear infinite;width:8px;height:8px;background:red}</style></head><body><script>window.__XSS__=1;document.documentElement.dataset.guestJs=\'1\';</script><h1>Live?</h1><button type="button" onclick="document.getElementById(\'panel\').hidden=false">Show tab</button><p id="panel" hidden>In-page nav</p><a href="#section">Go to section</a><h2 id="section">Section target</h2><a href="https://example.com/docs" target="_blank">External docs</a><a href="other.html">Other file</a><div id="spin"></div></body></html>';
 
   await page.route(mdUrl, (route) =>
     route.fulfill({
@@ -888,12 +888,13 @@ test("markdown and HTML attachments preview in-app without navigating", async ({
   await expect(iframe).toBeVisible();
   const sandbox = await iframe.getAttribute("sandbox");
   expect(sandbox ?? "").toContain("allow-scripts");
+  expect(sandbox ?? "").toContain("allow-popups-to-escape-sandbox");
   expect(sandbox ?? "").not.toContain("allow-same-origin");
   expect(sandbox ?? "").not.toContain("allow-top-navigation");
+  await expect(iframe).toHaveAttribute("src", /^blob:/);
   const iframeSrc = await iframe.getAttribute("src");
-  expect(iframeSrc === null || iframeSrc === "").toBeTruthy();
   expect(iframeSrc ?? "").not.toContain("/media/");
-  await expect(iframe).toHaveAttribute("srcdoc", /<h1>Live\?<\/h1>/);
+  expect(await iframe.getAttribute("srcdoc")).toBeFalsy();
 
   const frame = preview.frameLocator('[data-testid="file-preview-html"]');
   await expect(frame.getByRole("heading", { name: "Live?" })).toBeVisible();
@@ -901,6 +902,24 @@ test("markdown and HTML attachments preview in-app without navigating", async ({
   await expect(frame.locator("html")).toHaveAttribute("data-guest-js", "1");
   await frame.getByRole("button", { name: "Show tab" }).click();
   await expect(frame.getByText("In-page nav")).toBeVisible();
+  await expect(frame.locator("#spin")).toBeVisible();
+
+  await frame.getByRole("link", { name: "Go to section" }).click();
+  await expect(frame.getByRole("heading", { name: "Section target" })).toBeInViewport();
+
+  const parentUrl = page.url();
+  const popupPromise = page
+    .waitForEvent("popup", { timeout: 2000 })
+    .catch(() => null);
+  await frame.getByRole("link", { name: "External docs" }).click();
+  const popup = await popupPromise;
+  if (popup) await popup.close();
+  expect(page.url()).toBe(parentUrl);
+
+  await frame.getByRole("link", { name: "Other file" }).click();
+  await expect(
+    frame.getByText("links to other files cannot be opened here"),
+  ).toBeVisible();
 
   const xssFlag = await page.evaluate(
     () => (window as Window & { __XSS__?: number }).__XSS__,
@@ -933,9 +952,9 @@ test("markdown and HTML attachments preview in-app without navigating", async ({
   expect(fullscreenSandbox ?? "").toContain("allow-scripts");
   expect(fullscreenSandbox ?? "").not.toContain("allow-same-origin");
   const fullscreenSrc = await iframe.getAttribute("src");
-  expect(fullscreenSrc === null || fullscreenSrc === "").toBeTruthy();
+  expect(fullscreenSrc ?? "").toMatch(/^blob:/);
   expect(fullscreenSrc ?? "").not.toContain("/media/");
-  await expect(iframe).toHaveAttribute("srcdoc", /<h1>Live\?<\/h1>/);
+  expect(await iframe.getAttribute("srcdoc")).toBeFalsy();
   await expect(frame.getByRole("heading", { name: "Live?" })).toBeVisible();
 
   await preview.getByTestId("file-preview-exit-fullscreen").click();
