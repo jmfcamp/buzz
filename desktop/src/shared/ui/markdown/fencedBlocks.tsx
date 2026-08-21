@@ -13,6 +13,10 @@ import {
 } from "./CodeBlock";
 import { getReactNodeText } from "./utils";
 
+function fenceText(node: React.ReactNode) {
+  return getReactNodeText(node).replace(/\n$/, "");
+}
+
 function playgroundFromCode(language: string, code: string) {
   if (language !== "playground") return undefined;
   const card = parsePlaygroundCard(code);
@@ -29,7 +33,7 @@ export function MarkdownFencedCode({
   // after the opener is the common case). String(children) would join those
   // with commas and break JSON.parse.
   const rawCode = getReactNodeText(children);
-  const code = rawCode.replace(/\n$/, "");
+  const code = fenceText(children);
   const isFencedCodeBlock =
     typeof className === "string" && className.includes("language-");
 
@@ -40,7 +44,8 @@ export function MarkdownFencedCode({
       return playground;
     }
 
-    if (language) {
+    // `playground` is not a highlight language — show the source as-is.
+    if (language && language !== "playground") {
       return (
         <SyntaxHighlightedCode code={code} language={language} {...props} />
       );
@@ -75,7 +80,6 @@ export function MarkdownFencedPre({
 }) {
   if (!interactive) return <span>{children}</span>;
   let language = "";
-  let playgroundChild: React.ReactNode | undefined;
   React.Children.forEach(children, (child) => {
     if (
       React.isValidElement<Record<string, unknown>>(child) &&
@@ -83,14 +87,12 @@ export function MarkdownFencedPre({
     ) {
       language = extractLanguage(child.props.className);
     }
-    if (React.isValidElement(child) && child.type === PlaygroundCard) {
-      playgroundChild = child;
-    }
   });
-  // Unwrap a parsed card so it is not nested in a code-block chrome.
-  // A `playground` fence that did not parse must still render as source.
-  if (playgroundChild !== undefined) {
-    return playgroundChild;
+  // `pre` receives the `code` element, not the rendered card. Re-parse the
+  // joined fence text so a valid card is unwrapped from code-block chrome.
+  const playground = playgroundFromCode(language, fenceText(children));
+  if (playground !== undefined) {
+    return playground;
   }
   return <MarkdownCodeBlock language={language}>{children}</MarkdownCodeBlock>;
 }

@@ -5,6 +5,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { createMarkdownComponents } from "../markdown.tsx";
+import { TooltipProvider } from "../tooltip.tsx";
 import { getReactNodeText } from "./utils.ts";
 import { renderCachedMarkdown } from "./nodeCache.ts";
 import { MarkdownRuntimeContext } from "./runtimeContext.ts";
@@ -31,17 +32,21 @@ function renderFenceMarkdown(content, variant) {
   });
   return renderToStaticMarkup(
     React.createElement(
-      MarkdownRuntimeContext.Provider,
-      {
-        value: {
-          channels: [],
-          onOpenChannel: () => {},
-          onOpenEntityLink: () => {},
-          onOpenMessageLink: () => {},
-          relayOrigin: null,
+      TooltipProvider,
+      null,
+      React.createElement(
+        MarkdownRuntimeContext.Provider,
+        {
+          value: {
+            channels: [],
+            onOpenChannel: () => {},
+            onOpenEntityLink: () => {},
+            onOpenMessageLink: () => {},
+            relayOrigin: null,
+          },
         },
-      },
-      markdown,
+        markdown,
+      ),
     ),
   );
 }
@@ -53,10 +58,7 @@ test("getReactNodeText joins fence children without the String(array) commas", (
 });
 
 test("Stitch playground fence with a blank line after the opener renders a card", () => {
-  const html = renderFenceMarkdown(
-    STITCH_BODY,
-    "playground-stitch-blank-line",
-  );
+  const html = renderFenceMarkdown(STITCH_BODY, "playground-stitch-blank-line");
   assert.match(html, /Playground card:/);
   assert.match(html, /data-testid="playground-card"/);
   assert.match(
