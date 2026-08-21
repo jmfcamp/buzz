@@ -1,8 +1,9 @@
+import { formatDmParticipantDisplayName } from "@/features/channels/lib/dmParticipantDisplay";
+import type { CommunityBot } from "@/features/community-bots/lib/types";
 import {
   resolveUserLabel,
   type UserProfileLookup,
 } from "@/features/profile/lib/identity";
-import { formatDmParticipantDisplayName } from "@/features/channels/lib/dmParticipantDisplay";
 import type { Channel } from "@/shared/api/types";
 
 function isGenericDmChannelName(name: string) {
@@ -20,6 +21,7 @@ export function resolveChannelDisplayLabel(
   channel: Channel,
   currentPubkey: string | undefined,
   profiles: UserProfileLookup | undefined,
+  communityBots?: ReadonlyArray<CommunityBot>,
 ) {
   if (channel.channelType !== "dm" || !isGenericDmChannelName(channel.name)) {
     return channel.name;
@@ -39,6 +41,7 @@ export function resolveChannelDisplayLabel(
     otherParticipants.length > 0 ? otherParticipants : participants
   ).map((participant) =>
     resolveUserLabel({
+      communityBots,
       currentPubkey,
       fallbackName: participant.fallbackName,
       profiles,

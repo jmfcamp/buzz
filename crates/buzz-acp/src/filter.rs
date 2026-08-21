@@ -371,7 +371,23 @@ pub async fn match_event(
     rules: &[SubscriptionRule],
     agent_pubkey_hex: &str,
 ) -> Option<MatchedRule> {
+    match_event_for_channel(event, channel_id, rules, agent_pubkey_hex, None).await
+}
+
+/// [`match_event`] with a discovered channel type.
+///
+/// When `channel_type` is `"dm"` (including hidden DMs), `require_mention`
+/// is ignored: the human is already addressing the bot by writing in the
+/// thread. Stream, private, unknown, and `None` stay mention-required.
+pub async fn match_event_for_channel(
+    event: &nostr::Event,
+    channel_id: uuid::Uuid,
+    rules: &[SubscriptionRule],
+    agent_pubkey_hex: &str,
+    channel_type: Option<&str>,
+) -> Option<MatchedRule> {
     let filter_ctx = FilterContext::from_event(event, channel_id);
+    let mention_required = crate::config::require_mention_for_channel(true, channel_type);
 
     for (index, rule) in rules.iter().enumerate() {
         // 1. Channel scope check.
@@ -387,7 +403,9 @@ pub async fn match_event(
         // 3. Mention check — look for a `p` tag whose first element equals
         //    agent_pubkey_hex. Uses tag.as_slice() for stable, library-independent
         //    access — avoids relying on the Display impl of tag kind.
-        if rule.require_mention {
+        //    DM / hidden channels skip this: every inbound message is
+        //    addressed to the subscribed bot.
+        if rule.require_mention && mention_required {
             let mentioned = event.tags.iter().any(|tag| {
                 let s = tag.as_slice();
                 s.first().map(|k| k.as_str()) == Some("p")
@@ -660,6 +678,50 @@ mod tests {
         let matched = match_event(&event_with_mention, channel_id, &rules, agent_pubkey)
             .await
             .unwrap();
+        assert_eq!(matched.prompt_tag, "mentioned");
+    }
+
+    #[tokio::test]
+    async fn mentions_mode_stream_still_requires_mention() {
+        let agent_pubkey = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+        let event = make_event(9, "hello");
+        let rules = vec![make_rule(
+            "mention-only",
+            ChannelScope::All("all".into()),
+            vec![],
+            true,
+            None,
+            Some("mentioned"),
+        )];
+
+        for channel_type in [None, Some("stream"), Some("private"), Some("unknown")] {
+            let result =
+                match_event_for_channel(&event, any_channel(), &rules, agent_pubkey, channel_type)
+                    .await;
+            assert!(
+                result.is_none(),
+                "{channel_type:?} must still require a p tag"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn mentions_mode_dm_accepts_unmentioned_event() {
+        let agent_pubkey = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+        let event = make_event(9, "hello");
+        let rules = vec![make_rule(
+            "mention-only",
+            ChannelScope::All("all".into()),
+            vec![],
+            true,
+            None,
+            Some("mentioned"),
+        )];
+
+        let matched =
+            match_event_for_channel(&event, any_channel(), &rules, agent_pubkey, Some("dm"))
+                .await
+                .expect("DM inbound is addressed to the bot");
         assert_eq!(matched.prompt_tag, "mentioned");
     }
 
