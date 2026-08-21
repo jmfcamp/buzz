@@ -117,6 +117,7 @@ test("primary navigation rows share the same inactive emphasis", async ({
     page.getByTestId("open-pulse-view"),
     page.getByTestId("open-projects-view"),
     page.getByTestId("open-agents-view"),
+    page.getByTestId("open-bots-view"),
     page.getByTestId("open-workflows-view"),
   ];
 

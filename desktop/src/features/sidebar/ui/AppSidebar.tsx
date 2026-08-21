@@ -136,7 +136,7 @@ type AppSidebarProps = {
   ) => void;
   onRemoveCommunity: (id: string) => Promise<LeaveCommunityResult | undefined>;
   onCreateAgent: () => void;
-  onSelectAgents: () => void;
+  onSelectAgents: () => void; onSelectBots: () => void;
   onSelectPinnedSite: (pinId: string) => void;
   onSelectProjects: () => void;
   onSelectPulse: () => void;
@@ -206,7 +206,7 @@ export function AppSidebar({
   onUpdateCommunity,
   onRemoveCommunity,
   onCreateAgent,
-  onSelectAgents,
+  onSelectAgents, onSelectBots,
   onSelectPinnedSite,
   onSelectProjects,
   onSelectPulse,
@@ -606,7 +606,7 @@ export function AppSidebar({
             >
               <AppSidebarPrimaryMenu
                 homeBadgeCount={homeBadgeCount}
-                onSelectAgents={onSelectAgents}
+                onSelectAgents={onSelectAgents} onSelectBots={onSelectBots}
                 onSelectHome={onSelectHome}
                 onSelectPinnedSite={onSelectPinnedSite}
                 onSelectProjects={onSelectProjects}

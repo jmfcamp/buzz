@@ -6,6 +6,7 @@ import { TopChromeInsetHeader } from "@/shared/layout/TopChromeInsetHeader";
 
 type ViewLoadingFallbackKind =
   | "agents"
+  | "bots"
   | "channel"
   | "forum"
   | "projects"
@@ -400,7 +401,7 @@ export function ViewLoadingFallback({
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       {shouldShowChannelHeader ? <LoadingHeaderSkeleton /> : null}
-      {kind === "agents" ? <AgentsLoadingBody /> : null}
+      {kind === "agents" || kind === "bots" ? <AgentsLoadingBody /> : null}
       {kind === "workflows" ? <CardListLoadingBody /> : null}
       {kind === "projects" ? <CardListLoadingBody /> : null}
       {kind === "channel" ? (

@@ -7,6 +7,7 @@ export type AppView =
   | "channel"
   | "messages"
   | "agents"
+  | "bots"
   | "workflows"
   | "pulse"
   | "projects"
@@ -178,6 +179,14 @@ export function deriveShellRoute(pathname: string): {
       selectedChannelId: null,
       selectedPinId: null,
       selectedView: "agents",
+    };
+  }
+
+  if (pathname === "/bots" || pathname.startsWith("/bots/")) {
+    return {
+      selectedChannelId: null,
+      selectedPinId: null,
+      selectedView: "bots",
     };
   }
 
