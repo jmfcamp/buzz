@@ -5,15 +5,21 @@ import { cn } from "@/shared/lib/cn";
 
 import type { PlaygroundConversation } from "../lib/conversation";
 import {
-  PLAYGROUND_FULLSCREEN_OVERLAY_CLASS,
+  playgroundOverlayPlacement,
+  playgroundOverlayShouldPortal,
+} from "../lib/dock";
+import {
+  PLAYGROUND_DOCK_RESIZE_HANDLE_CLASS,
+  PLAYGROUND_DOCK_RESIZE_HANDLE_TEST_ID,
   PLAYGROUND_FULLSCREEN_TITLEBAR_GAP_TEST_ID,
   PLAYGROUND_OPAQUE_FILL_STYLE,
   PLAYGROUND_OVERLAY_SURFACE_CLASS,
-  PLAYGROUND_WINDOWED_OVERLAY_CLASS,
   playgroundFullscreenTitlebarGapClass,
+  playgroundOverlayPlacementClass,
   playgroundStageLayoutKey,
 } from "../lib/overlayLayout";
 import type { PlaygroundSession } from "../lib/sessions";
+import { usePlaygroundDockWidth } from "../lib/usePlaygroundDockWidth";
 import { PlaygroundChrome } from "./PlaygroundChrome";
 import { PlaygroundStage, type PlaygroundChromeMode } from "./PlaygroundStage";
 
@@ -24,9 +30,22 @@ export function PlaygroundOverlay({
   conversation?: PlaygroundConversation | null;
   session: PlaygroundSession;
 }) {
+  const overlayRef = React.useRef<HTMLDivElement | null>(null);
   const [mode, setMode] = React.useState<PlaygroundChromeMode>("desktop");
   const [fullscreen, setFullscreen] = React.useState(false);
+  const [docked, setDocked] = React.useState(false);
   const [layoutEpoch, setLayoutEpoch] = React.useState(0);
+
+  const getMainWidth = React.useCallback(() => {
+    const parent = overlayRef.current?.parentElement;
+    if (parent && parent.clientWidth > 0) {
+      return parent.clientWidth;
+    }
+    return typeof window === "undefined" ? 0 : window.innerWidth;
+  }, []);
+
+  const { onResetWidth, onResizeStart, prepareDockWidth, widthPx } =
+    usePlaygroundDockWidth(getMainWidth);
 
   const bumpStageLayout = React.useCallback(() => {
     setLayoutEpoch((value) => value + 1);
@@ -36,6 +55,14 @@ export function PlaygroundOverlay({
     setFullscreen(next);
     setLayoutEpoch((value) => value + 1);
   }, []);
+
+  const toggleDock = React.useCallback(() => {
+    if (!docked) {
+      prepareDockWidth();
+    }
+    setDocked((current) => !current);
+    setLayoutEpoch((value) => value + 1);
+  }, [docked, prepareDockWidth]);
 
   React.useEffect(() => {
     if (!fullscreen) return;
@@ -48,18 +75,27 @@ export function PlaygroundOverlay({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [fullscreen, setOverlayFullscreen]);
 
+  const placement = playgroundOverlayPlacement(fullscreen, docked);
+  const dockVisible = placement === "dock";
+
+  // Exiting fullscreen restores dock when they entered from dock
+  // (`docked` stays true). Escape / the fullscreen control do not expand.
   const overlay = (
     <div
       className={cn(
-        "flex min-h-0 min-w-0 flex-col isolate overflow-hidden",
+        "flex min-h-0 min-w-0 flex-col isolate",
+        placement !== "dock" && "overflow-hidden",
         PLAYGROUND_OVERLAY_SURFACE_CLASS,
-        fullscreen
-          ? PLAYGROUND_FULLSCREEN_OVERLAY_CLASS
-          : PLAYGROUND_WINDOWED_OVERLAY_CLASS,
+        playgroundOverlayPlacementClass(placement),
       )}
+      data-docked={docked ? "true" : undefined}
       data-fullscreen={fullscreen ? "true" : undefined}
       data-testid="playground-overlay"
-      style={PLAYGROUND_OPAQUE_FILL_STYLE}
+      ref={overlayRef}
+      style={{
+        ...PLAYGROUND_OPAQUE_FILL_STYLE,
+        ...(dockVisible ? { width: widthPx } : undefined),
+      }}
     >
       {fullscreen ? (
         <div
@@ -72,26 +108,44 @@ export function PlaygroundOverlay({
       ) : null}
       <PlaygroundChrome
         conversation={conversation}
+        docked={docked}
         fullscreen={fullscreen}
         mode={mode}
         onModeChange={setMode}
         onStageResync={bumpStageLayout}
+        onToggleDock={toggleDock}
         onToggleFullscreen={() => setOverlayFullscreen(!fullscreen)}
         session={session}
       />
       <PlaygroundStage
-        layoutKey={playgroundStageLayoutKey(fullscreen, layoutEpoch)}
+        layoutKey={playgroundStageLayoutKey(fullscreen, layoutEpoch, docked)}
         mode={mode}
         session={session}
       />
+      {dockVisible ? (
+        <button
+          aria-label="Resize playground dock"
+          className={PLAYGROUND_DOCK_RESIZE_HANDLE_CLASS}
+          data-testid={PLAYGROUND_DOCK_RESIZE_HANDLE_TEST_ID}
+          onDoubleClick={onResetWidth}
+          onPointerDown={onResizeStart}
+          type="button"
+        >
+          <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-transparent" />
+        </button>
+      ) : null}
     </div>
   );
 
   // SidebarInset is `isolate z-0 overflow-hidden` under AppTopChrome `z-45`.
   // A local `fixed inset-0 z-50` cannot paint over that frosted strip (or
   // receive its clicks). Portal to body so fullscreen chrome is the only
-  // hit target below the traffic lights.
-  if (fullscreen && typeof document !== "undefined") {
+  // hit target below the traffic lights. Docked mode stays in the inset so
+  // the uncovered right side is real, clickable chat/thread.
+  if (
+    playgroundOverlayShouldPortal(fullscreen) &&
+    typeof document !== "undefined"
+  ) {
     return createPortal(overlay, document.body);
   }
   return overlay;

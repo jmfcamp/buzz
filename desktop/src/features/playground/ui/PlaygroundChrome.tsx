@@ -7,19 +7,32 @@ import {
   Inspect,
   Maximize2,
   Minimize2,
+  PanelLeftClose,
+  PanelLeftOpen,
   RefreshCw,
 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
 import { copyTextToClipboard } from "@/shared/lib/clipboard";
-import { Button } from "@/shared/ui/button";
+import { Button, type ButtonProps } from "@/shared/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/shared/ui/tooltip";
 
 import {
   playgroundAddressNavigation,
   splitLockedPlaygroundUrl,
   suffixFromCurrentUrl,
 } from "../lib/addressBar";
+import {
+  playgroundChromeTooltip,
+  playgroundDockTooltip,
+  playgroundFullscreenTooltip,
+} from "../lib/chromeTooltips";
 import type { PlaygroundConversation } from "../lib/conversation";
 import { playgroundScreenshotAvailable } from "../lib/conversation";
 import {
@@ -48,18 +61,22 @@ import type { PlaygroundChromeMode } from "./PlaygroundStage";
 
 export function PlaygroundChrome({
   conversation,
+  docked,
   fullscreen,
   mode,
   onModeChange,
   onStageResync,
+  onToggleDock,
   onToggleFullscreen,
   session,
 }: {
   conversation: PlaygroundConversation | null;
+  docked: boolean;
   fullscreen: boolean;
   mode: PlaygroundChromeMode;
   onModeChange: (mode: PlaygroundChromeMode) => void;
   onStageResync?: () => void;
+  onToggleDock: () => void;
   onToggleFullscreen: () => void;
   session: PlaygroundSession;
 }) {
@@ -137,187 +154,231 @@ export function PlaygroundChrome({
   }
 
   return (
-    <header
-      className={PLAYGROUND_CHROME_CLASS}
-      data-testid="playground-chrome"
-      style={PLAYGROUND_OPAQUE_FILL_STYLE}
-    >
-      <div className="flex min-w-0 items-center gap-1">
-        {disposeArmed ? (
-          <div className="flex shrink-0 items-center gap-0.5">
-            <Button
-              onClick={() => setDisposeArmed(false)}
+    <TooltipProvider>
+      <header
+        className={PLAYGROUND_CHROME_CLASS}
+        data-testid="playground-chrome"
+        style={PLAYGROUND_OPAQUE_FILL_STYLE}
+      >
+        <div className="flex min-w-0 items-center gap-1">
+          {disposeArmed ? (
+            <div className="flex shrink-0 items-center gap-0.5">
+              <Button
+                onClick={() => setDisposeArmed(false)}
+                size="xs"
+                type="button"
+                variant="ghost"
+              >
+                Cancel
+              </Button>
+              <Button
+                data-testid="playground-dispose-confirm"
+                onClick={() => disposePlayground(session.sid)}
+                size="xs"
+                type="button"
+                variant="destructive"
+              >
+                Confirm dispose
+              </Button>
+            </div>
+          ) : (
+            <ChromeTooltipButton
+              data-testid="playground-dispose"
+              onClick={() => setDisposeArmed(true)}
               size="xs"
-              type="button"
-              variant="ghost"
-            >
-              Cancel
-            </Button>
-            <Button
-              data-testid="playground-dispose-confirm"
-              onClick={() => disposePlayground(session.sid)}
-              size="xs"
+              tooltip={playgroundChromeTooltip("dispose")}
               type="button"
               variant="destructive"
             >
-              Confirm dispose
-            </Button>
+              Dispose
+            </ChromeTooltipButton>
+          )}
+          <div className="flex shrink-0 items-center gap-0.5">
+            <ChromeTooltipButton
+              aria-label={playgroundChromeTooltip("back")}
+              data-testid="playground-back"
+              disabled={!nav.canGoBack}
+              onClick={() => {
+                void playgroundWebviewGoBack(session.sid).then(setNav);
+              }}
+              size="icon-xs"
+              tooltip={playgroundChromeTooltip("back")}
+              type="button"
+              variant="ghost"
+            >
+              <ArrowLeft />
+            </ChromeTooltipButton>
+            <ChromeTooltipButton
+              aria-label={playgroundChromeTooltip("forward")}
+              data-testid="playground-forward"
+              disabled={!nav.canGoForward}
+              onClick={() => {
+                void playgroundWebviewGoForward(session.sid).then(setNav);
+              }}
+              size="icon-xs"
+              tooltip={playgroundChromeTooltip("forward")}
+              type="button"
+              variant="ghost"
+            >
+              <ArrowRight />
+            </ChromeTooltipButton>
+            <ChromeTooltipButton
+              aria-label={playgroundChromeTooltip("refresh")}
+              data-testid="playground-refresh"
+              onClick={() => {
+                void playgroundWebviewReload(session.sid);
+              }}
+              size="icon-xs"
+              tooltip={playgroundChromeTooltip("refresh")}
+              type="button"
+              variant="ghost"
+            >
+              <RefreshCw />
+            </ChromeTooltipButton>
           </div>
-        ) : (
-          <Button
-            data-testid="playground-dispose"
-            onClick={() => setDisposeArmed(true)}
-            size="xs"
-            type="button"
-            variant="destructive"
+          <form
+            className="flex min-w-0 flex-1 items-stretch overflow-hidden rounded-md border border-border bg-muted/40"
+            data-testid="playground-address"
+            onSubmit={handleAddressSubmit}
           >
-            Dispose
-          </Button>
-        )}
-        <div className="flex shrink-0 items-center gap-0.5">
-          <Button
-            aria-label="Back"
-            data-testid="playground-back"
-            disabled={!nav.canGoBack}
-            onClick={() => {
-              void playgroundWebviewGoBack(session.sid).then(setNav);
-            }}
+            <span
+              className="max-w-[55%] truncate bg-muted px-2 py-0.5 text-2xs text-muted-foreground"
+              data-testid="playground-url-prefix"
+            >
+              {locked.prefix}
+            </span>
+            <input
+              aria-label="Playground path"
+              className="min-w-0 flex-1 bg-transparent px-2 py-0.5 text-2xs text-foreground outline-none"
+              data-testid="playground-url-suffix"
+              onChange={(event) => setSuffix(event.target.value)}
+              value={suffix}
+            />
+          </form>
+          <ChromeTooltipButton
+            aria-label={playgroundChromeTooltip("copy")}
+            data-testid="playground-copy-url"
+            onClick={() => copyTextToClipboard(currentUrl, "URL copied")}
             size="icon-xs"
-            type="button"
-            variant="ghost"
-          >
-            <ArrowLeft />
-          </Button>
-          <Button
-            aria-label="Forward"
-            data-testid="playground-forward"
-            disabled={!nav.canGoForward}
-            onClick={() => {
-              void playgroundWebviewGoForward(session.sid).then(setNav);
-            }}
-            size="icon-xs"
+            tooltip={playgroundChromeTooltip("copy")}
             type="button"
             variant="ghost"
           >
-            <ArrowRight />
-          </Button>
-          <Button
-            aria-label="Refresh"
-            data-testid="playground-refresh"
-            onClick={() => {
-              void playgroundWebviewReload(session.sid);
-            }}
+            <Copy />
+          </ChromeTooltipButton>
+          <ChromeTooltipButton
+            aria-label={playgroundChromeTooltip("inspect")}
+            data-testid="playground-inspect"
+            onClick={() => void handleInspect()}
             size="icon-xs"
-            type="button"
-            variant="ghost"
-          >
-            <RefreshCw />
-          </Button>
-        </div>
-        <form
-          className="flex min-w-0 flex-1 items-stretch overflow-hidden rounded-md border border-border bg-muted/40"
-          data-testid="playground-address"
-          onSubmit={handleAddressSubmit}
-        >
-          <span
-            className="max-w-[55%] truncate bg-muted px-2 py-0.5 text-2xs text-muted-foreground"
-            data-testid="playground-url-prefix"
-          >
-            {locked.prefix}
-          </span>
-          <input
-            aria-label="Playground path"
-            className="min-w-0 flex-1 bg-transparent px-2 py-0.5 text-2xs text-foreground outline-none"
-            data-testid="playground-url-suffix"
-            onChange={(event) => setSuffix(event.target.value)}
-            value={suffix}
-          />
-        </form>
-        <Button
-          aria-label="Copy full URL"
-          data-testid="playground-copy-url"
-          onClick={() => copyTextToClipboard(currentUrl, "URL copied")}
-          size="icon-xs"
-          type="button"
-          variant="ghost"
-        >
-          <Copy />
-        </Button>
-        <Button
-          aria-label="Inspect"
-          data-testid="playground-inspect"
-          onClick={() => void handleInspect()}
-          size="icon-xs"
-          type="button"
-          variant="outline"
-        >
-          <Inspect />
-        </Button>
-        {canScreenshot ? (
-          <Button
-            aria-label="Screenshot"
-            data-testid="playground-screenshot"
-            onClick={handleScreenshot}
-            size="icon-xs"
+            tooltip={playgroundChromeTooltip("inspect")}
             type="button"
             variant="outline"
           >
-            <Camera />
-          </Button>
-        ) : null}
-        <Button
-          aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-          data-testid="playground-fullscreen"
-          onClick={onToggleFullscreen}
-          size="icon-xs"
-          type="button"
-          variant="outline"
-        >
-          {fullscreen ? <Minimize2 /> : <Maximize2 />}
-        </Button>
-        <Button
-          aria-label="Dismiss"
-          data-testid="playground-dismiss"
-          onClick={() => dismissPlayground()}
-          size="icon-xs"
-          type="button"
-          variant="outline"
-        >
-          <ChevronLeft />
-        </Button>
-      </div>
-      <div
-        className="relative flex min-w-0 items-center justify-start gap-1 py-0.5"
-        data-testid="playground-mode-row"
-      >
-        <ModeButton
-          active={mode === "desktop"}
-          label="Desktop"
-          onSelect={() => onModeChange("desktop")}
-          testId="playground-mode-desktop"
-        />
-        <ModeButton
-          active={mode === "responsive"}
-          label="Responsive"
-          onSelect={() => onModeChange("responsive")}
-          testId="playground-mode-responsive"
-        />
-        <ModeButton
-          active={mode === "mobile"}
-          label="Mobile"
-          onSelect={() => onModeChange("mobile")}
-          testId="playground-mode-mobile"
-        />
-        {pin ? (
-          <p
-            className="pointer-events-none absolute left-1/2 -translate-x-1/2 font-mono text-2xs text-muted-foreground"
-            data-testid="playground-chrome-pin"
+            <Inspect />
+          </ChromeTooltipButton>
+          {canScreenshot ? (
+            <ChromeTooltipButton
+              aria-label={playgroundChromeTooltip("screenshot")}
+              data-testid="playground-screenshot"
+              onClick={handleScreenshot}
+              size="icon-xs"
+              tooltip={playgroundChromeTooltip("screenshot")}
+              type="button"
+              variant="outline"
+            >
+              <Camera />
+            </ChromeTooltipButton>
+          ) : null}
+          {fullscreen ? null : (
+            <ChromeTooltipButton
+              aria-label={playgroundDockTooltip(docked)}
+              data-testid="playground-dock"
+              onClick={onToggleDock}
+              size="icon-xs"
+              tooltip={playgroundDockTooltip(docked)}
+              type="button"
+              variant="outline"
+            >
+              {docked ? <PanelLeftOpen /> : <PanelLeftClose />}
+            </ChromeTooltipButton>
+          )}
+          <ChromeTooltipButton
+            aria-label={playgroundFullscreenTooltip(fullscreen)}
+            data-testid="playground-fullscreen"
+            onClick={onToggleFullscreen}
+            size="icon-xs"
+            tooltip={playgroundFullscreenTooltip(fullscreen)}
+            type="button"
+            variant="outline"
           >
-            PIN {pin}
-          </p>
-        ) : null}
-      </div>
-    </header>
+            {fullscreen ? <Minimize2 /> : <Maximize2 />}
+          </ChromeTooltipButton>
+          <ChromeTooltipButton
+            aria-label={playgroundChromeTooltip("dismiss")}
+            data-testid="playground-dismiss"
+            onClick={() => dismissPlayground()}
+            size="icon-xs"
+            tooltip={playgroundChromeTooltip("dismiss")}
+            type="button"
+            variant="outline"
+          >
+            <ChevronLeft />
+          </ChromeTooltipButton>
+        </div>
+        <div
+          className="relative flex min-w-0 items-center justify-start gap-1 py-0.5"
+          data-testid="playground-mode-row"
+        >
+          <ModeButton
+            active={mode === "desktop"}
+            label="Desktop"
+            onSelect={() => onModeChange("desktop")}
+            testId="playground-mode-desktop"
+          />
+          <ModeButton
+            active={mode === "responsive"}
+            label="Responsive"
+            onSelect={() => onModeChange("responsive")}
+            testId="playground-mode-responsive"
+          />
+          <ModeButton
+            active={mode === "mobile"}
+            label="Mobile"
+            onSelect={() => onModeChange("mobile")}
+            testId="playground-mode-mobile"
+          />
+          {pin ? (
+            <p
+              className="pointer-events-none absolute left-1/2 -translate-x-1/2 font-mono text-2xs text-muted-foreground"
+              data-testid="playground-chrome-pin"
+            >
+              PIN {pin}
+            </p>
+          ) : null}
+        </div>
+      </header>
+    </TooltipProvider>
+  );
+}
+
+function ChromeTooltipButton({
+  children,
+  tooltip,
+  ...props
+}: ButtonProps & { tooltip: string }) {
+  const button = <Button {...props}>{children}</Button>;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        {props.disabled ? (
+          <span className="inline-flex">{button}</span>
+        ) : (
+          button
+        )}
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{tooltip}</TooltipContent>
+    </Tooltip>
   );
 }
 

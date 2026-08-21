@@ -1,5 +1,10 @@
 import { topChromeBackdrop } from "@/shared/layout/chromeLayout";
 
+import {
+  playgroundOverlayPlacement,
+  type PlaygroundOverlayPlacement,
+} from "./dock";
+
 /** Spacer under the overlay titlebar so traffic lights stay clickable. */
 export const PLAYGROUND_FULLSCREEN_TITLEBAR_GAP_TEST_ID =
   "playground-fullscreen-titlebar-gap";
@@ -18,6 +23,19 @@ export const PLAYGROUND_FULLSCREEN_OVERLAY_CLASS =
 
 /** Windowed overlay stays inside the channel inset, not the titlebar. */
 export const PLAYGROUND_WINDOWED_OVERLAY_CLASS = "absolute inset-0 z-30";
+
+/**
+ * Left-anchored split of the main inset. Never `inset-0` — that would stretch
+ * over chat even when a width is set. Stays in SidebarInset (not portaled).
+ */
+export const PLAYGROUND_DOCKED_OVERLAY_CLASS =
+  "absolute inset-y-0 left-0 z-30 overflow-visible border-r border-border";
+
+/** Right-edge drag, mirrored from the thread / AuxiliaryPanel handle. */
+export const PLAYGROUND_DOCK_RESIZE_HANDLE_CLASS =
+  "absolute inset-y-0 right-0 z-40 w-3 translate-x-1/2 cursor-col-resize touch-none";
+
+export const PLAYGROUND_DOCK_RESIZE_HANDLE_TEST_ID = "playground-dock-resize";
 
 /**
  * Same 40px strip as `AppTopChrome`. Fixed px via the chrome CSS variable so
@@ -83,9 +101,23 @@ export function playgroundResizeHandleSitsOutsideHost(
   return !host.contains(handle);
 }
 
+export function playgroundOverlayPlacementClass(
+  placement: PlaygroundOverlayPlacement,
+): string {
+  switch (placement) {
+    case "fullscreen":
+      return PLAYGROUND_FULLSCREEN_OVERLAY_CLASS;
+    case "dock":
+      return PLAYGROUND_DOCKED_OVERLAY_CLASS;
+    default:
+      return PLAYGROUND_WINDOWED_OVERLAY_CLASS;
+  }
+}
+
 export function playgroundStageLayoutKey(
   fullscreen: boolean,
   epoch: number,
+  docked = false,
 ): string {
-  return `${fullscreen ? "fullscreen" : "window"}:${epoch}`;
+  return `${playgroundOverlayPlacement(fullscreen, docked)}:${epoch}`;
 }
