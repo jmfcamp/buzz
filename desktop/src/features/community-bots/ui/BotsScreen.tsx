@@ -1,6 +1,12 @@
 import * as React from "react";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import {
+  BOTS_DIRECTORY_SEARCH_KEY,
+  botsDirectorySelectedBotId,
+} from "@/features/community-bots/lib/directory";
+import { useHistorySearchState } from "@/shared/hooks/useHistorySearchState";
+import { useThreadPanelWidth } from "@/shared/hooks/useThreadPanelWidth";
 import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 
 const BotsView = React.lazy(async () => {
@@ -8,34 +14,44 @@ const BotsView = React.lazy(async () => {
   return { default: module.BotsView };
 });
 
-const BotDetailView = React.lazy(async () => {
-  const module = await import("@/features/community-bots/ui/BotDetailView");
-  return { default: module.BotDetailView };
+const BotDetailPanel = React.lazy(async () => {
+  const module = await import("@/features/community-bots/ui/BotDetailPanel");
+  return { default: module.BotDetailPanel };
 });
 
-type BotsScreenProps = {
-  selectedBotId: string | null;
-};
+const BOTS_DIRECTORY_SEARCH_KEYS = [BOTS_DIRECTORY_SEARCH_KEY] as const;
 
-export function BotsScreen({ selectedBotId }: BotsScreenProps) {
-  const { goBot, goBots, goChannel, goSettings } = useAppNavigation();
+export function BotsScreen() {
+  const { applyPatch, values } = useHistorySearchState(
+    BOTS_DIRECTORY_SEARCH_KEYS,
+  );
+  const selectedBotId = botsDirectorySelectedBotId(values.bot);
+  const threadPanelWidth = useThreadPanelWidth();
+  const { goChannel, goSettings } = useAppNavigation();
 
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-      <React.Suspense fallback={<ViewLoadingFallback kind="bots" />}>
-        {selectedBotId ? (
-          <BotDetailView
-            botId={selectedBotId}
-            onBack={() => void goBots({ replace: true })}
-            onOpenChannel={(channelId) => void goChannel(channelId)}
-          />
-        ) : (
+      <div className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
+        <React.Suspense fallback={<ViewLoadingFallback kind="bots" />}>
           <BotsView
-            onOpenBot={(botId) => void goBot(botId)}
+            onOpenBot={(botId) => applyPatch({ bot: botId })}
             onOpenBotsSettings={() => void goSettings("bots")}
           />
-        )}
-      </React.Suspense>
+        </React.Suspense>
+        {selectedBotId ? (
+          <React.Suspense fallback={null}>
+            <BotDetailPanel
+              botId={selectedBotId}
+              canResetWidth={threadPanelWidth.canReset}
+              onClose={() => applyPatch({ bot: null })}
+              onOpenChannel={(channelId) => void goChannel(channelId)}
+              onResetWidth={threadPanelWidth.onResetWidth}
+              onResizeStart={threadPanelWidth.onResizeStart}
+              widthPx={threadPanelWidth.widthPx}
+            />
+          </React.Suspense>
+        ) : null}
+      </div>
     </div>
   );
 }

@@ -1,17 +1,17 @@
-import { ChevronLeft } from "lucide-react";
-import type { ReactNode } from "react";
+import { ArrowUpRight } from "lucide-react";
 
 import { AgentIdentityCard } from "@/features/agents/ui/AgentIdentityCard";
 import { IdentityInitialsAvatar } from "@/features/agents/ui/IdentityInitialsAvatar";
 import { IDENTITY_CARD_GRID_CLASS } from "@/features/agents/ui/UnifiedAgentsSection";
-import type {
-  CommunityBotDirectoryCard,
-  CommunityBotDirectoryDetail,
+import {
+  communityBotDirectoryChannelLink,
+  type CommunityBotDirectoryCard,
+  type CommunityBotDirectoryDetail,
 } from "@/features/community-bots/lib/directory";
 import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
+import { ProfileSectionGroup } from "@/features/profile/ui/UserProfilePanelFields";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
-import { PageHeader } from "@/shared/ui/PageHeader";
 import { PubKey } from "@/shared/ui/PubKey";
 
 export function BotsEmptyState({
@@ -60,6 +60,7 @@ export function BotsDirectoryGrid({
           dataTestId={`bot-card-${card.id}`}
           key={card.id}
           label={card.name}
+          modelLabel={card.status.label}
           onClick={() => onOpenBot(card.id)}
         />
       ))}
@@ -69,34 +70,17 @@ export function BotsDirectoryGrid({
 
 export function BotDetailContent({
   detail,
-  onBack,
   onOpenChannel,
 }: {
   detail: CommunityBotDirectoryDetail;
-  onBack: () => void;
   onOpenChannel: (channelId: string) => void;
 }) {
-  return (
-    <div className="space-y-8" data-testid="bot-detail-content">
-      <div className="flex items-start gap-3">
-        <Button
-          aria-label="Back to Bots"
-          data-testid="bot-detail-back"
-          onClick={onBack}
-          size="icon"
-          type="button"
-          variant="ghost"
-        >
-          <ChevronLeft />
-        </Button>
-        <PageHeader
-          description="Read-only profile for this community bot."
-          title={detail.name}
-        />
-      </div>
+  const channelLinks = detail.channels.map(communityBotDirectoryChannelLink);
 
-      <div className="flex flex-col items-center gap-4 text-center sm:flex-row sm:items-start sm:text-left">
-        <div className="flex h-24 w-24 items-center justify-center">
+  return (
+    <div className="flex flex-col gap-6 pt-4" data-testid="bot-detail-content">
+      <div className="flex flex-col items-center gap-3 text-center">
+        <div className="flex h-20 w-20 items-center justify-center">
           {detail.avatarUrl ? (
             <ProfileAvatar
               avatarUrl={detail.avatarUrl}
@@ -108,13 +92,13 @@ export function BotDetailContent({
             <IdentityInitialsAvatar
               className="shadow-none"
               label={detail.name}
-              size={96}
+              size={80}
             />
           )}
         </div>
-        <div className="min-w-0 space-y-2">
+        <div className="flex max-w-full flex-col items-center gap-1">
           <h2
-            className="truncate text-xl font-semibold"
+            className="truncate text-xl font-semibold tracking-tight"
             data-testid="bot-detail-name"
           >
             {detail.name}
@@ -122,71 +106,61 @@ export function BotDetailContent({
           <Badge data-testid="bot-detail-status" variant="secondary">
             {detail.status.label}
           </Badge>
+          {detail.description ? (
+            <p
+              className="max-w-full px-2 text-center whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground"
+              data-testid="bot-detail-description"
+            >
+              {detail.description}
+            </p>
+          ) : null}
         </div>
       </div>
 
-      {detail.description ? (
-        <DetailRow label="Description" testId="bot-detail-description">
-          <p className="text-sm text-foreground">{detail.description}</p>
-        </DetailRow>
-      ) : null}
+      <ProfileSectionGroup testId="bot-detail-public-key" title="Identity">
+        <div className="flex min-h-16 items-center justify-between gap-4 px-4 py-3">
+          <div className="min-w-0 space-y-1">
+            <p className="text-sm font-medium">Public key</p>
+            <PubKey pubkey={detail.hexPubkey} testId="bot-detail-pubkey" />
+          </div>
+        </div>
+      </ProfileSectionGroup>
 
-      <DetailRow label="Public key" testId="bot-detail-public-key">
-        <PubKey
-          pubkey={detail.hexPubkey}
-          testId="bot-detail-pubkey"
-          variant="full"
-        />
-      </DetailRow>
-
-      <DetailRow label="Status" testId="bot-detail-status-row">
-        <p className="text-sm text-foreground">{detail.status.label}</p>
-      </DetailRow>
-
-      <DetailRow label="Channels" testId="bot-detail-channels">
-        {detail.channels.length === 0 ? (
+      <ProfileSectionGroup testId="bot-detail-channels" title="Channels">
+        {channelLinks.length === 0 ? (
           <p
-            className="text-sm text-muted-foreground"
+            className="px-4 py-3 text-sm leading-6 text-muted-foreground"
             data-testid="bot-detail-channels-empty"
           >
             This bot is not a member of any channels.
           </p>
         ) : (
-          <ul className="space-y-1.5" data-testid="bot-detail-channels-list">
-            {detail.channels.map((channel) => (
+          <ul
+            className="divide-y divide-border/55"
+            data-testid="bot-detail-channels-list"
+          >
+            {channelLinks.map((channel) => (
               <li key={channel.id}>
                 <button
-                  className="text-sm text-primary underline-offset-4 hover:underline"
+                  aria-label={channel.ariaLabel}
+                  className="group flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted/40"
                   data-testid={`bot-detail-channel-${channel.id}`}
                   onClick={() => onOpenChannel(channel.id)}
                   type="button"
                 >
-                  #{channel.name}
+                  <span className="min-w-0 flex-1 truncate">
+                    {channel.label}
+                  </span>
+                  <ArrowUpRight
+                    aria-hidden="true"
+                    className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground"
+                  />
                 </button>
               </li>
             ))}
           </ul>
         )}
-      </DetailRow>
+      </ProfileSectionGroup>
     </div>
-  );
-}
-
-function DetailRow({
-  children,
-  label,
-  testId,
-}: {
-  children: ReactNode;
-  label: string;
-  testId: string;
-}) {
-  return (
-    <section className="space-y-2" data-testid={testId}>
-      <h3 className="text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
-        {label}
-      </h3>
-      {children}
-    </section>
   );
 }

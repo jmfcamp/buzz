@@ -20,15 +20,10 @@ import { IdentityCardSkeleton } from "@/shared/ui/identity-card-skeleton";
 
 type BotDetailViewProps = {
   botId: string;
-  onBack: () => void;
   onOpenChannel: (channelId: string) => void;
 };
 
-export function BotDetailView({
-  botId,
-  onBack,
-  onOpenChannel,
-}: BotDetailViewProps) {
+export function BotDetailView({ botId, onOpenChannel }: BotDetailViewProps) {
   const catalogQuery = useCommunityBotsQuery();
   const statusQuery = useCommunityBotsStatusQuery();
   const channelsQuery = useChannelsQuery();
@@ -79,41 +74,24 @@ export function BotDetailView({
       profileQuery.isLoading &&
       profileQuery.data === undefined);
 
-  return (
-    <div className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-7 sm:px-6 sm:py-8">
-      <div
-        className="mx-auto w-full max-w-3xl space-y-8"
-        data-testid="bot-detail-page"
+  if (isLoading) {
+    return <IdentityCardSkeleton />;
+  }
+
+  if (!bot) {
+    return (
+      <p
+        className="pt-4 text-sm text-muted-foreground"
+        data-testid="bot-detail-missing"
       >
-        {isLoading ? <IdentityCardSkeleton /> : null}
+        This community bot is not installed, or it has been archived.
+      </p>
+    );
+  }
 
-        {!isLoading && !bot ? (
-          <div className="space-y-3">
-            <button
-              className="text-sm text-primary underline-offset-4 hover:underline"
-              data-testid="bot-detail-missing-back"
-              onClick={onBack}
-              type="button"
-            >
-              Back to Bots
-            </button>
-            <p
-              className="text-sm text-muted-foreground"
-              data-testid="bot-detail-missing"
-            >
-              This community bot is not installed, or it has been archived.
-            </p>
-          </div>
-        ) : null}
+  if (!detail) {
+    return null;
+  }
 
-        {!isLoading && detail ? (
-          <BotDetailContent
-            detail={detail}
-            onBack={onBack}
-            onOpenChannel={onOpenChannel}
-          />
-        ) : null}
-      </div>
-    </div>
-  );
+  return <BotDetailContent detail={detail} onOpenChannel={onOpenChannel} />;
 }

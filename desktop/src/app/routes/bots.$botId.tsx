@@ -1,23 +1,13 @@
-import * as React from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
-import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
-
-const BotsScreen = React.lazy(async () => {
-  const module = await import("@/features/community-bots/ui/BotsScreen");
-  return { default: module.BotsScreen };
-});
+import { botsDirectorySearch } from "@/features/community-bots/lib/directory";
 
 export const Route = createFileRoute("/bots/$botId")({
-  component: BotDetailRouteComponent,
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      replace: true,
+      search: botsDirectorySearch(params.botId),
+      to: "/bots",
+    });
+  },
 });
-
-function BotDetailRouteComponent() {
-  const { botId } = Route.useParams();
-
-  return (
-    <React.Suspense fallback={<ViewLoadingFallback kind="bots" />}>
-      <BotsScreen selectedBotId={botId} />
-    </React.Suspense>
-  );
-}

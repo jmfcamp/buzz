@@ -1,7 +1,10 @@
 import * as React from "react";
 
 import { IDENTITY_CARD_GRID_CLASS } from "@/features/agents/ui/UnifiedAgentsSection";
-import { useCommunityBotsQuery } from "@/features/community-bots/hooks";
+import {
+  useCommunityBotsQuery,
+  useCommunityBotsStatusQuery,
+} from "@/features/community-bots/hooks";
 import {
   communityBotDirectoryCard,
   visibleCommunityDirectoryBots,
@@ -10,8 +13,11 @@ import {
   BotsDirectoryGrid,
   BotsEmptyState,
 } from "@/features/community-bots/ui/BotsDirectoryPanels";
+import { useRelayMembersQuery } from "@/features/community-members/hooks";
 import { useIsArchivedPredicate } from "@/features/identity-archive/hooks";
+import { usePresenceQuery } from "@/features/presence/hooks";
 import { useUsersBatchQuery } from "@/features/profile/hooks";
+import { normalizePubkey } from "@/shared/lib/pubkey";
 import { IdentityCardSkeleton } from "@/shared/ui/identity-card-skeleton";
 import { PageHeader } from "@/shared/ui/PageHeader";
 
@@ -22,6 +28,8 @@ type BotsViewProps = {
 
 export function BotsView({ onOpenBot, onOpenBotsSettings }: BotsViewProps) {
   const catalogQuery = useCommunityBotsQuery();
+  const statusQuery = useCommunityBotsStatusQuery();
+  const membersQuery = useRelayMembersQuery();
   const isArchived = useIsArchivedPredicate();
 
   const bots = React.useMemo(
@@ -32,16 +40,31 @@ export function BotsView({ onOpenBot, onOpenBotsSettings }: BotsViewProps) {
   const profilesQuery = useUsersBatchQuery(pubkeys, {
     enabled: pubkeys.length > 0,
   });
+  const presenceQuery = usePresenceQuery(pubkeys, {
+    enabled: pubkeys.length > 0,
+  });
   const profiles = profilesQuery.data?.profiles;
+  const memberPubkeys = React.useMemo(() => {
+    if (membersQuery.data === undefined) return null;
+    return new Set(
+      membersQuery.data.map((member) => normalizePubkey(member.pubkey)),
+    );
+  }, [membersQuery.data]);
   const isLoading =
     catalogQuery.isLoading ||
     (pubkeys.length > 0 && profilesQuery.isLoading && profiles === undefined);
-  const cards = bots.map((bot) =>
-    communityBotDirectoryCard(
+  const cards = bots.map((bot) => {
+    const pubkey = normalizePubkey(bot.pubkey);
+    return communityBotDirectoryCard(
       bot,
-      profiles?.[bot.pubkey] ?? profiles?.[bot.pubkey.toLowerCase()],
-    ),
-  );
+      profiles?.[bot.pubkey] ?? profiles?.[pubkey],
+      {
+        gatewayState: statusQuery.data?.state,
+        isRelayMember: memberPubkeys ? memberPubkeys.has(pubkey) : null,
+        presence: presenceQuery.data?.[pubkey] ?? null,
+      },
+    );
+  });
 
   return (
     <div className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-7 sm:px-6 sm:py-8">

@@ -31,12 +31,23 @@ export type CommunityBotDirectoryCard = {
   id: string;
   name: string;
   pubkey: string;
+  status: CommunityBotDirectoryStatus;
 };
 
 export type CommunityBotDirectoryChannel = {
   id: string;
   name: string;
 };
+
+export type CommunityBotDirectoryChannelLink = {
+  ariaLabel: string;
+  id: string;
+  label: string;
+  name: string;
+};
+
+/** Search key for the Bots directory pop-out (`/bots?bot=`). */
+export const BOTS_DIRECTORY_SEARCH_KEY = "bot";
 
 export type CommunityBotDirectoryDetail = {
   avatarUrl: string | null;
@@ -72,11 +83,43 @@ export function communityBotDirectoryName(
   return trimmed;
 }
 
+/**
+ * Kind-0 `profile.about` only. Catalog / OpenClaw records have no description
+ * field — omit the block when this is empty.
+ */
 export function communityBotDirectoryDescription(
   about: string | null | undefined,
 ): string | null {
   const trimmed = about?.trim() ?? "";
   return trimmed || null;
+}
+
+/** Selected bot id from `/bots?bot=` (or a `/bots/$botId` deep-link). */
+export function botsDirectorySelectedBotId(
+  value: string | null | undefined,
+): string | null {
+  const trimmed = value?.trim() ?? "";
+  return trimmed || null;
+}
+
+/** Search object for opening or dismissing the Bots pop-out. */
+export function botsDirectorySearch(botId: string | null | undefined): {
+  bot?: string;
+} {
+  const selected = botsDirectorySelectedBotId(botId);
+  return selected ? { bot: selected } : {};
+}
+
+/** Agents-style channel row copy: `#name` plus an Open aria-label. */
+export function communityBotDirectoryChannelLink(
+  channel: CommunityBotDirectoryChannel,
+): CommunityBotDirectoryChannelLink {
+  return {
+    ariaLabel: `Open #${channel.name}`,
+    id: channel.id,
+    label: `#${channel.name}`,
+    name: channel.name,
+  };
 }
 
 /**
@@ -175,12 +218,18 @@ export function communityBotMemberChannels(
 export function communityBotDirectoryCard(
   bot: CommunityBot,
   profile?: { avatarUrl?: string | null; displayName?: string | null } | null,
+  statusInput?: {
+    gatewayState?: CommunityBotsState | null;
+    isRelayMember?: boolean | null;
+    presence?: PresenceStatus | null;
+  },
 ): CommunityBotDirectoryCard {
   return {
     avatarUrl: profile?.avatarUrl?.trim() || null,
     id: bot.id,
     name: communityBotDirectoryName(bot, profile?.displayName),
     pubkey: normalizePubkey(bot.pubkey),
+    status: resolveCommunityBotDirectoryStatus(statusInput ?? {}),
   };
 }
 
