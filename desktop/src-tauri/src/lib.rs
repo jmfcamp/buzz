@@ -112,8 +112,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(
             tauri_plugin_window_state::Builder::default()
-                // Visibility is excluded: the native reveal plugin below
-                // shows the window after saved geometry has been restored.
+                // Visibility is excluded so the native reveal plugin can show after restore.
                 .with_state_flags(StateFlags::all() & !StateFlags::VISIBLE)
                 .build(),
         )
@@ -123,14 +122,10 @@ pub fn run() {
                     if webview.label() != "main" {
                         return;
                     }
-                    // Linux/WebKitGTK needs media-stream settings and a
-                    // permission-request handler for getUserMedia; no-op
-                    // on macOS/Windows.
+                    // Linux/WebKitGTK getUserMedia hook; no-op on macOS/Windows.
                     linux_media::enable_media_capture(&webview);
 
-                    // macOS applies the restored geometry asynchronously. Wait
-                    // for several identical outer bounds and for React to
-                    // commit the startup surface before revealing it.
+                    // macOS: wait for stable restored geometry + React startup commit.
                     let window = webview.window();
 
                     #[cfg(target_os = "macos")]
@@ -175,17 +170,12 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init());
 
-    // The global-shortcut plugin is omitted from test builds: linking it into
-    // the lib-test binary makes it fail to load on Windows (STATUS_ENTRYPOINT_NOT_FOUND) before any test runs.
+    // Omit global-shortcut in tests: it fails to load on Windows (STATUS_ENTRYPOINT_NOT_FOUND).
     #[cfg(not(test))]
     let builder = builder.plugin({
         use tauri_plugin_global_shortcut::ShortcutState;
 
-        // Generation counter for the release delay task. Incremented on
-        // every press — a delayed release only fires if the generation
-        // hasn't changed (i.e. no new press happened during the delay).
-        // This prevents press→release→press within 200 ms from having
-        // the first release clobber the second press.
+        // PTT generation: delayed release fires only if no newer press arrived.
         let ptt_press_gen = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
         tauri_plugin_global_shortcut::Builder::new()
@@ -859,6 +849,15 @@ pub fn run() {
             playground_webview::playground_webview_close,
             playground_webview::playground_webview_close_all,
             playground_webview::playground_webview_inspect,
+            playground_webview::playground_webview_go_back,
+            playground_webview::playground_webview_go_forward,
+            playground_webview::playground_webview_reload,
+            playground_webview::playground_webview_navigate,
+            playground_webview::playground_webview_nav_state,
+            playground_webview::playground_webview_eval,
+            playground_webview::playground_webview_dom_hash,
+            playground_webview::playground_webview_poll,
+            playground_webview::playground_webview_screenshot,
             push_audio_pcm,
             reconnect_huddle_audio,
             start_stt_pipeline,

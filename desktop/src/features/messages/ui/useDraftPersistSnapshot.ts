@@ -2,10 +2,12 @@ import * as React from "react";
 
 import type { ImetaMedia } from "@/features/messages/lib/imetaMediaMarkdown";
 import type { QueuedMediaAttachment } from "@/features/messages/lib/backgroundMediaUploadStore";
+import { takeQueuedAttachmentsForDraft as takeParkedDraftAttachments } from "@/features/messages/lib/backgroundMediaUploadStore";
 import type {
   DraftMentionRef,
   DraftState,
 } from "@/features/messages/lib/useDrafts";
+import { PLAYGROUND_DRAFT_ATTACHMENT_EVENT } from "@/features/playground/lib/screenshot";
 
 type UseDraftPersistLifecycleParams = {
   effectiveDraftKey: string | null | undefined;
@@ -172,4 +174,27 @@ export function useDraftPersistLifecycle({
       }
     };
   }, [effectiveDraftKey]);
+
+  React.useEffect(() => {
+    if (!effectiveDraftKey || typeof window === "undefined") return;
+    const onIncoming = (event: Event) => {
+      const detail = (event as CustomEvent<{ draftKey?: string }>).detail;
+      if (detail?.draftKey !== effectiveDraftKey) return;
+      const incoming =
+        takeQueuedAttachmentsForDraft?.(effectiveDraftKey) ??
+        takeParkedDraftAttachments(effectiveDraftKey);
+      if (incoming.length === 0) return;
+      const current = getQueuedAttachments?.() ?? [];
+      restoreQueuedAttachments?.([...current, ...incoming]);
+    };
+    window.addEventListener(PLAYGROUND_DRAFT_ATTACHMENT_EVENT, onIncoming);
+    return () => {
+      window.removeEventListener(PLAYGROUND_DRAFT_ATTACHMENT_EVENT, onIncoming);
+    };
+  }, [
+    effectiveDraftKey,
+    getQueuedAttachments,
+    restoreQueuedAttachments,
+    takeQueuedAttachmentsForDraft,
+  ]);
 }

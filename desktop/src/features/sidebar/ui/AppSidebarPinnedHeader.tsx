@@ -1,7 +1,7 @@
 import { Activity, Bot, FolderGit2, Inbox, Zap } from "lucide-react";
 
 import type { AppView } from "@/app/AppShell.helpers";
-import { PlaygroundMenuItems } from "@/features/playground/ui/PlaygroundMenuItems";
+import { PlaygroundSection } from "@/features/playground/ui/PlaygroundSection";
 import {
   dismissPlayground,
   parkPlaygroundThen,
@@ -172,7 +172,6 @@ export function AppSidebarPrimaryMenu({
             <SidebarMenuLabel>Agents</SidebarMenuLabel>
           </SidebarMenuButton>
         </SidebarMenuItem>
-        <PlaygroundMenuItems />
         <FeatureGate feature="workflows">
           <SidebarMenuItem>
             <SidebarMenuButton
@@ -196,6 +195,7 @@ export function AppSidebarPrimaryMenu({
           />
         ))}
       </SidebarMenu>
+      <PlaygroundSection />
     </SidebarHeader>
   );
 }

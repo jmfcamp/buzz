@@ -17,6 +17,7 @@ import { probePlaygroundUrl } from "../lib/probe";
 import {
   addPlaygroundSession,
   hasPlaygroundSession,
+  notePlaygroundCard,
   showPlaygroundSession,
 } from "../lib/sessions";
 import type { PlaygroundCard as PlaygroundCardData } from "../lib/types";
@@ -50,6 +51,10 @@ async function openPlaygroundInBrowser(url: string) {
 export function PlaygroundCard({ card }: { card: PlaygroundCardData }) {
   const [busy, setBusy] = React.useState(false);
   const host = canHostPlayground();
+
+  React.useEffect(() => {
+    notePlaygroundCard(card);
+  }, [card]);
 
   async function handleOpen() {
     if (busy) return;

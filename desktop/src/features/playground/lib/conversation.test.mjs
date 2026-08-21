@@ -1,0 +1,52 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  playgroundConversationFromRoute,
+  playgroundScreenshotAvailable,
+} from "./conversation.ts";
+
+test("screenshot is absent without a channel and present with one", () => {
+  assert.equal(
+    playgroundScreenshotAvailable(
+      playgroundConversationFromRoute({
+        selectedView: "home",
+        selectedChannelId: null,
+      }),
+    ),
+    false,
+  );
+  assert.equal(
+    playgroundScreenshotAvailable(
+      playgroundConversationFromRoute({
+        selectedView: "agents",
+        selectedChannelId: "hula-id",
+      }),
+    ),
+    false,
+  );
+  assert.equal(
+    playgroundScreenshotAvailable(
+      playgroundConversationFromRoute({
+        selectedView: "pin",
+        selectedChannelId: null,
+      }),
+    ),
+    false,
+  );
+  const channel = playgroundConversationFromRoute({
+    selectedView: "channel",
+    selectedChannelId: "hula-id",
+  });
+  assert.deepEqual(channel, { channelId: "hula-id", draftKey: "hula-id" });
+  assert.equal(playgroundScreenshotAvailable(channel), true);
+  const thread = playgroundConversationFromRoute({
+    selectedView: "channel",
+    selectedChannelId: "hula-id",
+    threadId: "root-1",
+  });
+  assert.deepEqual(thread, {
+    channelId: "hula-id",
+    draftKey: "thread:root-1",
+  });
+});

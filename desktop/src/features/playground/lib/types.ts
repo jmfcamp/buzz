@@ -29,9 +29,27 @@ export type PlaygroundInspectResult = {
   webviewId: string;
 };
 
+export type PlaygroundNavState = {
+  sid: string;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  currentUrl: string;
+};
+
+export type PlaygroundPollResult = {
+  changed: boolean;
+};
+
+export type PlaygroundScreenshotPayload = {
+  bytes: number[];
+  mime: string;
+  filename: string;
+};
+
 export const PLAYGROUND_APP_WEBVIEW_ID = "main";
 export const PLAYGROUND_WEBVIEW_PREFIX = "playground-";
 
 export const DESKTOP_STAGE_PRESETS = [375, 390, 768, 1024, 1280, 1440] as const;
 
 export const MIN_PLAYGROUND_WEBVIEW_EDGE = 32;
+export const DEFAULT_RESPONSIVE_VIEWPORT = { width: 390, height: 844 };
