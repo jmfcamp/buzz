@@ -14,6 +14,7 @@ import { useCommunityBotsQuery } from "@/features/community-bots/hooks";
 import {
   appendCommunityBotDmPeers,
   isEligibleNewMessageRecipient,
+  type CommunityBotAddCandidate,
 } from "@/features/community-bots/lib/addCandidates";
 import { useIsArchivedPredicate } from "@/features/identity-archive/hooks";
 import {
@@ -213,15 +214,20 @@ export function useNewMessageRecipients({
       );
     }
 
+    const existingDmPeers: CommunityBotAddCandidate[] = [];
     for (const bot of appendCommunityBotDmPeers(
-      [],
+      existingDmPeers,
       communityBots,
       deferredSearchQuery,
       { isArchived: isArchivedDiscovery },
     )) {
       addCandidate(
         {
-          ...bot,
+          pubkey: bot.pubkey,
+          displayName: bot.displayName ?? null,
+          avatarUrl: bot.avatarUrl ?? null,
+          nip05Handle: bot.nip05Handle ?? null,
+          ownerPubkey: bot.ownerPubkey ?? null,
           isAgent: true,
         },
         { includeSelected: deferredSearchQuery.length > 0 },
