@@ -4,8 +4,12 @@ import test from "node:test";
 import { truncatePubkey } from "@/shared/lib/pubkey.ts";
 
 import {
+  BOTS_DIRECTORY_SEARCH_KEY,
   COMMUNITY_BOT_DIRECTORY_FORBIDDEN_ACTIONS,
+  botsDirectorySearch,
+  botsDirectorySelectedBotId,
   communityBotDirectoryCard,
+  communityBotDirectoryChannelLink,
   communityBotDirectoryDescription,
   communityBotDirectoryDetail,
   communityBotDirectoryName,
@@ -85,16 +89,41 @@ test("findCommunityDirectoryBot matches catalog id or pubkey", () => {
   assert.equal(findCommunityDirectoryBot([mo], "missing"), undefined);
 });
 
-test("directory cards expose name and avatar, not a raw pubkey title", () => {
-  const card = communityBotDirectoryCard(mo, {
-    avatarUrl: "https://example.com/mo.png",
-    displayName: truncatePubkey(MO_PUBKEY),
-  });
+test("directory cards expose name, avatar, and status, not a raw pubkey title", () => {
+  const card = communityBotDirectoryCard(
+    mo,
+    {
+      avatarUrl: "https://example.com/mo.png",
+      displayName: truncatePubkey(MO_PUBKEY),
+    },
+    { presence: "online" },
+  );
   assert.equal(card.name, "Mo Desk");
   assert.equal(card.avatarUrl, "https://example.com/mo.png");
   assert.equal(card.id, "mo");
+  assert.equal(card.status.label, "Online");
   assert.notEqual(card.name, MO_PUBKEY);
   assert.ok(!COMMUNITY_BOT_DIRECTORY_FORBIDDEN_ACTIONS.includes(card.name));
+});
+
+test("pop-out search helpers stay on /bots?bot=", () => {
+  assert.equal(BOTS_DIRECTORY_SEARCH_KEY, "bot");
+  assert.equal(botsDirectorySelectedBotId(" mo "), "mo");
+  assert.equal(botsDirectorySelectedBotId("  "), null);
+  assert.deepEqual(botsDirectorySearch("mo"), { bot: "mo" });
+  assert.deepEqual(botsDirectorySearch(null), {});
+});
+
+test("channel-link helpers match Agents row copy without inventing hrefs", () => {
+  assert.deepEqual(
+    communityBotDirectoryChannelLink({ id: "general", name: "general" }),
+    {
+      ariaLabel: "Open #general",
+      id: "general",
+      label: "#general",
+      name: "general",
+    },
+  );
 });
 
 test("description is omitted when the catalog/profile about is empty", () => {

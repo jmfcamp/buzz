@@ -67,14 +67,18 @@ function assertNoRuntimeControls(container) {
   }
 }
 
-test("directory cards show catalog names and no agent runtime controls", async () => {
+test("directory cards show catalog names, status, and no agent runtime controls", async () => {
   const { createElement } = await import("react");
   const { render, screen } = await import("@testing-library/react");
   const { BotsDirectoryGrid } = await import("./BotsDirectoryPanels.tsx");
 
-  const card = communityBotDirectoryCard(mo, {
-    displayName: MO_PUBKEY,
-  });
+  const card = communityBotDirectoryCard(
+    mo,
+    {
+      displayName: MO_PUBKEY,
+    },
+    { presence: "online" },
+  );
   const { container } = render(
     createElement(BotsDirectoryGrid, {
       cards: [card],
@@ -84,6 +88,7 @@ test("directory cards show catalog names and no agent runtime controls", async (
 
   const cardNode = screen.getByTestId("bot-card-mo");
   assert.equal(cardNode.textContent?.includes("Mo Desk"), true);
+  assert.equal(cardNode.textContent?.includes("Online"), true);
   assert.equal(cardNode.textContent?.includes(MO_PUBKEY), false);
   assertNoRuntimeControls(container);
 });
@@ -103,7 +108,7 @@ test("empty directory points people at Settings → Communities → Bots", async
   );
 });
 
-test("detail shows identity fields and an empty channel list", async () => {
+test("pop-out shows about, identity, and an empty channel list without a Status section", async () => {
   const { createElement } = await import("react");
   const { render, screen } = await import("@testing-library/react");
   const { BotDetailContent } = await import("./BotsDirectoryPanels.tsx");
@@ -121,7 +126,6 @@ test("detail shows identity fields and an empty channel list", async () => {
   const { container } = render(
     createElement(BotDetailContent, {
       detail,
-      onBack: () => {},
       onOpenChannel: () => {},
     }),
   );
@@ -134,16 +138,19 @@ test("detail shows identity fields and an empty channel list", async () => {
     true,
   );
   assert.equal(screen.getByTestId("bot-detail-status").textContent, "Offline");
+  assert.equal(screen.queryByTestId("bot-detail-status-row"), null);
+  assert.equal(screen.queryByTestId("bot-detail-back"), null);
   assert.ok(screen.getByTestId("bot-detail-public-key"));
   assert.ok(screen.getByTestId("bot-detail-channels-empty"));
   assertNoRuntimeControls(container);
 });
 
-test("detail lists current channels and still has no start/stop/message", async () => {
+test("pop-out channel rows match Agents links and still have no start/stop/message", async () => {
   const { createElement } = await import("react");
   const { render, screen } = await import("@testing-library/react");
   const { BotDetailContent } = await import("./BotsDirectoryPanels.tsx");
 
+  const opened = [];
   const detail = communityBotDirectoryDetail({
     bot: mo,
     channels: [
@@ -161,18 +168,20 @@ test("detail lists current channels and still has no start/stop/message", async 
   const { container } = render(
     createElement(BotDetailContent, {
       detail,
-      onBack: () => {},
-      onOpenChannel: () => {},
+      onOpenChannel: (channelId) => opened.push(channelId),
     }),
   );
 
   assert.equal(screen.queryByTestId("bot-detail-description"), null);
-  assert.ok(screen.getByTestId("bot-detail-channel-general"));
+  const channel = screen.getByTestId("bot-detail-channel-general");
+  assert.equal(channel.getAttribute("aria-label"), "Open #general");
   assert.equal(
     screen
       .getByTestId("bot-detail-channels-list")
       .textContent?.includes("#general"),
     true,
   );
+  channel.click();
+  assert.deepEqual(opened, ["general"]);
   assertNoRuntimeControls(container);
 });

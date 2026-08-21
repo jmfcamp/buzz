@@ -8,6 +8,7 @@ import {
 
 import { cacheSearchHitEvent } from "@/app/navigation/searchHitEventCache";
 import { resolveSearchHitDestination } from "@/app/navigation/resolveSearchHitDestination";
+import { botsDirectorySearch } from "@/features/community-bots/lib/directory";
 import type { SearchHit } from "@/shared/api/types";
 
 type NavigationBehavior = {
@@ -88,6 +89,7 @@ export function useAppNavigation() {
     (behavior?: NavigationBehavior) =>
       commitNavigation(
         {
+          search: {},
           to: "/bots",
         },
         behavior,
@@ -99,10 +101,8 @@ export function useAppNavigation() {
     (botId: string, behavior?: NavigationBehavior) =>
       commitNavigation(
         {
-          to: "/bots/$botId",
-          params: {
-            botId,
-          },
+          search: botsDirectorySearch(botId),
+          to: "/bots",
         },
         behavior,
       ),
