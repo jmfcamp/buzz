@@ -2,6 +2,7 @@ import * as React from "react";
 
 import { cn } from "@/shared/lib/cn";
 
+import { readPlaygroundStageBounds } from "../lib/deviceBezel";
 import {
   PLAYGROUND_DEVICES,
   playgroundDeviceViewport,
@@ -21,21 +22,9 @@ import {
   showPlaygroundWebview,
 } from "../lib/webview";
 import type { PlaygroundSession } from "../lib/sessions";
+import { DeviceBezel } from "./DeviceBezel";
 
 export type PlaygroundChromeMode = "desktop" | "responsive" | "mobile";
-
-function readHostBounds(
-  el: HTMLElement,
-  viewport?: { width: number; height: number },
-) {
-  const rect = el.getBoundingClientRect();
-  return {
-    x: rect.x,
-    y: rect.y,
-    width: viewport?.width ?? rect.width,
-    height: viewport?.height ?? rect.height,
-  };
-}
 
 export function PlaygroundStage({
   layoutKey = "window:0",
@@ -301,19 +290,17 @@ function MobileDeviceMuseum({
         </button>
       </div>
       <div className="flex min-h-0 flex-1 items-start justify-center overflow-auto p-3">
-        <div
-          className="overflow-hidden rounded-[1.75rem] border border-border bg-background shadow-lg"
-          data-testid="playground-device-frame"
-          style={{ width: viewport.width, height: viewport.height }}
-        >
-          <NativeStageHost
-            hostRef={hostRef}
-            layoutKey={layoutKey}
-            session={session}
-            userAgent={playgroundUserAgent("mobile", device)}
-            viewport={viewport}
-          />
-        </div>
+        {device ? (
+          <DeviceBezel device={device} orientation={orientation}>
+            <NativeStageHost
+              hostRef={hostRef}
+              layoutKey={layoutKey}
+              session={session}
+              userAgent={playgroundUserAgent("mobile", device)}
+              viewport={viewport}
+            />
+          </DeviceBezel>
+        ) : null}
       </div>
     </div>
   );
@@ -346,7 +333,7 @@ function NativeStageHost({
 
     const sync = () => {
       if (cancelled || !hostRef.current) return;
-      const bounds = readHostBounds(
+      const bounds = readPlaygroundStageBounds(
         hostRef.current,
         viewportWidth != null && viewportHeight != null
           ? { width: viewportWidth, height: viewportHeight }
