@@ -15,7 +15,7 @@ export type PlaygroundSession = {
   sid: string;
   name: string;
   url: string;
-  pin: string;
+  pin?: string;
   stack?: string;
   expires?: string;
   hasUpdate?: boolean;
@@ -66,7 +66,7 @@ function cardToSession(card: PlaygroundCard): PlaygroundSession {
     sid: card.sid,
     name: card.name,
     url: card.url,
-    pin: card.pin,
+    ...(card.pin ? { pin: card.pin } : {}),
     ...(card.stack ? { stack: card.stack } : {}),
     ...(card.expires != null ? { expires: String(card.expires) } : {}),
     hasUpdate: false,
@@ -110,7 +110,7 @@ export function configurePlaygroundScope(pubkey: string, relayUrl: string) {
         overlaySid?: string | null;
       };
       for (const session of saved.sessions ?? []) {
-        if (session?.sid && session.name && session.url && session.pin) {
+        if (session?.sid && session.name && session.url) {
           store.sessions.set(session.sid, {
             ...session,
             hasUpdate: Boolean(session.hasUpdate),

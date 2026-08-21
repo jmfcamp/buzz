@@ -51,6 +51,21 @@ test("rejects malformed cards and non-https urls", () => {
   );
 });
 
+test("accepts missing or empty pin and stays openable", () => {
+  const withoutPin = { ...valid };
+  delete withoutPin.pin;
+  const omitted = parsePlaygroundCard(JSON.stringify(withoutPin));
+  assert.equal(omitted?.name, "Demo");
+  assert.equal(omitted?.sid, "demo-1");
+  assert.equal(omitted?.pin, undefined);
+  const empty = parsePlaygroundCard(JSON.stringify({ ...valid, pin: "" }));
+  assert.equal(empty?.sid, "demo-1");
+  assert.equal(empty?.pin, undefined);
+  const blank = parsePlaygroundCard(JSON.stringify({ ...valid, pin: "   " }));
+  assert.equal(blank?.sid, "demo-1");
+  assert.equal(blank?.pin, undefined);
+});
+
 test("extracts a fenced playground card from a message", () => {
   const card = extractPlaygroundCard(
     `here\n\`\`\`playground\n${JSON.stringify(valid)}\n\`\`\``,

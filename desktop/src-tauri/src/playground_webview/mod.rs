@@ -1,5 +1,7 @@
 //! Playground overlay webviews. Inspect targets `playground-{sid}` only.
 
+mod capture;
+
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -74,6 +76,7 @@ struct PlaygroundSession {
     last_modified: Option<String>,
     body_hash: Option<String>,
     last_bounds: Option<PlaygroundBounds>,
+    last_user_agent: Option<String>,
 }
 
 impl PlaygroundSession {
@@ -87,6 +90,7 @@ impl PlaygroundSession {
             last_modified: None,
             body_hash: None,
             last_bounds: None,
+            last_user_agent: None,
         }
     }
 
@@ -220,6 +224,98 @@ pub fn playground_label(sid: &str) -> String {
 
 pub fn inspect_target_is_safe(webview_id: &str) -> bool {
     webview_id.starts_with(PLAYGROUND_LABEL_PREFIX) && webview_id != APP_WEBVIEW_LABEL
+}
+
+/// Inspect must leave the main window at its pre-inspector size.
+pub fn resolved_window_size_after_inspect(before: (u32, u32), after: (u32, u32)) -> (u32, u32) {
+    let _ = after;
+    before
+}
+
+fn restore_main_window_size(app: &AppHandle, before: Option<(u32, u32)>) {
+    let Some(before) = before else {
+        return;
+    };
+    let Some(window) = app.get_window(APP_WEBVIEW_LABEL) else {
+        return;
+    };
+    let after = window
+        .inner_size()
+        .ok()
+        .map(|size| (size.width, size.height));
+    let keep = match after {
+        Some(after) => resolved_window_size_after_inspect(before, after),
+        None => before,
+    };
+    if after != Some(keep) {
+        let _ = window.set_size(tauri::PhysicalSize::new(keep.0, keep.1));
+    }
+}
+
+fn apply_user_agent(webview: &Webview, user_agent: &str) -> Result<(), String> {
+    let ua = user_agent.to_string();
+    webview
+        .with_webview(move |platform| {
+            #[cfg(target_os = "macos")]
+            {
+                use objc2_foundation::NSString;
+                use objc2_web_kit::WKWebView;
+                // SAFETY: inner() is the child WKWebView for this playground label.
+                let view: &WKWebView = unsafe { &*platform.inner().cast::<WKWebView>() };
+                view.setCustomUserAgent(Some(&NSString::from_str(&ua)));
+            }
+            #[cfg(target_os = "linux")]
+            {
+                use webkit2gtk::{SettingsExt, WebViewExt};
+                let view = platform.inner();
+                if let Some(settings) = WebViewExt::settings(&view) {
+                    settings.set_user_agent(Some(ua.as_str()));
+                }
+            }
+            #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+            {
+                let _ = platform;
+                let _ = ua;
+            }
+        })
+        .map_err(|error| error.to_string())
+}
+
+fn sync_user_agent(
+    app: &AppHandle,
+    manager: &PlaygroundWebviewManager,
+    sid: &str,
+    user_agent: Option<&str>,
+    reload: bool,
+) -> Result<(), String> {
+    let Some(user_agent) = user_agent.filter(|value| !value.is_empty()) else {
+        return Ok(());
+    };
+    let changed = {
+        let mut sessions = manager
+            .sessions
+            .lock()
+            .map_err(|_| "playground session lock poisoned".to_string())?;
+        let Some(session) = sessions.get_mut(sid) else {
+            return Ok(());
+        };
+        if session.last_user_agent.as_deref() == Some(user_agent) {
+            false
+        } else {
+            session.last_user_agent = Some(user_agent.to_string());
+            true
+        }
+    };
+    let Some(webview) = app.get_webview(&playground_label(sid)) else {
+        return Ok(());
+    };
+    if changed {
+        apply_user_agent(&webview, user_agent)?;
+        if reload {
+            webview.reload().map_err(|error| error.to_string())?;
+        }
+    }
+    Ok(())
 }
 
 fn bounds_are_usable(bounds: &PlaygroundBounds) -> bool {
@@ -356,6 +452,7 @@ pub async fn playground_webview_show(
     url: String,
     bounds: PlaygroundBounds,
     visible: Option<bool>,
+    user_agent: Option<String>,
 ) -> Result<PlaygroundNavState, String> {
     let sid = sanitize_sid(&sid)?;
     let url = parse_playground_url(&url)?;
@@ -381,6 +478,7 @@ pub async fn playground_webview_show(
     let label = playground_label(&sid);
     if let Some(webview) = app.get_webview(&label) {
         apply_bounds(&app, &sid, &bounds)?;
+        sync_user_agent(&app, &manager, &sid, user_agent.as_deref(), true)?;
         if webview.url().ok().as_ref() != Some(&url) && webview.url().ok().is_none() {
             navigate_playground(&webview, url)?;
         }
@@ -409,10 +507,14 @@ pub async fn playground_webview_show(
     std::fs::create_dir_all(&profile_dir).map_err(|error| error.to_string())?;
     let nav_app = app.clone();
     let nav_sid = sid.clone();
-    let builder = WebviewBuilder::new(label, WebviewUrl::External(url))
+    let mut builder = WebviewBuilder::new(label, WebviewUrl::External(url))
         .data_directory(profile_dir)
         .data_store_identifier(data_store_identifier(&sid))
-        .devtools(true)
+        .devtools(true);
+    if let Some(user_agent) = user_agent.as_deref().filter(|value| !value.is_empty()) {
+        builder = builder.user_agent(user_agent);
+    }
+    let builder = builder
         .on_navigation(move |next| {
             if let Some(manager) = nav_app.try_state::<PlaygroundWebviewManager>() {
                 record_navigation(&nav_app, &manager, &nav_sid, next);
@@ -433,6 +535,7 @@ pub async fn playground_webview_show(
     if !show {
         webview.hide().map_err(|error| error.to_string())?;
     }
+    sync_user_agent(&app, &manager, &sid, user_agent.as_deref(), false)?;
     emit_nav(&app, nav.clone());
     Ok(nav)
 }
@@ -462,10 +565,12 @@ pub async fn playground_webview_set_bounds(
     manager: State<'_, PlaygroundWebviewManager>,
     sid: String,
     bounds: PlaygroundBounds,
+    user_agent: Option<String>,
 ) -> Result<(), String> {
     let sid = sanitize_sid(&sid)?;
     remember_bounds(&manager, &sid, &bounds);
-    apply_bounds(&app, &sid, &bounds)
+    apply_bounds(&app, &sid, &bounds)?;
+    sync_user_agent(&app, &manager, &sid, user_agent.as_deref(), true)
 }
 
 #[tauri::command]
@@ -503,6 +608,7 @@ pub async fn playground_webview_close_all(
 #[tauri::command]
 pub async fn playground_webview_inspect(
     app: AppHandle,
+    manager: State<'_, PlaygroundWebviewManager>,
     sid: String,
 ) -> Result<PlaygroundInspectResult, String> {
     let sid = sanitize_sid(&sid)?;
@@ -516,12 +622,27 @@ pub async fn playground_webview_inspect(
     let webview = app
         .get_webview(&webview_id)
         .ok_or_else(|| "playground webview is not open".to_string())?;
+    let window_size = app.get_window(APP_WEBVIEW_LABEL).and_then(|window| {
+        window
+            .inner_size()
+            .ok()
+            .map(|size| (size.width, size.height))
+    });
+    let bounds = manager.sessions.lock().ok().and_then(|sessions| {
+        sessions
+            .get(&sid)
+            .and_then(|session| session.last_bounds.clone())
+    });
     // Always open the child inspector. The cfg must not use this crate's
     // (absent) `devtools` feature — that compiled the call out of release
     // and made Inspect a silent no-op. wry/tauri already enable the method
     // via the tauri `devtools` Cargo feature; `.devtools(true)` marks the
     // WKWebView inspectable so Safari / open_devtools can attach.
     webview.open_devtools();
+    restore_main_window_size(&app, window_size);
+    if let Some(bounds) = bounds.as_ref() {
+        apply_bounds(&app, &sid, bounds)?;
+    }
     Ok(PlaygroundInspectResult { webview_id })
 }
 
@@ -758,73 +879,8 @@ pub async fn playground_webview_screenshot(
     let webview = app
         .get_webview(&webview_id)
         .ok_or_else(|| "playground webview is not open".to_string())?;
-    let bounds = manager.sessions.lock().ok().and_then(|sessions| {
-        sessions
-            .get(&sid)
-            .and_then(|session| session.last_bounds.clone())
-    });
-    let png = capture_playground_png(&webview, bounds.as_ref())?;
-    Ok(PlaygroundScreenshotResult {
-        bytes: png,
-        mime: "image/png".into(),
-        filename: format!("playground-{sid}.png"),
-    })
-}
-
-fn capture_playground_png(
-    webview: &Webview,
-    bounds: Option<&PlaygroundBounds>,
-) -> Result<Vec<u8>, String> {
-    #[cfg(target_os = "macos")]
-    {
-        if let Some(bounds) = bounds {
-            return capture_macos_region(bounds);
-        }
-    }
-    let _ = webview;
-    let _ = bounds;
-    empty_png()
-}
-
-#[cfg(target_os = "macos")]
-fn capture_macos_region(bounds: &PlaygroundBounds) -> Result<Vec<u8>, String> {
-    let path = std::env::temp_dir().join(format!("buzz-playground-{}.png", Uuid::new_v4()));
-    let status = std::process::Command::new("screencapture")
-        .args([
-            "-x",
-            "-R",
-            &format!(
-                "{},{},{},{}",
-                bounds.x.round(),
-                bounds.y.round(),
-                bounds.width.round(),
-                bounds.height.round()
-            ),
-            path.to_string_lossy().as_ref(),
-        ])
-        .status()
-        .map_err(|error| error.to_string())?;
-    if !status.success() {
-        return empty_png();
-    }
-    let bytes = std::fs::read(&path).map_err(|error| error.to_string())?;
-    let _ = std::fs::remove_file(path);
-    if bytes.is_empty() {
-        return empty_png();
-    }
-    Ok(bytes)
-}
-
-fn empty_png() -> Result<Vec<u8>, String> {
-    // 1×1 transparent PNG so draft staging still has a real image payload
-    // when a platform capture is unavailable (tests, headless).
-    Ok(vec![
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
-        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
-        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00,
-        0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49,
-        0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
-    ])
+    let _ = manager;
+    capture::capture_playground_png(&webview, &webview_id)
 }
 
 #[cfg(test)]
@@ -855,6 +911,28 @@ mod tests {
         assert!(inspect_target_is_safe("playground-abc"));
         assert!(!inspect_target_is_safe("main"));
         assert_ne!(playground_label("demo"), APP_WEBVIEW_LABEL);
+    }
+
+    #[test]
+    fn inspect_does_not_change_main_window_size() {
+        assert_eq!(
+            resolved_window_size_after_inspect((1280, 800), (1800, 800)),
+            (1280, 800)
+        );
+        assert_eq!(
+            resolved_window_size_after_inspect((1024, 640), (1024, 640)),
+            (1024, 640)
+        );
+    }
+
+    #[test]
+    fn screenshot_targets_the_playground_webview_not_screencapture() {
+        assert_eq!(capture::PLAYGROUND_CAPTURE_BACKEND, "webview-snapshot");
+        assert_ne!(capture::PLAYGROUND_CAPTURE_BACKEND, "screencapture");
+        assert_eq!(
+            capture::playground_screenshot_target("demo").expect("label"),
+            "playground-demo"
+        );
     }
 
     #[test]

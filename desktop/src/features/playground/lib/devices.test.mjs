@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { PLAYGROUND_DEVICES, playgroundDeviceViewport } from "./devices.ts";
+import {
+  PLAYGROUND_DESKTOP_UA,
+  PLAYGROUND_DEVICES,
+  playgroundDeviceViewport,
+  playgroundUserAgent,
+} from "./devices.ts";
 import { DESKTOP_STAGE_PRESETS } from "./types.ts";
 
 test("device museum is the locked six-device set", () => {
@@ -36,6 +41,18 @@ test("mobile viewport is the device CSS size in both orientations", () => {
     width: 852,
     height: 393,
   });
+});
+
+test("mobile devices use a mobile or tablet UA; desktop stays desktop", () => {
+  assert.match(PLAYGROUND_DESKTOP_UA, /Macintosh/);
+  assert.equal(playgroundUserAgent("desktop"), PLAYGROUND_DESKTOP_UA);
+  assert.equal(playgroundUserAgent("responsive"), PLAYGROUND_DESKTOP_UA);
+  for (const device of PLAYGROUND_DEVICES) {
+    const ua = playgroundUserAgent("mobile", device);
+    assert.equal(ua, device.userAgent);
+    assert.match(ua, /iPhone|Android|iPad/);
+    assert.match(ua, /Mobile/);
+  }
 });
 
 test("desktop stage presets are locked", () => {

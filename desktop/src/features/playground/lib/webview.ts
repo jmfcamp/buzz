@@ -58,6 +58,7 @@ export async function showPlaygroundWebview(input: {
   url: string;
   bounds: PlaygroundWebviewBounds;
   visible?: boolean;
+  userAgent?: string;
 }): Promise<PlaygroundNavState> {
   return invokePlayground(
     "playground_webview_show",
@@ -66,6 +67,7 @@ export async function showPlaygroundWebview(input: {
       url: input.url,
       bounds: input.bounds,
       visible: input.visible ?? true,
+      userAgent: input.userAgent ?? null,
     },
     { sid: input.sid, ...EMPTY_NAV, currentUrl: input.url },
   );
@@ -83,10 +85,11 @@ export async function hideAllPlaygroundWebviews(): Promise<void> {
 export async function setPlaygroundWebviewBounds(
   sid: string,
   bounds: PlaygroundWebviewBounds,
+  userAgent?: string,
 ): Promise<void> {
   await invokePlayground(
     "playground_webview_set_bounds",
-    { sid, bounds },
+    { sid, bounds, userAgent: userAgent ?? null },
     undefined,
   );
 }

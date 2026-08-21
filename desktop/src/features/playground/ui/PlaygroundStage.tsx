@@ -5,6 +5,7 @@ import { cn } from "@/shared/lib/cn";
 import {
   PLAYGROUND_DEVICES,
   playgroundDeviceViewport,
+  playgroundUserAgent,
   type PlaygroundDeviceId,
 } from "../lib/devices";
 import { DEFAULT_RESPONSIVE_VIEWPORT } from "../lib/types";
@@ -47,7 +48,11 @@ function DesktopStage({ session }: { session: PlaygroundSession }) {
       className="flex min-h-0 min-w-0 flex-1 flex-col"
       data-testid="playground-desktop-stage"
     >
-      <NativeStageHost hostRef={hostRef} session={session} />
+      <NativeStageHost
+        hostRef={hostRef}
+        session={session}
+        userAgent={playgroundUserAgent("desktop")}
+      />
     </div>
   );
 }
@@ -102,6 +107,7 @@ function ResponsiveStage({ session }: { session: PlaygroundSession }) {
           <NativeStageHost
             hostRef={hostRef}
             session={session}
+            userAgent={playgroundUserAgent("responsive")}
             viewport={{ width, height }}
           />
           <StageResizeHandle
@@ -237,6 +243,7 @@ function MobileDeviceMuseum({ session }: { session: PlaygroundSession }) {
           <NativeStageHost
             hostRef={hostRef}
             session={session}
+            userAgent={playgroundUserAgent("mobile", device)}
             viewport={viewport}
           />
         </div>
@@ -248,10 +255,12 @@ function MobileDeviceMuseum({ session }: { session: PlaygroundSession }) {
 function NativeStageHost({
   hostRef,
   session,
+  userAgent,
   viewport,
 }: {
   hostRef: React.RefObject<HTMLDivElement | null>;
   session: PlaygroundSession;
+  userAgent: string;
   viewport?: { width: number; height: number };
 }) {
   React.useEffect(() => {
@@ -277,12 +286,13 @@ function NativeStageHost({
           sid: session.sid,
           url: session.url,
           bounds,
+          userAgent,
         }).then(() =>
           evalPlaygroundWebview(session.sid, PLAYGROUND_DOM_PROBE_SCRIPT),
         );
         return;
       }
-      void setPlaygroundWebviewBounds(session.sid, bounds);
+      void setPlaygroundWebviewBounds(session.sid, bounds, userAgent);
     };
 
     sync();
@@ -292,12 +302,20 @@ function NativeStageHost({
       cancelled = true;
       observer.disconnect();
     };
-  }, [hostRef, session.sid, session.url, viewport?.width, viewport?.height]);
+  }, [
+    hostRef,
+    session.sid,
+    session.url,
+    userAgent,
+    viewport?.width,
+    viewport?.height,
+  ]);
 
   return (
     <div
       className={cn("h-full min-h-[12rem] w-full bg-background")}
       data-testid="playground-webview-host"
+      data-user-agent={userAgent}
       data-viewport-width={viewport?.width}
       data-viewport-height={viewport?.height}
       ref={hostRef}

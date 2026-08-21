@@ -1,6 +1,7 @@
 import {
   PLAYGROUND_HULA,
   PLAYGROUND_VERSION,
+  playgroundPin,
   type PlaygroundCard,
 } from "./types.ts";
 import { isAllowedPlaygroundUrl } from "./url.ts";
@@ -44,7 +45,7 @@ export function parsePlaygroundCardValue(
   ) {
     return null;
   }
-  if (typeof candidate.pin !== "string" || candidate.pin.trim().length === 0) {
+  if (candidate.pin != null && typeof candidate.pin !== "string") {
     return null;
   }
   if (typeof candidate.sid !== "string" || candidate.sid.trim().length === 0) {
@@ -56,9 +57,14 @@ export function parsePlaygroundCardValue(
     v: PLAYGROUND_VERSION,
     name: candidate.name,
     url: candidate.url,
-    pin: candidate.pin,
     sid: candidate.sid,
   };
+  const pin = playgroundPin(
+    typeof candidate.pin === "string" ? candidate.pin : "",
+  );
+  if (pin) {
+    card.pin = typeof candidate.pin === "string" ? candidate.pin : pin;
+  }
 
   if (typeof candidate.stack === "string" && candidate.stack.length > 0) {
     card.stack = candidate.stack;
