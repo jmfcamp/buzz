@@ -142,9 +142,7 @@ export function dismissPlayground() {
   persist();
   emit();
   if (sid) void hidePlaygroundWebview(sid);
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event("buzz:pin-webview-restore"));
-  }
+  notifyPinRestore();
 }
 
 export function disposePlayground(sid: string) {
@@ -153,8 +151,18 @@ export function disposePlayground(sid: string) {
   persist();
   emit();
   void closePlaygroundWebview(sid);
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event("buzz:pin-webview-restore"));
+  notifyPinRestore();
+}
+
+function notifyPinRestore() {
+  if (typeof window === "undefined") return;
+  if (typeof window.dispatchEvent !== "function") return;
+  const EventCtor = window.Event;
+  if (typeof EventCtor !== "function") return;
+  try {
+    window.dispatchEvent(new EventCtor("buzz:pin-webview-restore"));
+  } catch {
+    // Node test hosts may lack a DOM Event implementation.
   }
 }
 

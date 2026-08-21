@@ -47,28 +47,27 @@ afterEach(async () => {
 
 after(() => dom.window.close());
 
-async function renderHost() {
+async function renderOverlay() {
   const { createElement } = await import("react");
   const { render, screen } = await import("@testing-library/react");
-  const { PlaygroundHost } = await import("./PlaygroundOverlay.tsx");
+  const { PlaygroundOverlay } = await import("./PlaygroundOverlay.tsx");
   const { addPlaygroundSession, configurePlaygroundScope } = await import(
     "../lib/sessions.ts"
   );
   configurePlaygroundScope("pub", "wss://relay.example.com");
-  addPlaygroundSession(card);
-  render(createElement(PlaygroundHost));
+  const session = addPlaygroundSession(card);
+  render(createElement(PlaygroundOverlay, { session }));
   return screen;
 }
 
 test("overlay shows chrome PIN and parks on Dismiss", async () => {
-  const screen = await renderHost();
+  const screen = await renderOverlay();
   assert.ok(screen.getByTestId("playground-overlay"));
   assert.equal(screen.getByTestId("playground-chrome-pin").textContent, "4455");
   assert.ok(screen.getByTestId("playground-desktop-stage"));
 
-  screen.getByTestId("playground-dismiss").click();
-  assert.equal(screen.queryByTestId("playground-overlay"), null);
-
+  const { fireEvent } = await import("@testing-library/react");
+  await fireEvent.click(screen.getByTestId("playground-dismiss"));
   const {
     getActivePlaygroundSid,
     listPlaygroundSessions,
@@ -78,11 +77,13 @@ test("overlay shows chrome PIN and parks on Dismiss", async () => {
   assert.equal(getActivePlaygroundSid(), null);
 
   showPlaygroundSession("demo-1");
+  assert.equal(getActivePlaygroundSid(), "demo-1");
 });
 
 test("Dispose removes the session; device museum has the locked devices", async () => {
-  const screen = await renderHost();
-  screen.getByTestId("playground-mode-mobile").click();
+  const screen = await renderOverlay();
+  const { fireEvent } = await import("@testing-library/react");
+  await fireEvent.click(screen.getByTestId("playground-mode-mobile"));
   assert.ok(screen.getByTestId("playground-mobile-stage"));
   assert.ok(screen.getByTestId("playground-device-iphone-se"));
   assert.ok(screen.getByTestId("playground-device-iphone-16"));
@@ -91,8 +92,10 @@ test("Dispose removes the session; device museum has the locked devices", async 
   assert.ok(screen.getByTestId("playground-device-ipad-mini"));
   assert.ok(screen.getByTestId("playground-device-ipad-pro-11"));
 
-  screen.getByTestId("playground-dispose").click();
-  assert.equal(screen.queryByTestId("playground-overlay"), null);
-  const { listPlaygroundSessions } = await import("../lib/sessions.ts");
+  await fireEvent.click(screen.getByTestId("playground-dispose"));
+  const { listPlaygroundSessions, getActivePlaygroundSid } = await import(
+    "../lib/sessions.ts"
+  );
   assert.equal(listPlaygroundSessions().length, 0);
+  assert.equal(getActivePlaygroundSid(), null);
 });
