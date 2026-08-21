@@ -11,11 +11,13 @@ import {
   MarkdownCodeBlock,
   SyntaxHighlightedCode,
 } from "./CodeBlock";
+import { getReactNodeText } from "./utils";
 
 function playgroundFromCode(language: string, code: string) {
   if (language !== "playground") return undefined;
   const card = parsePlaygroundCard(code);
-  return card ? <PlaygroundCard card={card} /> : null;
+  // Invalid playground JSON falls through to a visible code block.
+  return card ? <PlaygroundCard card={card} /> : undefined;
 }
 
 export function MarkdownFencedCode({
@@ -23,7 +25,10 @@ export function MarkdownFencedCode({
   className,
   ...props
 }: React.ComponentProps<"code">) {
-  const rawCode = String(children);
+  // react-markdown can pass fenced text as several child nodes (a blank line
+  // after the opener is the common case). String(children) would join those
+  // with commas and break JSON.parse.
+  const rawCode = getReactNodeText(children);
   const code = rawCode.replace(/\n$/, "");
   const isFencedCodeBlock =
     typeof className === "string" && className.includes("language-");
@@ -81,12 +86,11 @@ export function MarkdownFencedPre({
     if (React.isValidElement(child) && child.type === PlaygroundCard) {
       playgroundChild = child;
     }
-    if (child == null) {
-      playgroundChild = null;
-    }
   });
-  if (language === "playground" || playgroundChild !== undefined) {
-    return playgroundChild ?? null;
+  // Unwrap a parsed card so it is not nested in a code-block chrome.
+  // A `playground` fence that did not parse must still render as source.
+  if (playgroundChild !== undefined) {
+    return playgroundChild;
   }
   return <MarkdownCodeBlock language={language}>{children}</MarkdownCodeBlock>;
 }
