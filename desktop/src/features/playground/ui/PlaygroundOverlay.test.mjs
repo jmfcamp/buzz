@@ -241,6 +241,11 @@ test("PIN is hidden when empty and fullscreen fills the window", async () => {
   assert.match(overlay.className, /fixed/);
   assert.match(overlay.className, /inset-0/);
   const gap = screen.getByTestId(PLAYGROUND_FULLSCREEN_TITLEBAR_GAP_TEST_ID);
+  const { playgroundOverlaySurfaceIsOpaque } = await import(
+    "../lib/overlayLayout.ts"
+  );
+  assert.equal(playgroundOverlaySurfaceIsOpaque(overlay.className), true);
+  assert.equal(playgroundOverlaySurfaceIsOpaque(gap.className), true);
   assert.ok(overlay.contains(gap));
   assert.ok(
     gap.compareDocumentPosition(screen.getByTestId("playground-chrome")) & 4,
@@ -315,6 +320,57 @@ test("Escape and the fullscreen control exit overlay fullscreen", async () => {
     screen.getByTestId("playground-fullscreen").getAttribute("aria-label"),
     "Fullscreen",
   );
+});
+
+test("overlay chrome is fully opaque", async () => {
+  const screen = await renderOverlay();
+  const { playgroundOverlaySurfaceIsOpaque } = await import(
+    "../lib/overlayLayout.ts"
+  );
+  const overlay = screen.getByTestId("playground-overlay");
+  assert.equal(playgroundOverlaySurfaceIsOpaque(overlay.className), true);
+  assert.doesNotMatch(overlay.className, /\/95/);
+  assert.doesNotMatch(overlay.className, /backdrop-blur/);
+  assert.match(
+    screen.getByTestId("playground-chrome").className,
+    /bg-background/,
+  );
+  assert.doesNotMatch(
+    screen.getByTestId("playground-chrome").className,
+    /\/95/,
+  );
+});
+
+test("responsive resize handles sit outside the webview host", async () => {
+  const screen = await renderOverlay();
+  const { fireEvent } = await import("@testing-library/react");
+  await fireEvent.click(screen.getByTestId("playground-mode-responsive"));
+  const host = screen.getByTestId("playground-webview-host");
+  const resizeX = screen.getByTestId("playground-stage-resize");
+  const resizeY = screen.getByTestId("playground-stage-resize-y");
+  const resizeXy = screen.getByTestId("playground-stage-resize-xy");
+  const { playgroundResizeHandleSitsOutsideHost } = await import(
+    "../lib/overlayLayout.ts"
+  );
+  assert.equal(playgroundResizeHandleSitsOutsideHost(host, resizeX), true);
+  assert.equal(playgroundResizeHandleSitsOutsideHost(host, resizeY), true);
+  assert.equal(playgroundResizeHandleSitsOutsideHost(host, resizeXy), true);
+  assert.match(resizeX.className, /w-2/);
+  assert.match(resizeY.className, /h-2/);
+  const frame = screen.getByTestId("playground-responsive-frame");
+  assert.equal(frame.contains(host), true);
+  assert.equal(frame.contains(resizeX), true);
+  assert.equal(
+    screen.getByTestId("playground-responsive-page").style.maxWidth,
+    "",
+  );
+
+  const widthField = screen.getByTestId("playground-responsive-width");
+  const before = Number(widthField.value);
+  await fireEvent.pointerDown(resizeX, { clientX: 400, clientY: 200 });
+  await fireEvent.pointerMove(window, { clientX: 480, clientY: 200 });
+  await fireEvent.pointerUp(window);
+  assert.equal(Number(widthField.value), before + 80);
 });
 
 test("Inspect re-syncs the native stage without targeting main", async () => {

@@ -31,8 +31,35 @@ pub fn resolved_stage_bounds_after_inspect(
     window_after: (u32, u32),
 ) -> PlaygroundBounds {
     let _ = (window_before, window_after);
-    before.clone()
+    clamp_webview_bounds_to_stage(before, before)
 }
+
+/// Pin a drifted child webview back inside the last stage host.
+/// Never returns a rect that invades `x < stage.x` (left primary menu).
+pub fn clamp_webview_bounds_to_stage(
+    bounds: &PlaygroundBounds,
+    stage: &PlaygroundBounds,
+) -> PlaygroundBounds {
+    const MIN_EDGE: f64 = 32.0;
+    let x = bounds.x.max(stage.x);
+    let y = bounds.y.max(stage.y);
+    let max_width = (stage.x + stage.width - x).max(MIN_EDGE);
+    let max_height = (stage.y + stage.height - y).max(MIN_EDGE);
+    PlaygroundBounds {
+        x,
+        y,
+        width: bounds.width.min(max_width).max(MIN_EDGE),
+        height: bounds.height.min(max_height).max(MIN_EDGE),
+    }
+}
+
+/// NSUserDefaults keys WebKit reads for `inspectorStartsAttached`.
+/// `detach` before `show` is a no-op until the frontend exists; these
+/// must be false so `shouldOpenAttached()` does not dock on first show.
+pub const INSPECTOR_STARTS_ATTACHED_DEFAULTS: &[&str] = &[
+    "WebKit2InspectorStartsAttached",
+    "WebKitInspectorStartsAttached",
+];
 
 pub fn open_playground_inspector(webview: &Webview) -> Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -76,7 +103,8 @@ fn reapply_last_bounds(app: &AppHandle, sid: &str) {
             .and_then(|session| session.last_bounds.clone())
     });
     if let Some(bounds) = bounds.as_ref() {
-        let _ = apply_bounds(app, sid, bounds);
+        let keep = clamp_webview_bounds_to_stage(bounds, bounds);
+        let _ = apply_bounds(app, sid, &keep);
     }
 }
 
@@ -86,13 +114,20 @@ pub fn schedule_inspect_stage_restore(
     window_size: Option<(u32, u32)>,
 ) {
     tauri::async_runtime::spawn(async move {
+        // show() creates the frontend asynchronously. detach() is a no-op
+        // until that page exists, so re-detach during the open settle, then
+        // keep pinning the stage for as long as Inspect stays open — including
+        // if the user later docks to the bottom or side.
         for delay_ms in [16_u64, 50, 200, 500] {
             tokio::time::sleep(Duration::from_millis(delay_ms)).await;
             restore_main_window_size(&app, window_size);
             reapply_last_bounds(&app, &sid);
+            redetach_macos_inspector(&app, &sid);
         }
-        for _ in 0..80 {
-            tokio::time::sleep(Duration::from_millis(500)).await;
+        loop {
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            restore_main_window_size(&app, window_size);
+            reapply_last_bounds(&app, &sid);
             if !playground_inspector_is_visible(&app, &sid) {
                 restore_main_window_size(&app, window_size);
                 reapply_last_bounds(&app, &sid);
@@ -121,46 +156,138 @@ fn inspector_is_visible(webview: &Webview) -> bool {
     }
 }
 
+fn redetach_macos_inspector(app: &AppHandle, sid: &str) {
+    #[cfg(target_os = "macos")]
+    {
+        let Some(webview) = app.get_webview(&playground_label(sid)) else {
+            return;
+        };
+        let _ = webview.with_webview(|platform| {
+            use objc2_web_kit::WKWebView;
+
+            // SAFETY: same child WKWebView / `_inspector` contract as
+            // open_detached_macos_inspector. Called after show settles so
+            // detach is no longer a no-op on a missing frontend page.
+            let view: &WKWebView = unsafe { &*platform.inner().cast::<WKWebView>() };
+            unsafe {
+                prefer_detached_inspector_defaults();
+                let Some(inspector) = macos_inspector_ptr(view) else {
+                    return;
+                };
+                force_inspector_detached(&*inspector);
+            }
+        });
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, sid);
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn open_detached_macos_inspector(webview: &Webview) -> Result<(), String> {
     webview
         .with_webview(|platform| {
-            use objc2::runtime::AnyObject;
             use objc2::sel;
             use objc2_web_kit::WKWebView;
 
             // SAFETY: inner() is the child WKWebView for this playground label.
-            // `_inspector` / `detach` / `show` are WebKit private inspectors
-            // (same selectors wry uses for open_devtools). with_webview is
-            // already on the AppKit main thread. Detach *before* show so
-            // WebKit never reparents the host into a docked split view.
+            // `_inspector` / `detach` / `show` / `setAttached:` are WebKit
+            // private inspectors (same `_inspector` wry uses for
+            // open_devtools). with_webview is already on the AppKit main
+            // thread. Do not call open_devtools() — that show()s attached.
             let view: &WKWebView = unsafe { &*platform.inner().cast::<WKWebView>() };
             unsafe {
-                let has_inspector: bool =
-                    objc2::msg_send![view, respondsToSelector: sel!(_inspector)];
-                if !has_inspector {
+                prefer_detached_inspector_defaults();
+                prefer_detached_inspector_on_view(view);
+                let Some(inspector) = macos_inspector_ptr(view) else {
                     return;
-                }
-                let inspector: *mut AnyObject = objc2::msg_send![view, _inspector];
-                if inspector.is_null() {
-                    return;
-                }
+                };
                 let inspector = &*inspector;
-                let detach = sel!(detach);
-                let can_detach: bool = objc2::msg_send![inspector, respondsToSelector: detach];
-                if can_detach {
-                    let (): () = objc2::msg_send![inspector, detach];
-                }
+                force_inspector_detached(inspector);
                 let show = sel!(show);
                 if objc2::msg_send![inspector, respondsToSelector: show] {
                     let (): () = objc2::msg_send![inspector, show];
                 }
-                if can_detach {
-                    let (): () = objc2::msg_send![inspector, detach];
-                }
+                force_inspector_detached(inspector);
             }
         })
         .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn macos_inspector_ptr(
+    view: &objc2_web_kit::WKWebView,
+) -> Option<*mut objc2::runtime::AnyObject> {
+    use objc2::runtime::AnyObject;
+    use objc2::sel;
+
+    let has_inspector: bool = objc2::msg_send![view, respondsToSelector: sel!(_inspector)];
+    if !has_inspector {
+        return None;
+    }
+    let inspector: *mut AnyObject = objc2::msg_send![view, _inspector];
+    if inspector.is_null() {
+        None
+    } else {
+        Some(inspector)
+    }
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn prefer_detached_inspector_defaults() {
+    use objc2::runtime::{AnyClass, AnyObject};
+    use objc2_foundation::NSString;
+
+    let Some(cls) = AnyClass::get(c"NSUserDefaults") else {
+        return;
+    };
+    let defaults: *mut AnyObject = objc2::msg_send![cls, standardUserDefaults];
+    if defaults.is_null() {
+        return;
+    }
+    let defaults = &*defaults;
+    for name in INSPECTOR_STARTS_ATTACHED_DEFAULTS {
+        let key = NSString::from_str(name);
+        let (): () = objc2::msg_send![defaults, setBool: false, forKey: &*key];
+    }
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn prefer_detached_inspector_on_view(view: &objc2_web_kit::WKWebView) {
+    use objc2::runtime::AnyObject;
+    use objc2::sel;
+
+    let config: *mut AnyObject = objc2::msg_send![view, configuration];
+    if config.is_null() {
+        return;
+    }
+    let prefs: *mut AnyObject = objc2::msg_send![&*config, preferences];
+    if prefs.is_null() {
+        return;
+    }
+    let set_pref = sel!(_setInspectorStartsAttached:);
+    if objc2::msg_send![&*prefs, respondsToSelector: set_pref] {
+        let (): () = objc2::msg_send![&*prefs, _setInspectorStartsAttached: false];
+    }
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn force_inspector_detached(inspector: &objc2::runtime::AnyObject) {
+    use objc2::sel;
+
+    let set_attached = sel!(setAttached:);
+    if objc2::msg_send![inspector, respondsToSelector: set_attached] {
+        let (): () = objc2::msg_send![inspector, setAttached: false];
+    }
+    let set_attached_priv = sel!(_setAttached:);
+    if objc2::msg_send![inspector, respondsToSelector: set_attached_priv] {
+        let (): () = objc2::msg_send![inspector, _setAttached: false];
+    }
+    let detach = sel!(detach);
+    if objc2::msg_send![inspector, respondsToSelector: detach] {
+        let (): () = objc2::msg_send![inspector, detach];
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -170,7 +297,7 @@ fn macos_inspector_is_visible(webview: &Webview) -> bool {
 
     // with_webview requires FnOnce + Send + 'static. Cell<bool> is not Sync
     // (`&Cell<bool>` is not Send). A stack AtomicBool is Send but not 'static.
-    // Arc<AtomicBool> satisfies both bounds. Detach-then-show is unchanged.
+    // Arc<AtomicBool> satisfies both bounds. Do not revert to Cell.
     let visible = Arc::new(AtomicBool::new(false));
     let visible_flag = Arc::clone(&visible);
     let _ = webview.with_webview(move |platform| {
@@ -255,5 +382,33 @@ mod tests {
         assert_eq!(after.height, 480.0);
         assert_eq!(after.x, 120.0);
         assert_eq!(after.y, 80.0);
+    }
+
+    #[test]
+    fn docked_inspect_cannot_move_the_page_left_of_the_stage() {
+        let stage = PlaygroundBounds {
+            x: 256.0,
+            y: 80.0,
+            width: 640.0,
+            height: 480.0,
+        };
+        let drifted = PlaygroundBounds {
+            x: 0.0,
+            y: 40.0,
+            width: 1100.0,
+            height: 700.0,
+        };
+        let keep = clamp_webview_bounds_to_stage(&drifted, &stage);
+        assert_eq!(keep.x, stage.x);
+        assert!(keep.x >= stage.x);
+        assert!(keep.y >= stage.y);
+        assert!(keep.width <= stage.width);
+        assert!(keep.height <= stage.height);
+        assert_eq!(
+            playground_inspect_presentation(),
+            PlaygroundInspectPresentation::DetachedWindow
+        );
+        assert!(INSPECTOR_STARTS_ATTACHED_DEFAULTS.contains(&"WebKit2InspectorStartsAttached"));
+        assert!(INSPECTOR_STARTS_ATTACHED_DEFAULTS.contains(&"WebKitInspectorStartsAttached"));
     }
 }

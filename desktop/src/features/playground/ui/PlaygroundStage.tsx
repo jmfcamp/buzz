@@ -8,6 +8,10 @@ import {
   playgroundUserAgent,
   type PlaygroundDeviceId,
 } from "../lib/devices";
+import {
+  PLAYGROUND_RESIZE_HANDLE_CLASS,
+  PLAYGROUND_RESIZE_HANDLE_GUTTER_CLASS,
+} from "../lib/overlayLayout";
 import { DEFAULT_RESPONSIVE_VIEWPORT } from "../lib/types";
 import { PLAYGROUND_DOM_PROBE_SCRIPT } from "../lib/updates";
 import {
@@ -121,28 +125,47 @@ function ResponsiveStage({
           />
         </label>
       </div>
-      <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden p-3">
+      <div className="relative min-h-0 min-w-0 flex-1 overflow-auto p-3">
         <div
-          className="relative overflow-hidden rounded-md border border-border"
+          className={cn(
+            "relative inline-block",
+            PLAYGROUND_RESIZE_HANDLE_GUTTER_CLASS,
+          )}
           data-testid="playground-responsive-frame"
-          style={{ width, height, maxWidth: "100%" }}
         >
-          <NativeStageHost
-            hostRef={hostRef}
-            layoutKey={layoutKey}
-            session={session}
-            userAgent={playgroundUserAgent("responsive")}
-            viewport={{ width, height }}
-          />
+          <div
+            className="overflow-hidden rounded-md border border-border"
+            data-testid="playground-responsive-page"
+            style={{ width, height }}
+          >
+            <NativeStageHost
+              hostRef={hostRef}
+              layoutKey={layoutKey}
+              session={session}
+              userAgent={playgroundUserAgent("responsive")}
+              viewport={{ width, height }}
+            />
+          </div>
           <StageResizeHandle
             axis="x"
-            onResize={(next) => setWidth(Math.max(320, next))}
+            onResize={(next) => setWidth(Math.max(320, next.width))}
+            size={{ width, height }}
             testId="playground-stage-resize"
           />
           <StageResizeHandle
             axis="y"
-            onResize={(next) => setHeight(Math.max(320, next))}
+            onResize={(next) => setHeight(Math.max(320, next.height))}
+            size={{ width, height }}
             testId="playground-stage-resize-y"
+          />
+          <StageResizeHandle
+            axis="xy"
+            onResize={(next) => {
+              setWidth(Math.max(320, next.width));
+              setHeight(Math.max(320, next.height));
+            }}
+            size={{ width, height }}
+            testId="playground-stage-resize-xy"
           />
         </div>
       </div>
@@ -153,23 +176,34 @@ function ResponsiveStage({
 function StageResizeHandle({
   axis,
   onResize,
+  size,
   testId,
 }: {
-  axis: "x" | "y";
-  onResize: (next: number) => void;
+  axis: "x" | "y" | "xy";
+  onResize: (next: { width: number; height: number }) => void;
+  size: { width: number; height: number };
   testId: string;
 }) {
   const dragging = React.useRef(false);
-  const origin = React.useRef({ pos: 0, size: 0 });
+  const origin = React.useRef({
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+  });
 
   React.useEffect(() => {
     const onMove = (event: PointerEvent) => {
       if (!dragging.current) return;
-      const delta =
+      const width =
+        axis === "y"
+          ? origin.current.width
+          : origin.current.width + (event.clientX - origin.current.x);
+      const height =
         axis === "x"
-          ? event.clientX - origin.current.pos
-          : event.clientY - origin.current.pos;
-      onResize(origin.current.size + delta);
+          ? origin.current.height
+          : origin.current.height + (event.clientY - origin.current.y);
+      onResize({ width, height });
     };
     const onUp = () => {
       dragging.current = false;
@@ -182,25 +216,27 @@ function StageResizeHandle({
     };
   }, [axis, onResize]);
 
+  const label =
+    axis === "x"
+      ? "Resize width"
+      : axis === "y"
+        ? "Resize height"
+        : "Resize width and height";
+
   return (
     <button
-      aria-label={axis === "x" ? "Resize width" : "Resize height"}
-      className={
-        axis === "x"
-          ? "absolute inset-y-2 right-0 z-10 w-2 cursor-ew-resize rounded-full bg-border/80"
-          : "absolute inset-x-2 bottom-0 z-10 h-2 cursor-ns-resize rounded-full bg-border/80"
-      }
+      aria-label={label}
+      className={PLAYGROUND_RESIZE_HANDLE_CLASS[axis]}
       data-testid={testId}
       onPointerDown={(event) => {
-        const frame = event.currentTarget.parentElement;
+        event.preventDefault();
+        event.stopPropagation();
+        event.currentTarget.setPointerCapture?.(event.pointerId);
         origin.current = {
-          pos: axis === "x" ? event.clientX : event.clientY,
-          size:
-            frame instanceof HTMLElement
-              ? axis === "x"
-                ? frame.offsetWidth
-                : frame.offsetHeight
-              : 800,
+          x: event.clientX,
+          y: event.clientY,
+          width: size.width,
+          height: size.height,
         };
         dragging.current = true;
       }}
