@@ -1,6 +1,7 @@
 //! Playground overlay webviews. Inspect targets `playground-{sid}` only.
 
 mod capture;
+mod inspect;
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -14,6 +15,11 @@ use tauri::{
 };
 use uuid::Uuid;
 
+pub use inspect::{
+    playground_inspect_presentation, resolved_stage_bounds_after_inspect,
+    resolved_window_size_after_inspect, PlaygroundInspectPresentation,
+};
+
 const PLAYGROUND_LABEL_PREFIX: &str = "playground-";
 const APP_WEBVIEW_LABEL: &str = "main";
 const MIN_EDGE: f64 = 32.0;
@@ -21,7 +27,7 @@ const OPENCLAW_GATEWAY_PORT: u16 = 18789;
 const BROWSER_DEBUG_PORTS: [u16; 5] = [9222, 9223, 9229, 9230, 5858];
 const DOM_HASH_COOKIE: &str = "__buzz_pg_dom";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaygroundBounds {
     x: f64,
@@ -224,32 +230,6 @@ pub fn playground_label(sid: &str) -> String {
 
 pub fn inspect_target_is_safe(webview_id: &str) -> bool {
     webview_id.starts_with(PLAYGROUND_LABEL_PREFIX) && webview_id != APP_WEBVIEW_LABEL
-}
-
-/// Inspect must leave the main window at its pre-inspector size.
-pub fn resolved_window_size_after_inspect(before: (u32, u32), after: (u32, u32)) -> (u32, u32) {
-    let _ = after;
-    before
-}
-
-fn restore_main_window_size(app: &AppHandle, before: Option<(u32, u32)>) {
-    let Some(before) = before else {
-        return;
-    };
-    let Some(window) = app.get_window(APP_WEBVIEW_LABEL) else {
-        return;
-    };
-    let after = window
-        .inner_size()
-        .ok()
-        .map(|size| (size.width, size.height));
-    let keep = match after {
-        Some(after) => resolved_window_size_after_inspect(before, after),
-        None => before,
-    };
-    if after != Some(keep) {
-        let _ = window.set_size(tauri::PhysicalSize::new(keep.0, keep.1));
-    }
 }
 
 fn apply_user_agent(webview: &Webview, user_agent: &str) -> Result<(), String> {
@@ -638,16 +618,20 @@ pub async fn playground_webview_inspect(
             .get(&sid)
             .and_then(|session| session.last_bounds.clone())
     });
-    // Always open the child inspector. The cfg must not use this crate's
-    // (absent) `devtools` feature — that compiled the call out of release
-    // and made Inspect a silent no-op. wry/tauri already enable the method
-    // via the tauri `devtools` Cargo feature; `.devtools(true)` marks the
-    // WKWebView inspectable so Safari / open_devtools can attach.
-    webview.open_devtools();
-    restore_main_window_size(&app, window_size);
-    if let Some(bounds) = bounds.as_ref() {
-        apply_bounds(&app, &sid, bounds)?;
+    // Detach-then-show on macOS so WebKit cannot dock into the stage or
+    // main window. Do not call open_devtools() here — that show()s attached
+    // by default and shoves the page out of its rectangle.
+    inspect::open_playground_inspector(&webview)?;
+    inspect::restore_main_window_size(&app, window_size);
+    if let Some(before) = bounds.as_ref() {
+        let keep = inspect::resolved_stage_bounds_after_inspect(
+            before,
+            window_size.unwrap_or((0, 0)),
+            window_size.unwrap_or((0, 0)),
+        );
+        apply_bounds(&app, &sid, &keep)?;
     }
+    inspect::schedule_inspect_stage_restore(app.clone(), sid, window_size);
     Ok(PlaygroundInspectResult { webview_id })
 }
 
@@ -919,14 +903,24 @@ mod tests {
     }
 
     #[test]
-    fn inspect_does_not_change_main_window_size() {
+    fn inspect_does_not_change_main_window_or_stage_size() {
         assert_eq!(
             resolved_window_size_after_inspect((1280, 800), (1800, 800)),
             (1280, 800)
         );
+        let before = PlaygroundBounds {
+            x: 40.0,
+            y: 90.0,
+            width: 800.0,
+            height: 600.0,
+        };
         assert_eq!(
-            resolved_window_size_after_inspect((1024, 640), (1024, 640)),
-            (1024, 640)
+            resolved_stage_bounds_after_inspect(&before, (1280, 800), (1800, 800)),
+            before
+        );
+        assert_eq!(
+            playground_inspect_presentation(),
+            PlaygroundInspectPresentation::DetachedWindow
         );
     }
 
