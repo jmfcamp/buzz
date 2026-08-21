@@ -260,9 +260,14 @@ fn apply_user_agent(webview: &Webview, user_agent: &str) -> Result<(), String> {
             {
                 use objc2_foundation::NSString;
                 use objc2_web_kit::WKWebView;
-                // SAFETY: inner() is the child WKWebView for this playground label.
+                // SAFETY: inner() is the child WKWebView for this playground
+                // label. setCustomUserAgent is an objc2 unsafe setter; wry
+                // uses the same wrapper. Must run on the AppKit main thread,
+                // which with_webview already is.
                 let view: &WKWebView = unsafe { &*platform.inner().cast::<WKWebView>() };
-                view.setCustomUserAgent(Some(&NSString::from_str(&ua)));
+                unsafe {
+                    view.setCustomUserAgent(Some(&NSString::from_str(&ua)));
+                }
             }
             #[cfg(target_os = "linux")]
             {
