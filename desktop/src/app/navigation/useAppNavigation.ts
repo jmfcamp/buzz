@@ -84,6 +84,31 @@ export function useAppNavigation() {
     [commitNavigation],
   );
 
+  const goBots = React.useCallback(
+    (behavior?: NavigationBehavior) =>
+      commitNavigation(
+        {
+          to: "/bots",
+        },
+        behavior,
+      ),
+    [commitNavigation],
+  );
+
+  const goBot = React.useCallback(
+    (botId: string, behavior?: NavigationBehavior) =>
+      commitNavigation(
+        {
+          to: "/bots/$botId",
+          params: {
+            botId,
+          },
+        },
+        behavior,
+      ),
+    [commitNavigation],
+  );
+
   const goPulse = React.useCallback(
     (behavior?: NavigationBehavior) =>
       commitNavigation(
@@ -343,6 +368,8 @@ export function useAppNavigation() {
     closeSettings,
     closeWorkflowDetail,
     goAgents,
+    goBot,
+    goBots,
     goPinnedSite,
     goChannel,
     goForumPost,

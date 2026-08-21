@@ -1,4 +1,11 @@
-import { Activity, Bot, FolderGit2, Inbox, Zap } from "lucide-react";
+import {
+  Activity,
+  Bot,
+  BotMessageSquare,
+  FolderGit2,
+  Inbox,
+  Zap,
+} from "lucide-react";
 
 import type { AppView } from "@/app/AppShell.helpers";
 import { PlaygroundSection } from "@/features/playground/ui/PlaygroundSection";
@@ -41,6 +48,7 @@ type AppSidebarPinnedHeaderProps = {
 type AppSidebarPrimaryMenuProps = {
   homeBadgeCount: number;
   onSelectAgents: () => void;
+  onSelectBots: () => void;
   onSelectHome: () => void;
   onSelectPinnedSite: (pinId: string) => void;
   onSelectProjects: () => void;
@@ -95,6 +103,7 @@ export function AppSidebarPinnedHeader({
 export function AppSidebarPrimaryMenu({
   homeBadgeCount,
   onSelectAgents,
+  onSelectBots,
   onSelectHome,
   onSelectPinnedSite,
   onSelectProjects,
@@ -170,6 +179,19 @@ export function AppSidebarPrimaryMenu({
           >
             <Bot className="h-4 w-4" />
             <SidebarMenuLabel>Agents</SidebarMenuLabel>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            className="data-[active=true]:font-normal"
+            data-testid="open-bots-view"
+            isActive={selectedView === "bots"}
+            onClick={parkPlaygroundThen(onSelectBots)}
+            tooltip="Bots"
+            type="button"
+          >
+            <BotMessageSquare className="h-4 w-4" />
+            <SidebarMenuLabel>Bots</SidebarMenuLabel>
           </SidebarMenuButton>
         </SidebarMenuItem>
         <FeatureGate feature="workflows">

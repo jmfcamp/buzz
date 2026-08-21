@@ -139,6 +139,7 @@ export function AppShell() {
   useManagedAgentRuntimeReconciliation(communitiesHook.communities); // sync storage snapshot
   const {
     goAgents,
+    goBots,
     goPinnedSite,
     goChannel,
     goHome,
@@ -857,6 +858,7 @@ export function AppShell() {
                           await goChannel(directMessage.id);
                         }}
                         onSelectAgents={() => void goAgents()}
+                        onSelectBots={() => void goBots()}
                         onSelectPinnedSite={(pinId) => void goPinnedSite(pinId)}
                         onSelectChannel={handleSidebarChannelSelect}
                         onOpenSearchResult={handleOpenSearchResult}

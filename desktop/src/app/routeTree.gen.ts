@@ -10,6 +10,7 @@ import { Route as settingsRouteImport } from "./routes/settings";
 import { Route as remindersRouteImport } from "./routes/reminders";
 import { Route as pulseRouteImport } from "./routes/pulse";
 import { Route as projectsRouteImport } from "./routes/projects";
+import { Route as botsRouteImport } from "./routes/bots";
 import { Route as agentsRouteImport } from "./routes/agents";
 import { Route as pinsDotpinIdRouteImport } from "./routes/pins.$pinId";
 import { Route as indexRouteImport } from "./routes/index";
@@ -18,6 +19,7 @@ import { Route as projectsDotprojectIdRouteImport } from "./routes/projects.$pro
 import { Route as messagesDotnewRouteImport } from "./routes/messages.new";
 import { Route as channelsDotchannelIdRouteImport } from "./routes/channels.$channelId";
 import { Route as channelsDotchannelIdDotpostsDotpostIdRouteImport } from "./routes/channels.$channelId.posts.$postId";
+import { Route as botsDotbotIdRouteImport } from "./routes/bots.$botId";
 
 const workflowsRoute = workflowsRouteImport.update({
   id: "/workflows",
@@ -42,6 +44,11 @@ const pulseRoute = pulseRouteImport.update({
 const projectsRoute = projectsRouteImport.update({
   id: "/projects",
   path: "/projects",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const botsRoute = botsRouteImport.update({
+  id: "/bots",
+  path: "/bots",
   getParentRoute: () => rootRouteImport,
 } as any);
 const agentsRoute = agentsRouteImport.update({
@@ -85,10 +92,16 @@ const channelsDotchannelIdDotpostsDotpostIdRoute =
     path: "/channels/$channelId/posts/$postId",
     getParentRoute: () => rootRouteImport,
   } as any);
+const botsDotbotIdRoute = botsDotbotIdRouteImport.update({
+  id: "/bots/$botId",
+  path: "/bots/$botId",
+  getParentRoute: () => rootRouteImport,
+} as any);
 
 export interface FileRoutesByFullPath {
   "/": typeof indexRoute;
   "/agents": typeof agentsRoute;
+  "/bots": typeof botsRoute;
   "/pins/$pinId": typeof pinsDotpinIdRoute;
   "/projects": typeof projectsRoute;
   "/pulse": typeof pulseRoute;
@@ -99,11 +112,13 @@ export interface FileRoutesByFullPath {
   "/messages/new": typeof messagesDotnewRoute;
   "/projects/$projectId": typeof projectsDotprojectIdRoute;
   "/workflows/$workflowId": typeof workflowsDotworkflowIdRoute;
+  "/bots/$botId": typeof botsDotbotIdRoute;
   "/channels/$channelId/posts/$postId": typeof channelsDotchannelIdDotpostsDotpostIdRoute;
 }
 export interface FileRoutesByTo {
   "/": typeof indexRoute;
   "/agents": typeof agentsRoute;
+  "/bots": typeof botsRoute;
   "/pins/$pinId": typeof pinsDotpinIdRoute;
   "/projects": typeof projectsRoute;
   "/pulse": typeof pulseRoute;
@@ -114,12 +129,14 @@ export interface FileRoutesByTo {
   "/messages/new": typeof messagesDotnewRoute;
   "/projects/$projectId": typeof projectsDotprojectIdRoute;
   "/workflows/$workflowId": typeof workflowsDotworkflowIdRoute;
+  "/bots/$botId": typeof botsDotbotIdRoute;
   "/channels/$channelId/posts/$postId": typeof channelsDotchannelIdDotpostsDotpostIdRoute;
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport;
   "/": typeof indexRoute;
   "/agents": typeof agentsRoute;
+  "/bots": typeof botsRoute;
   "/pins/$pinId": typeof pinsDotpinIdRoute;
   "/projects": typeof projectsRoute;
   "/pulse": typeof pulseRoute;
@@ -130,6 +147,7 @@ export interface FileRoutesById {
   "/messages/new": typeof messagesDotnewRoute;
   "/projects/$projectId": typeof projectsDotprojectIdRoute;
   "/workflows/$workflowId": typeof workflowsDotworkflowIdRoute;
+  "/bots/$botId": typeof botsDotbotIdRoute;
   "/channels/$channelId/posts/$postId": typeof channelsDotchannelIdDotpostsDotpostIdRoute;
 }
 export interface FileRouteTypes {
@@ -137,6 +155,7 @@ export interface FileRouteTypes {
   fullPaths:
     | "/"
     | "/agents"
+    | "/bots"
     | "/pins/$pinId"
     | "/projects"
     | "/pulse"
@@ -147,11 +166,13 @@ export interface FileRouteTypes {
     | "/messages/new"
     | "/projects/$projectId"
     | "/workflows/$workflowId"
+    | "/bots/$botId"
     | "/channels/$channelId/posts/$postId";
   fileRoutesByTo: FileRoutesByTo;
   to:
     | "/"
     | "/agents"
+    | "/bots"
     | "/pins/$pinId"
     | "/projects"
     | "/pulse"
@@ -162,11 +183,13 @@ export interface FileRouteTypes {
     | "/messages/new"
     | "/projects/$projectId"
     | "/workflows/$workflowId"
+    | "/bots/$botId"
     | "/channels/$channelId/posts/$postId";
   id:
     | "__root__"
     | "/"
     | "/agents"
+    | "/bots"
     | "/pins/$pinId"
     | "/projects"
     | "/pulse"
@@ -177,12 +200,14 @@ export interface FileRouteTypes {
     | "/messages/new"
     | "/projects/$projectId"
     | "/workflows/$workflowId"
+    | "/bots/$botId"
     | "/channels/$channelId/posts/$postId";
   fileRoutesById: FileRoutesById;
 }
 export interface RootRouteChildren {
   indexRoute: typeof indexRoute;
   agentsRoute: typeof agentsRoute;
+  botsRoute: typeof botsRoute;
   pinsDotpinIdRoute: typeof pinsDotpinIdRoute;
   projectsRoute: typeof projectsRoute;
   pulseRoute: typeof pulseRoute;
@@ -193,6 +218,7 @@ export interface RootRouteChildren {
   messagesDotnewRoute: typeof messagesDotnewRoute;
   projectsDotprojectIdRoute: typeof projectsDotprojectIdRoute;
   workflowsDotworkflowIdRoute: typeof workflowsDotworkflowIdRoute;
+  botsDotbotIdRoute: typeof botsDotbotIdRoute;
   channelsDotchannelIdDotpostsDotpostIdRoute: typeof channelsDotchannelIdDotpostsDotpostIdRoute;
 }
 
@@ -231,6 +257,13 @@ declare module "@tanstack/react-router" {
       path: "/projects";
       fullPath: "/projects";
       preLoaderRoute: typeof projectsRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/bots": {
+      id: "/bots";
+      path: "/bots";
+      fullPath: "/bots";
+      preLoaderRoute: typeof botsRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     "/agents": {
@@ -289,12 +322,20 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof channelsDotchannelIdDotpostsDotpostIdRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    "/bots/$botId": {
+      id: "/bots/$botId";
+      path: "/bots/$botId";
+      fullPath: "/bots/$botId";
+      preLoaderRoute: typeof botsDotbotIdRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   indexRoute: indexRoute,
   agentsRoute: agentsRoute,
+  botsRoute: botsRoute,
   pinsDotpinIdRoute: pinsDotpinIdRoute,
   projectsRoute: projectsRoute,
   pulseRoute: pulseRoute,
@@ -305,6 +346,7 @@ const rootRouteChildren: RootRouteChildren = {
   messagesDotnewRoute: messagesDotnewRoute,
   projectsDotprojectIdRoute: projectsDotprojectIdRoute,
   workflowsDotworkflowIdRoute: workflowsDotworkflowIdRoute,
+  botsDotbotIdRoute: botsDotbotIdRoute,
   channelsDotchannelIdDotpostsDotpostIdRoute:
     channelsDotchannelIdDotpostsDotpostIdRoute,
 };
