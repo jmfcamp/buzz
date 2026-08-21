@@ -66,7 +66,7 @@ export const PLAYGROUND_DOM_PROBE_SCRIPT = [
   "          document.cookie = '__buzz_pg_dom=' + window.__BUZZ_PLAYGROUND_DOM_HASH__ + '; path=/; max-age=3600';",
   "        } catch (e) {}",
   "      } catch (e) {}",
-  "    }, " + String(PLAYGROUND_DOM_HASH_DEBOUNCE_MS) + ");",
+  `    }, ${String(PLAYGROUND_DOM_HASH_DEBOUNCE_MS)});`,
   "  };",
   "  const observer = new MutationObserver(settle);",
   "  observer.observe(document.documentElement, { subtree: true, childList: true, characterData: true, attributes: true });",
