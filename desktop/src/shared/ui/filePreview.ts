@@ -5,12 +5,18 @@
  * that dialog may show — never how to fetch. Bytes still come from the
  * authenticated Tauri `fetch_media_bytes` / `download_file` path.
  *
- * HTML renders as a laid-out page in a uniquely origin-isolated iframe
- * (`srcdoc` from fetched bytes). Guest scripts run *inside* that frame so
- * in-page navigation (tabs, routers, onclick) works. The sandbox must never
- * include `allow-same-origin` (`srcdoc` + scripts + same-origin is a parent
- * escape) or top-navigation tokens. The main Buzz webview never navigates
- * to the blob, and the iframe `src` is never the relay `/media/` URL.
+ * HTML renders as a laid-out page in a uniquely origin-isolated iframe.
+ * Guest bytes are rewritten (bootstrap + guest CSP) and served from
+ * `html-preview://` (packaged Tauri) or a `blob:` URL (dev / E2E) — never
+ * assigned as `srcdoc` under the app-shell CSP, and never pointed at the
+ * relay `/media/` URL. Parent `script-src` has no `'unsafe-inline'`; srcdoc
+ * frames inherit that policy and silently drop guest scripts, onclick, and
+ * most routers. A distinct origin carries its own CSP so inline JS, CSS
+ * animation, and in-page hash navigation work inside the frame.
+ *
+ * The sandbox must never include `allow-same-origin` (scripts + same-origin
+ * can become a parent escape) or top-navigation tokens. The main Buzz
+ * webview never navigates to the blob.
  */
 
 /** Refuse to materialize attachments larger than 10 MiB in the preview pane. */
@@ -18,10 +24,23 @@ export const FILE_PREVIEW_MAX_BYTES = 10 * 1024 * 1024;
 
 /**
  * The only legal iframe sandbox for HTML previews. Scripts/forms/modals/popups
- * run in the frame; the origin stays opaque. Callers cannot append tokens.
+ * run in the frame; the origin stays opaque. `allow-popups-to-escape-sandbox`
+ * lets `target=_blank` https links open a real OS/browser window instead of a
+ * nested sandboxed popup. Callers cannot append tokens.
  */
 export const HTML_PREVIEW_IFRAME_SANDBOX =
-  "allow-scripts allow-forms allow-modals allow-popups" as const;
+  "allow-scripts allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox" as const;
+
+/** Custom scheme that serves one prepared HTML attachment (Tauri only). */
+export const HTML_PREVIEW_PROTOCOL_SCHEME = "html-preview";
+
+/**
+ * CSP for the *guest* document only (HTTP header on `html-preview://` and a
+ * matching `<meta>` in the rewritten HTML). This must never be copied onto
+ * the Hula Buzz app shell — parent `script-src` stays free of `'unsafe-inline'`.
+ */
+export const HTML_PREVIEW_GUEST_CSP =
+  "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' blob: data:; style-src 'unsafe-inline' data:; img-src data: blob: https: http:; font-src data: blob: https: http:; media-src data: blob: https: http:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'";
 
 const HTML_PREVIEW_FORBIDDEN_SANDBOX_TOKENS = [
   "allow-same-origin",
@@ -36,15 +55,24 @@ export type FilePreviewUnavailableReason = "binary" | "too-large" | "not-text";
 export type HtmlIframeSandbox = typeof HTML_PREVIEW_IFRAME_SANDBOX;
 
 /**
- * Locked-down iframe descriptor for rendered HTML. `src` is always null so
- * the dialog cannot point the frame at `fetchUrl` / `/media/`. Content is
- * assigned via `srcdoc` from bytes already fetched through Tauri.
+ * Locked-down iframe descriptor for rendered HTML. `src` is always null at
+ * plan time so the dialog cannot point the frame at `fetchUrl` / `/media/`.
+ * After fetch, the dialog assigns an isolated `blob:` / `html-preview:` URL
+ * — never `srcdoc` (parent CSP would kill guest scripts).
  */
 export type HtmlIframePlan = {
   src: null;
-  srcdoc: true;
+  srcdoc: false;
+  isolatedOrigin: true;
   sandbox: HtmlIframeSandbox;
 };
+
+/** How an in-preview `<a href>` should be handled by the guest bootstrap. */
+export type HtmlPreviewHrefKind =
+  | "same-document"
+  | "external"
+  | "other-file"
+  | "ignore";
 
 /**
  * HTML preview contract. Default view is a rendered page; guest JS is
@@ -86,7 +114,7 @@ export type FilePreviewRenderPlan = {
   fetchUrl: string;
   /** Always null — the main webview must never navigate to the blob. */
   navigateUrl: null;
-  /** HTML only: srcdoc iframe with the locked script sandbox. Other kinds: null. */
+  /** HTML only: isolated-origin iframe with the locked script sandbox. Other kinds: null. */
   iframe: HtmlIframePlan | null;
   html: HtmlSafetyPlan | null;
 };
@@ -254,7 +282,8 @@ function isKnownBinary(mime: string, ext: string): boolean {
 export function htmlIframePlan(): HtmlIframePlan {
   return {
     src: null,
-    srcdoc: true,
+    srcdoc: false,
+    isolatedOrigin: true,
     sandbox: HTML_PREVIEW_IFRAME_SANDBOX,
   };
 }
@@ -270,19 +299,186 @@ export function htmlSafetyPlan(): HtmlSafetyPlan {
 }
 
 /**
- * Props the dialog may pass to the HTML preview iframe. `src` is omitted
- * on purpose — callers must not add a navigable URL.
+ * Props the dialog may pass to the HTML preview iframe. `src` must be an
+ * isolated `blob:` or `html-preview:` URL — never `fetchUrl` / `/media/`.
+ * `srcDoc` is omitted so parent CSP cannot apply to a srcdoc guest.
  */
-export function htmlPreviewFrameProps(srcdoc: string): {
+export function htmlPreviewFrameProps(isolatedSrc: string): {
   referrerPolicy: "no-referrer";
   sandbox: HtmlIframeSandbox;
-  srcDoc: string;
+  src: string;
 } {
   return {
     referrerPolicy: "no-referrer",
     sandbox: HTML_PREVIEW_IFRAME_SANDBOX,
-    srcDoc: srcdoc,
+    src: isolatedSrc,
   };
+}
+
+/** `html-preview://localhost/{id}/` — Windows WebView2 maps this to http://html-preview.localhost. */
+export function htmlPreviewProtocolSrc(id: string): string {
+  return `${HTML_PREVIEW_PROTOCOL_SCHEME}://localhost/${id}/`;
+}
+
+/** Object URL for rewritten guest HTML. Caller must `revokeObjectURL`. */
+export function createHtmlPreviewObjectUrl(html: string): string {
+  return URL.createObjectURL(
+    new Blob([html], { type: "text/html;charset=utf-8" }),
+  );
+}
+
+/**
+ * True only for the isolated origins this preview is allowed to frame.
+ * Relay `/media/` URLs and arbitrary https are rejected.
+ */
+export function isSafeHtmlPreviewFrameSrc(src: string): boolean {
+  if (!src || src.includes("/media/")) return false;
+  if (src.startsWith("blob:")) return true;
+  try {
+    const url = new URL(src);
+    if (url.protocol === `${HTML_PREVIEW_PROTOCOL_SCHEME}:`) {
+      return url.hostname === "localhost" || url.hostname === "";
+    }
+    return (
+      url.protocol === "http:" && url.hostname === "html-preview.localhost"
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Classify a guest `<a href>` the way the injected bootstrap will. Hash /
+ * same-document targets stay in-frame; http(s) may popup; anything else is
+ * a missing second file and must not leave the preview.
+ */
+export function classifyHtmlPreviewHref(
+  href: string,
+  baseUri: string,
+): HtmlPreviewHrefKind {
+  const trimmed = href.trim();
+  if (!trimmed || trimmed.toLowerCase().startsWith("javascript:")) {
+    return "ignore";
+  }
+  let url: URL;
+  try {
+    url = new URL(trimmed, baseUri);
+  } catch {
+    return "other-file";
+  }
+  if (url.protocol === "http:" || url.protocol === "https:") {
+    return "external";
+  }
+  let here: URL;
+  try {
+    here = new URL(baseUri);
+  } catch {
+    return "other-file";
+  }
+  if (
+    url.protocol === here.protocol &&
+    url.host === here.host &&
+    url.pathname === here.pathname &&
+    url.search === here.search
+  ) {
+    return "same-document";
+  }
+  return "other-file";
+}
+
+const HTML_PREVIEW_BOOT_ATTR = "data-hb-html-preview-boot";
+
+/**
+ * Guest click / hash bootstrap. Injected as the first script so in-page
+ * `#id` links scroll even when History is flaky, https links popup instead
+ * of replacing the frame, and relative second-file links stay a no-op.
+ */
+export const HTML_PREVIEW_BOOTSTRAP_SOURCE = `(function(){
+  if (window.__HB_HTML_PREVIEW_BOOT__) return;
+  window.__HB_HTML_PREVIEW_BOOT__ = 1;
+  function banner(msg){
+    var el = document.getElementById("hb-html-preview-banner");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "hb-html-preview-banner";
+      el.setAttribute("role", "status");
+      el.style.cssText = "position:sticky;top:0;z-index:2147483647;padding:8px 12px;background:#fff3cd;color:#222;font:14px/1.4 system-ui,sans-serif;border-bottom:1px solid #e0c36c";
+      document.documentElement.insertBefore(el, document.documentElement.firstChild);
+    }
+    el.textContent = msg;
+  }
+  function classify(href){
+    var trimmed = String(href || "").trim();
+    if (!trimmed || trimmed.toLowerCase().indexOf("javascript:") === 0) return "ignore";
+    var url, here;
+    try { url = new URL(trimmed, document.baseURI); } catch (e) { return "other-file"; }
+    if (url.protocol === "http:" || url.protocol === "https:") return "external";
+    try { here = new URL(document.baseURI); } catch (e2) { return "other-file"; }
+    if (url.protocol === here.protocol && url.host === here.host && url.pathname === here.pathname && url.search === here.search) return "same-document";
+    return "other-file";
+  }
+  function scrollToHash(hash){
+    if (!hash || hash === "#") return;
+    var id = hash.charAt(0) === "#" ? hash.slice(1) : hash;
+    try { id = decodeURIComponent(id); } catch (e) {}
+    var target = document.getElementById(id) || document.getElementsByName(id)[0];
+    if (target && target.scrollIntoView) target.scrollIntoView();
+  }
+  document.addEventListener("click", function(event){
+    var t = event.target;
+    var a = t && t.closest ? t.closest("a[href]") : null;
+    if (!a || event.defaultPrevented) return;
+    var kind = classify(a.getAttribute("href") || "");
+    if (kind === "ignore") return;
+    if (kind === "external") {
+      event.preventDefault();
+      try { window.open(new URL(a.getAttribute("href") || "", document.baseURI).href, "_blank", "noopener,noreferrer"); } catch (e) {}
+      return;
+    }
+    if (kind === "same-document") {
+      var url = new URL(a.getAttribute("href") || "", document.baseURI);
+      if (url.hash) {
+        event.preventDefault();
+        scrollToHash(url.hash);
+        try { location.hash = url.hash; } catch (e2) {}
+      }
+      return;
+    }
+    event.preventDefault();
+    banner("This preview is a single file, so links to other files cannot be opened here.");
+  }, true);
+  window.addEventListener("hashchange", function(){ scrollToHash(location.hash); });
+  if (location.hash) scrollToHash(location.hash);
+})();`;
+
+function stripGuestCspAndBase(html: string): string {
+  return html
+    .replace(
+      /<meta\b[^>]*http-equiv\s*=\s*["']?content-security-policy["']?[^>]*>/gi,
+      "",
+    )
+    .replace(/<base\b[^>]*>/gi, "");
+}
+
+/**
+ * Rewrite fetched HTML so the isolated-origin document can run scripts and
+ * handle in-page navigation. Strips a guest CSP/`<base>` that would fight
+ * the preview, then injects the guest CSP meta + bootstrap.
+ */
+export function prepareHtmlPreviewDocument(html: string): string {
+  const stripped = stripGuestCspAndBase(html);
+  const inject = `<meta http-equiv="Content-Security-Policy" content="${HTML_PREVIEW_GUEST_CSP}"><script ${HTML_PREVIEW_BOOT_ATTR}>${HTML_PREVIEW_BOOTSTRAP_SOURCE}</script>`;
+  const headOpen = /<head\b[^>]*>/i.exec(stripped);
+  if (headOpen) {
+    const at = headOpen.index + headOpen[0].length;
+    return stripped.slice(0, at) + inject + stripped.slice(at);
+  }
+  const htmlOpen = /<html\b[^>]*>/i.exec(stripped);
+  if (htmlOpen) {
+    const at = htmlOpen.index + htmlOpen[0].length;
+    return `${stripped.slice(0, at)}<head>${inject}</head>${stripped.slice(at)}`;
+  }
+  return `<!DOCTYPE html><html><head>${inject}</head><body>${stripped}</body></html>`;
 }
 
 /**
@@ -326,8 +522,8 @@ export function resolveFilePreviewKind(input: {
 }
 
 /**
- * Build the dialog's render plan. HTML plans render in a srcdoc iframe
- * whose sandbox allows guest scripts but never same-origin or top
+ * Build the dialog's render plan. HTML plans render in an isolated-origin
+ * iframe whose sandbox allows guest scripts but never same-origin or top
  * navigation. There is no field a caller can set to navigate the main
  * webview or load `/media/`.
  */

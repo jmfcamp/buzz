@@ -3,17 +3,23 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import {
+  classifyHtmlPreviewHref,
   decodeUtf8Text,
   FILE_PREVIEW_MAX_BYTES,
   fileExtension,
   fileTypeLabel,
   formatFileSize,
+  HTML_PREVIEW_GUEST_CSP,
   HTML_PREVIEW_IFRAME_SANDBOX,
+  HTML_PREVIEW_PROTOCOL_SCHEME,
   htmlIframePlan,
   htmlPreviewFrameProps,
+  htmlPreviewProtocolSrc,
   htmlSafetyPlan,
   isLockedHtmlPreviewSandbox,
+  isSafeHtmlPreviewFrameSrc,
   planFilePreviewRender,
+  prepareHtmlPreviewDocument,
   previewSourceLanguage,
   resolveFetchedPreview,
   resolveFilePreviewKind,
@@ -30,6 +36,8 @@ function assertLockedSandbox(sandbox) {
   assert.equal(isLockedHtmlPreviewSandbox(sandbox), true);
   assert.equal(sandbox.includes("allow-scripts"), true);
   assert.equal(sandbox.includes("allow-forms"), true);
+  assert.equal(sandbox.includes("allow-popups"), true);
+  assert.equal(sandbox.includes("allow-popups-to-escape-sandbox"), true);
   assert.equal(sandbox.includes("allow-same-origin"), false);
   assert.equal(sandbox.includes("allow-top-navigation"), false);
 }
@@ -39,7 +47,8 @@ function assertRenderedHtmlPlan(plan) {
   assert.equal(plan.navigateUrl, null);
   assert.ok(plan.iframe, "HTML attachments render in a sandboxed iframe");
   assert.equal(plan.iframe.src, null);
-  assert.equal(plan.iframe.srcdoc, true);
+  assert.equal(plan.iframe.srcdoc, false);
+  assert.equal(plan.iframe.isolatedOrigin, true);
   assertLockedSandbox(plan.iframe.sandbox);
   assert.ok(plan.html, "HTML attachments must carry a rendered safety plan");
   assert.equal(plan.html.mode, "rendered");
@@ -196,7 +205,7 @@ test("resolveFilePreviewKind: octet-stream without extension is sniffed", () => 
   assert.equal(kind.shouldFetch, true);
 });
 
-test("planFilePreviewRender: HTML is a sandboxed srcdoc page, never /media/ src", () => {
+test("planFilePreviewRender: HTML is a sandboxed isolated-origin page, never /media/ src", () => {
   const plan = planFilePreviewRender({
     href: MEDIA_HTML,
     mime: "text/html",
@@ -225,19 +234,24 @@ test("htmlSafetyPlan: guest scripts on, same-origin and top-nav off", () => {
   assert.equal(plan.navigateTo, null);
 });
 
-test("htmlIframePlan: srcdoc only, locked script sandbox, no navigable src", () => {
+test("htmlIframePlan: isolated origin, locked script sandbox, no navigable src", () => {
   const iframe = htmlIframePlan();
   assert.equal(iframe.src, null);
-  assert.equal(iframe.srcdoc, true);
+  assert.equal(iframe.srcdoc, false);
+  assert.equal(iframe.isolatedOrigin, true);
   assertLockedSandbox(iframe.sandbox);
 });
 
-test("htmlPreviewFrameProps: srcDoc from fetched bytes, no src field", () => {
-  const props = htmlPreviewFrameProps("<h1>Hi</h1>");
-  assert.equal(props.srcDoc, "<h1>Hi</h1>");
+test("htmlPreviewFrameProps: isolated src from fetched bytes, no srcDoc field", () => {
+  const isolated = htmlPreviewProtocolSrc(
+    "550e8400-e29b-41d4-a716-446655440000",
+  );
+  const props = htmlPreviewFrameProps(isolated);
+  assert.equal(props.src, isolated);
+  assert.equal(isSafeHtmlPreviewFrameSrc(props.src), true);
   assertLockedSandbox(props.sandbox);
   assert.equal(props.referrerPolicy, "no-referrer");
-  assert.equal("src" in props, false);
+  assert.equal("srcDoc" in props, false);
 });
 
 test("isLockedHtmlPreviewSandbox: rejects empty, same-origin, and top-nav", () => {
@@ -362,24 +376,110 @@ test("FilePreviewDialog HTML iframe is sandboxed and never points at /media/", (
     "utf8",
   );
   assert.equal(src.includes("<iframe"), true);
-  assert.equal(src.includes("srcDoc"), true);
+  assert.equal(src.includes("src={frame.src}"), true);
+  assert.equal(src.includes("srcDoc"), false);
   assert.equal(src.includes("sandbox={frame.sandbox}"), true);
   assert.equal(src.includes("isLockedHtmlPreviewSandbox"), true);
+  assert.equal(src.includes("isSafeHtmlPreviewFrameSrc"), true);
+  assert.equal(src.includes("prepareHtmlPreviewDocument"), true);
   assert.equal(src.includes("allow-same-origin"), true); // refuse-to-mount comment
-  // iframe src is never bound to the relay URL or fetchUrl.
-  assert.equal(/<iframe[\s\S]*?\ssrc=\{/.test(src), false);
+  // iframe src is the isolated origin — never the relay URL or fetchUrl.
   assert.equal(/src=\{href\}/.test(src), false);
   assert.equal(/src=\{plan\.fetchUrl\}/.test(src), false);
   // Download is a <button> that invokes Tauri — not an <a href={mediaUrl}>.
   assert.equal(/<a\b[^>]*href=\{href\}/.test(src), false);
   assert.equal(/window\.location/.test(src), false);
   assert.equal(/location\.assign|location\.href/.test(src), false);
-  // Fullscreen is layout-only — same srcdoc iframe, no /media/ navigation.
+  // Fullscreen is layout-only — same isolated iframe, no /media/ navigation.
   assert.equal(src.includes("file-preview-fullscreen"), true);
   assert.equal(src.includes("file-preview-exit-fullscreen"), true);
   assert.equal(src.includes("setFullscreen"), true);
-  assert.equal(/iframeSrc\s*=/.test(src), false);
+  assert.equal(/iframeSrc\s*=[^=]/.test(src), false);
   assert.equal(src.includes("allowScripts"), true); // refuse-to-mount requires true
+});
+
+test("classifyHtmlPreviewHref: hash stays in-document; https is external; other files no-op", () => {
+  const base = "html-preview://localhost/550e8400-e29b-41d4-a716-446655440000/";
+  assert.equal(classifyHtmlPreviewHref("#section", base), "same-document");
+  assert.equal(
+    classifyHtmlPreviewHref(
+      "html-preview://localhost/550e8400-e29b-41d4-a716-446655440000/#panel",
+      base,
+    ),
+    "same-document",
+  );
+  assert.equal(
+    classifyHtmlPreviewHref("https://example.com/docs", base),
+    "external",
+  );
+  assert.equal(classifyHtmlPreviewHref("other.html", base), "other-file");
+  assert.equal(classifyHtmlPreviewHref("./page.html#x", base), "other-file");
+  assert.equal(classifyHtmlPreviewHref("javascript:alert(1)", base), "ignore");
+  assert.equal(
+    planFilePreviewRender({
+      href: MEDIA_HTML,
+      mime: "text/html",
+      filename: "page.html",
+    }).navigateUrl,
+    null,
+  );
+});
+
+test("isSafeHtmlPreviewFrameSrc: only blob and html-preview origins", () => {
+  assert.equal(
+    isSafeHtmlPreviewFrameSrc(
+      htmlPreviewProtocolSrc("550e8400-e29b-41d4-a716-446655440000"),
+    ),
+    true,
+  );
+  assert.equal(
+    isSafeHtmlPreviewFrameSrc(
+      "http://html-preview.localhost/550e8400-e29b-41d4-a716-446655440000/",
+    ),
+    true,
+  );
+  assert.equal(isSafeHtmlPreviewFrameSrc("blob:http://localhost/abc"), true);
+  assert.equal(isSafeHtmlPreviewFrameSrc(MEDIA_HTML), false);
+  assert.equal(isSafeHtmlPreviewFrameSrc("https://example.com"), false);
+  assert.equal(isSafeHtmlPreviewFrameSrc(""), false);
+  assert.equal(HTML_PREVIEW_PROTOCOL_SCHEME, "html-preview");
+});
+
+test("prepareHtmlPreviewDocument: guest CSP + bootstrap; parent policy stays strict", () => {
+  const prepared = prepareHtmlPreviewDocument(
+    '<html><head><meta http-equiv="Content-Security-Policy" content="script-src \'none\'"><base href="https://evil.example/"></head><body><h1>Live?</h1><a href="#section">Go</a></body></html>',
+  );
+  assert.equal(prepared.includes("script-src 'none'"), false);
+  assert.equal(prepared.includes("https://evil.example"), false);
+  assert.equal(prepared.includes(HTML_PREVIEW_GUEST_CSP), true);
+  assert.equal(prepared.includes("data-hb-html-preview-boot"), true);
+  assert.equal(prepared.includes("same-document"), true);
+  assert.equal(prepared.includes("<h1>Live?</h1>"), true);
+
+  const parentCsp = readFileSync(
+    new URL("../../../src-tauri/tauri.conf.json", import.meta.url),
+    "utf8",
+  );
+  assert.match(parentCsp, /script-src 'self' 'wasm-unsafe-eval'/);
+  assert.equal(parentCsp.includes("script-src 'self' 'unsafe-inline'"), false);
+  assert.equal(
+    /script-src[^;]*'unsafe-inline'/.test(
+      parentCsp.slice(parentCsp.indexOf('"csp"')),
+    ),
+    false,
+  );
+  assert.equal(parentCsp.includes("frame-src 'self' html-preview:"), true);
+  assert.equal(parentCsp.includes("http://html-preview.localhost"), true);
+  assert.match(parentCsp, /frame-src[^"]*blob:/);
+});
+
+test("isLockedHtmlPreviewSandbox: popups-to-escape-sandbox does not unlock same-origin", () => {
+  assert.equal(
+    isLockedHtmlPreviewSandbox(
+      `${HTML_PREVIEW_IFRAME_SANDBOX} allow-same-origin`,
+    ),
+    false,
+  );
 });
 
 test("non-interactive markdown keeps fenced code in a pre so lines stack", () => {

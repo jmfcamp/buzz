@@ -1,4 +1,5 @@
 import * as React from "react";
+import { isTauri } from "@tauri-apps/api/core";
 import { Download, Maximize2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -9,11 +10,15 @@ import { Button } from "@/shared/ui/button";
 import { ChooserDialogContent } from "@/shared/ui/chooser-dialog-content";
 import { Dialog } from "@/shared/ui/dialog";
 import {
+  createHtmlPreviewObjectUrl,
   fileTypeLabel,
   formatFileSize,
   htmlPreviewFrameProps,
+  htmlPreviewProtocolSrc,
   isLockedHtmlPreviewSandbox,
+  isSafeHtmlPreviewFrameSrc,
   planFilePreviewRender,
+  prepareHtmlPreviewDocument,
   previewSourceLanguage,
   resolveFetchedPreview,
   type FilePreviewKind,
@@ -272,6 +277,65 @@ export function FilePreviewDialog({
   );
 }
 
+function shouldUseHtmlPreviewProtocol(): boolean {
+  if (typeof window === "undefined") return false;
+  if ("__BUZZ_E2E_INVOKE_MOCK_COMMAND__" in window) return false;
+  return isTauri();
+}
+
+function useHtmlPreviewFrameSrc(text: string): string | null {
+  const [src, setSrc] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const blobUrlRef = { current: null as string | null };
+    const previewIdRef = { current: null as string | null };
+    const prepared = prepareHtmlPreviewDocument(text);
+
+    async function mount() {
+      if (shouldUseHtmlPreviewProtocol()) {
+        try {
+          const id = await invokeTauri<string>("register_html_preview", {
+            html: prepared,
+          });
+          if (cancelled) {
+            await invokeTauri("revoke_html_preview", { id });
+            return;
+          }
+          previewIdRef.current = id;
+          setSrc(htmlPreviewProtocolSrc(id));
+          return;
+        } catch {
+          // Dev / missing protocol: fall through to a blob: URL.
+        }
+      }
+      const url = createHtmlPreviewObjectUrl(prepared);
+      if (cancelled) {
+        URL.revokeObjectURL(url);
+        return;
+      }
+      blobUrlRef.current = url;
+      setSrc(url);
+    }
+
+    void mount();
+    return () => {
+      cancelled = true;
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = null;
+      }
+      if (previewIdRef.current) {
+        void invokeTauri("revoke_html_preview", { id: previewIdRef.current });
+        previewIdRef.current = null;
+      }
+      setSrc(null);
+    };
+  }, [text]);
+
+  return src;
+}
+
 function FilePreviewBody({
   filename,
   fullscreen,
@@ -360,19 +424,23 @@ function HtmlPreview({
 }) {
   const html = plan.html;
   const iframe = plan.iframe;
+  const frameSrc = useHtmlPreviewFrameSrc(text);
   // Refuse to mount unless the plan is the locked contract: guest scripts
   // inside the frame, unique origin (no allow-same-origin), no top-nav.
-  if (
-    !html ||
-    !iframe ||
-    html.mode !== "rendered" ||
-    html.allowScripts !== true ||
-    html.navigateTo != null ||
-    html.iframeSrc != null ||
-    iframe.src != null ||
-    !isLockedHtmlPreviewSandbox(iframe.sandbox) ||
-    !isLockedHtmlPreviewSandbox(html.iframeSandbox)
-  ) {
+  const planIsSafe = Boolean(
+    html &&
+      iframe &&
+      html.mode === "rendered" &&
+      html.allowScripts === true &&
+      html.navigateTo == null &&
+      html.iframeSrc == null &&
+      iframe.src == null &&
+      iframe.srcdoc === false &&
+      iframe.isolatedOrigin === true &&
+      isLockedHtmlPreviewSandbox(iframe.sandbox) &&
+      isLockedHtmlPreviewSandbox(html.iframeSandbox),
+  );
+  if (!planIsSafe) {
     return (
       <Unavailable
         data-testid="file-preview-unavailable"
@@ -382,28 +450,43 @@ function HtmlPreview({
     );
   }
 
-  const frame = htmlPreviewFrameProps(text);
+  const frame =
+    frameSrc && isSafeHtmlPreviewFrameSrc(frameSrc)
+      ? htmlPreviewFrameProps(frameSrc)
+      : null;
 
   return (
     <>
       <TabsContent
-        className={cn("mt-0 min-h-0", fullscreen && "flex flex-1 flex-col")}
+        className={cn(
+          "mt-0 min-h-0 data-[state=inactive]:pointer-events-none data-[state=inactive]:invisible",
+          fullscreen && "flex flex-1 flex-col",
+        )}
         forceMount
         value="preview"
       >
         <div className={cn(fullscreen && "relative min-h-0 flex-1")}>
-          <iframe
-            className={cn(
-              "w-full rounded-2xl border border-border/70 bg-background",
-              fullscreen ? "absolute inset-0 h-full" : "h-[min(60vh,36rem)]",
-            )}
-            data-preview-kind="html"
-            data-testid="file-preview-html"
-            referrerPolicy={frame.referrerPolicy}
-            sandbox={frame.sandbox}
-            srcDoc={frame.srcDoc}
-            title={`Preview of ${filename}`}
-          />
+          {frame ? (
+            <iframe
+              className={cn(
+                "pointer-events-auto relative z-10 w-full rounded-2xl border border-border/70 bg-background",
+                fullscreen ? "absolute inset-0 h-full" : "h-[min(60vh,36rem)]",
+              )}
+              data-preview-kind="html"
+              data-testid="file-preview-html"
+              referrerPolicy={frame.referrerPolicy}
+              sandbox={frame.sandbox}
+              src={frame.src}
+              title={`Preview of ${filename}`}
+            />
+          ) : (
+            <div
+              className="flex min-h-48 items-center justify-center text-muted-foreground"
+              data-testid="file-preview-html-loading"
+            >
+              <Spinner className="h-6 w-6" />
+            </div>
+          )}
         </div>
       </TabsContent>
       <TabsContent className="mt-0" value="source">
