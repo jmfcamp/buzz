@@ -44,6 +44,11 @@ before(() => {
     addEventListener() {},
     removeEventListener() {},
   });
+  dom.window.requestAnimationFrame = (callback) => {
+    callback(0);
+    return 0;
+  };
+  dom.window.cancelAnimationFrame = () => undefined;
 });
 
 afterEach(async () => {
@@ -92,9 +97,9 @@ test("overlay shows chrome PIN and parks on Dismiss", async () => {
     "Inspect",
   );
   assert.ok(
-    screen.getByTestId("playground-mode-row").contains(
-      screen.getByTestId("playground-chrome-pin"),
-    ),
+    screen
+      .getByTestId("playground-mode-row")
+      .contains(screen.getByTestId("playground-chrome-pin")),
   );
 
   const { fireEvent } = await import("@testing-library/react");
@@ -199,6 +204,9 @@ test("PIN is hidden when empty and fullscreen fills the window", async () => {
     "../lib/sessions.ts"
   );
   const { PLAYGROUND_DESKTOP_UA } = await import("../lib/devices.ts");
+  const { PLAYGROUND_FULLSCREEN_TITLEBAR_GAP_TEST_ID } = await import(
+    "../lib/overlayLayout.ts"
+  );
 
   configurePlaygroundScope("pub", "wss://relay.example.com");
   const session = addPlaygroundSession({
@@ -211,8 +219,20 @@ test("PIN is hidden when empty and fullscreen fills the window", async () => {
   render(createElement(PlaygroundOverlay, { session }));
   assert.equal(screen.queryByTestId("playground-chrome-pin"), null);
   assert.equal(
-    screen.getByTestId("playground-webview-host").getAttribute("data-user-agent"),
+    screen.queryByTestId(PLAYGROUND_FULLSCREEN_TITLEBAR_GAP_TEST_ID),
+    null,
+  );
+  assert.equal(
+    screen
+      .getByTestId("playground-webview-host")
+      .getAttribute("data-user-agent"),
     PLAYGROUND_DESKTOP_UA,
+  );
+  assert.match(
+    screen
+      .getByTestId("playground-webview-host")
+      .getAttribute("data-layout-key") ?? "",
+    /^window:/,
   );
 
   await fireEvent.click(screen.getByTestId("playground-fullscreen"));
@@ -220,4 +240,110 @@ test("PIN is hidden when empty and fullscreen fills the window", async () => {
   assert.equal(overlay.getAttribute("data-fullscreen"), "true");
   assert.match(overlay.className, /fixed/);
   assert.match(overlay.className, /inset-0/);
+  const gap = screen.getByTestId(PLAYGROUND_FULLSCREEN_TITLEBAR_GAP_TEST_ID);
+  assert.ok(overlay.contains(gap));
+  assert.ok(
+    gap.compareDocumentPosition(screen.getByTestId("playground-chrome")) & 4,
+  );
+  assert.match(
+    screen
+      .getByTestId("playground-webview-host")
+      .getAttribute("data-layout-key") ?? "",
+    /^fullscreen:/,
+  );
+  assert.equal(
+    screen.getByTestId("playground-fullscreen").getAttribute("aria-label"),
+    "Exit fullscreen",
+  );
+  assert.equal(screen.getByTestId("playground-dispose").disabled, false);
+  assert.equal(screen.getByTestId("playground-inspect").disabled, false);
+});
+
+test("Escape and the fullscreen control exit overlay fullscreen", async () => {
+  const { createElement } = await import("react");
+  const { render, screen, fireEvent } = await import("@testing-library/react");
+  const { PlaygroundOverlay } = await import("./PlaygroundOverlay.tsx");
+  const { addPlaygroundSession, configurePlaygroundScope } = await import(
+    "../lib/sessions.ts"
+  );
+  const { PLAYGROUND_FULLSCREEN_TITLEBAR_GAP_TEST_ID } = await import(
+    "../lib/overlayLayout.ts"
+  );
+
+  configurePlaygroundScope("pub", "wss://relay.example.com");
+  const session = addPlaygroundSession({
+    hula: "playground",
+    v: 1,
+    name: "Demo",
+    url: "https://app.example.com",
+    sid: "demo-escape",
+  });
+  render(createElement(PlaygroundOverlay, { session }));
+  await fireEvent.click(screen.getByTestId("playground-fullscreen"));
+  assert.equal(
+    screen.getByTestId("playground-overlay").getAttribute("data-fullscreen"),
+    "true",
+  );
+
+  await fireEvent.keyDown(window, { key: "Escape" });
+  assert.equal(
+    screen.getByTestId("playground-overlay").getAttribute("data-fullscreen"),
+    null,
+  );
+  assert.equal(
+    screen.queryByTestId(PLAYGROUND_FULLSCREEN_TITLEBAR_GAP_TEST_ID),
+    null,
+  );
+  assert.match(
+    screen
+      .getByTestId("playground-webview-host")
+      .getAttribute("data-layout-key") ?? "",
+    /^window:/,
+  );
+
+  await fireEvent.click(screen.getByTestId("playground-fullscreen"));
+  assert.equal(
+    screen.getByTestId("playground-overlay").getAttribute("data-fullscreen"),
+    "true",
+  );
+  await fireEvent.click(screen.getByTestId("playground-fullscreen"));
+  assert.equal(
+    screen.getByTestId("playground-overlay").getAttribute("data-fullscreen"),
+    null,
+  );
+  assert.equal(
+    screen.getByTestId("playground-fullscreen").getAttribute("aria-label"),
+    "Fullscreen",
+  );
+});
+
+test("Inspect re-syncs the native stage without targeting main", async () => {
+  const { createElement } = await import("react");
+  const { render, screen, fireEvent } = await import("@testing-library/react");
+  const { PlaygroundOverlay } = await import("./PlaygroundOverlay.tsx");
+  const { addPlaygroundSession, configurePlaygroundScope } = await import(
+    "../lib/sessions.ts"
+  );
+
+  configurePlaygroundScope("pub", "wss://relay.example.com");
+  const session = addPlaygroundSession({
+    hula: "playground",
+    v: 1,
+    name: "Demo",
+    url: "https://app.example.com",
+    sid: "demo-inspect",
+  });
+  render(createElement(PlaygroundOverlay, { session }));
+  const before = screen
+    .getByTestId("playground-webview-host")
+    .getAttribute("data-layout-key");
+  const { act } = await import("@testing-library/react");
+  await act(async () => {
+    await fireEvent.click(screen.getByTestId("playground-inspect"));
+  });
+  const after = screen
+    .getByTestId("playground-webview-host")
+    .getAttribute("data-layout-key");
+  assert.notEqual(after, before);
+  assert.match(after ?? "", /^window:/);
 });

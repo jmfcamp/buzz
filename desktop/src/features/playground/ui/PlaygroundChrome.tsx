@@ -47,6 +47,7 @@ export function PlaygroundChrome({
   fullscreen,
   mode,
   onModeChange,
+  onStageResync,
   onToggleFullscreen,
   session,
 }: {
@@ -54,6 +55,7 @@ export function PlaygroundChrome({
   fullscreen: boolean;
   mode: PlaygroundChromeMode;
   onModeChange: (mode: PlaygroundChromeMode) => void;
+  onStageResync?: () => void;
   onToggleFullscreen: () => void;
   session: PlaygroundSession;
 }) {
@@ -95,6 +97,7 @@ export function PlaygroundChrome({
   async function handleInspect() {
     try {
       await inspectPlaygroundWebview(session.sid);
+      onStageResync?.();
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -131,7 +134,7 @@ export function PlaygroundChrome({
 
   return (
     <header
-      className="flex shrink-0 flex-col gap-1 border-b border-border px-2 py-1"
+      className="relative z-20 flex shrink-0 flex-col gap-1 border-b border-border bg-background px-2 py-1"
       data-testid="playground-chrome"
     >
       <div className="flex min-w-0 items-center gap-1">

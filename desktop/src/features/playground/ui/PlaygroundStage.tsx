@@ -20,28 +20,44 @@ import type { PlaygroundSession } from "../lib/sessions";
 
 export type PlaygroundChromeMode = "desktop" | "responsive" | "mobile";
 
-function readPosition(el: HTMLElement) {
+function readHostBounds(
+  el: HTMLElement,
+  viewport?: { width: number; height: number },
+) {
   const rect = el.getBoundingClientRect();
-  return { x: rect.x, y: rect.y };
+  return {
+    x: rect.x,
+    y: rect.y,
+    width: viewport?.width ?? rect.width,
+    height: viewport?.height ?? rect.height,
+  };
 }
 
 export function PlaygroundStage({
+  layoutKey = "window:0",
   mode,
   session,
 }: {
+  layoutKey?: string;
   mode: PlaygroundChromeMode;
   session: PlaygroundSession;
 }) {
   if (mode === "mobile") {
-    return <MobileDeviceMuseum session={session} />;
+    return <MobileDeviceMuseum layoutKey={layoutKey} session={session} />;
   }
   if (mode === "responsive") {
-    return <ResponsiveStage session={session} />;
+    return <ResponsiveStage layoutKey={layoutKey} session={session} />;
   }
-  return <DesktopStage session={session} />;
+  return <DesktopStage layoutKey={layoutKey} session={session} />;
 }
 
-function DesktopStage({ session }: { session: PlaygroundSession }) {
+function DesktopStage({
+  layoutKey,
+  session,
+}: {
+  layoutKey: string;
+  session: PlaygroundSession;
+}) {
   const hostRef = React.useRef<HTMLDivElement | null>(null);
   return (
     <div
@@ -50,6 +66,7 @@ function DesktopStage({ session }: { session: PlaygroundSession }) {
     >
       <NativeStageHost
         hostRef={hostRef}
+        layoutKey={layoutKey}
         session={session}
         userAgent={playgroundUserAgent("desktop")}
       />
@@ -57,7 +74,13 @@ function DesktopStage({ session }: { session: PlaygroundSession }) {
   );
 }
 
-function ResponsiveStage({ session }: { session: PlaygroundSession }) {
+function ResponsiveStage({
+  layoutKey,
+  session,
+}: {
+  layoutKey: string;
+  session: PlaygroundSession;
+}) {
   const [width, setWidth] = React.useState(DEFAULT_RESPONSIVE_VIEWPORT.width);
   const [height, setHeight] = React.useState(
     DEFAULT_RESPONSIVE_VIEWPORT.height,
@@ -106,6 +129,7 @@ function ResponsiveStage({ session }: { session: PlaygroundSession }) {
         >
           <NativeStageHost
             hostRef={hostRef}
+            layoutKey={layoutKey}
             session={session}
             userAgent={playgroundUserAgent("responsive")}
             viewport={{ width, height }}
@@ -185,7 +209,13 @@ function StageResizeHandle({
   );
 }
 
-function MobileDeviceMuseum({ session }: { session: PlaygroundSession }) {
+function MobileDeviceMuseum({
+  layoutKey,
+  session,
+}: {
+  layoutKey: string;
+  session: PlaygroundSession;
+}) {
   const [deviceId, setDeviceId] =
     React.useState<PlaygroundDeviceId>("iphone-16");
   const [orientation, setOrientation] = React.useState<
@@ -242,6 +272,7 @@ function MobileDeviceMuseum({ session }: { session: PlaygroundSession }) {
         >
           <NativeStageHost
             hostRef={hostRef}
+            layoutKey={layoutKey}
             session={session}
             userAgent={playgroundUserAgent("mobile", device)}
             viewport={viewport}
@@ -254,31 +285,37 @@ function MobileDeviceMuseum({ session }: { session: PlaygroundSession }) {
 
 function NativeStageHost({
   hostRef,
+  layoutKey,
   session,
   userAgent,
   viewport,
 }: {
   hostRef: React.RefObject<HTMLDivElement | null>;
+  layoutKey: string;
   session: PlaygroundSession;
   userAgent: string;
   viewport?: { width: number; height: number };
 }) {
-  React.useEffect(() => {
+  const viewportWidth = viewport?.width;
+  const viewportHeight = viewport?.height;
+
+  React.useLayoutEffect(() => {
     const host = hostRef.current;
     if (!host) return;
     let cancelled = false;
     let opened = false;
+    // layoutKey is the position-change signal: ResizeObserver ignores
+    // moves that keep the same size (fullscreen toggle, inspect restore).
+    void layoutKey;
 
     const sync = () => {
       if (cancelled || !hostRef.current) return;
-      const position = readPosition(hostRef.current);
-      const hostBox = hostRef.current.getBoundingClientRect();
-      const bounds = {
-        x: position.x,
-        y: position.y,
-        width: viewport?.width ?? hostBox.width,
-        height: viewport?.height ?? hostBox.height,
-      };
+      const bounds = readHostBounds(
+        hostRef.current,
+        viewportWidth != null && viewportHeight != null
+          ? { width: viewportWidth, height: viewportHeight }
+          : undefined,
+      );
       if (!playgroundWebviewBoundsAreUsable(bounds)) return;
       if (!opened) {
         opened = true;
@@ -298,22 +335,40 @@ function NativeStageHost({
     sync();
     const observer = new ResizeObserver(sync);
     observer.observe(host);
+    window.addEventListener("resize", sync);
+    const visualViewport = window.visualViewport;
+    visualViewport?.addEventListener("resize", sync);
+    visualViewport?.addEventListener("scroll", sync);
+    const raf =
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame(() => {
+            if (!cancelled) sync();
+          })
+        : 0;
     return () => {
       cancelled = true;
       observer.disconnect();
+      window.removeEventListener("resize", sync);
+      visualViewport?.removeEventListener("resize", sync);
+      visualViewport?.removeEventListener("scroll", sync);
+      if (typeof window.cancelAnimationFrame === "function") {
+        window.cancelAnimationFrame(raf);
+      }
     };
   }, [
     hostRef,
+    layoutKey,
     session.sid,
     session.url,
     userAgent,
-    viewport?.width,
-    viewport?.height,
+    viewportWidth,
+    viewportHeight,
   ]);
 
   return (
     <div
       className={cn("h-full min-h-[12rem] w-full bg-background")}
+      data-layout-key={layoutKey}
       data-testid="playground-webview-host"
       data-user-agent={userAgent}
       data-viewport-width={viewport?.width}
