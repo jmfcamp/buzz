@@ -93,7 +93,7 @@ test("dock snap width is flush to the thread pane left edge", () => {
   assert.equal(playgroundDockWidthFromThreadLeft(1000, 256, 256 + 616), 616);
   assert.equal(
     playgroundDockWidthFlushToThread(1000, 800),
-    1000 - PLAYGROUND_DOCK_MIN_REMAINDER_PX,
+    PLAYGROUND_DOCK_MIN_WIDTH_PX,
   );
   assert.equal(
     playgroundDockWidthFlushToThread(1000, 50),
