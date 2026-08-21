@@ -20,6 +20,7 @@ before(() => {
 afterEach(async () => {
   const { resetPlaygroundState } = await import("./sessions.ts");
   resetPlaygroundState();
+  globalThis.localStorage?.clear();
 });
 
 test("add creates a personal session; dismiss parks; dispose removes", async () => {
@@ -51,4 +52,28 @@ test("add creates a personal session; dismiss parks; dispose removes", async () 
 
   addPlaygroundSession(card);
   assert.equal(listPlaygroundSessions().length, 1);
+});
+
+test("hasPlaygroundSession tracks left-menu rows; parkPlaygroundThen dismisses", async () => {
+  const {
+    addPlaygroundSession,
+    configurePlaygroundScope,
+    getActivePlaygroundSid,
+    hasPlaygroundSession,
+    parkPlaygroundThen,
+  } = await import("./sessions.ts");
+
+  configurePlaygroundScope("pub", "wss://relay.example.com");
+  assert.equal(hasPlaygroundSession("demo-1"), false);
+  addPlaygroundSession(card);
+  assert.equal(hasPlaygroundSession("demo-1"), true);
+  assert.equal(getActivePlaygroundSid(), "demo-1");
+
+  let selected = false;
+  parkPlaygroundThen(() => {
+    selected = true;
+  })();
+  assert.equal(selected, true);
+  assert.equal(getActivePlaygroundSid(), null);
+  assert.equal(hasPlaygroundSession("demo-1"), true);
 });

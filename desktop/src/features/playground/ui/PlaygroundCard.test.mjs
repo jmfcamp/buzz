@@ -43,60 +43,149 @@ afterEach(async () => {
   cleanup();
   const { resetPlaygroundState } = await import("../lib/sessions.ts");
   resetPlaygroundState();
+  globalThis.localStorage?.clear();
   delete globalThis.__BUZZ_PLAYGROUND_PROBE__;
+  delete globalThis.__BUZZ_PLAYGROUND_OPEN_URL__;
+  delete dom.window.__TAURI_INTERNALS__;
+  delete globalThis.__TAURI_INTERNALS__;
 });
 
 after(() => dom.window.close());
 
-test("Add probes first: down means toast and no ghost row", async () => {
+async function renderCard() {
   const { createElement } = await import("react");
-  const { fireEvent, render, screen, waitFor } = await import(
-    "@testing-library/react"
-  );
+  const { render, screen } = await import("@testing-library/react");
   const { PlaygroundCard } = await import("./PlaygroundCard.tsx");
-  const { configurePlaygroundScope, listPlaygroundSessions } = await import(
-    "../lib/sessions.ts"
+  const { configurePlaygroundScope } = await import("../lib/sessions.ts");
+  configurePlaygroundScope("pub", "wss://relay.example.com");
+  render(createElement(PlaygroundCard, { card }));
+  return screen;
+}
+
+test("Open sits to the right of the body, not as a footer-only action", async () => {
+  const screen = await renderCard();
+  const cardEl = screen.getByTestId("playground-card");
+  assert.equal(cardEl.getAttribute("data-orientation"), "horizontal");
+  const open = screen.getByTestId("playground-card-open");
+  assert.equal(open.textContent, "Open");
+  const body = screen
+    .getByTestId("playground-card-name")
+    .closest("[data-slot='attachment-content']");
+  const actions = open.closest("[data-slot='attachment-actions']");
+  assert.ok(body);
+  assert.ok(actions);
+  assert.equal(body.parentElement, cardEl);
+  assert.equal(actions.parentElement, cardEl);
+  const children = [...cardEl.children];
+  assert.ok(children.indexOf(actions) > children.indexOf(body));
+});
+
+test("Open probes first: down means toast and no ghost row", async () => {
+  const { fireEvent, waitFor } = await import("@testing-library/react");
+  const { listPlaygroundSessions } = await import("../lib/sessions.ts");
+  const screen = await renderCard();
+
+  assert.equal(screen.getByTestId("playground-card-name").textContent, "Demo");
+  assert.match(
+    screen.getByTestId("playground-card-pin").textContent ?? "",
+    /4455/,
   );
 
-  configurePlaygroundScope("pub", "wss://relay.example.com");
   globalThis.__BUZZ_PLAYGROUND_PROBE__ = () => ({
     up: false,
     status: 502,
     message: "bad gateway",
   });
 
-  render(createElement(PlaygroundCard, { card }));
-  assert.equal(screen.getByTestId("playground-card-name").textContent, "Demo");
-  assert.match(
-    screen.getByTestId("playground-card-pin").textContent ?? "",
-    /4455/,
-  );
-  await fireEvent.click(screen.getByTestId("playground-card-add"));
+  await fireEvent.click(screen.getByTestId("playground-card-open"));
   await waitFor(() => assert.equal(listPlaygroundSessions().length, 0));
+  await waitFor(() =>
+    assert.equal(screen.getByTestId("playground-card-open").disabled, false),
+  );
 });
 
-test("Add on an up probe creates a session that the card can re-add after dispose", async () => {
-  const { createElement } = await import("react");
-  const { fireEvent, render, screen, waitFor } = await import(
-    "@testing-library/react"
-  );
-  const { PlaygroundCard } = await import("./PlaygroundCard.tsx");
+test("Open on a new sid probes and creates a session", async () => {
+  const { fireEvent, waitFor } = await import("@testing-library/react");
+  const { listPlaygroundSessions } = await import("../lib/sessions.ts");
+  const screen = await renderCard();
+  let probed = 0;
+  globalThis.__BUZZ_PLAYGROUND_PROBE__ = () => {
+    probed += 1;
+    return { up: true, status: 200 };
+  };
+
+  await fireEvent.click(screen.getByTestId("playground-card-open"));
+  await waitFor(() => assert.equal(listPlaygroundSessions().length, 1));
+  assert.equal(probed, 1);
+});
+
+test("Open on an existing sid shows it and does not probe again", async () => {
+  const { fireEvent, waitFor } = await import("@testing-library/react");
   const {
-    configurePlaygroundScope,
-    disposePlayground,
+    addPlaygroundSession,
+    dismissPlayground,
+    getActivePlaygroundSid,
     listPlaygroundSessions,
   } = await import("../lib/sessions.ts");
+  const screen = await renderCard();
 
-  configurePlaygroundScope("pub", "wss://relay.example.com");
-  globalThis.__BUZZ_PLAYGROUND_PROBE__ = () => ({ up: true, status: 200 });
+  addPlaygroundSession(card);
+  dismissPlayground();
+  assert.equal(getActivePlaygroundSid(), null);
+  assert.equal(listPlaygroundSessions().length, 1);
 
-  render(createElement(PlaygroundCard, { card }));
-  await fireEvent.click(screen.getByTestId("playground-card-add"));
-  await waitFor(() => assert.equal(listPlaygroundSessions().length, 1));
+  let probed = 0;
+  globalThis.__BUZZ_PLAYGROUND_PROBE__ = () => {
+    probed += 1;
+    return { up: true, status: 200 };
+  };
 
-  disposePlayground("demo-1");
+  await fireEvent.click(screen.getByTestId("playground-card-open"));
+  await waitFor(() => assert.equal(getActivePlaygroundSid(), "demo-1"));
+  assert.equal(listPlaygroundSessions().length, 1);
+  assert.equal(probed, 0);
+});
+
+test("URL is an anchor that opens the browser and does not add a session", async () => {
+  const { fireEvent } = await import("@testing-library/react");
+  const { listPlaygroundSessions } = await import("../lib/sessions.ts");
+  const screen = await renderCard();
+  let probed = 0;
+  globalThis.__BUZZ_PLAYGROUND_PROBE__ = () => {
+    probed += 1;
+    return { up: true, status: 200 };
+  };
+  const opened = [];
+  globalThis.__BUZZ_PLAYGROUND_OPEN_URL__ = (url) => {
+    opened.push(url);
+  };
+
+  const url = screen.getByTestId("playground-card-url");
+  assert.equal(url.tagName, "A");
+  assert.equal(url.getAttribute("href"), "https://app.example.com");
+  await fireEvent.click(url);
+  assert.equal(probed, 0);
   assert.equal(listPlaygroundSessions().length, 0);
+  assert.deepEqual(opened, ["https://app.example.com"]);
+});
 
-  await fireEvent.click(screen.getByTestId("playground-card-add"));
-  await waitFor(() => assert.equal(listPlaygroundSessions().length, 1));
+test("PIN copy button writes the pin, not the URL", async () => {
+  const { fireEvent, waitFor } = await import("@testing-library/react");
+  const screen = await renderCard();
+  let copied = null;
+  const internals = {
+    invoke: async (cmd, args) => {
+      if (cmd === "copy_text_to_clipboard") {
+        copied = args.text;
+        return;
+      }
+      throw new Error(`unmocked Tauri command: ${cmd}`);
+    },
+    transformCallback: () => Math.random(),
+  };
+  dom.window.__TAURI_INTERNALS__ = internals;
+  globalThis.__TAURI_INTERNALS__ = internals;
+
+  await fireEvent.click(screen.getByTestId("playground-card-copy-pin"));
+  await waitFor(() => assert.equal(copied, "4455"));
 });

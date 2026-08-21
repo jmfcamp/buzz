@@ -128,12 +128,28 @@ export function addPlaygroundSession(card: PlaygroundCard): PlaygroundSession {
   return session;
 }
 
+/** True when this sid already has a left-menu playground row. */
+export function hasPlaygroundSession(sid: string): boolean {
+  return store.sessions.has(sid);
+}
+
 export function showPlaygroundSession(sid: string) {
   if (!store.sessions.has(sid)) return;
   store.overlaySid = sid;
   persist();
   emit();
   void hideAllPinWebviews();
+}
+
+/**
+ * Park the overlay, then run a left-nav destination. Safe when no overlay
+ * is open. Does not dispose the session row.
+ */
+export function parkPlaygroundThen(select: () => void): () => void {
+  return () => {
+    dismissPlayground();
+    select();
+  };
 }
 
 export function dismissPlayground() {
@@ -180,6 +196,8 @@ if (import.meta.env.MODE === "test") {
     globalThis as { __BUZZ_PLAYGROUND_TEST__?: unknown }
   ).__BUZZ_PLAYGROUND_TEST__ = {
     addPlaygroundSession,
+    hasPlaygroundSession,
+    parkPlaygroundThen,
     showPlaygroundSession,
     dismissPlayground,
     disposePlayground,
