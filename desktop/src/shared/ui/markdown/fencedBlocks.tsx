@@ -11,11 +11,17 @@ import {
   MarkdownCodeBlock,
   SyntaxHighlightedCode,
 } from "./CodeBlock";
+import { getReactNodeText } from "./utils";
+
+function fenceText(node: React.ReactNode) {
+  return getReactNodeText(node).replace(/\n$/, "");
+}
 
 function playgroundFromCode(language: string, code: string) {
   if (language !== "playground") return undefined;
   const card = parsePlaygroundCard(code);
-  return card ? <PlaygroundCard card={card} /> : null;
+  // Invalid playground JSON falls through to a visible code block.
+  return card ? <PlaygroundCard card={card} /> : undefined;
 }
 
 export function MarkdownFencedCode({
@@ -23,8 +29,11 @@ export function MarkdownFencedCode({
   className,
   ...props
 }: React.ComponentProps<"code">) {
-  const rawCode = String(children);
-  const code = rawCode.replace(/\n$/, "");
+  // react-markdown can pass fenced text as several child nodes (a blank line
+  // after the opener is the common case). String(children) would join those
+  // with commas and break JSON.parse.
+  const rawCode = getReactNodeText(children);
+  const code = fenceText(children);
   const isFencedCodeBlock =
     typeof className === "string" && className.includes("language-");
 
@@ -35,7 +44,8 @@ export function MarkdownFencedCode({
       return playground;
     }
 
-    if (language) {
+    // `playground` is not a highlight language — show the source as-is.
+    if (language && language !== "playground") {
       return (
         <SyntaxHighlightedCode code={code} language={language} {...props} />
       );
@@ -69,7 +79,6 @@ export function MarkdownFencedPre({
   interactive: boolean;
 }) {
   let language = "";
-  let playgroundChild: React.ReactNode | undefined;
   React.Children.forEach(children, (child) => {
     if (
       React.isValidElement<Record<string, unknown>>(child) &&
@@ -77,15 +86,12 @@ export function MarkdownFencedPre({
     ) {
       language = extractLanguage(child.props.className);
     }
-    if (React.isValidElement(child) && child.type === PlaygroundCard) {
-      playgroundChild = child;
-    }
-    if (child == null) {
-      playgroundChild = null;
-    }
   });
-  if (language === "playground" || playgroundChild !== undefined) {
-    return playgroundChild ?? null;
+  // `pre` receives the `code` element, not the rendered card. Re-parse the
+  // joined fence text so a valid card is unwrapped from code-block chrome.
+  const playground = playgroundFromCode(language, fenceText(children));
+  if (playground !== undefined) {
+    return playground;
   }
   if (!interactive) {
     // Keep a real <pre>. A <span> unwrap makes
