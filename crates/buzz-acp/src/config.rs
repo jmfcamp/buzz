@@ -511,6 +511,9 @@ pub struct ChannelFilter {
     /// Event kinds to subscribe to. None = wildcard (all kinds).
     pub kinds: Option<Vec<u32>>,
     /// Whether to include `#p` tag filter for agent pubkey.
+    ///
+    /// False for DM / hidden channels even in Mentions mode so a human
+    /// message without a `p` tag still reaches the bot.
     pub require_mention: bool,
 }
 
@@ -1270,11 +1273,45 @@ pub fn load_rules(path: &std::path::Path) -> Result<Vec<SubscriptionRule>, Confi
     Ok(config.rules)
 }
 
+/// True when kind:39000 classified the channel as a DM (including hidden).
+///
+/// Stream, private, and unknown stay mention-required in Mentions mode.
+pub fn channel_type_is_dm(channel_type: Option<&str>) -> bool {
+    matches!(channel_type, Some("dm"))
+}
+
+/// `#p` / `require_mention` for a channel.
+///
+/// A DM thread with a community bot addresses every inbound human message
+/// to that bot — no `@` required. Other types keep the caller default so
+/// Mentions mode does not consume every stream/private message.
+pub fn require_mention_for_channel(
+    default_require_mention: bool,
+    channel_type: Option<&str>,
+) -> bool {
+    default_require_mention && !channel_type_is_dm(channel_type)
+}
+
 /// Resolve per-channel NIP-01 filters from config + discovered channels.
+///
+/// Channel types are unknown here, so Mentions mode stays mention-required
+/// for every id. Prefer [`resolve_channel_filters_with_types`] when
+/// discovery has already classified DMs.
 pub fn resolve_channel_filters(
     config: &Config,
     discovered_channels: &[Uuid],
     rules: &[SubscriptionRule],
+) -> HashMap<Uuid, ChannelFilter> {
+    resolve_channel_filters_with_types(config, discovered_channels, rules, &HashMap::new())
+}
+
+/// Like [`resolve_channel_filters`], but DM / hidden channels drop
+/// `require_mention` even in Mentions mode.
+pub fn resolve_channel_filters_with_types(
+    config: &Config,
+    discovered_channels: &[Uuid],
+    rules: &[SubscriptionRule],
+    channel_types: &HashMap<Uuid, String>,
 ) -> HashMap<Uuid, ChannelFilter> {
     use buzz_core::kind::{
         KIND_STREAM_MESSAGE, KIND_STREAM_REMINDER, KIND_WORKFLOW_APPROVAL_REQUESTED,
@@ -1301,13 +1338,16 @@ pub fn resolve_channel_filters(
                     KIND_STREAM_REMINDER,
                 ]
             });
-            let require_mention = !config.no_mention_filter;
+            let default_require_mention = !config.no_mention_filter;
             for ch in &target_channels {
                 result.insert(
                     *ch,
                     ChannelFilter {
                         kinds: Some(kinds.clone()),
-                        require_mention,
+                        require_mention: require_mention_for_channel(
+                            default_require_mention,
+                            channel_types.get(ch).map(String::as_str),
+                        ),
                     },
                 );
             }
@@ -1353,7 +1393,10 @@ pub fn resolve_channel_filters(
                         *ch,
                         ChannelFilter {
                             kinds: merged_kinds,
-                            require_mention,
+                            require_mention: require_mention_for_channel(
+                                require_mention,
+                                channel_types.get(ch).map(String::as_str),
+                            ),
                         },
                     );
                 }
@@ -1377,6 +1420,7 @@ pub fn resolve_dynamic_channel_filter(
     config: &Config,
     channel_id: Uuid,
     rules: &[crate::filter::SubscriptionRule],
+    channel_type: Option<&str>,
 ) -> Option<ChannelFilter> {
     use buzz_core::kind::{
         KIND_STREAM_MESSAGE, KIND_STREAM_REMINDER, KIND_WORKFLOW_APPROVAL_REQUESTED,
@@ -1406,7 +1450,7 @@ pub fn resolve_dynamic_channel_filter(
                     KIND_STREAM_REMINDER,
                 ]
             })),
-            require_mention: !config.no_mention_filter,
+            require_mention: require_mention_for_channel(!config.no_mention_filter, channel_type),
         }),
         SubscribeMode::All => Some(ChannelFilter {
             kinds: config.kinds_override.clone(),
@@ -1447,7 +1491,7 @@ pub fn resolve_dynamic_channel_filter(
 
             Some(ChannelFilter {
                 kinds: merged_kinds,
-                require_mention,
+                require_mention: require_mention_for_channel(require_mention, channel_type),
             })
         }
     }
@@ -1576,6 +1620,79 @@ mod tests {
 
         let f = result.get(&channels[0]).unwrap();
         assert!(!f.require_mention);
+    }
+
+    #[test]
+    fn mentions_mode_dm_does_not_require_mention() {
+        let config = test_config(SubscribeMode::Mentions);
+        let stream = Uuid::new_v4();
+        let private = Uuid::new_v4();
+        let unknown = Uuid::new_v4();
+        let dm = Uuid::new_v4();
+        let hidden_dm = Uuid::new_v4();
+        let channels = vec![stream, private, unknown, dm, hidden_dm];
+        let mut types = HashMap::new();
+        types.insert(stream, "stream".into());
+        types.insert(private, "private".into());
+        types.insert(unknown, "unknown".into());
+        types.insert(dm, "dm".into());
+        types.insert(hidden_dm, "dm".into());
+
+        let result = resolve_channel_filters_with_types(&config, &channels, &[], &types);
+
+        assert!(
+            result[&stream].require_mention,
+            "stream stays mention-required"
+        );
+        assert!(
+            result[&private].require_mention,
+            "private stays mention-required"
+        );
+        assert!(
+            result[&unknown].require_mention,
+            "unknown stays mention-required"
+        );
+        assert!(
+            !result[&dm].require_mention,
+            "dm treats inbound messages as addressed"
+        );
+        assert!(
+            !result[&hidden_dm].require_mention,
+            "hidden DM is classified as dm"
+        );
+    }
+
+    #[test]
+    fn mentions_mode_dynamic_dm_does_not_require_mention() {
+        let config = test_config(SubscribeMode::Mentions);
+        let stream = resolve_dynamic_channel_filter(&config, Uuid::new_v4(), &[], Some("stream"))
+            .expect("stream filter");
+        let private = resolve_dynamic_channel_filter(&config, Uuid::new_v4(), &[], Some("private"))
+            .expect("private filter");
+        let unknown = resolve_dynamic_channel_filter(&config, Uuid::new_v4(), &[], Some("unknown"))
+            .expect("unknown filter");
+        let missing = resolve_dynamic_channel_filter(&config, Uuid::new_v4(), &[], None)
+            .expect("missing type");
+        let dm = resolve_dynamic_channel_filter(&config, Uuid::new_v4(), &[], Some("dm"))
+            .expect("dm filter");
+
+        assert!(stream.require_mention);
+        assert!(private.require_mention);
+        assert!(unknown.require_mention);
+        assert!(missing.require_mention);
+        assert!(!dm.require_mention);
+    }
+
+    #[test]
+    fn channel_type_is_dm_only_for_dm() {
+        assert!(channel_type_is_dm(Some("dm")));
+        assert!(!channel_type_is_dm(Some("stream")));
+        assert!(!channel_type_is_dm(Some("private")));
+        assert!(!channel_type_is_dm(Some("unknown")));
+        assert!(!channel_type_is_dm(None));
+        assert!(!require_mention_for_channel(true, Some("dm")));
+        assert!(require_mention_for_channel(true, Some("stream")));
+        assert!(!require_mention_for_channel(false, Some("stream")));
     }
 
     #[test]

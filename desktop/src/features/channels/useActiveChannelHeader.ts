@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import { useEphemeralChannelDisplay } from "@/features/channels/useEphemeralChannelDisplay";
+import { useCommunityBotsQuery } from "@/features/community-bots/hooks";
 import { usePresenceQuery } from "@/features/presence/hooks";
 import { useUsersBatchQuery } from "@/features/profile/hooks";
 import { resolveUserLabel } from "@/features/profile/lib/identity";
@@ -47,6 +48,7 @@ export function useActiveChannelHeader(
   const activeDmProfilesQuery = useUsersBatchQuery(activeDmParticipantPubkeys, {
     enabled: activeDmParticipantPubkeys.length > 0,
   });
+  const communityBotsQuery = useCommunityBotsQuery();
   const activeChannelEphemeralDisplay =
     useEphemeralChannelDisplay(activeChannel);
   const activeDmPresenceStatus: PresenceStatus | null =
@@ -72,6 +74,7 @@ export function useActiveChannelHeader(
         return {
           pubkey: participant.pubkey,
           displayName: resolveUserLabel({
+            communityBots: communityBotsQuery.data,
             currentPubkey,
             fallbackName: participant.fallbackName,
             profiles: activeDmProfilesQuery.data?.profiles,
@@ -80,7 +83,12 @@ export function useActiveChannelHeader(
           avatarUrl: profile?.avatarUrl ?? null,
         };
       }),
-    [activeDmParticipants, activeDmProfilesQuery.data?.profiles, currentPubkey],
+    [
+      activeDmParticipants,
+      activeDmProfilesQuery.data?.profiles,
+      communityBotsQuery.data,
+      currentPubkey,
+    ],
   );
 
   return {
@@ -89,6 +97,7 @@ export function useActiveChannelHeader(
           activeChannel,
           currentPubkey,
           activeDmProfilesQuery.data?.profiles,
+          communityBotsQuery.data,
         )
       : "Channels",
     activeDmAvatarUrl,

@@ -258,6 +258,18 @@ async fn author_allowed(
     }
 }
 
+/// Drop the bot's own posts when `ignore_self` is on.
+///
+/// Independent of channel type — a last-mile kind:9 in a DM must not
+/// wake the same identity.
+pub(crate) fn should_ignore_self_event(
+    ignore_self: bool,
+    author_hex: &str,
+    agent_hex: &str,
+) -> bool {
+    ignore_self && author_hex == agent_hex
+}
+
 /// Resolve whether `channel_id` is a DM, for the inbound author gate.
 ///
 /// Resolution order:
@@ -2133,7 +2145,12 @@ async fn tokio_main() -> Result<()> {
         }
     };
 
-    let channel_filters = config::resolve_channel_filters(&config, &channel_ids, &rules);
+    let channel_types: HashMap<Uuid, String> = channel_info_map
+        .iter()
+        .map(|(id, info)| (*id, info.channel_type.clone()))
+        .collect();
+    let channel_filters =
+        config::resolve_channel_filters_with_types(&config, &channel_ids, &rules, &channel_types);
     if channel_filters.is_empty() {
         tracing::warn!("no channel subscriptions resolved — agent will sit idle");
     }
@@ -2689,7 +2706,19 @@ async fn tokio_main() -> Result<()> {
 
                                     if subscribed_channel_ids.contains(&ch) {
                                         tracing::debug!(channel_id = %ch, "membership notification: channel already subscribed");
-                                    } else if let Some(filter) = config::resolve_dynamic_channel_filter(&config, ch, &rules) {
+                                    } else if let Some(filter) = {
+                                        let channel_type = ctx
+                                            .channel_info
+                                            .resolve(ch)
+                                            .await
+                                            .map(|info| info.channel_type);
+                                        config::resolve_dynamic_channel_filter(
+                                            &config,
+                                            ch,
+                                            &rules,
+                                            channel_type.as_deref(),
+                                        )
+                                    } {
                                         tracing::info!(channel_id = %ch, "membership notification: subscribing to new channel");
                                         if let Err(e) = relay.subscribe_channel_from(ch, filter, Some(ts)).await {
                                             tracing::warn!("failed to subscribe to new channel {ch}: {e}");
@@ -2746,7 +2775,11 @@ async fn tokio_main() -> Result<()> {
                                 continue;
                             }
 
-                            if config.ignore_self && buzz_event.event.pubkey.to_hex() == pubkey_hex {
+                            if should_ignore_self_event(
+                                config.ignore_self,
+                                &buzz_event.event.pubkey.to_hex(),
+                                &pubkey_hex,
+                            ) {
                                 tracing::debug!(channel_id = %buzz_event.channel_id, "dropping self-authored event");
                                 continue;
                             }
@@ -2917,7 +2950,19 @@ async fn tokio_main() -> Result<()> {
                                 }
                             }
 
-                            let matched = filter::match_event(&buzz_event.event, buzz_event.channel_id, &rules, &pubkey_hex).await;
+                            let channel_type = ctx
+                                .channel_info
+                                .resolve(buzz_event.channel_id)
+                                .await
+                                .map(|info| info.channel_type);
+                            let matched = filter::match_event_for_channel(
+                                &buzz_event.event,
+                                buzz_event.channel_id,
+                                &rules,
+                                &pubkey_hex,
+                                channel_type.as_deref(),
+                            )
+                            .await;
                             let prompt_tag = match matched {
                                 Some(m) => m.prompt_tag,
                                 None => {
@@ -5712,6 +5757,23 @@ mod author_gate_tests {
         let resolver = resolver(startup);
         assert!(is_dm_channel(dm_id, &resolver).await);
         assert!(!is_dm_channel(stream_id, &resolver).await);
+    }
+
+    #[test]
+    fn ignore_self_drops_own_events_in_a_dm() {
+        let agent = "aa".repeat(32);
+        assert!(
+            should_ignore_self_event(true, &agent, &agent),
+            "ignore_self stays on in DMs so last-mile replies do not re-wake the bot"
+        );
+        assert!(
+            !should_ignore_self_event(true, &"bb".repeat(32), &agent),
+            "human DM messages are not self-authored"
+        );
+        assert!(
+            !should_ignore_self_event(false, &agent, &agent),
+            "ignore_self can be disabled"
+        );
     }
 
     #[tokio::test]

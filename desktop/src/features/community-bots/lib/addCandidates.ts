@@ -28,6 +28,42 @@ export function communityBotMatchesQuery(
   );
 }
 
+/** Catalog last-mile identity used as a DM / add-member peer — never the agent id. */
+export function communityBotPeerCandidate(
+  bot: CommunityBot,
+): CommunityBotAddCandidate {
+  return {
+    pubkey: normalizePubkey(bot.pubkey),
+    displayName: bot.name,
+    avatarUrl: null,
+    nip05Handle: null,
+    ownerPubkey: null,
+    isAgent: true,
+  };
+}
+
+function appendCommunityBotPeers<T extends CommunityBotAddCandidate>(
+  candidates: T[],
+  bots: readonly CommunityBot[],
+  matches: (bot: CommunityBot) => boolean,
+  options?: { isArchived?: (pubkey: string) => boolean },
+): T[] {
+  const next = [...candidates];
+  const seen = new Set(
+    next.map((candidate) => normalizePubkey(candidate.pubkey)),
+  );
+  for (const bot of bots) {
+    if (!matches(bot)) continue;
+    const peer = communityBotPeerCandidate(bot);
+    const pubkey = peer.pubkey;
+    if (seen.has(pubkey)) continue;
+    if (options?.isArchived?.(pubkey)) continue;
+    seen.add(pubkey);
+    next.push(peer as T);
+  }
+  return next;
+}
+
 /** Merge installed community bots into the channel add-member candidate list. */
 export function appendCommunityBotCandidates<
   T extends CommunityBotAddCandidate,
@@ -37,26 +73,53 @@ export function appendCommunityBotCandidates<
   query: string,
   options?: { isArchived?: (pubkey: string) => boolean },
 ): T[] {
-  const next = [...candidates];
-  const seen = new Set(
-    next.map((candidate) => normalizePubkey(candidate.pubkey)),
+  return appendCommunityBotPeers(
+    candidates,
+    bots,
+    (bot) => communityBotMatchesQuery(bot, query),
+    options,
   );
-  for (const bot of bots) {
-    if (!communityBotMatchesQuery(bot, query)) continue;
-    const pubkey = normalizePubkey(bot.pubkey);
-    if (seen.has(pubkey)) continue;
-    if (options?.isArchived?.(pubkey)) continue;
-    seen.add(pubkey);
-    next.push({
-      pubkey,
-      displayName: bot.name,
-      avatarUrl: null,
-      nip05Handle: null,
-      ownerPubkey: null,
-      isAgent: true,
-    } as T);
-  }
-  return next;
+}
+
+/** Empty-query directory and name search: community bots are valid DM peers. */
+export function communityBotMatchesDmQuery(
+  bot: Pick<CommunityBot, "id" | "name" | "pubkey">,
+  query: string,
+): boolean {
+  const needle = query.trim().toLowerCase();
+  if (needle.length === 0) return true;
+  return (
+    bot.id.toLowerCase().includes(needle) ||
+    bot.name.toLowerCase().includes(needle) ||
+    bot.pubkey.toLowerCase().includes(needle)
+  );
+}
+
+/** Merge installed community bots into the new-DM recipient directory. */
+export function appendCommunityBotDmPeers<T extends CommunityBotAddCandidate>(
+  candidates: T[],
+  bots: readonly CommunityBot[],
+  query: string,
+  options?: { isArchived?: (pubkey: string) => boolean },
+): T[] {
+  return appendCommunityBotPeers(
+    candidates,
+    bots,
+    (bot) => communityBotMatchesDmQuery(bot, query),
+    options,
+  );
+}
+
+/** Managed/relay agents stay gated; catalog bots are DM peers like people. */
+export function isEligibleNewMessageRecipient(input: {
+  pubkey: string;
+  isAgent?: boolean;
+  eligibleAgentPubkeys: ReadonlySet<string>;
+  communityBots: readonly CommunityBot[];
+}): boolean {
+  if (input.isAgent !== true) return true;
+  if (isCommunityBotPubkey(input.pubkey, input.communityBots)) return true;
+  return input.eligibleAgentPubkeys.has(normalizePubkey(input.pubkey));
 }
 
 export function communityBotAllowedPubkeys(

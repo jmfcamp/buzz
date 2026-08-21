@@ -1,3 +1,4 @@
+import type { CommunityBot } from "@/features/community-bots/lib/types";
 import {
   resolveUserLabel,
   type UserProfileLookup,
@@ -53,10 +54,12 @@ export function formatDmParticipantDisplayName(
 
 export function buildDirectMessageIntro({
   channel,
+  communityBots,
   currentPubkey,
   profiles,
 }: {
   channel: Channel | null;
+  communityBots?: ReadonlyArray<CommunityBot>;
   currentPubkey?: string;
   profiles?: UserProfileLookup;
 }): DirectMessageIntro | null {
@@ -90,6 +93,7 @@ export function buildDirectMessageIntro({
     return {
       avatarUrl: profile?.avatarUrl ?? null,
       displayName: resolveUserLabel({
+        communityBots,
         currentPubkey,
         fallbackName: participant.fallbackName,
         profiles,

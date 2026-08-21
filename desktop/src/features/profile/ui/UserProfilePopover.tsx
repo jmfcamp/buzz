@@ -23,6 +23,9 @@ import { useUserStatusQuery } from "@/features/user-status/hooks";
 import { StatusEmoji } from "@/features/user-status/ui/StatusEmoji";
 import { ProfileAvatarWithStatus } from "@/features/profile/ui/ProfileAvatarWithStatus";
 import { useOpenAgentActivity } from "@/features/agents/useOpenAgentActivity";
+import { useCommunityBotsQuery } from "@/features/community-bots/hooks";
+import { isCommunityBotPubkey } from "@/features/community-bots/lib/addCandidates";
+import { canDirectMessageIdentity } from "@/features/community-bots/lib/directMessage";
 import { useProfilePanel } from "@/shared/context/ProfilePanelContext";
 import { cn } from "@/shared/lib/cn";
 import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
@@ -144,6 +147,7 @@ export function UserProfilePopover({
   const managedAgentsQuery = useManagedAgentsQuery({
     enabled: open,
   });
+  const communityBotsQuery = useCommunityBotsQuery(open);
   const presenceQuery = usePresenceQuery(open ? [pubkey] : [], {
     enabled: open,
   });
@@ -210,10 +214,18 @@ export function UserProfilePopover({
       isBotProfile &&
       viewerIsOwner &&
       !isAgentClassificationPending);
+  const isCommunityBot = isCommunityBotPubkey(
+    pubkey,
+    communityBotsQuery.data ?? [],
+  );
   const showMessageAction =
     showProfileActions &&
     !isAgentClassificationPending &&
-    (!isBotProfile || viewerIsOwner);
+    canDirectMessageIdentity({
+      isBot: isBotProfile,
+      isCommunityBot,
+      viewerIsOwner,
+    });
   const showAnyProfileActions =
     showHumanProfileActions || showMessageAction || showHuddleAction;
   const canViewActivity =

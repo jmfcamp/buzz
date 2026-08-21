@@ -275,6 +275,19 @@ mod tests {
     }
 
     #[test]
+    fn dm_batch_destination_is_that_channel_id() {
+        let event = make_event("plain DM, no at-mention", vec![]);
+        let mut batch = batch_with(event);
+        let dm_id = Uuid::new_v4();
+        batch.channel_id = dm_id;
+        let dest = reply_destination(&batch).expect("destination");
+        assert_eq!(
+            dest.channel_id, dm_id,
+            "last-mile publishes into the triggering DM channel"
+        );
+    }
+
+    #[test]
     fn top_level_mention_anchors_reply_to_triggering_event() {
         let event = make_event("@bot hello", vec![]);
         let trigger = event.id.to_hex();

@@ -10,6 +10,11 @@ import {
   getSharedChannelIds,
 } from "@/features/agents/lib/agentAutocompleteEligibility";
 import { useChannelsQuery } from "@/features/channels/hooks";
+import { useCommunityBotsQuery } from "@/features/community-bots/hooks";
+import {
+  appendCommunityBotDmPeers,
+  isEligibleNewMessageRecipient,
+} from "@/features/community-bots/lib/addCandidates";
 import { useIsArchivedPredicate } from "@/features/identity-archive/hooks";
 import {
   useFlattenedUserSearchResults,
@@ -88,6 +93,7 @@ export function useNewMessageRecipients({
   const identityQuery = useIdentityQuery();
   const managedAgentsQuery = useManagedAgentsQuery({ enabled: active });
   const relayAgentsQuery = useRelayAgentsQuery({ enabled: active });
+  const communityBotsQuery = useCommunityBotsQuery(active);
   const channelsQuery = useChannelsQuery({ enabled: active });
   const userSearchQuery = useInfiniteUserSearchQuery(deferredSearchQuery, {
     allowEmpty: true,
@@ -109,6 +115,7 @@ export function useNewMessageRecipients({
     const currentPubkeyNormalized = currentPubkey
       ? normalizePubkey(currentPubkey)
       : null;
+    const communityBots = communityBotsQuery.data ?? [];
     const eligibleAgentPubkeys = getMentionableAgentPubkeys({
       currentPubkey,
       eligibilityScope: { type: "community" },
@@ -129,7 +136,12 @@ export function useNewMessageRecipients({
         pubkey === currentPubkeyNormalized ||
         (!options.includeSelected && selectedPubkeys.has(pubkey)) ||
         isArchivedDiscovery(pubkey) ||
-        (candidate.isAgent && !eligibleAgentPubkeys.has(pubkey))
+        !isEligibleNewMessageRecipient({
+          pubkey,
+          isAgent: candidate.isAgent,
+          eligibleAgentPubkeys,
+          communityBots,
+        })
       ) {
         return;
       }
@@ -201,6 +213,21 @@ export function useNewMessageRecipients({
       );
     }
 
+    for (const bot of appendCommunityBotDmPeers(
+      [],
+      communityBots,
+      deferredSearchQuery,
+      { isArchived: isArchivedDiscovery },
+    )) {
+      addCandidate(
+        {
+          ...bot,
+          isAgent: true,
+        },
+        { includeSelected: deferredSearchQuery.length > 0 },
+      );
+    }
+
     const coalescedCandidates = coalesceAgentAutocompleteCandidates(
       [...candidatesByPubkey.values()],
       {
@@ -218,6 +245,7 @@ export function useNewMessageRecipients({
     });
   }, [
     channelsQuery.data,
+    communityBotsQuery.data,
     currentPubkey,
     deferredSearchQuery,
     isArchivedDiscovery,
@@ -231,6 +259,7 @@ export function useNewMessageRecipients({
     userSearchQuery.isLoading ||
     managedAgentsQuery.isLoading ||
     relayAgentsQuery.isLoading ||
+    communityBotsQuery.isLoading ||
     channelsQuery.isLoading;
   React.useEffect(() => {
     if (isDirectoryLoading) {

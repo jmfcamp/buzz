@@ -1,5 +1,6 @@
 import * as React from "react";
 
+import { useCommunityBotsQuery } from "@/features/community-bots/hooks";
 import { usePresenceQuery } from "@/features/presence/hooks";
 import { resolveUserLabel } from "@/features/profile/lib/identity";
 import { useUsersBatchQuery } from "@/features/profile/hooks";
@@ -51,6 +52,7 @@ export function useDmSidebarMetadata({
   const dmProfilesQuery = useUsersBatchQuery(dmParticipantPubkeys, {
     enabled: enabled && directMessages.length > 0,
   });
+  const communityBotsQuery = useCommunityBotsQuery(enabled);
   const dmProfiles = dmProfilesQuery.data?.profiles;
   const dmPresenceByChannelId = React.useMemo(
     () =>
@@ -89,10 +91,16 @@ export function useDmSidebarMetadata({
             channel,
             currentPubkey,
             dmProfilesQuery.data?.profiles,
+            communityBotsQuery.data,
           ),
         ]),
       ),
-    [currentPubkey, directMessages, dmProfilesQuery.data],
+    [
+      communityBotsQuery.data,
+      currentPubkey,
+      directMessages,
+      dmProfilesQuery.data,
+    ],
   );
   const dmParticipantsByChannelId = React.useMemo(
     () =>
@@ -125,6 +133,7 @@ export function useDmSidebarMetadata({
                 dmProfiles?.[participant.pubkey.toLowerCase()]?.avatarUrl ??
                 null,
               label: resolveUserLabel({
+                communityBots: communityBotsQuery.data,
                 currentPubkey,
                 fallbackName: participant.fallbackName,
                 profiles: dmProfiles,
@@ -135,7 +144,13 @@ export function useDmSidebarMetadata({
           ];
         }),
       ) satisfies Record<string, SidebarDmParticipant[]>,
-    [currentPubkey, directMessages, dmProfiles, selfDmLabels],
+    [
+      communityBotsQuery.data,
+      currentPubkey,
+      directMessages,
+      dmProfiles,
+      selfDmLabels,
+    ],
   );
 
   return {

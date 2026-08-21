@@ -8,6 +8,9 @@ import {
   useChannelsQuery,
   useOpenDmMutation,
 } from "@/features/channels/hooks";
+import { useCommunityBotsQuery } from "@/features/community-bots/hooks";
+import { isCommunityBotPubkey } from "@/features/community-bots/lib/addCandidates";
+import { canDirectMessageIdentity } from "@/features/community-bots/lib/directMessage";
 import { useHuddle } from "@/features/huddle";
 import { formatHuddleActionError } from "@/features/huddle/lib/huddleError";
 import {
@@ -96,13 +99,22 @@ export function useProfileInteractionActions({
   const openDm = openDmMutation.mutateAsync;
   const channelsQuery = useChannelsQuery();
   const identityQuery = useIdentityQuery();
+  const communityBotsQuery = useCommunityBotsQuery(enabled);
   const { isStarting: isStartingHuddle, startHuddle } = useHuddle();
 
+  const isCommunityBot =
+    effectivePubkey !== null &&
+    isCommunityBotPubkey(effectivePubkey, communityBotsQuery.data ?? []);
   const canInteract = enabled && !isSelf && effectivePubkey !== null;
   const canWave = canInteract && (availability?.wave ?? !isBot);
   const canMessage =
     canInteract &&
-    (availability?.message ?? (!isBot || viewerIsOwner === true));
+    (availability?.message ??
+      canDirectMessageIdentity({
+        isBot,
+        isCommunityBot,
+        viewerIsOwner: viewerIsOwner === true,
+      }));
   const canHuddle = canInteract && (availability?.huddle ?? canMessage);
   const selfProfileQuery = useProfileQuery(enabled && canWave);
 
