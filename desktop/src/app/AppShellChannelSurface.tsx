@@ -1,6 +1,7 @@
 import type * as React from "react";
 import * as BuzzTheme from "@/app/BuzzThemeSurfaces";
 import { HuddleRoomHeader, HuddleStartingView } from "@/features/huddle";
+import { PlaygroundHost } from "@/features/playground/ui/PlaygroundOverlay";
 import { MainInsetProvider } from "@/shared/layout/MainInsetContext";
 import { chromeCssVarDefaults } from "@/shared/layout/chromeLayout";
 import { cn } from "@/shared/lib/cn";
@@ -34,7 +35,7 @@ export function AppShellChannelSurface({
       <SidebarInset
         ref={mainInsetRef}
         className={cn(
-          "isolate z-0 min-h-0 min-w-0 overflow-hidden",
+          "relative isolate z-0 min-h-0 min-w-0 overflow-hidden",
           isHuddleRoom ? "bg-background" : "bg-sidebar",
           hasCollapsedSidebarGutter && "pl-2",
         )}
@@ -54,6 +55,7 @@ export function AppShellChannelSurface({
         <BuzzTheme.ContentSurface terminal={terminal} unframed={isHuddleRoom}>
           {isHuddleRoomStarting ? <HuddleStartingView /> : children}
         </BuzzTheme.ContentSurface>
+        <PlaygroundHost />
       </SidebarInset>
     </MainInsetProvider>
   );

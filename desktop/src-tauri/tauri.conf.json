@@ -31,7 +31,8 @@
         },
         "backgroundThrottling": "disabled",
         "minWidth": 800,
-        "minHeight": 500
+        "minHeight": 500,
+        "devtools": false
       }
     ],
     "macOSPrivateApi": true,

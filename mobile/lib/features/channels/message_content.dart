@@ -18,6 +18,8 @@ import '../../shared/clipboard_utils.dart';
 import '../../shared/deeplink/deep_link.dart';
 import '../../shared/deeplink/pending_deep_link_provider.dart';
 import '../../shared/relay/relay.dart';
+import '../../shared/playground/playground_card.dart';
+import '../../shared/playground/playground_card_widget.dart';
 import '../../shared/syntax_highlight.dart';
 import '../../shared/theme/theme.dart';
 import '../../shared/custom_emoji/custom_emoji.dart';
@@ -265,8 +267,14 @@ class MessageContent extends HookConsumerWidget {
         finalContent,
         style: style,
         followLinkColor: false,
-        codeBuilder: (context, name, code, closed) =>
-            _MessageCodeBlock(name: name, code: code),
+        codeBuilder: (context, name, code, closed) {
+          if (name == 'playground') {
+            final card = parsePlaygroundCard(code);
+            if (card == null) return const SizedBox.shrink();
+            return PlaygroundCardWidget(card: card);
+          }
+          return _MessageCodeBlock(name: name, code: code);
+        },
         linkBuilder: (context, linkText, url, linkStyle) => _buildLink(
           context,
           ref,
