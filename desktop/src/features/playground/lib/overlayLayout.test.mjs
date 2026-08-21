@@ -7,12 +7,15 @@ import {
   PLAYGROUND_FULLSCREEN_TITLEBAR_GAP_TEST_ID,
   PLAYGROUND_OPAQUE_FILL_STYLE,
   PLAYGROUND_OVERLAY_SURFACE_CLASS,
+  PLAYGROUND_DOCKED_OVERLAY_CLASS,
+  PLAYGROUND_DOCK_RESIZE_HANDLE_CLASS,
   PLAYGROUND_RESIZE_HANDLE_CLASS,
   PLAYGROUND_RESIZE_HANDLE_GUTTER_CLASS,
   PLAYGROUND_WINDOWED_OVERLAY_CLASS,
   playgroundFullscreenDragRegionIsGapOnly,
   playgroundFullscreenOverlayIsPortaled,
   playgroundFullscreenTitlebarGapClass,
+  playgroundOverlayPlacementClass,
   playgroundOverlaySurfaceIsOpaque,
   playgroundResizeHandleSitsOutsideHost,
   playgroundStageLayoutKey,
@@ -38,6 +41,18 @@ test("overlay surface is fully opaque", () => {
     /backdrop-blur|\/\d+/,
   );
   assert.doesNotMatch(PLAYGROUND_WINDOWED_OVERLAY_CLASS, /backdrop-blur|\/\d+/);
+  assert.doesNotMatch(PLAYGROUND_DOCKED_OVERLAY_CLASS, /backdrop-blur|\/\d+/);
+  assert.doesNotMatch(PLAYGROUND_DOCKED_OVERLAY_CLASS, /inset-0/);
+  assert.match(PLAYGROUND_DOCKED_OVERLAY_CLASS, /left-0/);
+  assert.match(PLAYGROUND_DOCK_RESIZE_HANDLE_CLASS, /cursor-col-resize/);
+  assert.equal(
+    playgroundOverlayPlacementClass("dock"),
+    PLAYGROUND_DOCKED_OVERLAY_CLASS,
+  );
+  assert.equal(
+    playgroundOverlayPlacementClass("window"),
+    PLAYGROUND_WINDOWED_OVERLAY_CLASS,
+  );
   assert.equal(
     playgroundOverlaySurfaceIsOpaque(PLAYGROUND_OVERLAY_SURFACE_CLASS),
     true,
@@ -111,12 +126,18 @@ test("resize handles sit outside the webview host", () => {
   assert.equal(playgroundResizeHandleSitsOutsideHost(host, host), false);
 });
 
-test("stage layout key changes when fullscreen toggles", () => {
+test("stage layout key changes when fullscreen or dock toggles", () => {
   assert.equal(playgroundStageLayoutKey(false, 0), "window:0");
   assert.equal(playgroundStageLayoutKey(true, 0), "fullscreen:0");
+  assert.equal(playgroundStageLayoutKey(false, 0, true), "dock:0");
+  assert.equal(playgroundStageLayoutKey(true, 0, true), "fullscreen:0");
   assert.notEqual(
     playgroundStageLayoutKey(false, 0),
     playgroundStageLayoutKey(true, 0),
+  );
+  assert.notEqual(
+    playgroundStageLayoutKey(false, 0),
+    playgroundStageLayoutKey(false, 0, true),
   );
   assert.notEqual(
     playgroundStageLayoutKey(true, 0),
