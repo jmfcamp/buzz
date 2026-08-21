@@ -23,6 +23,10 @@ import {
 import type { PlaygroundConversation } from "../lib/conversation";
 import { playgroundScreenshotAvailable } from "../lib/conversation";
 import {
+  PLAYGROUND_CHROME_CLASS,
+  PLAYGROUND_OPAQUE_FILL_STYLE,
+} from "../lib/overlayLayout";
+import {
   dismissAndStagePlaygroundScreenshot,
   playgroundScreenshotFile,
 } from "../lib/screenshot";
@@ -134,8 +138,9 @@ export function PlaygroundChrome({
 
   return (
     <header
-      className="relative z-20 flex shrink-0 flex-col gap-1 border-b border-border bg-background px-2 py-1"
+      className={PLAYGROUND_CHROME_CLASS}
       data-testid="playground-chrome"
+      style={PLAYGROUND_OPAQUE_FILL_STYLE}
     >
       <div className="flex min-w-0 items-center gap-1">
         {disposeArmed ? (

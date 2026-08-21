@@ -7,11 +7,21 @@ use super::{
 use std::time::Duration;
 use tauri::{AppHandle, Manager, Webview};
 
+/// Matches `tauri.conf.json` window min size. Used only to unlock after Inspect.
+const MAIN_WINDOW_MIN_LOGICAL: (f64, f64) = (800.0, 500.0);
+
 /// How Inspect presents the WebKit inspector relative to the playground stage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlaygroundInspectPresentation {
     /// Standalone inspector window. Must not dock into the stage or main window.
     DetachedWindow,
+}
+
+/// Inspect must not bounce the Buzz window. Locking min=max is allowed;
+/// `set_size` is not — that grow/shrink flashes the left sidebar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InspectWindowFrameAction {
+    Lock { before: (u32, u32) },
 }
 
 pub fn playground_inspect_presentation() -> PlaygroundInspectPresentation {
@@ -22,6 +32,21 @@ pub fn playground_inspect_presentation() -> PlaygroundInspectPresentation {
 pub fn resolved_window_size_after_inspect(before: (u32, u32), after: (u32, u32)) -> (u32, u32) {
     let _ = after;
     before
+}
+
+/// Never write the window frame after Inspect opens. The sidebar (`md`
+/// / 768px) disappears if we `set_size` a bounce back from a docked grow.
+pub fn inspect_set_size_after_open(before: (u32, u32), after: (u32, u32)) -> Option<(u32, u32)> {
+    let _ = (before, after);
+    None
+}
+
+pub fn inspect_window_frame_action(
+    before: (u32, u32),
+    after: (u32, u32),
+) -> InspectWindowFrameAction {
+    let _ = after;
+    InspectWindowFrameAction::Lock { before }
 }
 
 /// After Inspect, the playground page stays in the same stage rectangle.
@@ -73,24 +98,29 @@ pub fn open_playground_inspector(webview: &Webview) -> Result<(), String> {
     }
 }
 
-pub fn restore_main_window_size(app: &AppHandle, before: Option<(u32, u32)>) {
+/// Pin min=max to the current frame so WebKit cannot grow or shrink the
+/// Buzz window when the inspector frontend appears. Never call `set_size`.
+pub fn lock_main_window_size(app: &AppHandle, before: Option<(u32, u32)>) {
     let Some(before) = before else {
         return;
     };
     let Some(window) = app.get_window(APP_WEBVIEW_LABEL) else {
         return;
     };
-    let after = window
-        .inner_size()
-        .ok()
-        .map(|size| (size.width, size.height));
-    let keep = match after {
-        Some(after) => resolved_window_size_after_inspect(before, after),
-        None => before,
+    let size = tauri::PhysicalSize::new(before.0, before.1);
+    let _ = window.set_min_size(Some(size));
+    let _ = window.set_max_size(Some(size));
+}
+
+pub fn unlock_main_window_size(app: &AppHandle) {
+    let Some(window) = app.get_window(APP_WEBVIEW_LABEL) else {
+        return;
     };
-    if after != Some(keep) {
-        let _ = window.set_size(tauri::PhysicalSize::new(keep.0, keep.1));
-    }
+    let _ = window.set_min_size(Some(tauri::LogicalSize::new(
+        MAIN_WINDOW_MIN_LOGICAL.0,
+        MAIN_WINDOW_MIN_LOGICAL.1,
+    )));
+    let _ = window.set_max_size(None::<tauri::LogicalSize<f64>>);
 }
 
 fn reapply_last_bounds(app: &AppHandle, sid: &str) {
@@ -108,29 +138,24 @@ fn reapply_last_bounds(app: &AppHandle, sid: &str) {
     }
 }
 
-pub fn schedule_inspect_stage_restore(
-    app: AppHandle,
-    sid: String,
-    window_size: Option<(u32, u32)>,
-) {
+pub fn schedule_inspect_stage_restore(app: AppHandle, sid: String) {
     tauri::async_runtime::spawn(async move {
         // show() creates the frontend asynchronously. detach() is a no-op
         // until that page exists, so re-detach during the open settle, then
         // keep pinning the stage for as long as Inspect stays open — including
-        // if the user later docks to the bottom or side.
+        // if the user later docks to the bottom or side. Never set_size the
+        // main window; the frame was locked before show.
         for delay_ms in [16_u64, 50, 200, 500] {
             tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-            restore_main_window_size(&app, window_size);
             reapply_last_bounds(&app, &sid);
             redetach_macos_inspector(&app, &sid);
         }
         loop {
             tokio::time::sleep(Duration::from_millis(250)).await;
-            restore_main_window_size(&app, window_size);
             reapply_last_bounds(&app, &sid);
             if !playground_inspector_is_visible(&app, &sid) {
-                restore_main_window_size(&app, window_size);
                 reapply_last_bounds(&app, &sid);
+                unlock_main_window_size(&app);
                 break;
             }
         }
@@ -365,6 +390,18 @@ mod tests {
         assert_eq!(
             resolved_window_size_after_inspect((1024, 640), (1024, 640)),
             (1024, 640)
+        );
+        assert_eq!(inspect_set_size_after_open((1280, 800), (1800, 800)), None);
+        assert_eq!(inspect_set_size_after_open((1024, 640), (800, 500)), None);
+        assert_eq!(
+            inspect_window_frame_action((1280, 800), (1800, 800)),
+            InspectWindowFrameAction::Lock {
+                before: (1280, 800)
+            }
+        );
+        assert_eq!(
+            playground_inspect_presentation(),
+            PlaygroundInspectPresentation::DetachedWindow
         );
     }
 

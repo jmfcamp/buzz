@@ -1,11 +1,15 @@
 import * as React from "react";
+import { createPortal } from "react-dom";
 
 import { cn } from "@/shared/lib/cn";
 
 import type { PlaygroundConversation } from "../lib/conversation";
 import {
+  PLAYGROUND_FULLSCREEN_OVERLAY_CLASS,
   PLAYGROUND_FULLSCREEN_TITLEBAR_GAP_TEST_ID,
+  PLAYGROUND_OPAQUE_FILL_STYLE,
   PLAYGROUND_OVERLAY_SURFACE_CLASS,
+  PLAYGROUND_WINDOWED_OVERLAY_CLASS,
   playgroundFullscreenTitlebarGapClass,
   playgroundStageLayoutKey,
 } from "../lib/overlayLayout";
@@ -44,15 +48,18 @@ export function PlaygroundOverlay({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [fullscreen, setOverlayFullscreen]);
 
-  return (
+  const overlay = (
     <div
       className={cn(
         "flex min-h-0 min-w-0 flex-col isolate overflow-hidden",
         PLAYGROUND_OVERLAY_SURFACE_CLASS,
-        fullscreen ? "fixed inset-0 z-50" : "absolute inset-0 z-30",
+        fullscreen
+          ? PLAYGROUND_FULLSCREEN_OVERLAY_CLASS
+          : PLAYGROUND_WINDOWED_OVERLAY_CLASS,
       )}
       data-fullscreen={fullscreen ? "true" : undefined}
       data-testid="playground-overlay"
+      style={PLAYGROUND_OPAQUE_FILL_STYLE}
     >
       {fullscreen ? (
         <div
@@ -60,6 +67,7 @@ export function PlaygroundOverlay({
           className={cn("shrink-0", playgroundFullscreenTitlebarGapClass)}
           data-tauri-drag-region
           data-testid={PLAYGROUND_FULLSCREEN_TITLEBAR_GAP_TEST_ID}
+          style={PLAYGROUND_OPAQUE_FILL_STYLE}
         />
       ) : null}
       <PlaygroundChrome
@@ -78,4 +86,13 @@ export function PlaygroundOverlay({
       />
     </div>
   );
+
+  // SidebarInset is `isolate z-0 overflow-hidden` under AppTopChrome `z-45`.
+  // A local `fixed inset-0 z-50` cannot paint over that frosted strip (or
+  // receive its clicks). Portal to body so fullscreen chrome is the only
+  // hit target below the traffic lights.
+  if (fullscreen && typeof document !== "undefined") {
+    return createPortal(overlay, document.body);
+  }
+  return overlay;
 }
