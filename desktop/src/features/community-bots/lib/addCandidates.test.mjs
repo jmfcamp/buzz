@@ -65,6 +65,24 @@ test("community bots are valid DM peers under the last-mile pubkey", () => {
   assert.equal(directory.length, 1);
   assert.equal(directory[0].pubkey, mo.pubkey);
   assert.equal(directory[0].displayName, "Mo");
+
+  const named = appendCommunityBotDmPeers([], [mo], "Mo");
+  assert.equal(named.length, 1);
+  assert.equal(named[0].pubkey, mo.pubkey);
+});
+
+test("appendCommunityBotDmPeers does not resurrect archived catalog pubkeys", () => {
+  const leftover = {
+    id: "old-mo",
+    name: "Mo",
+    pubkey: "11".repeat(32),
+    source: "openclaw",
+  };
+  const merged = appendCommunityBotDmPeers([], [mo, leftover], "", {
+    isArchived: (pubkey) => pubkey === leftover.pubkey,
+  });
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].pubkey, mo.pubkey);
 });
 
 test("catalog bots stay eligible for new DMs without mentionable-agent gating", () => {

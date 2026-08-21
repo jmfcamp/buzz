@@ -95,13 +95,17 @@ export function communityBotMatchesDmQuery(
   );
 }
 
-/** Merge installed community bots into the new-DM recipient directory. */
-export function appendCommunityBotDmPeers<T extends CommunityBotAddCandidate>(
-  candidates: T[],
+/**
+ * Merge installed community bots into the new-DM recipient directory.
+ * Concrete (not generic) so a bare `[]` stays `CommunityBotAddCandidate[]`
+ * instead of inferring `never` and breaking `tsc` on the compose picker.
+ */
+export function appendCommunityBotDmPeers(
+  candidates: CommunityBotAddCandidate[],
   bots: readonly CommunityBot[],
   query: string,
   options?: { isArchived?: (pubkey: string) => boolean },
-): T[] {
+): CommunityBotAddCandidate[] {
   return appendCommunityBotPeers(
     candidates,
     bots,
