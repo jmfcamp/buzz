@@ -54,6 +54,31 @@ test("add creates a personal session; dismiss parks; dispose removes", async () 
   assert.equal(listPlaygroundSessions().length, 1);
 });
 
+test("update chip sets on card match and clears on Open", async () => {
+  const {
+    addPlaygroundSession,
+    configurePlaygroundScope,
+    dismissPlayground,
+    listPlaygroundSessions,
+    markPlaygroundUpdate,
+    notePlaygroundCard,
+    showPlaygroundSession,
+  } = await import("./sessions.ts");
+
+  configurePlaygroundScope("pub", "wss://relay.example.com");
+  addPlaygroundSession(card);
+  dismissPlayground();
+  markPlaygroundUpdate("demo-1");
+  assert.equal(listPlaygroundSessions()[0]?.hasUpdate, true);
+
+  showPlaygroundSession("demo-1");
+  assert.equal(listPlaygroundSessions()[0]?.hasUpdate, false);
+
+  dismissPlayground();
+  notePlaygroundCard({ ...card, sid: "other-sid" });
+  assert.equal(listPlaygroundSessions()[0]?.hasUpdate, true);
+});
+
 test("hasPlaygroundSession tracks left-menu rows; parkPlaygroundThen dismisses", async () => {
   const {
     addPlaygroundSession,

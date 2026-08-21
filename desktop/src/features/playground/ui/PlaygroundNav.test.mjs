@@ -77,7 +77,7 @@ async function renderNav() {
   const { ChannelMenuButton } = await import(
     "@/features/sidebar/ui/SidebarSection.tsx"
   );
-  const { PlaygroundMenuItems } = await import("./PlaygroundMenuItems.tsx");
+  const { PlaygroundSection } = await import("./PlaygroundSection.tsx");
   const { addPlaygroundSession, configurePlaygroundScope } = await import(
     "../lib/sessions.ts"
   );
@@ -100,7 +100,7 @@ async function renderNav() {
             key: "channel",
             onSelectChannel: () => {},
           }),
-          createElement(PlaygroundMenuItems, { key: "playground" }),
+          createElement(PlaygroundSection, { key: "playground" }),
         ]),
       ),
     ),

@@ -26,6 +26,18 @@ test("device museum is the locked six-device set", () => {
   );
 });
 
+test("mobile viewport is the device CSS size in both orientations", () => {
+  const iphone = PLAYGROUND_DEVICES.find((device) => device.id === "iphone-16");
+  assert.deepEqual(playgroundDeviceViewport(iphone, "portrait"), {
+    width: 393,
+    height: 852,
+  });
+  assert.deepEqual(playgroundDeviceViewport(iphone, "landscape"), {
+    width: 852,
+    height: 393,
+  });
+});
+
 test("desktop stage presets are locked", () => {
   assert.deepEqual(
     [...DESKTOP_STAGE_PRESETS],

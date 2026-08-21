@@ -1,6 +1,5 @@
 import * as React from "react";
 
-import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/lib/cn";
 
 import {
@@ -8,24 +7,21 @@ import {
   playgroundDeviceViewport,
   type PlaygroundDeviceId,
 } from "../lib/devices";
-import { DESKTOP_STAGE_PRESETS } from "../lib/types";
+import { DEFAULT_RESPONSIVE_VIEWPORT } from "../lib/types";
+import { PLAYGROUND_DOM_PROBE_SCRIPT } from "../lib/updates";
 import {
+  evalPlaygroundWebview,
   playgroundWebviewBoundsAreUsable,
   setPlaygroundWebviewBounds,
   showPlaygroundWebview,
 } from "../lib/webview";
 import type { PlaygroundSession } from "../lib/sessions";
 
-export type PlaygroundChromeMode = "desktop" | "mobile";
+export type PlaygroundChromeMode = "desktop" | "responsive" | "mobile";
 
-function readBounds(el: HTMLElement) {
+function readPosition(el: HTMLElement) {
   const rect = el.getBoundingClientRect();
-  return {
-    x: rect.x,
-    y: rect.y,
-    width: rect.width,
-    height: rect.height,
-  };
+  return { x: rect.x, y: rect.y };
 }
 
 export function PlaygroundStage({
@@ -38,57 +34,112 @@ export function PlaygroundStage({
   if (mode === "mobile") {
     return <MobileDeviceMuseum session={session} />;
   }
+  if (mode === "responsive") {
+    return <ResponsiveStage session={session} />;
+  }
   return <DesktopStage session={session} />;
 }
 
 function DesktopStage({ session }: { session: PlaygroundSession }) {
-  const [width, setWidth] = React.useState<number | null>(null);
+  const hostRef = React.useRef<HTMLDivElement | null>(null);
+  return (
+    <div
+      className="flex min-h-0 min-w-0 flex-1 flex-col"
+      data-testid="playground-desktop-stage"
+    >
+      <NativeStageHost hostRef={hostRef} session={session} />
+    </div>
+  );
+}
+
+function ResponsiveStage({ session }: { session: PlaygroundSession }) {
+  const [width, setWidth] = React.useState(DEFAULT_RESPONSIVE_VIEWPORT.width);
+  const [height, setHeight] = React.useState(
+    DEFAULT_RESPONSIVE_VIEWPORT.height,
+  );
   const hostRef = React.useRef<HTMLDivElement | null>(null);
 
   return (
     <div
       className="flex min-h-0 min-w-0 flex-1 flex-col gap-2"
-      data-testid="playground-desktop-stage"
+      data-testid="playground-responsive-stage"
     >
-      <div className="flex flex-wrap items-center gap-1 px-1">
-        {DESKTOP_STAGE_PRESETS.map((preset) => (
-          <Button
-            data-testid={`playground-preset-${preset}`}
-            key={preset}
-            onClick={() => setWidth(preset)}
-            size="xs"
-            type="button"
-            variant={width === preset ? "secondary" : "ghost"}
-          >
-            {preset}
-          </Button>
-        ))}
+      <div className="flex flex-wrap items-center gap-2 px-3">
+        <label className="flex items-center gap-1 text-2xs text-muted-foreground">
+          W
+          <input
+            className="w-16 rounded-md border border-border bg-background px-1 py-0.5 text-2xs text-foreground"
+            data-testid="playground-responsive-width"
+            min={320}
+            onChange={(event) =>
+              setWidth(Math.max(320, Number(event.target.value) || 320))
+            }
+            type="number"
+            value={width}
+          />
+        </label>
+        <span className="text-2xs text-muted-foreground">×</span>
+        <label className="flex items-center gap-1 text-2xs text-muted-foreground">
+          H
+          <input
+            className="w-16 rounded-md border border-border bg-background px-1 py-0.5 text-2xs text-foreground"
+            data-testid="playground-responsive-height"
+            min={320}
+            onChange={(event) =>
+              setHeight(Math.max(320, Number(event.target.value) || 320))
+            }
+            type="number"
+            value={height}
+          />
+        </label>
       </div>
-      <div className="relative min-h-0 min-w-0 flex-1">
+      <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden p-3">
         <div
-          className="absolute inset-y-0 left-0"
-          style={width ? { width, maxWidth: "100%" } : { right: 0 }}
+          className="relative overflow-hidden rounded-md border border-border"
+          data-testid="playground-responsive-frame"
+          style={{ width, height, maxWidth: "100%" }}
         >
-          <NativeStageHost hostRef={hostRef} session={session} />
+          <NativeStageHost
+            hostRef={hostRef}
+            session={session}
+            viewport={{ width, height }}
+          />
+          <StageResizeHandle
+            axis="x"
+            onResize={(next) => setWidth(Math.max(320, next))}
+            testId="playground-stage-resize"
+          />
+          <StageResizeHandle
+            axis="y"
+            onResize={(next) => setHeight(Math.max(320, next))}
+            testId="playground-stage-resize-y"
+          />
         </div>
-        <StageResizeHandle onResize={(next) => setWidth(Math.max(320, next))} />
       </div>
     </div>
   );
 }
 
 function StageResizeHandle({
+  axis,
   onResize,
+  testId,
 }: {
-  onResize: (width: number) => void;
+  axis: "x" | "y";
+  onResize: (next: number) => void;
+  testId: string;
 }) {
   const dragging = React.useRef(false);
-  const origin = React.useRef({ x: 0, width: 0 });
+  const origin = React.useRef({ pos: 0, size: 0 });
 
   React.useEffect(() => {
     const onMove = (event: PointerEvent) => {
       if (!dragging.current) return;
-      onResize(origin.current.width + (event.clientX - origin.current.x));
+      const delta =
+        axis === "x"
+          ? event.clientX - origin.current.pos
+          : event.clientY - origin.current.pos;
+      onResize(origin.current.size + delta);
     };
     const onUp = () => {
       dragging.current = false;
@@ -99,18 +150,27 @@ function StageResizeHandle({
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
-  }, [onResize]);
+  }, [axis, onResize]);
 
   return (
     <button
-      aria-label="Resize playground stage"
-      className="absolute inset-y-8 right-0 z-10 w-2 cursor-ew-resize rounded-full bg-border/80"
-      data-testid="playground-stage-resize"
+      aria-label={axis === "x" ? "Resize width" : "Resize height"}
+      className={
+        axis === "x"
+          ? "absolute inset-y-2 right-0 z-10 w-2 cursor-ew-resize rounded-full bg-border/80"
+          : "absolute inset-x-2 bottom-0 z-10 h-2 cursor-ns-resize rounded-full bg-border/80"
+      }
+      data-testid={testId}
       onPointerDown={(event) => {
-        const stage = event.currentTarget.previousElementSibling;
+        const frame = event.currentTarget.parentElement;
         origin.current = {
-          x: event.clientX,
-          width: stage instanceof HTMLElement ? stage.offsetWidth : 800,
+          pos: axis === "x" ? event.clientX : event.clientY,
+          size:
+            frame instanceof HTMLElement
+              ? axis === "x"
+                ? frame.offsetWidth
+                : frame.offsetHeight
+              : 800,
         };
         dragging.current = true;
       }}
@@ -133,43 +193,52 @@ function MobileDeviceMuseum({ session }: { session: PlaygroundSession }) {
 
   return (
     <div
-      className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-auto"
+      className="flex min-h-0 min-w-0 flex-1 flex-col gap-2"
       data-testid="playground-mobile-stage"
     >
-      <div className="flex flex-wrap items-center gap-1 px-1">
-        {PLAYGROUND_DEVICES.map((item) => (
-          <Button
-            data-testid={`playground-device-${item.id}`}
-            key={item.id}
-            onClick={() => setDeviceId(item.id)}
-            size="xs"
-            type="button"
-            variant={deviceId === item.id ? "secondary" : "ghost"}
-          >
-            {item.name}
-          </Button>
-        ))}
-        <Button
+      <div className="flex flex-wrap items-center gap-2 px-3">
+        <select
+          className="rounded-md border border-border bg-background px-2 py-1 text-xs"
+          data-testid="playground-device-select"
+          onChange={(event) =>
+            setDeviceId(event.target.value as PlaygroundDeviceId)
+          }
+          value={deviceId}
+        >
+          {PLAYGROUND_DEVICES.map((item) => (
+            <option
+              data-testid={`playground-device-${item.id}`}
+              key={item.id}
+              value={item.id}
+            >
+              {item.name}
+            </option>
+          ))}
+        </select>
+        <button
+          className="rounded-md border border-border px-2 py-1 text-xs"
           data-testid="playground-orientation"
           onClick={() =>
             setOrientation((value) =>
               value === "portrait" ? "landscape" : "portrait",
             )
           }
-          size="xs"
           type="button"
-          variant="outline"
         >
           {orientation === "portrait" ? "Portrait" : "Landscape"}
-        </Button>
+        </button>
       </div>
-      <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-3">
+      <div className="flex min-h-0 flex-1 items-start justify-center overflow-auto p-3">
         <div
           className="overflow-hidden rounded-[1.75rem] border border-border bg-background shadow-lg"
           data-testid="playground-device-frame"
           style={{ width: viewport.width, height: viewport.height }}
         >
-          <NativeStageHost hostRef={hostRef} session={session} />
+          <NativeStageHost
+            hostRef={hostRef}
+            session={session}
+            viewport={viewport}
+          />
         </div>
       </div>
     </div>
@@ -179,9 +248,11 @@ function MobileDeviceMuseum({ session }: { session: PlaygroundSession }) {
 function NativeStageHost({
   hostRef,
   session,
+  viewport,
 }: {
   hostRef: React.RefObject<HTMLDivElement | null>;
   session: PlaygroundSession;
+  viewport?: { width: number; height: number };
 }) {
   React.useEffect(() => {
     const host = hostRef.current;
@@ -191,7 +262,14 @@ function NativeStageHost({
 
     const sync = () => {
       if (cancelled || !hostRef.current) return;
-      const bounds = readBounds(hostRef.current);
+      const position = readPosition(hostRef.current);
+      const hostBox = hostRef.current.getBoundingClientRect();
+      const bounds = {
+        x: position.x,
+        y: position.y,
+        width: viewport?.width ?? hostBox.width,
+        height: viewport?.height ?? hostBox.height,
+      };
       if (!playgroundWebviewBoundsAreUsable(bounds)) return;
       if (!opened) {
         opened = true;
@@ -199,7 +277,9 @@ function NativeStageHost({
           sid: session.sid,
           url: session.url,
           bounds,
-        });
+        }).then(() =>
+          evalPlaygroundWebview(session.sid, PLAYGROUND_DOM_PROBE_SCRIPT),
+        );
         return;
       }
       void setPlaygroundWebviewBounds(session.sid, bounds);
@@ -212,12 +292,14 @@ function NativeStageHost({
       cancelled = true;
       observer.disconnect();
     };
-  }, [hostRef, session.sid, session.url]);
+  }, [hostRef, session.sid, session.url, viewport?.width, viewport?.height]);
 
   return (
     <div
       className={cn("h-full min-h-[12rem] w-full bg-background")}
       data-testid="playground-webview-host"
+      data-viewport-width={viewport?.width}
+      data-viewport-height={viewport?.height}
       ref={hostRef}
     />
   );

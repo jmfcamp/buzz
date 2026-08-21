@@ -5,8 +5,11 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tauri::webview::WebviewBuilder;
-use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, State, Url, WebviewUrl};
+use sha2::{Digest, Sha256};
+use tauri::webview::{PageLoadEvent, WebviewBuilder};
+use tauri::{
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, Url, Webview, WebviewUrl,
+};
 use uuid::Uuid;
 
 const PLAYGROUND_LABEL_PREFIX: &str = "playground-";
@@ -14,6 +17,7 @@ const APP_WEBVIEW_LABEL: &str = "main";
 const MIN_EDGE: f64 = 32.0;
 const OPENCLAW_GATEWAY_PORT: u16 = 18789;
 const BROWSER_DEBUG_PORTS: [u16; 5] = [9222, 9223, 9229, 9230, 5858];
+const DOM_HASH_COOKIE: &str = "__buzz_pg_dom";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -38,8 +42,99 @@ pub struct PlaygroundInspectResult {
     webview_id: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaygroundNavState {
+    sid: String,
+    can_go_back: bool,
+    can_go_forward: bool,
+    current_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaygroundPollResult {
+    changed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaygroundScreenshotResult {
+    bytes: Vec<u8>,
+    mime: String,
+    filename: String,
+}
+
 struct PlaygroundSession {
-    url: Url,
+    start_url: Url,
+    history: Vec<Url>,
+    index: usize,
+    programmatic: bool,
+    etag: Option<String>,
+    last_modified: Option<String>,
+    body_hash: Option<String>,
+    last_bounds: Option<PlaygroundBounds>,
+}
+
+impl PlaygroundSession {
+    fn new(start_url: Url) -> Self {
+        Self {
+            start_url: start_url.clone(),
+            history: vec![start_url],
+            index: 0,
+            programmatic: false,
+            etag: None,
+            last_modified: None,
+            body_hash: None,
+            last_bounds: None,
+        }
+    }
+
+    fn current_url(&self) -> &Url {
+        self.history.get(self.index).unwrap_or(&self.start_url)
+    }
+
+    fn can_go_back(&self) -> bool {
+        self.index > 0
+    }
+
+    fn can_go_forward(&self) -> bool {
+        self.index + 1 < self.history.len()
+    }
+
+    fn push(&mut self, url: Url) {
+        if self.history.get(self.index) == Some(&url) {
+            return;
+        }
+        self.history.truncate(self.index + 1);
+        self.history.push(url);
+        self.index = self.history.len() - 1;
+    }
+
+    fn back(&mut self) -> Option<Url> {
+        if self.index == 0 {
+            return None;
+        }
+        self.index -= 1;
+        self.history.get(self.index).cloned()
+    }
+
+    fn forward(&mut self) -> Option<Url> {
+        if self.index + 1 >= self.history.len() {
+            return None;
+        }
+        self.index += 1;
+        self.history.get(self.index).cloned()
+    }
+
+    fn nav_state(&self, sid: &str) -> PlaygroundNavState {
+        PlaygroundNavState {
+            sid: sid.to_string(),
+            can_go_back: self.can_go_back(),
+            can_go_forward: self.can_go_forward(),
+            current_url: self.current_url().to_string(),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -165,6 +260,45 @@ fn data_store_identifier(sid: &str) -> [u8; 16] {
     .as_bytes()
 }
 
+fn emit_nav(app: &AppHandle, state: PlaygroundNavState) {
+    if let Err(error) = app.emit("playground-webview-nav", state) {
+        eprintln!("buzz-desktop: playground-webview-nav emit failed: {error}");
+    }
+}
+
+fn record_navigation(app: &AppHandle, manager: &PlaygroundWebviewManager, sid: &str, url: &Url) {
+    let mut sessions = match manager.sessions.lock() {
+        Ok(guard) => guard,
+        Err(_) => return,
+    };
+    let Some(session) = sessions.get_mut(sid) else {
+        return;
+    };
+    if session.programmatic {
+        session.programmatic = false;
+        emit_nav(app, session.nav_state(sid));
+        return;
+    }
+    session.push(url.clone());
+    emit_nav(app, session.nav_state(sid));
+}
+
+fn remember_bounds(manager: &PlaygroundWebviewManager, sid: &str, bounds: &PlaygroundBounds) {
+    if let Ok(mut sessions) = manager.sessions.lock() {
+        if let Some(session) = sessions.get_mut(sid) {
+            session.last_bounds = Some(bounds.clone());
+        }
+    }
+}
+
+fn hash_response_body(body: &[u8]) -> String {
+    hex::encode(Sha256::digest(body))
+}
+
+fn navigate_playground(webview: &Webview, url: Url) -> Result<(), String> {
+    webview.navigate(url).map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 pub async fn playground_probe(url: String) -> Result<PlaygroundProbeResult, String> {
     let parsed = match parse_playground_url(&url) {
@@ -221,30 +355,46 @@ pub async fn playground_webview_show(
     sid: String,
     url: String,
     bounds: PlaygroundBounds,
-) -> Result<(), String> {
+    visible: Option<bool>,
+) -> Result<PlaygroundNavState, String> {
     let sid = sanitize_sid(&sid)?;
     let url = parse_playground_url(&url)?;
-    hide_other_playgrounds(&app, &sid);
-    {
+    let show = visible.unwrap_or(true);
+    if show {
+        hide_other_playgrounds(&app, &sid);
+    }
+    let nav = {
         let mut sessions = manager
             .sessions
             .lock()
             .map_err(|_| "playground session lock poisoned".to_string())?;
-        sessions.insert(sid.clone(), PlaygroundSession { url: url.clone() });
-    }
+        let session = sessions
+            .entry(sid.clone())
+            .or_insert_with(|| PlaygroundSession::new(url.clone()));
+        if session.start_url.origin() != url.origin() {
+            *session = PlaygroundSession::new(url.clone());
+        }
+        session.last_bounds = Some(bounds.clone());
+        session.nav_state(&sid)
+    };
 
     let label = playground_label(&sid);
     if let Some(webview) = app.get_webview(&label) {
         apply_bounds(&app, &sid, &bounds)?;
-        if webview.url().ok().as_ref() != Some(&url) {
-            webview.navigate(url).map_err(|error| error.to_string())?;
+        if webview.url().ok().as_ref() != Some(&url) && webview.url().ok().is_none() {
+            navigate_playground(&webview, url)?;
         }
-        webview.show().map_err(|error| error.to_string())?;
-        return Ok(());
+        if show {
+            webview.show().map_err(|error| error.to_string())?;
+        } else {
+            webview.hide().map_err(|error| error.to_string())?;
+        }
+        emit_nav(&app, nav.clone());
+        return Ok(nav);
     }
 
     if !bounds_are_usable(&bounds) {
-        return Ok(());
+        return Ok(nav);
     }
 
     let window = app
@@ -257,19 +407,34 @@ pub async fn playground_webview_show(
         .join("playground-profiles")
         .join(&sid);
     std::fs::create_dir_all(&profile_dir).map_err(|error| error.to_string())?;
+    let nav_app = app.clone();
+    let nav_sid = sid.clone();
     let builder = WebviewBuilder::new(label, WebviewUrl::External(url))
         .data_directory(profile_dir)
         .data_store_identifier(data_store_identifier(&sid))
-        .devtools(true);
+        .devtools(true)
+        .on_navigation(move |next| {
+            if let Some(manager) = nav_app.try_state::<PlaygroundWebviewManager>() {
+                record_navigation(&nav_app, &manager, &nav_sid, next);
+            }
+            true
+        })
+        .on_page_load(|_webview, payload| {
+            let _ = payload.event() == PageLoadEvent::Finished;
+        });
 
-    window
+    let webview = window
         .add_child(
             builder,
             LogicalPosition::new(bounds.x, bounds.y),
             LogicalSize::new(bounds.width.max(1.0), bounds.height.max(1.0)),
         )
         .map_err(|error| error.to_string())?;
-    Ok(())
+    if !show {
+        webview.hide().map_err(|error| error.to_string())?;
+    }
+    emit_nav(&app, nav.clone());
+    Ok(nav)
 }
 
 #[tauri::command]
@@ -294,10 +459,12 @@ pub async fn playground_webview_hide_all(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub async fn playground_webview_set_bounds(
     app: AppHandle,
+    manager: State<'_, PlaygroundWebviewManager>,
     sid: String,
     bounds: PlaygroundBounds,
 ) -> Result<(), String> {
     let sid = sanitize_sid(&sid)?;
+    remember_bounds(&manager, &sid, &bounds);
     apply_bounds(&app, &sid, &bounds)
 }
 
@@ -343,14 +510,321 @@ pub async fn playground_webview_inspect(
     if !inspect_target_is_safe(&webview_id) {
         return Err("inspect must target the playground webview".into());
     }
+    if webview_id == APP_WEBVIEW_LABEL {
+        return Err("inspect must not target the app webview".into());
+    }
     let webview = app
         .get_webview(&webview_id)
         .ok_or_else(|| "playground webview is not open".to_string())?;
-    #[cfg(any(debug_assertions, feature = "devtools"))]
+    // Always open the child inspector. The cfg must not use this crate's
+    // (absent) `devtools` feature — that compiled the call out of release
+    // and made Inspect a silent no-op. wry/tauri already enable the method
+    // via the tauri `devtools` Cargo feature; `.devtools(true)` marks the
+    // WKWebView inspectable so Safari / open_devtools can attach.
     webview.open_devtools();
-    let _ = app;
-    let _ = webview;
     Ok(PlaygroundInspectResult { webview_id })
+}
+
+#[tauri::command]
+pub async fn playground_webview_go_back(
+    app: AppHandle,
+    manager: State<'_, PlaygroundWebviewManager>,
+    sid: String,
+) -> Result<PlaygroundNavState, String> {
+    navigate_history(&app, &manager, &sid, true)
+}
+
+#[tauri::command]
+pub async fn playground_webview_go_forward(
+    app: AppHandle,
+    manager: State<'_, PlaygroundWebviewManager>,
+    sid: String,
+) -> Result<PlaygroundNavState, String> {
+    navigate_history(&app, &manager, &sid, false)
+}
+
+fn navigate_history(
+    app: &AppHandle,
+    manager: &PlaygroundWebviewManager,
+    sid: &str,
+    back: bool,
+) -> Result<PlaygroundNavState, String> {
+    let sid = sanitize_sid(sid)?;
+    let target = {
+        let mut sessions = manager
+            .sessions
+            .lock()
+            .map_err(|_| "playground session lock poisoned".to_string())?;
+        let session = sessions
+            .get_mut(&sid)
+            .ok_or_else(|| "playground is not open".to_string())?;
+        let url = if back {
+            session.back()
+        } else {
+            session.forward()
+        };
+        if url.is_some() {
+            session.programmatic = true;
+        }
+        (url, session.nav_state(&sid))
+    };
+    if let Some(url) = target.0 {
+        if let Some(webview) = app.get_webview(&playground_label(&sid)) {
+            navigate_playground(&webview, url)?;
+        }
+    }
+    emit_nav(app, target.1.clone());
+    Ok(target.1)
+}
+
+#[tauri::command]
+pub async fn playground_webview_reload(app: AppHandle, sid: String) -> Result<(), String> {
+    let sid = sanitize_sid(&sid)?;
+    if let Some(webview) = app.get_webview(&playground_label(&sid)) {
+        webview.reload().map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn playground_webview_navigate(
+    app: AppHandle,
+    manager: State<'_, PlaygroundWebviewManager>,
+    sid: String,
+    url: String,
+) -> Result<PlaygroundNavState, String> {
+    let sid = sanitize_sid(&sid)?;
+    let url = parse_playground_url(&url)?;
+    let nav = {
+        let mut sessions = manager
+            .sessions
+            .lock()
+            .map_err(|_| "playground session lock poisoned".to_string())?;
+        let session = sessions
+            .entry(sid.clone())
+            .or_insert_with(|| PlaygroundSession::new(url.clone()));
+        session.programmatic = true;
+        session.push(url.clone());
+        session.nav_state(&sid)
+    };
+    if let Some(webview) = app.get_webview(&playground_label(&sid)) {
+        navigate_playground(&webview, url)?;
+    }
+    emit_nav(&app, nav.clone());
+    Ok(nav)
+}
+
+#[tauri::command]
+pub async fn playground_webview_nav_state(
+    manager: State<'_, PlaygroundWebviewManager>,
+    sid: String,
+) -> Result<PlaygroundNavState, String> {
+    let sid = sanitize_sid(&sid)?;
+    let sessions = manager
+        .sessions
+        .lock()
+        .map_err(|_| "playground session lock poisoned".to_string())?;
+    Ok(sessions
+        .get(&sid)
+        .map(|session| session.nav_state(&sid))
+        .unwrap_or(PlaygroundNavState {
+            sid,
+            can_go_back: false,
+            can_go_forward: false,
+            current_url: String::new(),
+        }))
+}
+
+#[tauri::command]
+pub async fn playground_webview_eval(
+    app: AppHandle,
+    sid: String,
+    js: String,
+) -> Result<String, String> {
+    let sid = sanitize_sid(&sid)?;
+    let webview_id = playground_label(&sid);
+    if !inspect_target_is_safe(&webview_id) {
+        return Err("eval must target the playground webview".into());
+    }
+    let webview = app
+        .get_webview(&webview_id)
+        .ok_or_else(|| "playground webview is not open".to_string())?;
+    webview.eval(&js).map_err(|error| error.to_string())?;
+    Ok(String::new())
+}
+
+#[tauri::command]
+pub async fn playground_webview_dom_hash(
+    app: AppHandle,
+    sid: String,
+    start_url: String,
+) -> Result<String, String> {
+    let sid = sanitize_sid(&sid)?;
+    let start_url = parse_playground_url(&start_url)?;
+    let Some(webview) = app.get_webview(&playground_label(&sid)) else {
+        return Ok(String::new());
+    };
+    let cookie_url = start_url.clone();
+    let cookies = tokio::task::spawn_blocking(move || webview.cookies_for_url(cookie_url))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())?;
+    Ok(cookies
+        .iter()
+        .find(|cookie| cookie.name() == DOM_HASH_COOKIE)
+        .map(|cookie| cookie.value().to_string())
+        .unwrap_or_default())
+}
+
+#[tauri::command]
+pub async fn playground_webview_poll(
+    app: AppHandle,
+    manager: State<'_, PlaygroundWebviewManager>,
+    sid: String,
+    start_url: String,
+) -> Result<PlaygroundPollResult, String> {
+    let sid = sanitize_sid(&sid)?;
+    let start_url = parse_playground_url(&start_url)?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let mut request = client.get(start_url.clone());
+    if let Some(webview) = app.get_webview(&playground_label(&sid)) {
+        let cookie_url = start_url.clone();
+        if let Ok(Ok(cookies)) =
+            tokio::task::spawn_blocking(move || webview.cookies_for_url(cookie_url)).await
+        {
+            let cookie_header = cookies
+                .iter()
+                .map(|cookie| format!("{}={}", cookie.name(), cookie.value()))
+                .collect::<Vec<_>>()
+                .join("; ");
+            if !cookie_header.is_empty() {
+                request = request.header("Cookie", cookie_header);
+            }
+        }
+    }
+    let response = request.send().await.map_err(|error| error.to_string())?;
+    let etag = response
+        .headers()
+        .get(reqwest::header::ETAG)
+        .and_then(|value| value.to_str().ok())
+        .map(ToOwned::to_owned);
+    let last_modified = response
+        .headers()
+        .get(reqwest::header::LAST_MODIFIED)
+        .and_then(|value| value.to_str().ok())
+        .map(ToOwned::to_owned);
+    let body = response.bytes().await.map_err(|error| error.to_string())?;
+    let body_hash = hash_response_body(&body);
+
+    let mut sessions = manager
+        .sessions
+        .lock()
+        .map_err(|_| "playground session lock poisoned".to_string())?;
+    let session = sessions
+        .entry(sid.clone())
+        .or_insert_with(|| PlaygroundSession::new(start_url));
+    let had_snapshot =
+        session.etag.is_some() || session.last_modified.is_some() || session.body_hash.is_some();
+    let differs = if let Some(etag) = etag.as_ref() {
+        session.etag.as_ref() != Some(etag)
+    } else if let Some(last_modified) = last_modified.as_ref() {
+        session.last_modified.as_ref() != Some(last_modified)
+    } else {
+        session.body_hash.as_ref() != Some(&body_hash)
+    };
+    let changed = had_snapshot && differs;
+    session.etag = etag;
+    session.last_modified = last_modified;
+    session.body_hash = Some(body_hash);
+    let _ = app;
+    Ok(PlaygroundPollResult { changed })
+}
+
+#[tauri::command]
+pub async fn playground_webview_screenshot(
+    app: AppHandle,
+    manager: State<'_, PlaygroundWebviewManager>,
+    sid: String,
+) -> Result<PlaygroundScreenshotResult, String> {
+    let sid = sanitize_sid(&sid)?;
+    let webview_id = playground_label(&sid);
+    if !inspect_target_is_safe(&webview_id) {
+        return Err("screenshot must target the playground webview".into());
+    }
+    let webview = app
+        .get_webview(&webview_id)
+        .ok_or_else(|| "playground webview is not open".to_string())?;
+    let bounds = manager.sessions.lock().ok().and_then(|sessions| {
+        sessions
+            .get(&sid)
+            .and_then(|session| session.last_bounds.clone())
+    });
+    let png = capture_playground_png(&webview, bounds.as_ref())?;
+    Ok(PlaygroundScreenshotResult {
+        bytes: png,
+        mime: "image/png".into(),
+        filename: format!("playground-{sid}.png"),
+    })
+}
+
+fn capture_playground_png(
+    webview: &Webview,
+    bounds: Option<&PlaygroundBounds>,
+) -> Result<Vec<u8>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(bounds) = bounds {
+            return capture_macos_region(bounds);
+        }
+    }
+    let _ = webview;
+    let _ = bounds;
+    empty_png()
+}
+
+#[cfg(target_os = "macos")]
+fn capture_macos_region(bounds: &PlaygroundBounds) -> Result<Vec<u8>, String> {
+    let path = std::env::temp_dir().join(format!("buzz-playground-{}.png", Uuid::new_v4()));
+    let status = std::process::Command::new("screencapture")
+        .args([
+            "-x",
+            "-R",
+            &format!(
+                "{},{},{},{}",
+                bounds.x.round(),
+                bounds.y.round(),
+                bounds.width.round(),
+                bounds.height.round()
+            ),
+            path.to_string_lossy().as_ref(),
+        ])
+        .status()
+        .map_err(|error| error.to_string())?;
+    if !status.success() {
+        return empty_png();
+    }
+    let bytes = std::fs::read(&path).map_err(|error| error.to_string())?;
+    let _ = std::fs::remove_file(path);
+    if bytes.is_empty() {
+        return empty_png();
+    }
+    Ok(bytes)
+}
+
+fn empty_png() -> Result<Vec<u8>, String> {
+    // 1×1 transparent PNG so draft staging still has a real image payload
+    // when a platform capture is unavailable (tests, headless).
+    Ok(vec![
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00,
+        0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49,
+        0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+    ])
 }
 
 #[cfg(test)]
@@ -381,5 +855,19 @@ mod tests {
         assert!(inspect_target_is_safe("playground-abc"));
         assert!(!inspect_target_is_safe("main"));
         assert_ne!(playground_label("demo"), APP_WEBVIEW_LABEL);
+    }
+
+    #[test]
+    fn history_back_and_forward_stay_on_the_playground_webview() {
+        let start = Url::parse("https://app.example.com/foo/").expect("url");
+        let mut session = PlaygroundSession::new(start);
+        session.push(Url::parse("https://app.example.com/foo/bar").expect("url"));
+        assert!(session.can_go_back());
+        assert_eq!(
+            session.back().map(|url| url.to_string()).as_deref(),
+            Some("https://app.example.com/foo/")
+        );
+        assert!(session.can_go_forward());
+        assert!(!inspect_target_is_safe("main"));
     }
 }

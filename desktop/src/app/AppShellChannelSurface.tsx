@@ -1,7 +1,7 @@
 import type * as React from "react";
 import * as BuzzTheme from "@/app/BuzzThemeSurfaces";
 import { HuddleRoomHeader, HuddleStartingView } from "@/features/huddle";
-import { PlaygroundHost } from "@/features/playground/ui/PlaygroundOverlay";
+import { PlaygroundHost } from "@/features/playground/ui/PlaygroundHost";
 import { MainInsetProvider } from "@/shared/layout/MainInsetContext";
 import { chromeCssVarDefaults } from "@/shared/layout/chromeLayout";
 import { cn } from "@/shared/lib/cn";

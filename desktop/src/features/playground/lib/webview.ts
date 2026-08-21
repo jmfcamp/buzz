@@ -1,12 +1,22 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 import {
   MIN_PLAYGROUND_WEBVIEW_EDGE,
   PLAYGROUND_APP_WEBVIEW_ID,
   PLAYGROUND_WEBVIEW_PREFIX,
   type PlaygroundInspectResult,
+  type PlaygroundNavState,
+  type PlaygroundPollResult,
+  type PlaygroundScreenshotPayload,
   type PlaygroundWebviewBounds,
 } from "./types.ts";
+
+const EMPTY_NAV = {
+  canGoBack: false,
+  canGoForward: false,
+  currentUrl: "",
+};
 
 function isNativePlaygroundRuntime(): boolean {
   return isTauri() || import.meta.env.MODE === "e2e";
@@ -47,11 +57,17 @@ export async function showPlaygroundWebview(input: {
   sid: string;
   url: string;
   bounds: PlaygroundWebviewBounds;
-}): Promise<void> {
-  await invokePlayground(
+  visible?: boolean;
+}): Promise<PlaygroundNavState> {
+  return invokePlayground(
     "playground_webview_show",
-    { sid: input.sid, url: input.url, bounds: input.bounds },
-    undefined,
+    {
+      sid: input.sid,
+      url: input.url,
+      bounds: input.bounds,
+      visible: input.visible ?? true,
+    },
+    { sid: input.sid, ...EMPTY_NAV, currentUrl: input.url },
   );
 }
 
@@ -98,4 +114,114 @@ export async function inspectPlaygroundWebview(
     throw new Error("Inspect must target the playground webview.");
   }
   return result;
+}
+
+export async function playgroundWebviewGoBack(
+  sid: string,
+): Promise<PlaygroundNavState> {
+  return invokePlayground(
+    "playground_webview_go_back",
+    { sid },
+    {
+      sid,
+      ...EMPTY_NAV,
+    },
+  );
+}
+
+export async function playgroundWebviewGoForward(
+  sid: string,
+): Promise<PlaygroundNavState> {
+  return invokePlayground(
+    "playground_webview_go_forward",
+    { sid },
+    {
+      sid,
+      ...EMPTY_NAV,
+    },
+  );
+}
+
+export async function playgroundWebviewReload(sid: string): Promise<void> {
+  await invokePlayground("playground_webview_reload", { sid }, undefined);
+}
+
+export async function playgroundWebviewNavigate(
+  sid: string,
+  url: string,
+): Promise<PlaygroundNavState> {
+  return invokePlayground(
+    "playground_webview_navigate",
+    { sid, url },
+    {
+      sid,
+      ...EMPTY_NAV,
+      currentUrl: url,
+    },
+  );
+}
+
+export async function getPlaygroundWebviewNavState(
+  sid: string,
+  fallbackUrl = "",
+): Promise<PlaygroundNavState> {
+  return invokePlayground(
+    "playground_webview_nav_state",
+    { sid },
+    {
+      sid,
+      ...EMPTY_NAV,
+      currentUrl: fallbackUrl,
+    },
+  );
+}
+
+export async function pollPlaygroundWebview(
+  sid: string,
+  startUrl: string,
+): Promise<PlaygroundPollResult> {
+  return invokePlayground(
+    "playground_webview_poll",
+    { sid, startUrl },
+    { changed: false },
+  );
+}
+
+export async function evalPlaygroundWebview(
+  sid: string,
+  js: string,
+): Promise<string> {
+  return invokePlayground("playground_webview_eval", { sid, js }, "");
+}
+
+export async function playgroundWebviewDomHash(
+  sid: string,
+  startUrl: string,
+): Promise<string> {
+  return invokePlayground("playground_webview_dom_hash", { sid, startUrl }, "");
+}
+
+export async function screenshotPlaygroundWebview(
+  sid: string,
+): Promise<PlaygroundScreenshotPayload> {
+  return invokePlayground(
+    "playground_webview_screenshot",
+    { sid },
+    {
+      bytes: [],
+      mime: "image/png",
+      filename: `playground-${sid}.png`,
+    },
+  );
+}
+
+export function subscribePlaygroundWebviewNav(
+  onNav: (state: PlaygroundNavState) => void,
+): Promise<() => void> {
+  if (!isNativePlaygroundRuntime()) {
+    return Promise.resolve(() => undefined);
+  }
+  return listen<PlaygroundNavState>("playground-webview-nav", (event) => {
+    onNav(event.payload);
+  });
 }

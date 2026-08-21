@@ -1,6 +1,7 @@
 import { getStorageItem, setStorageItem } from "@/shared/lib/safeStorage";
 import { hideAllPinWebviews } from "@/features/pinned-sites/lib/pinWebview";
 import type { PlaygroundCard } from "./types";
+import { playgroundSessionsMatchingCard } from "./updates";
 import {
   closeAllPlaygroundWebviews,
   closePlaygroundWebview,
@@ -17,6 +18,7 @@ export type PlaygroundSession = {
   pin: string;
   stack?: string;
   expires?: string;
+  hasUpdate?: boolean;
 };
 
 type PlaygroundStore = {
@@ -67,6 +69,7 @@ function cardToSession(card: PlaygroundCard): PlaygroundSession {
     pin: card.pin,
     ...(card.stack ? { stack: card.stack } : {}),
     ...(card.expires != null ? { expires: String(card.expires) } : {}),
+    hasUpdate: false,
   };
 }
 
@@ -108,7 +111,10 @@ export function configurePlaygroundScope(pubkey: string, relayUrl: string) {
       };
       for (const session of saved.sessions ?? []) {
         if (session?.sid && session.name && session.url && session.pin) {
-          store.sessions.set(session.sid, session);
+          store.sessions.set(session.sid, {
+            ...session,
+            hasUpdate: Boolean(session.hasUpdate),
+          });
         }
       }
     } catch {
@@ -135,10 +141,32 @@ export function hasPlaygroundSession(sid: string): boolean {
 
 export function showPlaygroundSession(sid: string) {
   if (!store.sessions.has(sid)) return;
+  const session = store.sessions.get(sid);
+  if (session) {
+    store.sessions.set(sid, { ...session, hasUpdate: false });
+  }
   store.overlaySid = sid;
   persist();
   emit();
   void hideAllPinWebviews();
+}
+
+export function markPlaygroundUpdate(sid: string) {
+  const session = store.sessions.get(sid);
+  if (!session || session.hasUpdate) return;
+  if (store.overlaySid === sid) return;
+  store.sessions.set(sid, { ...session, hasUpdate: true });
+  persist();
+  emit();
+}
+
+export function notePlaygroundCard(card: PlaygroundCard) {
+  for (const session of playgroundSessionsMatchingCard(
+    card,
+    store.sessions.values(),
+  )) {
+    markPlaygroundUpdate(session.sid);
+  }
 }
 
 /**
@@ -206,5 +234,7 @@ if (import.meta.env.MODE === "test") {
     configurePlaygroundScope,
     resetPlaygroundState,
     playgroundStorageKey,
+    markPlaygroundUpdate,
+    notePlaygroundCard,
   };
 }
