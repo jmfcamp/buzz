@@ -13,6 +13,23 @@ export const PLAYGROUND_DOCK_DEFAULT_WIDTH_PX = 480;
 export const PLAYGROUND_DOCK_RATIO = 0.5;
 
 /**
+ * Channel split-thread pane. Must match `message-thread-panel` on
+ * `RightAuxiliaryPane` in ChannelPane — do not invent a width.
+ */
+export const PLAYGROUND_CHANNEL_THREAD_PANEL_TEST_ID = "message-thread-panel";
+
+export type PlaygroundDockThreadEdge = {
+  mainLeft: number;
+  mainWidth: number;
+  threadLeft: number;
+  threadWidth: number;
+};
+
+export type PlaygroundDockRect = {
+  getBoundingClientRect: () => { left: number; width: number };
+};
+
+/**
  * Overlay placement:
  * - `window` — full-main cover (default Open)
  * - `dock` — left split; chat/thread stay real on the right
@@ -112,6 +129,74 @@ export function resolvePlaygroundDockWidth(
     return defaultPlaygroundDockWidth(mainWidth);
   }
   return clampPlaygroundDockWidth(stored, mainWidth);
+}
+
+/**
+ * Dock width whose right edge meets the thread pane's left edge.
+ * Flush split: `mainWidth - threadWidth` when the pane is right-aligned
+ * in the inset (any gap/divider is included via the measured left).
+ */
+export function playgroundDockWidthFlushToThread(
+  mainWidth: number,
+  threadWidth: number,
+): number {
+  return clampPlaygroundDockWidth(mainWidth - threadWidth, mainWidth);
+}
+
+/** Same snap from the thread pane's left edge relative to the main inset. */
+export function playgroundDockWidthFromThreadLeft(
+  mainWidth: number,
+  mainLeft: number,
+  threadLeft: number,
+): number {
+  return clampPlaygroundDockWidth(threadLeft - mainLeft, mainWidth);
+}
+
+export function readPlaygroundDockThreadEdge(
+  main: PlaygroundDockRect,
+  thread: PlaygroundDockRect | null | undefined,
+): PlaygroundDockThreadEdge | null {
+  if (!thread) return null;
+  const mainBox = main.getBoundingClientRect();
+  const threadBox = thread.getBoundingClientRect();
+  if (!(mainBox.width > 0) || !(threadBox.width > 0)) {
+    return null;
+  }
+  return {
+    mainLeft: mainBox.left,
+    mainWidth: mainBox.width,
+    threadLeft: threadBox.left,
+    threadWidth: threadBox.width,
+  };
+}
+
+/**
+ * First-dock / dock-action width. A prior user drag wins; otherwise snap
+ * to an open split-thread pane, or fall back to ~50% of the main inset.
+ */
+export function resolvePlaygroundDockWidthOnDock(input: {
+  mainWidth: number;
+  threadEdge?: PlaygroundDockThreadEdge | null;
+  userResized?: boolean;
+  stored?: number | null;
+}): number {
+  if (input.userResized) {
+    return resolvePlaygroundDockWidth(
+      input.mainWidth,
+      input.stored === undefined
+        ? readStoredPlaygroundDockWidth()
+        : input.stored,
+    );
+  }
+  const edge = input.threadEdge;
+  if (edge && edge.threadWidth > 0) {
+    return playgroundDockWidthFromThreadLeft(
+      input.mainWidth,
+      edge.mainLeft,
+      edge.threadLeft,
+    );
+  }
+  return defaultPlaygroundDockWidth(input.mainWidth);
 }
 
 export function playgroundOverlaySearchState(

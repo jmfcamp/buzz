@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  PLAYGROUND_CHANNEL_THREAD_PANEL_TEST_ID,
   PLAYGROUND_DOCK_DEFAULT_WIDTH_PX,
   PLAYGROUND_DOCK_MIN_REMAINDER_PX,
   PLAYGROUND_DOCK_MIN_WIDTH_PX,
@@ -9,10 +10,14 @@ import {
   defaultPlaygroundDockWidth,
   parseStoredPlaygroundDockWidth,
   playgroundDockLeavesMainClickable,
+  playgroundDockWidthFlushToThread,
+  playgroundDockWidthFromThreadLeft,
   playgroundOverlayPlacement,
   playgroundOverlaySearchState,
   playgroundOverlayShouldPortal,
+  readPlaygroundDockThreadEdge,
   resolvePlaygroundDockWidth,
+  resolvePlaygroundDockWidthOnDock,
 } from "./dock.ts";
 
 test("placement treats dock as a split, not dismiss or fullscreen", () => {
@@ -73,6 +78,76 @@ test("search state reads dock/fullscreen attributes from the overlay", () => {
       },
     }),
     { docked: true, fullscreen: false, placement: "dock" },
+  );
+});
+
+test("dock snap width is flush to the thread pane left edge", () => {
+  assert.equal(PLAYGROUND_CHANNEL_THREAD_PANEL_TEST_ID, "message-thread-panel");
+  assert.equal(playgroundDockWidthFlushToThread(1000, 380), 620);
+  assert.equal(playgroundDockWidthFromThreadLeft(1000, 256, 256 + 620), 620);
+  assert.equal(
+    playgroundDockWidthFlushToThread(1000, 380),
+    playgroundDockWidthFromThreadLeft(1000, 256, 256 + (1000 - 380)),
+  );
+  // Gap/divider between chat and thread is kept — snap to the measured left.
+  assert.equal(playgroundDockWidthFromThreadLeft(1000, 256, 256 + 616), 616);
+  assert.equal(
+    playgroundDockWidthFlushToThread(1000, 800),
+    1000 - PLAYGROUND_DOCK_MIN_REMAINDER_PX,
+  );
+  assert.equal(
+    playgroundDockWidthFlushToThread(1000, 50),
+    1000 - PLAYGROUND_DOCK_MIN_REMAINDER_PX,
+  );
+
+  const main = {
+    getBoundingClientRect: () => ({ left: 256, width: 1000 }),
+  };
+  const thread = {
+    getBoundingClientRect: () => ({ left: 256 + 620, width: 380 }),
+  };
+  assert.deepEqual(readPlaygroundDockThreadEdge(main, thread), {
+    mainLeft: 256,
+    mainWidth: 1000,
+    threadLeft: 876,
+    threadWidth: 380,
+  });
+  assert.equal(readPlaygroundDockThreadEdge(main, null), null);
+  assert.equal(
+    readPlaygroundDockThreadEdge(main, {
+      getBoundingClientRect: () => ({ left: 876, width: 0 }),
+    }),
+    null,
+  );
+
+  assert.equal(
+    resolvePlaygroundDockWidthOnDock({
+      mainWidth: 1000,
+      threadEdge: readPlaygroundDockThreadEdge(main, thread),
+    }),
+    620,
+  );
+  assert.equal(
+    resolvePlaygroundDockWidthOnDock({ mainWidth: 1000, threadEdge: null }),
+    500,
+  );
+  assert.equal(
+    resolvePlaygroundDockWidthOnDock({
+      mainWidth: 1000,
+      stored: 640,
+      threadEdge: readPlaygroundDockThreadEdge(main, thread),
+      userResized: true,
+    }),
+    640,
+  );
+  assert.equal(
+    resolvePlaygroundDockWidthOnDock({
+      mainWidth: 1000,
+      stored: 640,
+      threadEdge: readPlaygroundDockThreadEdge(main, thread),
+      userResized: false,
+    }),
+    620,
   );
 });
 

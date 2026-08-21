@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   playgroundConversationFromRoute,
+  playgroundConversationHasOpenThread,
   playgroundScreenshotAvailable,
 } from "./conversation.ts";
 
@@ -49,4 +50,7 @@ test("screenshot is absent without a channel and present with one", () => {
     channelId: "hula-id",
     draftKey: "thread:root-1",
   });
+  assert.equal(playgroundConversationHasOpenThread(channel), false);
+  assert.equal(playgroundConversationHasOpenThread(thread), true);
+  assert.equal(playgroundConversationHasOpenThread(null), false);
 });

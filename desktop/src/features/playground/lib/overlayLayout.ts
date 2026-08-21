@@ -29,11 +29,21 @@ export const PLAYGROUND_WINDOWED_OVERLAY_CLASS = "absolute inset-0 z-30";
  * over chat even when a width is set. Stays in SidebarInset (not portaled).
  */
 export const PLAYGROUND_DOCKED_OVERLAY_CLASS =
-  "absolute inset-y-0 left-0 z-30 overflow-visible border-r border-border";
+  "absolute inset-y-0 left-0 z-30 overflow-visible border-r border-border pr-2";
 
-/** Right-edge drag, mirrored from the thread / AuxiliaryPanel handle. */
+/**
+ * Shared 8px thickness for playground edge handles. Native WKWebView eats
+ * clicks, so the hit target must be a real gutter *outside* the host — a
+ * 1px border under the webview can hover (CSS) and still miss pointerdown.
+ */
+export const PLAYGROUND_RESIZE_HANDLE_PX = 8;
+
+/**
+ * Right-edge dock drag. `w-2` (8px) sits in the docked overlay's `pr-2`
+ * gutter so the handle is outside the native WKWebView, same as responsive.
+ */
 export const PLAYGROUND_DOCK_RESIZE_HANDLE_CLASS =
-  "absolute inset-y-0 right-0 z-40 w-3 translate-x-1/2 cursor-col-resize touch-none";
+  "absolute inset-y-0 right-0 z-40 w-2 cursor-col-resize touch-none pointer-events-auto";
 
 export const PLAYGROUND_DOCK_RESIZE_HANDLE_TEST_ID = "playground-dock-resize";
 

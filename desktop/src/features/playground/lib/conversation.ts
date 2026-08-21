@@ -34,3 +34,10 @@ export function playgroundScreenshotAvailable(
 ): boolean {
   return conversation != null;
 }
+
+/** True when the overlay sits on a channel with a split thread pane open. */
+export function playgroundConversationHasOpenThread(
+  conversation: PlaygroundConversation | null,
+): boolean {
+  return Boolean(conversation?.draftKey.startsWith("thread:"));
+}

@@ -290,6 +290,17 @@ export function PlaygroundChrome({
               <Camera />
             </ChromeTooltipButton>
           ) : null}
+          <ChromeTooltipButton
+            aria-label={playgroundFullscreenTooltip(fullscreen)}
+            data-testid="playground-fullscreen"
+            onClick={onToggleFullscreen}
+            size="icon-xs"
+            tooltip={playgroundFullscreenTooltip(fullscreen)}
+            type="button"
+            variant="outline"
+          >
+            {fullscreen ? <Minimize2 /> : <Maximize2 />}
+          </ChromeTooltipButton>
           {fullscreen ? null : (
             <ChromeTooltipButton
               aria-label={playgroundDockTooltip(docked)}
@@ -303,17 +314,6 @@ export function PlaygroundChrome({
               {docked ? <PanelLeftOpen /> : <PanelLeftClose />}
             </ChromeTooltipButton>
           )}
-          <ChromeTooltipButton
-            aria-label={playgroundFullscreenTooltip(fullscreen)}
-            data-testid="playground-fullscreen"
-            onClick={onToggleFullscreen}
-            size="icon-xs"
-            tooltip={playgroundFullscreenTooltip(fullscreen)}
-            type="button"
-            variant="outline"
-          >
-            {fullscreen ? <Minimize2 /> : <Maximize2 />}
-          </ChromeTooltipButton>
           <ChromeTooltipButton
             aria-label={playgroundChromeTooltip("dismiss")}
             data-testid="playground-dismiss"
