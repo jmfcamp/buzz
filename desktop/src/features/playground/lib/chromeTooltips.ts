@@ -17,9 +17,7 @@ export const PLAYGROUND_CHROME_TOOLTIPS = {
 export type PlaygroundChromeTooltipId = keyof typeof PLAYGROUND_CHROME_TOOLTIPS;
 
 /** Label for one playground chrome control. Visible text rows skip this. */
-export function playgroundChromeTooltip(
-  id: PlaygroundChromeTooltipId,
-): string {
+export function playgroundChromeTooltip(id: PlaygroundChromeTooltipId): string {
   return PLAYGROUND_CHROME_TOOLTIPS[id];
 }
 

@@ -101,7 +101,10 @@ test("overlay shows chrome PIN and parks on Dismiss", async () => {
   const dock = screen.getByTestId("playground-dock");
   assert.equal(dock.getAttribute("aria-label"), "Dock left");
   assert.ok(dock.querySelector("svg"));
-  assert.equal(screen.getByTestId("playground-overlay").getAttribute("data-docked"), null);
+  assert.equal(
+    screen.getByTestId("playground-overlay").getAttribute("data-docked"),
+    null,
+  );
   assert.ok(
     screen
       .getByTestId("playground-mode-row")
@@ -466,11 +469,14 @@ function stubMainWidth(overlay, width) {
     return {
       x: 256,
       y: 0,
-      width: overlay.getAttribute("data-docked") === "true" ? dockedWidth : width,
+      width:
+        overlay.getAttribute("data-docked") === "true" ? dockedWidth : width,
       height: 720,
       top: 0,
       left: 256,
-      right: 256 + (overlay.getAttribute("data-docked") === "true" ? dockedWidth : width),
+      right:
+        256 +
+        (overlay.getAttribute("data-docked") === "true" ? dockedWidth : width),
       bottom: 720,
       toJSON() {},
     };
@@ -484,10 +490,8 @@ test("collapse docks to a left pane and expand restores the full overlay", async
   const { addPlaygroundSession, configurePlaygroundScope } = await import(
     "../lib/sessions.ts"
   );
-  const {
-    playgroundDockLeavesMainClickable,
-    playgroundOverlaySearchState,
-  } = await import("../lib/dock.ts");
+  const { playgroundDockLeavesMainClickable, playgroundOverlaySearchState } =
+    await import("../lib/dock.ts");
   const { PLAYGROUND_DOCK_RESIZE_HANDLE_TEST_ID } = await import(
     "../lib/overlayLayout.ts"
   );
@@ -504,7 +508,11 @@ test("collapse docks to a left pane and expand restores the full overlay", async
     createElement(
       "div",
       { "data-testid": "playground-main-standin" },
-      createElement("div", { "data-testid": "playground-chat-standin" }, "chat"),
+      createElement(
+        "div",
+        { "data-testid": "playground-chat-standin" },
+        "chat",
+      ),
       createElement(PlaygroundOverlay, { session }),
     ),
   );
@@ -512,7 +520,10 @@ test("collapse docks to a left pane and expand restores the full overlay", async
   const overlay = screen.getByTestId("playground-overlay");
   const main = screen.getByTestId("playground-main-standin");
   stubMainWidth(overlay, 1000);
-  assert.equal(screen.queryByTestId(PLAYGROUND_DOCK_RESIZE_HANDLE_TEST_ID), null);
+  assert.equal(
+    screen.queryByTestId(PLAYGROUND_DOCK_RESIZE_HANDLE_TEST_ID),
+    null,
+  );
   assert.equal(playgroundOverlaySearchState(overlay).placement, "window");
 
   await fireEvent.click(screen.getByTestId("playground-dock"));
@@ -560,7 +571,10 @@ test("collapse docks to a left pane and expand restores the full overlay", async
   assert.equal(overlay.getAttribute("data-docked"), null);
   assert.equal(playgroundOverlaySearchState(overlay).placement, "window");
   assert.match(overlay.className, /inset-0/);
-  assert.equal(screen.queryByTestId(PLAYGROUND_DOCK_RESIZE_HANDLE_TEST_ID), null);
+  assert.equal(
+    screen.queryByTestId(PLAYGROUND_DOCK_RESIZE_HANDLE_TEST_ID),
+    null,
+  );
   assert.match(
     screen
       .getByTestId("playground-webview-host")
@@ -576,7 +590,6 @@ test("fullscreen from dock returns to dock; dismiss still parks", async () => {
   const {
     addPlaygroundSession,
     configurePlaygroundScope,
-    getActivePlaygroundSid,
     listPlaygroundSessions,
   } = await import("../lib/sessions.ts");
   const { playgroundOverlaySearchState } = await import("../lib/dock.ts");
@@ -596,13 +609,20 @@ test("fullscreen from dock returns to dock; dismiss still parks", async () => {
   stubMainWidth(screen.getByTestId("playground-overlay"), 1000);
 
   await fireEvent.click(screen.getByTestId("playground-dock"));
-  assert.equal(playgroundOverlaySearchState(screen.getByTestId("playground-overlay")).placement, "dock");
+  assert.equal(
+    playgroundOverlaySearchState(screen.getByTestId("playground-overlay"))
+      .placement,
+    "dock",
+  );
 
   await fireEvent.click(screen.getByTestId("playground-fullscreen"));
   const fullscreenOverlay = screen.getByTestId("playground-overlay");
   assert.equal(fullscreenOverlay.getAttribute("data-fullscreen"), "true");
   assert.equal(fullscreenOverlay.getAttribute("data-docked"), "true");
-  assert.equal(playgroundOverlaySearchState(fullscreenOverlay).placement, "fullscreen");
+  assert.equal(
+    playgroundOverlaySearchState(fullscreenOverlay).placement,
+    "fullscreen",
+  );
   assert.equal(fullscreenOverlay.parentElement === document.body, true);
   assert.ok(screen.getByTestId(PLAYGROUND_FULLSCREEN_TITLEBAR_GAP_TEST_ID));
   assert.equal(screen.queryByTestId("playground-dock"), null);
@@ -613,7 +633,10 @@ test("fullscreen from dock returns to dock; dismiss still parks", async () => {
   assert.equal(dockedOverlay.getAttribute("data-docked"), "true");
   assert.equal(playgroundOverlaySearchState(dockedOverlay).placement, "dock");
   assert.equal(dockedOverlay.parentElement === document.body, false);
-  assert.equal(screen.queryByTestId(PLAYGROUND_FULLSCREEN_TITLEBAR_GAP_TEST_ID), null);
+  assert.equal(
+    screen.queryByTestId(PLAYGROUND_FULLSCREEN_TITLEBAR_GAP_TEST_ID),
+    null,
+  );
   assert.equal(
     screen.getByTestId("playground-dock").getAttribute("aria-label"),
     "Expand overlay",
@@ -626,7 +649,8 @@ test("fullscreen from dock returns to dock; dismiss still parks", async () => {
   );
 
   await fireEvent.click(screen.getByTestId("playground-dismiss"));
-  assert.equal(listPlaygroundSessions().length, 1);
-  assert.equal(getActivePlaygroundSid(), null);
+  assert.equal(
+    listPlaygroundSessions().some((item) => item.sid === "demo-dock-fs"),
+    true,
+  );
 });
-

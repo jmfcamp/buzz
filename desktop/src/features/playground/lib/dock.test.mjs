@@ -27,14 +27,14 @@ test("placement treats dock as a split, not dismiss or fullscreen", () => {
 test("default dock width is half the main inset", () => {
   assert.equal(defaultPlaygroundDockWidth(1000), 500);
   assert.equal(defaultPlaygroundDockWidth(1200), 600);
-  assert.equal(
-    defaultPlaygroundDockWidth(0),
-    PLAYGROUND_DOCK_DEFAULT_WIDTH_PX,
-  );
+  assert.equal(defaultPlaygroundDockWidth(0), PLAYGROUND_DOCK_DEFAULT_WIDTH_PX);
 });
 
 test("dock width clamp keeps a clickable remainder", () => {
-  assert.equal(clampPlaygroundDockWidth(200, 1000), PLAYGROUND_DOCK_MIN_WIDTH_PX);
+  assert.equal(
+    clampPlaygroundDockWidth(200, 1000),
+    PLAYGROUND_DOCK_MIN_WIDTH_PX,
+  );
   assert.equal(
     clampPlaygroundDockWidth(900, 1000),
     1000 - PLAYGROUND_DOCK_MIN_REMAINDER_PX,
