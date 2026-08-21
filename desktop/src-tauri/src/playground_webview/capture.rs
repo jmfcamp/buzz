@@ -1,6 +1,8 @@
 //! Snapshot the playground child webview itself. Never display-capture.
 
+#[cfg(target_os = "macos")]
 use std::sync::mpsc;
+#[cfg(target_os = "macos")]
 use std::time::Duration;
 
 use tauri::Webview;
