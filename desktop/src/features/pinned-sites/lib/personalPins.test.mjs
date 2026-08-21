@@ -15,19 +15,19 @@ const memory = new Map();
 
 function installStorage() {
   memory.clear();
-  globalThis.window = {
-    localStorage: {
-      getItem(key) {
-        return memory.has(key) ? memory.get(key) : null;
-      },
-      setItem(key, value) {
-        memory.set(key, value);
-      },
-      removeItem(key) {
-        memory.delete(key);
-      },
+  const localStorage = {
+    getItem(key) {
+      return memory.has(key) ? memory.get(key) : null;
+    },
+    setItem(key, value) {
+      memory.set(key, value);
+    },
+    removeItem(key) {
+      memory.delete(key);
     },
   };
+  globalThis.localStorage = localStorage;
+  globalThis.window = { localStorage };
 }
 
 test("seeds Wayfinder once on an empty store", () => {

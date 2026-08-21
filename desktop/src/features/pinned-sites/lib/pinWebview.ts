@@ -29,6 +29,9 @@ export type PinWebviewLoadState = {
 /** Logical px. A 1×1 first layout must not create the child webview. */
 export const MIN_PIN_WEBVIEW_EDGE = 32;
 
+/** Playground overlay parks pins; they listen for this to show again. */
+export const PIN_WEBVIEW_RESTORE_EVENT = "buzz:pin-webview-restore";
+
 const EMPTY_NAV: PinWebviewNavState = {
   canGoBack: false,
   canGoForward: false,

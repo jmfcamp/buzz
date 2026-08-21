@@ -1,6 +1,8 @@
 import { Activity, Bot, FolderGit2, Inbox, Zap } from "lucide-react";
 
 import type { AppView } from "@/app/AppShell.helpers";
+import { PlaygroundMenuItems } from "@/features/playground/ui/PlaygroundMenuItems";
+import { dismissPlayground } from "@/features/playground/lib/sessions";
 import { usePinnedSites } from "@/features/pinned-sites/hooks";
 import { getPinnedSiteIcon } from "@/features/pinned-sites/lib/icons";
 import type { PinnedSite } from "@/features/pinned-sites/lib/types";
@@ -96,6 +98,10 @@ export function AppSidebarPrimaryMenu({
   selectedView,
 }: AppSidebarPrimaryMenuProps) {
   const { pins } = usePinnedSites();
+  const parkThen = (select: () => void) => () => {
+    dismissPlayground();
+    select();
+  };
   return (
     <SidebarHeader
       className="relative z-40 cursor-default select-none px-2 pb-0 pt-0"
@@ -107,7 +113,7 @@ export function AppSidebarPrimaryMenu({
           <SidebarMenuButton
             className="data-[active=true]:font-normal"
             isActive={selectedView === "home"}
-            onClick={onSelectHome}
+            onClick={parkThen(onSelectHome)}
             tooltip="Inbox"
             type="button"
           >
@@ -128,7 +134,7 @@ export function AppSidebarPrimaryMenu({
             <SidebarMenuButton
               data-testid="open-pulse-view"
               isActive={selectedView === "pulse"}
-              onClick={onSelectPulse}
+              onClick={parkThen(onSelectPulse)}
               tooltip="Pulse"
               type="button"
             >
@@ -142,7 +148,7 @@ export function AppSidebarPrimaryMenu({
             <SidebarMenuButton
               data-testid="open-projects-view"
               isActive={selectedView === "projects"}
-              onClick={onSelectProjects}
+              onClick={parkThen(onSelectProjects)}
               tooltip="Projects"
               type="button"
             >
@@ -156,7 +162,7 @@ export function AppSidebarPrimaryMenu({
             className="data-[active=true]:font-normal"
             data-testid="open-agents-view"
             isActive={selectedView === "agents"}
-            onClick={onSelectAgents}
+            onClick={parkThen(onSelectAgents)}
             tooltip="Agents"
             type="button"
           >
@@ -164,12 +170,13 @@ export function AppSidebarPrimaryMenu({
             <SidebarMenuLabel>Agents</SidebarMenuLabel>
           </SidebarMenuButton>
         </SidebarMenuItem>
+        <PlaygroundMenuItems />
         <FeatureGate feature="workflows">
           <SidebarMenuItem>
             <SidebarMenuButton
               data-testid="open-workflows-view"
               isActive={selectedView === "workflows"}
-              onClick={onSelectWorkflows}
+              onClick={parkThen(onSelectWorkflows)}
               tooltip="Workflows"
               type="button"
             >
@@ -182,7 +189,7 @@ export function AppSidebarPrimaryMenu({
           <PinnedSiteMenuItem
             isActive={selectedView === "pin" && selectedPinId === pin.id}
             key={pin.id}
-            onSelect={() => onSelectPinnedSite(pin.id)}
+            onSelect={parkThen(() => onSelectPinnedSite(pin.id))}
             pin={pin}
           />
         ))}

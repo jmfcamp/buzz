@@ -10,6 +10,7 @@ import { getPinnedSiteIcon } from "../lib/icons";
 import {
   getPinWebviewNavState,
   hidePinWebview,
+  PIN_WEBVIEW_RESTORE_EVENT,
   pinWebviewBoundsAreUsable,
   pinWebviewGoBack,
   pinWebviewGoForward,
@@ -226,6 +227,11 @@ function PinnedSiteSurface({
     openOrResize();
     const observer = new ResizeObserver(openOrResize);
     observer.observe(host);
+    const restore = () => {
+      opened = false;
+      openOrResize();
+    };
+    window.addEventListener(PIN_WEBVIEW_RESTORE_EVENT, restore);
 
     const unlistenLoad = subscribePinWebviewLoad((payload) => {
       if (payload.pinId !== pinId) return;
@@ -237,6 +243,7 @@ function PinnedSiteSurface({
     return () => {
       cancelled = true;
       observer.disconnect();
+      window.removeEventListener(PIN_WEBVIEW_RESTORE_EVENT, restore);
       void unlistenLoad.then((stop) => stop());
       void hidePinWebview(pinId);
     };

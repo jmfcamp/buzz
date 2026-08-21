@@ -168,22 +168,37 @@ export async function load(url, context, nextLoad) {
     };
   }
 
-  if (url.endsWith(".tsx")) {
-    const source = fs.readFileSync(fileURLToPath(url), "utf8");
-    const transpiled = ts.transpileModule(source, {
-      compilerOptions: {
-        jsx: ts.JsxEmit.ReactJSX,
-        module: ts.ModuleKind.ESNext,
-        target: ts.ScriptTarget.ES2020,
-      },
-      fileName: fileURLToPath(url),
-    });
-
-    return {
-      format: "module",
-      shortCircuit: true,
-      source: transpiled.outputText,
-    };
+  if (url.startsWith("file:") && /\.(?:tsx?|mjs|js)$/.test(url)) {
+    let source = fs.readFileSync(fileURLToPath(url), "utf8");
+    const needsEnvStub = source.includes("import.meta.env");
+    if (needsEnvStub) {
+      source = source.replaceAll(
+        "import.meta.env",
+        '(globalThis.__BUZZ_TEST_ENV__ ?? { MODE: "test" })',
+      );
+    }
+    if (url.endsWith(".tsx") || (needsEnvStub && url.endsWith(".ts"))) {
+      const transpiled = ts.transpileModule(source, {
+        compilerOptions: {
+          jsx: ts.JsxEmit.ReactJSX,
+          module: ts.ModuleKind.ESNext,
+          target: ts.ScriptTarget.ES2020,
+        },
+        fileName: fileURLToPath(url),
+      });
+      return {
+        format: "module",
+        shortCircuit: true,
+        source: transpiled.outputText,
+      };
+    }
+    if (needsEnvStub) {
+      return {
+        format: "module",
+        shortCircuit: true,
+        source,
+      };
+    }
   }
 
   return nextLoad(url, context);

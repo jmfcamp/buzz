@@ -23,6 +23,7 @@ mod media_proxy;
 mod mesh_llm;
 #[cfg(not(feature = "mesh-llm"))]
 mod mesh_llm_stubs;
+mod mesh_runtime;
 mod migration;
 #[cfg(test)]
 mod model_tests;
@@ -31,6 +32,7 @@ mod native_websocket;
 mod nostr_bind;
 pub mod nostr_convert;
 mod pin_webview;
+mod playground_webview;
 mod prevent_sleep;
 mod ptt_shortcut;
 mod relay;
@@ -91,28 +93,7 @@ use tauri_plugin_window_state::StateFlags;
 use tray_menu::show_main_window;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // mesh-llm futures overflow tokio's default 2 MiB stacks; use 8 MiB.
-    #[cfg(feature = "mesh-llm")]
-    match tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .thread_stack_size(crate::mesh_llm::MESH_WORKER_STACK_SIZE)
-        .build()
-    {
-        Ok(runtime) => {
-            tauri::async_runtime::set(runtime.handle().clone());
-            // Keep the runtime alive so Tauri workers stay up.
-            std::mem::forget(runtime);
-            eprintln!(
-                "buzz-mesh: installed tokio runtime with {} MiB worker stacks",
-                crate::mesh_llm::MESH_WORKER_STACK_SIZE / (1024 * 1024)
-            );
-        }
-        Err(error) => {
-            // Fall back to Tauri's default runtime: the app still works,
-            // only deep mesh-llm futures are at risk of stack overflow.
-            eprintln!("buzz-mesh: failed to build big-stack tokio runtime, using default: {error}");
-        }
-    }
+    mesh_runtime::install_mesh_worker_runtime();
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             // Focus the existing window when a duplicate instance launches.
@@ -309,6 +290,7 @@ pub fn run() {
         .manage(commands::pairing::PairingHandle::new())
         .manage(terminal_runtime::TerminalSessions::default())
         .manage(pin_webview::PinWebviewManager::default())
+        .manage(playground_webview::PlaygroundWebviewManager::default())
         .setup(move |app| {
             let app_handle = app.handle().clone();
             #[cfg(target_os = "macos")]
@@ -869,6 +851,14 @@ pub fn run() {
             pin_webview::pin_webview_nav_state,
             pin_webview::pin_webview_close,
             pin_webview::pin_webview_poll,
+            playground_webview::playground_probe,
+            playground_webview::playground_webview_show,
+            playground_webview::playground_webview_hide,
+            playground_webview::playground_webview_hide_all,
+            playground_webview::playground_webview_set_bounds,
+            playground_webview::playground_webview_close,
+            playground_webview::playground_webview_close_all,
+            playground_webview::playground_webview_inspect,
             push_audio_pcm,
             reconnect_huddle_audio,
             start_stt_pipeline,
