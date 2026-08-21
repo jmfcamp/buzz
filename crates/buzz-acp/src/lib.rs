@@ -6,6 +6,7 @@ mod engram_fetch;
 mod filter;
 mod last_mile;
 mod observer;
+mod openclaw_session;
 mod pool;
 mod pool_lifecycle;
 mod queue;
@@ -2238,6 +2239,7 @@ async fn tokio_main() -> Result<()> {
         memory_enabled: config.memory_enabled,
         harness_name: crate::config::normalize_agent_command_identity(&config.agent_command),
         relay_url: config.relay_url.clone(),
+        openclaw_agent_id: crate::openclaw_session::parse_openclaw_agent_id(&config.agent_args),
     });
 
     if !config.memory_enabled {
@@ -4047,7 +4049,12 @@ fn handle_prompt_result(
         // The task may have invalidated this session before returning. Never
         // resurrect delivery state for a dead session; its replacement must
         // receive fresh standing context and history.
-        if let Some(live_session_id) = result.agent.state.sessions.get(channel_id).cloned() {
+        let conversation = result
+            .batch
+            .as_ref()
+            .map(crate::openclaw_session::ConversationKey::from_batch)
+            .unwrap_or_else(|| crate::openclaw_session::ConversationKey::channel(*channel_id));
+        if let Some(live_session_id) = result.agent.state.sessions.get(&conversation).cloned() {
             let event_ids = successful_steer_deliveries
                 .into_iter()
                 .filter(|delivery| delivery.session_id == live_session_id)
@@ -4055,7 +4062,7 @@ fn handle_prompt_result(
             result
                 .agent
                 .state
-                .mark_channel_delivery_success(*channel_id, false, event_ids);
+                .mark_channel_delivery_success(conversation, false, event_ids);
         }
     }
 
@@ -5088,7 +5095,9 @@ async fn run_models(args: ModelsArgs) -> Result<()> {
     // so shutdown() runs on all paths (success, error, timeout).
     let protocol_result = tokio::time::timeout(MODELS_TIMEOUT, async {
         let init = client.initialize().await?;
-        let session = client.session_new_full(&cwd, vec![], None, None).await?;
+        let session = client
+            .session_new_full(&cwd, vec![], None, None, None)
+            .await?;
         Ok::<_, acp::AcpError>((init, session))
     })
     .await;
@@ -7524,14 +7533,14 @@ mod error_outcome_emission_tests {
         let channel_id = Uuid::new_v4();
         let steer_event_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         let mut agent = dummy_agent(0).await;
-        agent
-            .state
-            .sessions
-            .insert(channel_id, "live-session".into());
-        agent
-            .state
-            .deliveries
-            .insert(channel_id, Default::default());
+        agent.state.sessions.insert(
+            crate::openclaw_session::ConversationKey::channel(channel_id),
+            "live-session".into(),
+        );
+        agent.state.deliveries.insert(
+            crate::openclaw_session::ConversationKey::channel(channel_id),
+            Default::default(),
+        );
 
         let mut pool = AgentPool::from_slots(vec![None]);
         let task_id = pool.join_set.spawn(async {}).id();
@@ -7587,7 +7596,8 @@ mod error_outcome_emission_tests {
         );
 
         let returned = pool.agents_mut()[0].as_ref().expect("returned agent");
-        assert!(returned.state.deliveries[&channel_id]
+        assert!(returned.state.deliveries
+            [&crate::openclaw_session::ConversationKey::channel(channel_id)]
             .delivered_event_ids
             .contains(steer_event_id));
     }
@@ -7596,14 +7606,14 @@ mod error_outcome_emission_tests {
     async fn in_flight_stale_native_steer_ack_cannot_update_replacement_session() {
         let channel_id = Uuid::new_v4();
         let mut agent = dummy_agent(0).await;
-        agent
-            .state
-            .sessions
-            .insert(channel_id, "replacement-session".into());
-        agent
-            .state
-            .deliveries
-            .insert(channel_id, Default::default());
+        agent.state.sessions.insert(
+            crate::openclaw_session::ConversationKey::channel(channel_id),
+            "replacement-session".into(),
+        );
+        agent.state.deliveries.insert(
+            crate::openclaw_session::ConversationKey::channel(channel_id),
+            Default::default(),
+        );
 
         let mut pool = AgentPool::from_slots(vec![None]);
         let task_id = pool.join_set.spawn(async {}).id();
@@ -7659,7 +7669,8 @@ mod error_outcome_emission_tests {
         );
 
         let returned = pool.agents_mut()[0].as_ref().expect("returned agent");
-        assert!(returned.state.deliveries[&channel_id]
+        assert!(returned.state.deliveries
+            [&crate::openclaw_session::ConversationKey::channel(channel_id)]
             .delivered_event_ids
             .is_empty());
     }
@@ -7669,14 +7680,14 @@ mod error_outcome_emission_tests {
         let channel_id = Uuid::new_v4();
         let steer_event_id = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
         let mut agent = dummy_agent(0).await;
-        agent
-            .state
-            .sessions
-            .insert(channel_id, "live-session".into());
-        agent
-            .state
-            .deliveries
-            .insert(channel_id, Default::default());
+        agent.state.sessions.insert(
+            crate::openclaw_session::ConversationKey::channel(channel_id),
+            "live-session".into(),
+        );
+        agent.state.deliveries.insert(
+            crate::openclaw_session::ConversationKey::channel(channel_id),
+            Default::default(),
+        );
         let mut pool = AgentPool::from_slots(vec![Some(agent)]);
 
         assert!(pool.record_successful_steer(
@@ -7685,7 +7696,8 @@ mod error_outcome_emission_tests {
             "live-session".into(),
         ));
         let returned = pool.agents_mut()[0].as_ref().expect("idle returned agent");
-        assert!(returned.state.deliveries[&channel_id]
+        assert!(returned.state.deliveries
+            [&crate::openclaw_session::ConversationKey::channel(channel_id)]
             .delivered_event_ids
             .contains(steer_event_id));
     }
@@ -7694,14 +7706,14 @@ mod error_outcome_emission_tests {
     async fn late_native_steer_ack_cannot_update_replacement_session() {
         let channel_id = Uuid::new_v4();
         let mut agent = dummy_agent(0).await;
-        agent
-            .state
-            .sessions
-            .insert(channel_id, "replacement-session".into());
-        agent
-            .state
-            .deliveries
-            .insert(channel_id, Default::default());
+        agent.state.sessions.insert(
+            crate::openclaw_session::ConversationKey::channel(channel_id),
+            "replacement-session".into(),
+        );
+        agent.state.deliveries.insert(
+            crate::openclaw_session::ConversationKey::channel(channel_id),
+            Default::default(),
+        );
         let mut pool = AgentPool::from_slots(vec![Some(agent)]);
 
         assert!(!pool.record_successful_steer(
@@ -7710,7 +7722,8 @@ mod error_outcome_emission_tests {
             "old-session".into(),
         ));
         let returned = pool.agents_mut()[0].as_ref().expect("replacement agent");
-        assert!(returned.state.deliveries[&channel_id]
+        assert!(returned.state.deliveries
+            [&crate::openclaw_session::ConversationKey::channel(channel_id)]
             .delivered_event_ids
             .is_empty());
     }
@@ -7773,7 +7786,9 @@ mod error_outcome_emission_tests {
         );
 
         let returned = pool.agents_mut()[0].as_ref().expect("returned agent");
-        assert!(!returned.state.deliveries.contains_key(&channel_id));
+        assert!(!returned.state.deliveries.contains_key(
+            &crate::openclaw_session::ConversationKey::channel(channel_id)
+        ));
     }
 
     /// Drive one error outcome through `handle_prompt_result` and return how
