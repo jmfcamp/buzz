@@ -806,10 +806,34 @@ test("markdown and HTML attachments preview in-app without navigating", async ({
 
   const preview = page.getByTestId("file-preview-dialog");
   await expect(preview).toBeVisible();
+  const header = preview.getByTestId("file-preview-header");
+  await expect(header).toHaveAttribute("data-header-layout", "toolbar");
+  await expect(header.getByTestId("file-preview-tabs")).toBeVisible();
+  await expect(
+    preview.getByTestId("file-preview-body").getByTestId("file-preview-tabs"),
+  ).toHaveCount(0);
+  const markdownHeaderBox = await header.boundingBox();
+  expect(markdownHeaderBox?.height ?? 999).toBeLessThan(80);
+  await expect(
+    preview
+      .getByTestId("file-preview-footer")
+      .getByTestId("file-preview-download"),
+  ).toBeVisible();
+  await expect(header.getByTestId("file-preview-download")).toHaveCount(0);
+
   const markdown = preview.getByTestId("file-preview-markdown");
   await expect(markdown).toBeVisible();
   await expect(markdown).toContainText("Hello preview");
   await expect(preview.locator("iframe")).toHaveCount(0);
+
+  await preview.getByTestId("file-preview-tab-source").click();
+  const mdSource = preview.getByTestId("file-preview-source");
+  await expect(mdSource).toBeVisible();
+  await expect(mdSource).toContainText("# Hello preview");
+  await preview.getByTestId("file-preview-tab-preview").click();
+  await expect(markdown).toBeVisible();
+  await expect(markdown).toContainText("Hello preview");
+
   expect(await e2eCommands(page)).not.toContain("download_file");
 
   await page.keyboard.press("Escape");
@@ -833,6 +857,13 @@ test("markdown and HTML attachments preview in-app without navigating", async ({
   await htmlCard.click();
 
   await expect(preview).toBeVisible();
+  await expect(header).toHaveAttribute("data-header-layout", "toolbar");
+  await expect(header.getByTestId("file-preview-tabs")).toBeVisible();
+  await expect(header.getByTestId("file-preview-fullscreen")).toBeVisible();
+  const htmlHeaderBox = await header.boundingBox();
+  expect(htmlHeaderBox?.height ?? 999).toBeLessThan(80);
+  await expect(preview).toContainText("page.html");
+
   const iframe = preview.getByTestId("file-preview-html");
   await expect(iframe).toBeVisible();
   await expect(iframe).toHaveAttribute("sandbox", "");
@@ -865,11 +896,46 @@ test("markdown and HTML attachments preview in-app without navigating", async ({
   });
   expect(frameXss).toBeUndefined();
 
+  await header.getByTestId("file-preview-fullscreen").click();
+  await expect(preview).toHaveAttribute("data-fullscreen", "true");
+  const fullscreenBox = await preview.boundingBox();
+  const viewport = page.viewportSize();
+  expect(fullscreenBox?.height ?? 0).toBeGreaterThan(
+    (viewport?.height ?? 720) * 0.75,
+  );
+  await expect(iframe).toHaveAttribute("sandbox", "");
+  const fullscreenSrc = await iframe.getAttribute("src");
+  expect(fullscreenSrc === null || fullscreenSrc === "").toBeTruthy();
+  expect(fullscreenSrc ?? "").not.toContain("/media/");
+  await expect(iframe).toHaveAttribute("srcdoc", /<h1>Live\?<\/h1>/);
+  await expect(frame.getByRole("heading", { name: "Live?" })).toBeVisible();
+
+  await preview.getByTestId("file-preview-exit-fullscreen").click();
+  await expect(preview).toHaveAttribute("data-fullscreen", "false");
+  await expect(preview).toBeVisible();
+
+  await header.getByTestId("file-preview-fullscreen").click();
+  await expect(preview).toHaveAttribute("data-fullscreen", "true");
+  await page.keyboard.press("Escape");
+  await expect(preview).toHaveAttribute("data-fullscreen", "false");
+  await expect(preview).toBeVisible();
+
+  const xssAfterFullscreen = await page.evaluate(
+    () => (window as Window & { __XSS__?: number }).__XSS__,
+  );
+  expect(xssAfterFullscreen).toBeUndefined();
+
   await preview.getByTestId("file-preview-html-tab-source").click();
   const source = preview.getByTestId("file-preview-source");
   await expect(source).toBeVisible();
   await expect(source).toContainText("<script>window.__XSS__=1</script>");
+  await expect(header.getByTestId("file-preview-fullscreen")).toHaveCount(0);
 
+  await expect(
+    preview
+      .getByTestId("file-preview-footer")
+      .getByRole("button", { name: "Close" }),
+  ).toBeVisible();
   await preview.getByTestId("file-preview-download").click();
   await expect.poll(() => e2eCommands(page)).toContain("download_file");
 });

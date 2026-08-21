@@ -326,7 +326,7 @@ test("previewSourceLanguage: HTML source tab is highlighted as html", () => {
     "html",
   );
   assert.equal(previewSourceLanguage("text", "data.json"), "json");
-  assert.equal(previewSourceLanguage("markdown", "notes.md"), "");
+  assert.equal(previewSourceLanguage("markdown", "notes.md"), "markdown");
 });
 
 test("FilePreviewDialog HTML iframe is sandboxed and never points at /media/", () => {
@@ -347,6 +347,36 @@ test("FilePreviewDialog HTML iframe is sandboxed and never points at /media/", (
   assert.equal(/<a\b[^>]*href=\{href\}/.test(src), false);
   assert.equal(/window\.location/.test(src), false);
   assert.equal(/location\.assign|location\.href/.test(src), false);
+  // Fullscreen is layout-only — same srcdoc iframe, no /media/ navigation.
+  assert.equal(src.includes("file-preview-fullscreen"), true);
+  assert.equal(src.includes("file-preview-exit-fullscreen"), true);
+  assert.equal(src.includes("setFullscreen"), true);
+  assert.equal(/iframeSrc\s*=/.test(src), false);
+  assert.equal(src.includes("allowScripts"), true); // only the refuse-to-mount guard
+});
+
+test("FilePreviewDialog chrome is one toolbar row; markdown has Preview/Source", () => {
+  const src = readFileSync(
+    new URL("./markdown/FilePreviewDialog.tsx", import.meta.url),
+    "utf8",
+  );
+  const chooser = readFileSync(
+    new URL("./chooser-dialog-content.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.equal(src.includes("headerInline"), true);
+  assert.equal(src.includes("headerTrailing"), true);
+  assert.equal(src.includes("file-preview-tabs"), true);
+  assert.equal(src.includes("file-preview-tab-preview"), true);
+  assert.equal(src.includes("file-preview-tab-source"), true);
+  assert.equal(src.includes("MarkdownPreview"), true);
+  assert.equal(src.includes("interactive={false}"), true);
+  assert.equal(
+    chooser.includes('data-header-layout={headerInline ? "toolbar"'),
+    true,
+  );
+  // Tabs live in the header slot, not a second stacked title block.
+  assert.equal(src.includes("headerSubtitle={subtitle}"), true);
 });
 
 test("fileTypeLabel / formatFileSize / fileExtension helpers", () => {

@@ -377,6 +377,7 @@ export function previewSourceLanguage(
   mime?: string,
 ): string {
   if (kind === "html") return "html";
+  if (kind === "markdown") return "markdown";
   const ext = fileExtension(filename);
   const mimeNorm = normalizeMime(mime);
   if (kind === "text") {
