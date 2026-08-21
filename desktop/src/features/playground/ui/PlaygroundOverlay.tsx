@@ -5,6 +5,7 @@ import { cn } from "@/shared/lib/cn";
 import type { PlaygroundConversation } from "../lib/conversation";
 import {
   PLAYGROUND_FULLSCREEN_TITLEBAR_GAP_TEST_ID,
+  PLAYGROUND_OVERLAY_SURFACE_CLASS,
   playgroundFullscreenTitlebarGapClass,
   playgroundStageLayoutKey,
 } from "../lib/overlayLayout";
@@ -46,10 +47,9 @@ export function PlaygroundOverlay({
   return (
     <div
       className={cn(
-        "flex min-h-0 min-w-0 flex-col bg-background",
-        fullscreen
-          ? "fixed inset-0 z-50"
-          : "absolute inset-0 z-30 bg-background/95",
+        "flex min-h-0 min-w-0 flex-col isolate overflow-hidden",
+        PLAYGROUND_OVERLAY_SURFACE_CLASS,
+        fullscreen ? "fixed inset-0 z-50" : "absolute inset-0 z-30",
       )}
       data-fullscreen={fullscreen ? "true" : undefined}
       data-testid="playground-overlay"
