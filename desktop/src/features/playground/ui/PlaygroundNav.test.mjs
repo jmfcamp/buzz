@@ -62,6 +62,7 @@ afterEach(async () => {
   cleanup();
   const { resetPlaygroundState } = await import("../lib/sessions.ts");
   resetPlaygroundState();
+  globalThis.localStorage?.clear();
 });
 
 after(() => dom.window.close());
@@ -123,17 +124,17 @@ test("clicking the current channel row parks the overlay", async () => {
 test("clicking the playground menu row reopens and does not dismiss", async () => {
   const screen = await renderNav();
   const { fireEvent } = await import("@testing-library/react");
-  const {
-    dismissPlayground,
-    getActivePlaygroundSid,
-    listPlaygroundSessions,
-  } = await import("../lib/sessions.ts");
+  const { dismissPlayground, getActivePlaygroundSid, listPlaygroundSessions } =
+    await import("../lib/sessions.ts");
 
   assert.equal(getActivePlaygroundSid(), "demo-1");
   await fireEvent.click(screen.getByTestId("open-playground-demo-1"));
   assert.equal(getActivePlaygroundSid(), "demo-1");
 
-  dismissPlayground();
+  const { act } = await import("@testing-library/react");
+  await act(() => {
+    dismissPlayground();
+  });
   assert.equal(getActivePlaygroundSid(), null);
 
   await fireEvent.click(screen.getByTestId("open-playground-demo-1"));

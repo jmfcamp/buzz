@@ -137,7 +137,10 @@ export function PlaygroundCard({ card }: { card: PlaygroundCardData }) {
         <Button
           data-testid="playground-card-open"
           disabled={busy}
-          onClick={() => void handleOpen()}
+          onClick={(event) => {
+            event.stopPropagation();
+            void handleOpen();
+          }}
           size="sm"
           type="button"
         >

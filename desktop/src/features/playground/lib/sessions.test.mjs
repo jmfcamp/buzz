@@ -20,6 +20,7 @@ before(() => {
 afterEach(async () => {
   const { resetPlaygroundState } = await import("./sessions.ts");
   resetPlaygroundState();
+  globalThis.localStorage?.clear();
 });
 
 test("add creates a personal session; dismiss parks; dispose removes", async () => {

@@ -43,6 +43,7 @@ afterEach(async () => {
   cleanup();
   const { resetPlaygroundState } = await import("../lib/sessions.ts");
   resetPlaygroundState();
+  globalThis.localStorage?.clear();
   delete globalThis.__BUZZ_PLAYGROUND_PROBE__;
   delete globalThis.__BUZZ_PLAYGROUND_OPEN_URL__;
   delete dom.window.__TAURI_INTERNALS__;
@@ -98,6 +99,9 @@ test("Open probes first: down means toast and no ghost row", async () => {
 
   await fireEvent.click(screen.getByTestId("playground-card-open"));
   await waitFor(() => assert.equal(listPlaygroundSessions().length, 0));
+  await waitFor(() =>
+    assert.equal(screen.getByTestId("playground-card-open").disabled, false),
+  );
 });
 
 test("Open on a new sid probes and creates a session", async () => {
