@@ -165,8 +165,15 @@ fn open_detached_macos_inspector(webview: &Webview) -> Result<(), String> {
 
 #[cfg(target_os = "macos")]
 fn macos_inspector_is_visible(webview: &Webview) -> bool {
-    let visible = std::cell::Cell::new(false);
-    let _ = webview.with_webview(|platform| {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    // with_webview requires FnOnce + Send + 'static. Cell<bool> is not Sync
+    // (`&Cell<bool>` is not Send). A stack AtomicBool is Send but not 'static.
+    // Arc<AtomicBool> satisfies both bounds. Detach-then-show is unchanged.
+    let visible = Arc::new(AtomicBool::new(false));
+    let visible_flag = Arc::clone(&visible);
+    let _ = webview.with_webview(move |platform| {
         use objc2::runtime::AnyObject;
         use objc2::sel;
         use objc2_web_kit::WKWebView;
@@ -188,14 +195,31 @@ fn macos_inspector_is_visible(webview: &Webview) -> bool {
                 }
             }
         };
-        visible.set(is_visible);
+        visible_flag.store(is_visible, Ordering::Relaxed);
     });
-    visible.get()
+    visible.load(Ordering::Relaxed)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inspector_visibility_flag_is_send_static() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        fn take_send_static<F: FnOnce() + Send + 'static>(f: F) {
+            f();
+        }
+
+        let visible = Arc::new(AtomicBool::new(false));
+        let visible_flag = Arc::clone(&visible);
+        take_send_static(move || {
+            visible_flag.store(true, Ordering::Relaxed);
+        });
+        assert!(visible.load(Ordering::Relaxed));
+    }
 
     #[test]
     fn inspect_opens_a_detached_window_not_a_docked_split() {

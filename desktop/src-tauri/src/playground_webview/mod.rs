@@ -15,11 +15,6 @@ use tauri::{
 };
 use uuid::Uuid;
 
-pub use inspect::{
-    playground_inspect_presentation, resolved_stage_bounds_after_inspect,
-    resolved_window_size_after_inspect, PlaygroundInspectPresentation,
-};
-
 const PLAYGROUND_LABEL_PREFIX: &str = "playground-";
 const APP_WEBVIEW_LABEL: &str = "main";
 const MIN_EDGE: f64 = 32.0;
@@ -905,7 +900,7 @@ mod tests {
     #[test]
     fn inspect_does_not_change_main_window_or_stage_size() {
         assert_eq!(
-            resolved_window_size_after_inspect((1280, 800), (1800, 800)),
+            inspect::resolved_window_size_after_inspect((1280, 800), (1800, 800)),
             (1280, 800)
         );
         let before = PlaygroundBounds {
@@ -915,12 +910,12 @@ mod tests {
             height: 600.0,
         };
         assert_eq!(
-            resolved_stage_bounds_after_inspect(&before, (1280, 800), (1800, 800)),
+            inspect::resolved_stage_bounds_after_inspect(&before, (1280, 800), (1800, 800)),
             before
         );
         assert_eq!(
-            playground_inspect_presentation(),
-            PlaygroundInspectPresentation::DetachedWindow
+            inspect::playground_inspect_presentation(),
+            inspect::PlaygroundInspectPresentation::DetachedWindow
         );
     }
 

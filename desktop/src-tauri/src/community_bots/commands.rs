@@ -1,7 +1,7 @@
 //! Tauri commands for the community Bots admin console.
 
 use buzz_core_pkg::community_bots::MAX_BOT_NAME_LEN;
-use nostr::{Event, EventBuilder, JsonUtil, Keys, Kind};
+use nostr::{EventBuilder, JsonUtil, Keys, Kind};
 use serde::Serialize;
 use tauri::State;
 
@@ -352,6 +352,7 @@ fn stored_status_state(secrets: &GatewaySecrets) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nostr::Event;
 
     #[test]
     fn first_not_paired_stores_device_and_second_connect_reuses_it() {
