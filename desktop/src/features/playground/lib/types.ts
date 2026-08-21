@@ -6,11 +6,20 @@ export type PlaygroundCard = {
   v: typeof PLAYGROUND_VERSION;
   name: string;
   url: string;
-  pin: string;
+  pin?: string;
   sid: string;
   stack?: string;
   expires?: string | number;
 };
+
+/** Present PIN text, or null when the card omitted / emptied it. */
+export function playgroundPin(
+  value: { pin?: string | null } | string | null | undefined,
+): string | null {
+  const pin = typeof value === "string" ? value : (value?.pin ?? "");
+  const trimmed = pin.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
 
 export type PlaygroundProbeResult = {
   up: boolean;

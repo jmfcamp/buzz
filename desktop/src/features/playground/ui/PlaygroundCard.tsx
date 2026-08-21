@@ -20,7 +20,10 @@ import {
   notePlaygroundCard,
   showPlaygroundSession,
 } from "../lib/sessions";
-import type { PlaygroundCard as PlaygroundCardData } from "../lib/types";
+import {
+  playgroundPin,
+  type PlaygroundCard as PlaygroundCardData,
+} from "../lib/types";
 
 function canHostPlayground(): boolean {
   return (
@@ -51,6 +54,7 @@ async function openPlaygroundInBrowser(url: string) {
 export function PlaygroundCard({ card }: { card: PlaygroundCardData }) {
   const [busy, setBusy] = React.useState(false);
   const host = canHostPlayground();
+  const pin = playgroundPin(card);
 
   React.useEffect(() => {
     notePlaygroundCard(card);
@@ -92,7 +96,8 @@ export function PlaygroundCard({ card }: { card: PlaygroundCardData }) {
   function handleCopyPin(event: React.MouseEvent<HTMLButtonElement>) {
     event.preventDefault();
     event.stopPropagation();
-    copyTextToClipboard(card.pin, "PIN copied");
+    if (!pin) return;
+    copyTextToClipboard(pin, "PIN copied");
   }
 
   return (
@@ -113,30 +118,36 @@ export function PlaygroundCard({ card }: { card: PlaygroundCardData }) {
         >
           {card.url}
         </a>
-        <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-          PIN{" "}
-          <span
-            className="font-mono text-foreground"
-            data-testid="playground-card-pin"
-          >
-            {card.pin}
-          </span>
-          <button
-            aria-label="Copy PIN"
-            className="inline-flex h-5 w-5 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-            data-testid="playground-card-copy-pin"
-            onClick={handleCopyPin}
-            type="button"
-          >
-            <Copy className="h-3 w-3" />
-          </button>
-          {card.stack ? (
-            <>
-              {" "}
-              · <span data-testid="playground-card-stack">{card.stack}</span>
-            </>
-          ) : null}
-        </p>
+        {pin || card.stack ? (
+          <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+            {pin ? (
+              <>
+                PIN{" "}
+                <span
+                  className="font-mono text-foreground"
+                  data-testid="playground-card-pin"
+                >
+                  {pin}
+                </span>
+                <button
+                  aria-label="Copy PIN"
+                  className="inline-flex h-5 w-5 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                  data-testid="playground-card-copy-pin"
+                  onClick={handleCopyPin}
+                  type="button"
+                >
+                  <Copy className="h-3 w-3" />
+                </button>
+              </>
+            ) : null}
+            {card.stack ? (
+              <>
+                {pin ? " " : null}·{" "}
+                <span data-testid="playground-card-stack">{card.stack}</span>
+              </>
+            ) : null}
+          </p>
+        ) : null}
       </AttachmentContent>
       <AttachmentActions>
         <Button

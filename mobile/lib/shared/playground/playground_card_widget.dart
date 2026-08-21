@@ -27,11 +27,16 @@ class PlaygroundCardWidget extends StatelessWidget {
           Text(card.name, style: context.textTheme.titleSmall),
           const SizedBox(height: Grid.half),
           Text(card.url, style: context.textTheme.bodySmall),
-          const SizedBox(height: Grid.half),
-          Text(
-            'PIN ${card.pin}${card.stack != null ? ' · ${card.stack}' : ''}',
-            style: context.textTheme.labelSmall,
-          ),
+          if (card.pin.isNotEmpty || card.stack != null) ...[
+            const SizedBox(height: Grid.half),
+            Text(
+              [
+                if (card.pin.isNotEmpty) 'PIN ${card.pin}',
+                if (card.stack != null) card.stack!,
+              ].join(' · '),
+              style: context.textTheme.labelSmall,
+            ),
+          ],
           const SizedBox(height: Grid.twelve),
           Align(
             alignment: Alignment.centerLeft,

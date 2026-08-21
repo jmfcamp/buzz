@@ -71,8 +71,31 @@ async function renderOverlay() {
 test("overlay shows chrome PIN and parks on Dismiss", async () => {
   const screen = await renderOverlay();
   assert.ok(screen.getByTestId("playground-overlay"));
-  assert.equal(screen.getByTestId("playground-chrome-pin").textContent, "4455");
+  assert.match(
+    screen.getByTestId("playground-chrome-pin").textContent ?? "",
+    /4455/,
+  );
+  assert.equal(screen.queryByTestId("playground-chrome-name"), null);
+  assert.equal(screen.queryByTestId("playground-chrome-stack"), null);
   assert.ok(screen.getByTestId("playground-desktop-stage"));
+  const chrome = screen.getByTestId("playground-chrome");
+  const dispose = screen.getByTestId("playground-dispose");
+  const back = screen.getByTestId("playground-back");
+  assert.ok(chrome.contains(dispose));
+  assert.ok(dispose.compareDocumentPosition(back) & 4);
+  const dismiss = screen.getByTestId("playground-dismiss");
+  assert.equal(dismiss.getAttribute("aria-label"), "Dismiss");
+  assert.ok(dismiss.querySelector("svg"));
+  assert.equal(screen.getByTestId("playground-inspect").textContent, "");
+  assert.equal(
+    screen.getByTestId("playground-inspect").getAttribute("aria-label"),
+    "Inspect",
+  );
+  assert.ok(
+    screen.getByTestId("playground-mode-row").contains(
+      screen.getByTestId("playground-chrome-pin"),
+    ),
+  );
 
   const { fireEvent } = await import("@testing-library/react");
   await fireEvent.click(screen.getByTestId("playground-dismiss"));
@@ -101,12 +124,9 @@ test("Dispose is confirmed and removes the session; device museum is a dropdown"
   assert.ok(screen.getByTestId("playground-device-pixel-8"));
   assert.ok(screen.getByTestId("playground-device-ipad-mini"));
   assert.ok(screen.getByTestId("playground-device-ipad-pro-11"));
-  assert.equal(
-    screen
-      .getByTestId("playground-webview-host")
-      .getAttribute("data-viewport-width"),
-    "393",
-  );
+  const host = screen.getByTestId("playground-webview-host");
+  assert.equal(host.getAttribute("data-viewport-width"), "393");
+  assert.match(host.getAttribute("data-user-agent") ?? "", /iPhone|Mobile/);
 
   await fireEvent.click(screen.getByTestId("playground-dispose"));
   await fireEvent.click(screen.getByTestId("playground-dispose-confirm"));
@@ -158,10 +178,46 @@ test("Screenshot is hidden without a channel and stages a draft with one", async
     }),
   );
   assert.ok(screen.getByTestId("playground-screenshot"));
+  assert.equal(screen.getByTestId("playground-screenshot").textContent, "");
+  assert.equal(
+    screen.getByTestId("playground-screenshot").getAttribute("aria-label"),
+    "Screenshot",
+  );
   const { act } = await import("@testing-library/react");
   await act(async () => {
     await fireEvent.click(screen.getByTestId("playground-screenshot"));
   });
   assert.equal(getActivePlaygroundSid(), null);
   assert.equal(takeQueuedAttachmentsForDraft("hula-id").length, 1);
+});
+
+test("PIN is hidden when empty and fullscreen fills the window", async () => {
+  const { createElement } = await import("react");
+  const { render, screen, fireEvent } = await import("@testing-library/react");
+  const { PlaygroundOverlay } = await import("./PlaygroundOverlay.tsx");
+  const { addPlaygroundSession, configurePlaygroundScope } = await import(
+    "../lib/sessions.ts"
+  );
+  const { PLAYGROUND_DESKTOP_UA } = await import("../lib/devices.ts");
+
+  configurePlaygroundScope("pub", "wss://relay.example.com");
+  const session = addPlaygroundSession({
+    hula: "playground",
+    v: 1,
+    name: "Demo",
+    url: "https://app.example.com",
+    sid: "demo-open",
+  });
+  render(createElement(PlaygroundOverlay, { session }));
+  assert.equal(screen.queryByTestId("playground-chrome-pin"), null);
+  assert.equal(
+    screen.getByTestId("playground-webview-host").getAttribute("data-user-agent"),
+    PLAYGROUND_DESKTOP_UA,
+  );
+
+  await fireEvent.click(screen.getByTestId("playground-fullscreen"));
+  const overlay = screen.getByTestId("playground-overlay");
+  assert.equal(overlay.getAttribute("data-fullscreen"), "true");
+  assert.match(overlay.className, /fixed/);
+  assert.match(overlay.className, /inset-0/);
 });

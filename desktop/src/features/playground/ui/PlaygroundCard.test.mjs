@@ -189,3 +189,16 @@ test("PIN copy button writes the pin, not the URL", async () => {
   await fireEvent.click(screen.getByTestId("playground-card-copy-pin"));
   await waitFor(() => assert.equal(copied, "4455"));
 });
+
+test("PIN is hidden when omitted and Open still works", async () => {
+  const { createElement } = await import("react");
+  const { render, screen } = await import("@testing-library/react");
+  const { PlaygroundCard } = await import("./PlaygroundCard.tsx");
+  const { configurePlaygroundScope } = await import("../lib/sessions.ts");
+  configurePlaygroundScope("pub", "wss://relay.example.com");
+  const { pin: _pin, ...withoutPin } = card;
+  render(createElement(PlaygroundCard, { card: withoutPin }));
+  assert.equal(screen.queryByTestId("playground-card-pin"), null);
+  assert.equal(screen.queryByTestId("playground-card-copy-pin"), null);
+  assert.equal(screen.getByTestId("playground-card-open").textContent, "Open");
+});

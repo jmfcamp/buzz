@@ -46,14 +46,15 @@ PlaygroundCard? parsePlaygroundCardValue(Object? value) {
   final sid = value['sid'];
   if (name is! String || name.trim().isEmpty) return null;
   if (url is! String || !isAllowedPlaygroundUrl(url)) return null;
-  if (pin is! String || pin.trim().isEmpty) return null;
+  if (pin != null && pin is! String) return null;
   if (sid is! String || sid.trim().isEmpty) return null;
+  final pinValue = pin is String ? pin.trim() : '';
   final stack = value['stack'];
   final expires = value['expires'];
   return PlaygroundCard(
     name: name,
     url: url,
-    pin: pin,
+    pin: pinValue,
     sid: sid,
     stack: stack is String && stack.isNotEmpty ? stack : null,
     expires: expires is String || expires is num ? expires : null,

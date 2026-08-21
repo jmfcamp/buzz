@@ -102,3 +102,18 @@ test("hasPlaygroundSession tracks left-menu rows; parkPlaygroundThen dismisses",
   assert.equal(getActivePlaygroundSid(), null);
   assert.equal(hasPlaygroundSession("demo-1"), true);
 });
+
+test("optional pin is omitted from the session and stays openable", async () => {
+  const {
+    addPlaygroundSession,
+    configurePlaygroundScope,
+    getActivePlaygroundSid,
+    listPlaygroundSessions,
+  } = await import("./sessions.ts");
+
+  configurePlaygroundScope("pub", "wss://relay.example.com");
+  const { pin: _pin, ...withoutPin } = card;
+  addPlaygroundSession(withoutPin);
+  assert.equal(getActivePlaygroundSid(), "demo-1");
+  assert.equal(listPlaygroundSessions()[0]?.pin, undefined);
+});
