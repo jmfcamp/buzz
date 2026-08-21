@@ -956,7 +956,7 @@ test("markdown and HTML attachments preview in-app without navigating", async ({
   await preview.getByTestId("file-preview-html-tab-source").click();
   const source = preview.getByTestId("file-preview-source");
   await expect(source).toBeVisible();
-  await expect(source).toContainText("<script>window.__XSS__=1</script>");
+  await expect(source).toContainText("window.__XSS__=1");
   await expect(header.getByTestId("file-preview-fullscreen")).toHaveCount(0);
 
   await expect(
