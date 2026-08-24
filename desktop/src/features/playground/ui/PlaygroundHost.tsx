@@ -6,6 +6,7 @@ import { deriveShellRoute } from "@/app/AppShell.helpers";
 import { usePlaygroundSessions } from "../hooks";
 import { playgroundConversationFromRoute } from "../lib/conversation";
 import { usePlaygroundRuntime } from "../lib/runtime";
+import { currentPopoutPayload } from "@/features/popout/lib/popoutWindow";
 import { PlaygroundOverlay } from "./PlaygroundOverlay";
 
 export function PlaygroundHost() {
@@ -25,7 +26,35 @@ export function PlaygroundHost() {
       threadId: typeof thread === "string" ? thread : null,
     });
   }, [location.pathname, location.search]);
-  const session = overlaySid ? (sessions.get(overlaySid) ?? null) : null;
+  const popout = currentPopoutPayload();
+  const popoutSession = popout?.playground
+    ? {
+        sid: popout.playground.sid,
+        name: popout.playground.name,
+        url: popout.playground.url,
+        pin: popout.playground.pin,
+        stack: popout.playground.stack,
+        expires:
+          popout.playground.expires != null
+            ? String(popout.playground.expires)
+            : undefined,
+        hasUpdate: false,
+      }
+    : null;
+  const session =
+    popoutSession ?? (overlaySid ? (sessions.get(overlaySid) ?? null) : null);
   if (!session) return null;
-  return <PlaygroundOverlay conversation={conversation} session={session} />;
+  const lockPlacement =
+    popout?.kind === "split"
+      ? "dock"
+      : popout?.kind === "playground"
+        ? "window"
+        : undefined;
+  return (
+    <PlaygroundOverlay
+      conversation={conversation}
+      lockPlacement={lockPlacement}
+      session={session}
+    />
+  );
 }

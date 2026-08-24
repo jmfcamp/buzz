@@ -1,8 +1,12 @@
 import { isTauri } from "@tauri-apps/api/core";
+import { useLocation } from "@tanstack/react-router";
 import { AppWindow, Copy } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
+import { deriveShellRoute } from "@/app/AppShell.helpers";
+import { openPopoutWindow } from "@/features/popout/lib/popoutWindow";
+import { playgroundConversationFromRoute } from "@/features/playground/lib/conversation";
 import { copyTextToClipboard } from "@/shared/lib/clipboard";
 import { Button } from "@/shared/ui/button";
 import {
@@ -46,6 +50,7 @@ async function openPlaygroundInBrowser(url: string) {
   try {
     const { openUrl } = await import("@tauri-apps/plugin-opener");
     await openUrl(url);
+    return;
   } catch {
     window.open(url, "_blank", "noopener,noreferrer");
   }
@@ -55,13 +60,35 @@ export function PlaygroundCard({ card }: { card: PlaygroundCardData }) {
   const [busy, setBusy] = React.useState(false);
   const host = canHostPlayground();
   const pin = playgroundPin(card);
+  const location = useLocation();
+  const conversation = React.useMemo(() => {
+    const route = deriveShellRoute(location.pathname);
+    const search = location.search as {
+      thread?: unknown;
+      threadRootId?: unknown;
+    };
+    const thread = search.threadRootId ?? search.thread;
+    return playgroundConversationFromRoute({
+      selectedView: route.selectedView,
+      selectedChannelId: route.selectedChannelId,
+      threadId: typeof thread === "string" ? thread : null,
+    });
+  }, [location.pathname, location.search]);
 
   React.useEffect(() => {
     notePlaygroundCard(card);
   }, [card]);
 
-  async function handleOpen() {
-    if (busy) return;
+  async function ensureUp(): Promise<boolean> {
+    const result = await probePlaygroundUrl(card.url);
+    if (!result.up) {
+      toast.error(result.message ?? "Playground is down.");
+      return false;
+    }
+    return true;
+  }
+
+  function handlePin() {
     if (!host) {
       void openPlaygroundInBrowser(card.url);
       return;
@@ -71,20 +98,77 @@ export function PlaygroundCard({ card }: { card: PlaygroundCardData }) {
       return;
     }
     setBusy(true);
-    try {
-      const result = await probePlaygroundUrl(card.url);
-      if (!result.up) {
-        toast.error(result.message ?? "Playground is down.");
-        return;
+    void (async () => {
+      try {
+        if (!(await ensureUp())) return;
+        addPlaygroundSession(card);
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Playground is down.",
+        );
+      } finally {
+        setBusy(false);
       }
-      addPlaygroundSession(card);
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Playground is down.",
-      );
-    } finally {
-      setBusy(false);
+    })();
+  }
+
+  function handleOpen() {
+    if (!host) {
+      void openPlaygroundInBrowser(card.url);
+      return;
     }
+    setBusy(true);
+    void (async () => {
+      try {
+        if (!(await ensureUp())) return;
+        await openPopoutWindow({
+          kind: "playground",
+          title: card.name,
+          seed: card.sid,
+          playground: card,
+        });
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Could not open playground.",
+        );
+      } finally {
+        setBusy(false);
+      }
+    })();
+  }
+
+  function handleOpenAsSplit() {
+    if (!conversation) {
+      toast.error("Open a channel or thread first.");
+      return;
+    }
+    if (!host) {
+      void openPlaygroundInBrowser(card.url);
+      return;
+    }
+    const threadId = conversation.draftKey.startsWith("thread:")
+      ? conversation.draftKey.slice("thread:".length)
+      : undefined;
+    setBusy(true);
+    void (async () => {
+      try {
+        if (!(await ensureUp())) return;
+        await openPopoutWindow({
+          kind: "split",
+          title: card.name,
+          seed: `${card.sid}-${conversation.channelId}`,
+          channelId: conversation.channelId,
+          ...(threadId ? { threadId } : {}),
+          playground: card,
+        });
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Could not open split.",
+        );
+      } finally {
+        setBusy(false);
+      }
+    })();
   }
 
   function handleUrlClick(event: React.MouseEvent<HTMLAnchorElement>) {
@@ -149,18 +233,44 @@ export function PlaygroundCard({ card }: { card: PlaygroundCardData }) {
           </p>
         ) : null}
       </AttachmentContent>
-      <AttachmentActions>
+      <AttachmentActions className="flex-wrap justify-end">
+        <Button
+          data-testid="playground-card-pin-action"
+          disabled={busy}
+          onClick={(event) => {
+            event.stopPropagation();
+            handlePin();
+          }}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          Pin
+        </Button>
         <Button
           data-testid="playground-card-open"
           disabled={busy}
           onClick={(event) => {
             event.stopPropagation();
-            void handleOpen();
+            handleOpen();
           }}
           size="sm"
           type="button"
         >
           Open
+        </Button>
+        <Button
+          data-testid="playground-card-open-split"
+          disabled={busy || !conversation}
+          onClick={(event) => {
+            event.stopPropagation();
+            handleOpenAsSplit();
+          }}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          Open as Split
         </Button>
       </AttachmentActions>
     </Attachment>

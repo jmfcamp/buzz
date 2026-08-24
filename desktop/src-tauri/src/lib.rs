@@ -33,6 +33,7 @@ mod native_websocket;
 mod nostr_bind;
 pub mod nostr_convert;
 mod pin_webview;
+mod popout_window;
 mod playground_webview;
 mod prevent_sleep;
 mod ptt_shortcut;
@@ -842,6 +843,7 @@ pub fn run() {
             get_huddle_state,
             close_huddle_companion,
             open_huddle_window,
+            popout_window::open_popout_window,
             pin_webview::pin_webview_show,
             pin_webview::pin_webview_hide,
             pin_webview::pin_webview_hide_all,

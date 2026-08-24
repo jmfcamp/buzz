@@ -22,6 +22,7 @@ import { useChannelActivityProjection } from "@/app/useChannelActivityProjection
 import { useTauriWindowDrag } from "@/app/useTauriWindowDrag";
 import { useWebviewZoomShortcuts } from "@/app/useWebviewZoomShortcuts";
 import { useHuddlePresentation } from "@/app/useHuddlePresentation";
+import { usePopoutBootstrap } from "@/app/usePopoutBootstrap";
 import { shouldShowSidebarChannel } from "@/app/huddleChannelVisibility";
 import {
   channelsQueryKey,
@@ -121,6 +122,8 @@ export function AppShell() {
     showHuddleInMainApp,
     viewHuddleChannel,
   } = useHuddlePresentation();
+  const popout = usePopoutBootstrap();
+  const hideAppChrome = isHuddleRoom || popout != null;
   const hasCommunityRail = communitiesHook.communities.length > 1;
   const addCommunityDialog = useAddCommunityDialogState();
   const [isChannelManagementOpen, setIsChannelManagementOpen] =
@@ -682,7 +685,7 @@ export function AppShell() {
   });
   return (
     <PreventSleepProvider>
-      {!isHuddleRoom ? (
+      {!hideAppChrome ? (
         <AppShellTrayMenu
           channels={channels}
           goChannel={goChannel}
@@ -741,7 +744,7 @@ export function AppShell() {
             onViewHuddleChannel={viewHuddleChannel}
             onVisibilityChange={handleHuddleVisibilityChange}
           >
-            {hasCommunityRail && !isHuddleRoom ? (
+            {hasCommunityRail && !hideAppChrome ? (
               <CommunityRail
                 activeCommunityId={communitiesHook.activeCommunity?.id ?? null}
                 onAddCommunity={addCommunityDialog.openDialog}
@@ -756,7 +759,7 @@ export function AppShell() {
               data-testid="app-sidebar-layer"
             >
               <AppProfilePanelProvider>
-                {!settingsOpen && !isHuddleRoom ? (
+                {!settingsOpen && !hideAppChrome ? (
                   <AppTopChrome
                     canGoBack={canGoBack}
                     canGoForward={canGoForward}
@@ -803,7 +806,7 @@ export function AppShell() {
                   </div>
                 ) : (
                   <div className="relative flex min-h-0 flex-1 overflow-visible">
-                    {!isHuddleRoom ? (
+                    {!hideAppChrome ? (
                       <AppSidebar
                         activeCommunity={communitiesHook.activeCommunity}
                         channels={sidebarChannels}
@@ -915,7 +918,7 @@ export function AppShell() {
                     >
                       <Outlet />
                     </AppShellChannelSurface>
-                    {!isHuddleRoom ? (
+                    {!hideAppChrome ? (
                       <RelayConnectionOverlay
                         card={relayConnectionCard}
                         errorMessage={channelsErrorMessage}

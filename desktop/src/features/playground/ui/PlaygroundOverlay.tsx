@@ -30,15 +30,17 @@ import { PlaygroundStage, type PlaygroundChromeMode } from "./PlaygroundStage";
 
 export function PlaygroundOverlay({
   conversation = null,
+  lockPlacement,
   session,
 }: {
   conversation?: PlaygroundConversation | null;
+  lockPlacement?: "window" | "dock";
   session: PlaygroundSession;
 }) {
   const overlayRef = React.useRef<HTMLDivElement | null>(null);
   const [mode, setMode] = React.useState<PlaygroundChromeMode>("desktop");
   const [fullscreen, setFullscreen] = React.useState(false);
-  const [docked, setDocked] = React.useState(false);
+  const [docked, setDocked] = React.useState(lockPlacement === "dock");
   const [layoutEpoch, setLayoutEpoch] = React.useState(0);
 
   const getMainWidth = React.useCallback(() => {
@@ -125,6 +127,7 @@ export function PlaygroundOverlay({
         conversation={conversation}
         docked={docked}
         fullscreen={fullscreen}
+        lockLayout={lockPlacement != null}
         mode={mode}
         onModeChange={setMode}
         onStageResync={bumpStageLayout}

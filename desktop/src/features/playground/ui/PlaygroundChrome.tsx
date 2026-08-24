@@ -63,6 +63,7 @@ export function PlaygroundChrome({
   conversation,
   docked,
   fullscreen,
+  lockLayout = false,
   mode,
   onModeChange,
   onStageResync,
@@ -73,6 +74,7 @@ export function PlaygroundChrome({
   conversation: PlaygroundConversation | null;
   docked: boolean;
   fullscreen: boolean;
+  lockLayout?: boolean;
   mode: PlaygroundChromeMode;
   onModeChange: (mode: PlaygroundChromeMode) => void;
   onStageResync?: () => void;
@@ -161,7 +163,7 @@ export function PlaygroundChrome({
         style={PLAYGROUND_OPAQUE_FILL_STYLE}
       >
         <div className="flex min-w-0 items-center gap-1">
-          {disposeArmed ? (
+          {lockLayout ? null : disposeArmed ? (
             <div className="flex shrink-0 items-center gap-0.5">
               <Button
                 onClick={() => setDisposeArmed(false)}
@@ -290,6 +292,7 @@ export function PlaygroundChrome({
               <Camera />
             </ChromeTooltipButton>
           ) : null}
+          {lockLayout ? null : (
           <ChromeTooltipButton
             aria-label={playgroundFullscreenTooltip(fullscreen)}
             data-testid="playground-fullscreen"
@@ -314,6 +317,8 @@ export function PlaygroundChrome({
               {docked ? <PanelLeftOpen /> : <PanelLeftClose />}
             </ChromeTooltipButton>
           )}
+          )}
+          {lockLayout ? null : (
           <ChromeTooltipButton
             aria-label={playgroundChromeTooltip("dismiss")}
             data-testid="playground-dismiss"
@@ -325,6 +330,7 @@ export function PlaygroundChrome({
           >
             <ChevronLeft />
           </ChromeTooltipButton>
+          )}
         </div>
         <div
           className="relative flex min-w-0 items-center justify-start gap-1 py-0.5"
