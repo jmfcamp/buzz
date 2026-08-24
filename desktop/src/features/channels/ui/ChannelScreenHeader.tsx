@@ -14,7 +14,6 @@ import {
   scaleProfileAvatarStatusGeometry,
 } from "@/features/profile/ui/ProfileAvatarWithStatus";
 import { UserProfilePopover } from "@/features/profile/ui/UserProfilePopover";
-import { ConversationPopoutMenu } from "@/features/popout/ui/ConversationPopoutMenu";
 import { Button } from "@/shared/ui/button";
 import type { Channel, PresenceStatus } from "@/shared/api/types";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
@@ -119,7 +118,6 @@ export function ChannelScreenHeader({
   ) : null;
   const actions = activeChannel ? (
     <div className="flex items-center gap-1">
-      <ConversationPopoutMenu channelId={activeChannel.id} />
       {terminalButton}
       {channelActions}
     </div>

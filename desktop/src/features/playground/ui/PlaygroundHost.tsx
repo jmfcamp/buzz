@@ -41,8 +41,13 @@ export function PlaygroundHost() {
         hasUpdate: false,
       }
     : null;
-  const session =
-    popoutSession ?? (overlaySid ? (sessions.get(overlaySid) ?? null) : null);
+  // Pop-outs only host a playground when the payload includes one. Otherwise
+  // a persisted overlaySid from the main window would cover a thread pop-out.
+  const session = popout
+    ? popoutSession
+    : overlaySid
+      ? (sessions.get(overlaySid) ?? null)
+      : null;
   if (!session) return null;
   const lockPlacement =
     popout?.kind === "split"

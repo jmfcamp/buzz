@@ -16,7 +16,9 @@ export type PopoutPayload = {
 };
 
 function sanitizeLabelPart(value: string): string {
-  const cleaned = value.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+  const cleaned = value
+    .replace(/[^a-zA-Z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
   return cleaned.slice(0, 48) || "x";
 }
 
@@ -74,6 +76,14 @@ export function currentPopoutLabel(): string | null {
 export function currentPopoutPayload(): PopoutPayload | null {
   const label = currentPopoutLabel();
   return label ? readPopoutPayload(label) : null;
+}
+
+/** Thread/split pop-outs show only the thread, never the parent channel. */
+export function isPopoutThreadOnlyLayout(
+  payload: PopoutPayload | null = currentPopoutPayload(),
+): boolean {
+  if (!payload?.threadId) return false;
+  return payload.kind === "thread" || payload.kind === "split";
 }
 
 export async function openPopoutWindow(input: {

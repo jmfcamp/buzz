@@ -1,6 +1,7 @@
 import * as React from "react";
 import { ArrowDown } from "lucide-react";
 
+import { isPopoutThreadOnlyLayout } from "@/features/popout/lib/popoutWindow";
 import { ConversationPopoutMenu } from "@/features/popout/ui/ConversationPopoutMenu";
 
 import { useKnownAgentPubkeys } from "@/features/agents/useKnownAgentPubkeys";
@@ -255,9 +256,12 @@ export function MessageThreadPanel({
   >(null);
   const isOverlay = useIsThreadPanelOverlay();
   const threadHeadId = threadHead?.id ?? null;
+  const isPopoutThreadOnly = isPopoutThreadOnlyLayout();
   useEscapeKey(
     onClose,
-    !isHuddleTranscript && (isOverlay || isSinglePanelView || isFocusMode),
+    !isHuddleTranscript &&
+      !isPopoutThreadOnly &&
+      (isOverlay || isSinglePanelView || isFocusMode),
   );
   const hasConstrainedColumn = columnMaxWidthPx != null;
   // Whether the composer dock trades its quiet-state spacer for the
@@ -964,10 +968,14 @@ export function MessageThreadPanel({
         // sliver as its way back, so it takes no back control of its own. The
         // narrow view still needs one.
         leading={headerLeading}
-        onBack={isSinglePanelView && !isFocusMode ? onClose : undefined}
+        onBack={
+          isSinglePanelView && !isFocusMode && !isPopoutThreadOnly
+            ? onClose
+            : undefined
+        }
       >
         <AuxiliaryPanelTitle>Thread</AuxiliaryPanelTitle>
-        {channelId && !isHuddleTranscript ? (
+        {channelId && threadHeadId && !isHuddleTranscript ? (
           <ConversationPopoutMenu
             channelId={channelId}
             threadId={threadHeadId}
@@ -989,6 +997,7 @@ export function MessageThreadPanel({
             <AuxiliaryPanelHeader>{threadHeaderContent}</AuxiliaryPanelHeader>
           )
         }
+        allowClose={!isPopoutThreadOnly}
         isSinglePanelView={isSinglePanelView}
         layout={layout}
         onClose={onClose}

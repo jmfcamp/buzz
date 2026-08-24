@@ -967,6 +967,13 @@ pub fn run() {
         }
         RunEvent::WindowEvent {
             label,
+            event: WindowEvent::Destroyed,
+            ..
+        } if label.starts_with("popout-") => {
+            playground_webview::close_playgrounds_for_window(app_handle, &label);
+        }
+        RunEvent::WindowEvent {
+            label,
             event: WindowEvent::CloseRequested { .. },
             ..
         } if label.starts_with("huddle-") => {

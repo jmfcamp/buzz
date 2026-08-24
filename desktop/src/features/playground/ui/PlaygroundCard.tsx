@@ -6,7 +6,10 @@ import { toast } from "sonner";
 
 import { deriveShellRoute } from "@/app/AppShell.helpers";
 import { openPopoutWindow } from "@/features/popout/lib/popoutWindow";
-import { playgroundConversationFromRoute } from "@/features/playground/lib/conversation";
+import {
+  playgroundConversationFromRoute,
+  playgroundConversationHasOpenThread,
+} from "@/features/playground/lib/conversation";
 import { copyTextToClipboard } from "@/shared/lib/clipboard";
 import { Button } from "@/shared/ui/button";
 import {
@@ -137,18 +140,21 @@ export function PlaygroundCard({ card }: { card: PlaygroundCardData }) {
     })();
   }
 
+  const isThreadConversation =
+    playgroundConversationHasOpenThread(conversation);
+
   function handleOpenAsSplit() {
-    if (!conversation) {
-      toast.error("Open a channel or thread first.");
+    const threadId = conversation?.draftKey.startsWith("thread:")
+      ? conversation.draftKey.slice("thread:".length)
+      : undefined;
+    if (!conversation || !threadId) {
+      toast.error("Open a thread first.");
       return;
     }
     if (!host) {
       void openPlaygroundInBrowser(card.url);
       return;
     }
-    const threadId = conversation.draftKey.startsWith("thread:")
-      ? conversation.draftKey.slice("thread:".length)
-      : undefined;
     setBusy(true);
     void (async () => {
       try {
@@ -156,9 +162,9 @@ export function PlaygroundCard({ card }: { card: PlaygroundCardData }) {
         await openPopoutWindow({
           kind: "split",
           title: card.name,
-          seed: `${card.sid}-${conversation.channelId}`,
+          seed: `${card.sid}-${conversation.channelId}-${threadId}`,
           channelId: conversation.channelId,
-          ...(threadId ? { threadId } : {}),
+          threadId,
           playground: card,
         });
       } catch (error) {
@@ -261,7 +267,7 @@ export function PlaygroundCard({ card }: { card: PlaygroundCardData }) {
         </Button>
         <Button
           data-testid="playground-card-open-split"
-          disabled={busy || !conversation}
+          disabled={busy || !isThreadConversation}
           onClick={(event) => {
             event.stopPropagation();
             handleOpenAsSplit();

@@ -22,6 +22,7 @@ import {
   PLAYGROUND_POLL_INTERVAL_MS,
   nextPlaygroundDomUpdate,
 } from "./updates.ts";
+import { currentPopoutPayload } from "@/features/popout/lib/popoutWindow";
 import {
   evalPlaygroundWebview,
   playgroundWebviewDomHash,
@@ -83,8 +84,10 @@ function usePlaygroundWebviewKeeper() {
     getPlaygroundStore,
     getPlaygroundStore,
   );
+  const popout = currentPopoutPayload();
 
   React.useEffect(() => {
+    if (popout) return;
     for (const session of sessions.values()) {
       if (overlaySid === session.sid) continue;
       void showPlaygroundWebview({
@@ -96,11 +99,12 @@ function usePlaygroundWebviewKeeper() {
         evalPlaygroundWebview(session.sid, PLAYGROUND_DOM_PROBE_SCRIPT),
       );
     }
-  }, [sessions, overlaySid]);
+  }, [sessions, overlaySid, popout]);
 }
 
 function usePlaygroundUpdatePolling() {
   React.useEffect(() => {
+    if (currentPopoutPayload()) return;
     let cancelled = false;
     const poll = async () => {
       if (cancelled) return;

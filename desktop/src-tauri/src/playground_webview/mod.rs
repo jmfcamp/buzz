@@ -223,6 +223,49 @@ pub fn playground_label(sid: &str) -> String {
     format!("{PLAYGROUND_LABEL_PREFIX}{sid}")
 }
 
+fn sanitize_window_label(label: &str) -> String {
+    let cleaned: String = label
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let cleaned = cleaned.trim_matches('-');
+    if cleaned.is_empty() {
+        APP_WEBVIEW_LABEL.to_string()
+    } else {
+        cleaned.chars().take(80).collect()
+    }
+}
+
+pub fn normalize_window_label(window_label: Option<&str>) -> String {
+    let raw = window_label
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(APP_WEBVIEW_LABEL);
+    sanitize_window_label(raw)
+}
+
+/// Main-window labels stay `playground-{sid}` so Inspect can keep targeting them.
+/// Other parents use `playground-{sid}--{window}` so the same sid can exist on
+/// main and a pop-out without reparenting WKWebView.
+pub fn playground_webview_label(sid: &str, window_label: &str) -> String {
+    let window_label = normalize_window_label(Some(window_label));
+    if window_label == APP_WEBVIEW_LABEL {
+        playground_label(sid)
+    } else {
+        format!("{}{}--{}", PLAYGROUND_LABEL_PREFIX, sid, window_label)
+    }
+}
+
+fn playground_parent_window_label(webview: &Webview) -> String {
+    webview.window().label().to_string()
+}
+
 pub fn inspect_target_is_safe(webview_id: &str) -> bool {
     webview_id.starts_with(PLAYGROUND_LABEL_PREFIX) && webview_id != APP_WEBVIEW_LABEL
 }
@@ -265,6 +308,7 @@ fn sync_user_agent(
     app: &AppHandle,
     manager: &PlaygroundWebviewManager,
     sid: &str,
+    window_label: &str,
     user_agent: Option<&str>,
     reload: bool,
 ) -> Result<(), String> {
@@ -286,7 +330,7 @@ fn sync_user_agent(
             true
         }
     };
-    let Some(webview) = app.get_webview(&playground_label(sid)) else {
+    let Some(webview) = app.get_webview(&playground_webview_label(sid, window_label)) else {
         return Ok(());
     };
     if changed {
@@ -302,8 +346,13 @@ fn bounds_are_usable(bounds: &PlaygroundBounds) -> bool {
     bounds.width >= MIN_EDGE && bounds.height >= MIN_EDGE
 }
 
-fn apply_bounds(app: &AppHandle, sid: &str, bounds: &PlaygroundBounds) -> Result<(), String> {
-    let Some(webview) = app.get_webview(&playground_label(sid)) else {
+fn apply_bounds(
+    app: &AppHandle,
+    sid: &str,
+    window_label: &str,
+    bounds: &PlaygroundBounds,
+) -> Result<(), String> {
+    let Some(webview) = app.get_webview(&playground_webview_label(sid, window_label)) else {
         return Ok(());
     };
     webview
@@ -318,13 +367,30 @@ fn apply_bounds(app: &AppHandle, sid: &str, bounds: &PlaygroundBounds) -> Result
     Ok(())
 }
 
-fn hide_other_playgrounds(app: &AppHandle, keep_sid: &str) {
-    let keep = playground_label(keep_sid);
+fn hide_other_playgrounds(app: &AppHandle, keep_label: &str, window_label: &str) {
     for webview in app.webviews().into_values() {
         let label = webview.label();
-        if label.starts_with(PLAYGROUND_LABEL_PREFIX) && label != keep {
-            let _ = webview.hide();
+        if !label.starts_with(PLAYGROUND_LABEL_PREFIX) || label == keep_label {
+            continue;
         }
+        if playground_parent_window_label(&webview) != window_label {
+            continue;
+        }
+        let _ = webview.hide();
+    }
+}
+
+/// Close playground child webviews parented to `window_label` (pop-out teardown).
+pub fn close_playgrounds_for_window(app: &AppHandle, window_label: &str) {
+    let window_label = normalize_window_label(Some(window_label));
+    for webview in app.webviews().into_values() {
+        if !webview.label().starts_with(PLAYGROUND_LABEL_PREFIX) {
+            continue;
+        }
+        if playground_parent_window_label(&webview) != window_label {
+            continue;
+        }
+        let _ = webview.close();
     }
 }
 
@@ -433,12 +499,15 @@ pub async fn playground_webview_show(
     bounds: PlaygroundBounds,
     visible: Option<bool>,
     user_agent: Option<String>,
+    window_label: Option<String>,
 ) -> Result<PlaygroundNavState, String> {
     let sid = sanitize_sid(&sid)?;
     let url = parse_playground_url(&url)?;
+    let window_label = normalize_window_label(window_label.as_deref());
     let show = visible.unwrap_or(true);
+    let label = playground_webview_label(&sid, &window_label);
     if show {
-        hide_other_playgrounds(&app, &sid);
+        hide_other_playgrounds(&app, &label, &window_label);
     }
     let nav = {
         let mut sessions = manager
@@ -455,10 +524,9 @@ pub async fn playground_webview_show(
         session.nav_state(&sid)
     };
 
-    let label = playground_label(&sid);
     if let Some(webview) = app.get_webview(&label) {
-        apply_bounds(&app, &sid, &bounds)?;
-        sync_user_agent(&app, &manager, &sid, user_agent.as_deref(), true)?;
+        apply_bounds(&app, &sid, &window_label, &bounds)?;
+        sync_user_agent(&app, &manager, &sid, &window_label, user_agent.as_deref(), true)?;
         if webview.url().ok().as_ref() != Some(&url) && webview.url().ok().is_none() {
             navigate_playground(&webview, url)?;
         }
@@ -476,8 +544,8 @@ pub async fn playground_webview_show(
     }
 
     let window = app
-        .get_window(APP_WEBVIEW_LABEL)
-        .ok_or_else(|| "main window is not available".to_string())?;
+        .get_window(&window_label)
+        .ok_or_else(|| format!("{window_label} window is not available"))?;
     let profile_dir = app
         .path()
         .app_data_dir()
@@ -515,26 +583,39 @@ pub async fn playground_webview_show(
     if !show {
         webview.hide().map_err(|error| error.to_string())?;
     }
-    sync_user_agent(&app, &manager, &sid, user_agent.as_deref(), false)?;
+    sync_user_agent(&app, &manager, &sid, &window_label, user_agent.as_deref(), false)?;
     emit_nav(&app, nav.clone());
     Ok(nav)
 }
 
 #[tauri::command]
-pub async fn playground_webview_hide(app: AppHandle, sid: String) -> Result<(), String> {
+pub async fn playground_webview_hide(
+    app: AppHandle,
+    sid: String,
+    window_label: Option<String>,
+) -> Result<(), String> {
     let sid = sanitize_sid(&sid)?;
-    if let Some(webview) = app.get_webview(&playground_label(&sid)) {
+    let window_label = normalize_window_label(window_label.as_deref());
+    if let Some(webview) = app.get_webview(&playground_webview_label(&sid, &window_label)) {
         webview.hide().map_err(|error| error.to_string())?;
     }
     Ok(())
 }
 
 #[tauri::command]
-pub async fn playground_webview_hide_all(app: AppHandle) -> Result<(), String> {
+pub async fn playground_webview_hide_all(
+    app: AppHandle,
+    window_label: Option<String>,
+) -> Result<(), String> {
+    let window_label = normalize_window_label(window_label.as_deref());
     for webview in app.webviews().into_values() {
-        if webview.label().starts_with(PLAYGROUND_LABEL_PREFIX) {
-            let _ = webview.hide();
+        if !webview.label().starts_with(PLAYGROUND_LABEL_PREFIX) {
+            continue;
         }
+        if playground_parent_window_label(&webview) != window_label {
+            continue;
+        }
+        let _ = webview.hide();
     }
     Ok(())
 }
@@ -546,11 +627,13 @@ pub async fn playground_webview_set_bounds(
     sid: String,
     bounds: PlaygroundBounds,
     user_agent: Option<String>,
+    window_label: Option<String>,
 ) -> Result<(), String> {
     let sid = sanitize_sid(&sid)?;
+    let window_label = normalize_window_label(window_label.as_deref());
     remember_bounds(&manager, &sid, &bounds);
-    apply_bounds(&app, &sid, &bounds)?;
-    sync_user_agent(&app, &manager, &sid, user_agent.as_deref(), true)
+    apply_bounds(&app, &sid, &window_label, &bounds)?;
+    sync_user_agent(&app, &manager, &sid, &window_label, user_agent.as_deref(), true)
 }
 
 #[tauri::command]
@@ -558,13 +641,22 @@ pub async fn playground_webview_close(
     app: AppHandle,
     manager: State<'_, PlaygroundWebviewManager>,
     sid: String,
+    window_label: Option<String>,
 ) -> Result<(), String> {
     let sid = sanitize_sid(&sid)?;
-    if let Some(webview) = app.get_webview(&playground_label(&sid)) {
+    let window_label = normalize_window_label(window_label.as_deref());
+    if let Some(webview) = app.get_webview(&playground_webview_label(&sid, &window_label)) {
         webview.close().map_err(|error| error.to_string())?;
     }
-    if let Ok(mut sessions) = manager.sessions.lock() {
-        sessions.remove(&sid);
+    let still_open = app.webviews().into_values().any(|webview| {
+        let label = webview.label();
+        label == playground_label(&sid)
+            || label.starts_with(&format!("{}{}--", PLAYGROUND_LABEL_PREFIX, sid))
+    });
+    if !still_open {
+        if let Ok(mut sessions) = manager.sessions.lock() {
+            sessions.remove(&sid);
+        }
     }
     Ok(())
 }
@@ -573,14 +665,26 @@ pub async fn playground_webview_close(
 pub async fn playground_webview_close_all(
     app: AppHandle,
     manager: State<'_, PlaygroundWebviewManager>,
+    window_label: Option<String>,
 ) -> Result<(), String> {
+    let window_label = normalize_window_label(window_label.as_deref());
     for webview in app.webviews().into_values() {
-        if webview.label().starts_with(PLAYGROUND_LABEL_PREFIX) {
-            let _ = webview.close();
+        if !webview.label().starts_with(PLAYGROUND_LABEL_PREFIX) {
+            continue;
         }
+        if playground_parent_window_label(&webview) != window_label {
+            continue;
+        }
+        let _ = webview.close();
     }
-    if let Ok(mut sessions) = manager.sessions.lock() {
-        sessions.clear();
+    let any_playground_left = app
+        .webviews()
+        .into_values()
+        .any(|webview| webview.label().starts_with(PLAYGROUND_LABEL_PREFIX));
+    if !any_playground_left {
+        if let Ok(mut sessions) = manager.sessions.lock() {
+            sessions.clear();
+        }
     }
     Ok(())
 }
@@ -590,9 +694,11 @@ pub async fn playground_webview_inspect(
     app: AppHandle,
     manager: State<'_, PlaygroundWebviewManager>,
     sid: String,
+    window_label: Option<String>,
 ) -> Result<PlaygroundInspectResult, String> {
     let sid = sanitize_sid(&sid)?;
-    let webview_id = playground_label(&sid);
+    let window_label = normalize_window_label(window_label.as_deref());
+    let webview_id = playground_webview_label(&sid, &window_label);
     if !inspect_target_is_safe(&webview_id) {
         return Err("inspect must target the playground webview".into());
     }
@@ -602,7 +708,7 @@ pub async fn playground_webview_inspect(
     let webview = app
         .get_webview(&webview_id)
         .ok_or_else(|| "playground webview is not open".to_string())?;
-    let window_size = app.get_window(APP_WEBVIEW_LABEL).and_then(|window| {
+    let window_size = app.get_window(&window_label).and_then(|window| {
         window
             .inner_size()
             .ok()
@@ -627,9 +733,9 @@ pub async fn playground_webview_inspect(
             window_size.unwrap_or((0, 0)),
             window_size.unwrap_or((0, 0)),
         );
-        apply_bounds(&app, &sid, &keep)?;
+        apply_bounds(&app, &sid, &window_label, &keep)?;
     }
-    inspect::schedule_inspect_stage_restore(app.clone(), sid);
+    inspect::schedule_inspect_stage_restore(app.clone(), sid, window_label);
     Ok(PlaygroundInspectResult { webview_id })
 }
 
@@ -638,8 +744,9 @@ pub async fn playground_webview_go_back(
     app: AppHandle,
     manager: State<'_, PlaygroundWebviewManager>,
     sid: String,
+    window_label: Option<String>,
 ) -> Result<PlaygroundNavState, String> {
-    navigate_history(&app, &manager, &sid, true)
+    navigate_history(&app, &manager, &sid, window_label.as_deref(), true)
 }
 
 #[tauri::command]
@@ -647,17 +754,20 @@ pub async fn playground_webview_go_forward(
     app: AppHandle,
     manager: State<'_, PlaygroundWebviewManager>,
     sid: String,
+    window_label: Option<String>,
 ) -> Result<PlaygroundNavState, String> {
-    navigate_history(&app, &manager, &sid, false)
+    navigate_history(&app, &manager, &sid, window_label.as_deref(), false)
 }
 
 fn navigate_history(
     app: &AppHandle,
     manager: &PlaygroundWebviewManager,
     sid: &str,
+    window_label: Option<&str>,
     back: bool,
 ) -> Result<PlaygroundNavState, String> {
     let sid = sanitize_sid(sid)?;
+    let window_label = normalize_window_label(window_label);
     let target = {
         let mut sessions = manager
             .sessions
@@ -677,7 +787,7 @@ fn navigate_history(
         (url, session.nav_state(&sid))
     };
     if let Some(url) = target.0 {
-        if let Some(webview) = app.get_webview(&playground_label(&sid)) {
+        if let Some(webview) = app.get_webview(&playground_webview_label(&sid, &window_label)) {
             navigate_playground(&webview, url)?;
         }
     }
@@ -686,9 +796,14 @@ fn navigate_history(
 }
 
 #[tauri::command]
-pub async fn playground_webview_reload(app: AppHandle, sid: String) -> Result<(), String> {
+pub async fn playground_webview_reload(
+    app: AppHandle,
+    sid: String,
+    window_label: Option<String>,
+) -> Result<(), String> {
     let sid = sanitize_sid(&sid)?;
-    if let Some(webview) = app.get_webview(&playground_label(&sid)) {
+    let window_label = normalize_window_label(window_label.as_deref());
+    if let Some(webview) = app.get_webview(&playground_webview_label(&sid, &window_label)) {
         webview.reload().map_err(|error| error.to_string())?;
     }
     Ok(())
@@ -700,8 +815,10 @@ pub async fn playground_webview_navigate(
     manager: State<'_, PlaygroundWebviewManager>,
     sid: String,
     url: String,
+    window_label: Option<String>,
 ) -> Result<PlaygroundNavState, String> {
     let sid = sanitize_sid(&sid)?;
+    let window_label = normalize_window_label(window_label.as_deref());
     let url = parse_playground_url(&url)?;
     let nav = {
         let mut sessions = manager
@@ -715,7 +832,7 @@ pub async fn playground_webview_navigate(
         session.push(url.clone());
         session.nav_state(&sid)
     };
-    if let Some(webview) = app.get_webview(&playground_label(&sid)) {
+    if let Some(webview) = app.get_webview(&playground_webview_label(&sid, &window_label)) {
         navigate_playground(&webview, url)?;
     }
     emit_nav(&app, nav.clone());
@@ -726,8 +843,10 @@ pub async fn playground_webview_navigate(
 pub async fn playground_webview_nav_state(
     manager: State<'_, PlaygroundWebviewManager>,
     sid: String,
+    window_label: Option<String>,
 ) -> Result<PlaygroundNavState, String> {
     let sid = sanitize_sid(&sid)?;
+    let _ = window_label;
     let sessions = manager
         .sessions
         .lock()
@@ -748,9 +867,11 @@ pub async fn playground_webview_eval(
     app: AppHandle,
     sid: String,
     js: String,
+    window_label: Option<String>,
 ) -> Result<String, String> {
     let sid = sanitize_sid(&sid)?;
-    let webview_id = playground_label(&sid);
+    let window_label = normalize_window_label(window_label.as_deref());
+    let webview_id = playground_webview_label(&sid, &window_label);
     if !inspect_target_is_safe(&webview_id) {
         return Err("eval must target the playground webview".into());
     }
@@ -766,10 +887,12 @@ pub async fn playground_webview_dom_hash(
     app: AppHandle,
     sid: String,
     start_url: String,
+    window_label: Option<String>,
 ) -> Result<String, String> {
     let sid = sanitize_sid(&sid)?;
+    let window_label = normalize_window_label(window_label.as_deref());
     let start_url = parse_playground_url(&start_url)?;
-    let Some(webview) = app.get_webview(&playground_label(&sid)) else {
+    let Some(webview) = app.get_webview(&playground_webview_label(&sid, &window_label)) else {
         return Ok(String::new());
     };
     let cookie_url = start_url.clone();
@@ -790,8 +913,10 @@ pub async fn playground_webview_poll(
     manager: State<'_, PlaygroundWebviewManager>,
     sid: String,
     start_url: String,
+    window_label: Option<String>,
 ) -> Result<PlaygroundPollResult, String> {
     let sid = sanitize_sid(&sid)?;
+    let window_label = normalize_window_label(window_label.as_deref());
     let start_url = parse_playground_url(&start_url)?;
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(15))
@@ -799,7 +924,7 @@ pub async fn playground_webview_poll(
         .build()
         .map_err(|error| error.to_string())?;
     let mut request = client.get(start_url.clone());
-    if let Some(webview) = app.get_webview(&playground_label(&sid)) {
+    if let Some(webview) = app.get_webview(&playground_webview_label(&sid, &window_label)) {
         let cookie_url = start_url.clone();
         if let Ok(Ok(cookies)) =
             tokio::task::spawn_blocking(move || webview.cookies_for_url(cookie_url)).await
@@ -857,9 +982,11 @@ pub async fn playground_webview_screenshot(
     app: AppHandle,
     manager: State<'_, PlaygroundWebviewManager>,
     sid: String,
+    window_label: Option<String>,
 ) -> Result<PlaygroundScreenshotResult, String> {
     let sid = sanitize_sid(&sid)?;
-    let webview_id = playground_label(&sid);
+    let window_label = normalize_window_label(window_label.as_deref());
+    let webview_id = playground_webview_label(&sid, &window_label);
     if !inspect_target_is_safe(&webview_id) {
         return Err("screenshot must target the playground webview".into());
     }
@@ -896,8 +1023,16 @@ mod tests {
     #[test]
     fn inspect_never_targets_the_app_webview() {
         assert!(inspect_target_is_safe("playground-abc"));
+        assert!(inspect_target_is_safe("playground-abc--popout-thread-x"));
         assert!(!inspect_target_is_safe("main"));
         assert_ne!(playground_label("demo"), APP_WEBVIEW_LABEL);
+        assert_eq!(playground_webview_label("demo", "main"), "playground-demo");
+        assert_eq!(
+            playground_webview_label("demo", "popout-thread-x"),
+            "playground-demo--popout-thread-x"
+        );
+        assert_eq!(normalize_window_label(None), APP_WEBVIEW_LABEL);
+        assert_eq!(normalize_window_label(Some("")), APP_WEBVIEW_LABEL);
     }
 
     #[test]

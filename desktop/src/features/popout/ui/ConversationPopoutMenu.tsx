@@ -15,11 +15,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/shared/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 
 function sessionAsCard(session: {
   sid: string;
@@ -46,18 +42,22 @@ export function ConversationPopoutMenu({
   threadId,
 }: {
   channelId: string;
-  threadId?: string | null;
+  threadId: string;
 }) {
   const playgrounds = listPlaygroundSessions().map(sessionAsCard);
 
   async function openPlain() {
+    if (!threadId) {
+      toast.error("Open a thread first.");
+      return;
+    }
     try {
       await openPopoutWindow({
         kind: "thread",
-        title: threadId ? "Thread" : "Channel",
-        seed: threadId ? `${channelId}-${threadId}` : channelId,
+        title: "Thread",
+        seed: `${channelId}-${threadId}`,
         channelId,
-        ...(threadId ? { threadId } : {}),
+        threadId,
       });
     } catch (error) {
       toast.error(
@@ -67,13 +67,17 @@ export function ConversationPopoutMenu({
   }
 
   async function openSplit(playground: PlaygroundCard) {
+    if (!threadId) {
+      toast.error("Open a thread first.");
+      return;
+    }
     try {
       await openPopoutWindow({
         kind: "split",
         title: playground.name,
-        seed: `${playground.sid}-${channelId}-${threadId ?? "channel"}`,
+        seed: `${playground.sid}-${channelId}-${threadId}`,
         channelId,
-        ...(threadId ? { threadId } : {}),
+        threadId,
         playground,
       });
     } catch (error) {
