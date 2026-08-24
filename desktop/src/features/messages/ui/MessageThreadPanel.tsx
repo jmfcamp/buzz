@@ -1,6 +1,8 @@
 import * as React from "react";
 import { ArrowDown } from "lucide-react";
 
+import { ConversationPopoutMenu } from "@/features/popout/ui/ConversationPopoutMenu";
+
 import { useKnownAgentPubkeys } from "@/features/agents/useKnownAgentPubkeys";
 import { HuddleTranscriptIntro } from "@/features/huddle/components/HuddleTranscriptIntro";
 import { orderMentionPubkeysByText } from "@/features/messages/lib/orderMentionPubkeys";
@@ -965,6 +967,12 @@ export function MessageThreadPanel({
         onBack={isSinglePanelView && !isFocusMode ? onClose : undefined}
       >
         <AuxiliaryPanelTitle>Thread</AuxiliaryPanelTitle>
+        {channelId && !isHuddleTranscript ? (
+          <ConversationPopoutMenu
+            channelId={channelId}
+            threadId={threadHeadId}
+          />
+        ) : null}
       </AuxiliaryPanelHeaderGroup>
     </>
   );
