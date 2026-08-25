@@ -811,6 +811,7 @@ test("locked window chrome keeps the mode row and hides layout controls", async 
   assert.match(chrome.className, /shrink-0/);
   assert.match(chrome.className, /flex-col/);
   assert.match(modeRow.className, /shrink-0/);
+  assert.match(modeRow.className, /min-h-7/);
   assert.doesNotMatch(chrome.className, /overflow-hidden/);
   assert.equal(screen.queryByTestId("playground-dispose"), null);
   assert.equal(screen.queryByTestId("playground-fullscreen"), null);
@@ -879,6 +880,7 @@ test("locked dock is an in-flow split pane and does not snap to a thread", async
   }
   assert.ok(screen.getByTestId("playground-mode-row"));
   assert.match(screen.getByTestId("playground-mode-row").className, /shrink-0/);
+  assert.match(screen.getByTestId("playground-mode-row").className, /min-h-7/);
   assert.equal(screen.queryByTestId("playground-dispose"), null);
   assert.ok(screen.getByTestId("playground-fullscreen"));
   assert.equal(screen.queryByTestId("playground-dock"), null);

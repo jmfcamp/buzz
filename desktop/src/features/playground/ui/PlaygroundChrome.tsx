@@ -66,6 +66,7 @@ export function PlaygroundChrome({
   hideDismiss = false,
   hideDispose = false,
   hideDock = false,
+  lockPlacement,
   mode,
   onModeChange,
   onStageResync,
@@ -80,6 +81,7 @@ export function PlaygroundChrome({
   hideDismiss?: boolean;
   hideDispose?: boolean;
   hideDock?: boolean;
+  lockPlacement?: "window" | "dock";
   mode: PlaygroundChromeMode;
   onModeChange: (mode: PlaygroundChromeMode) => void;
   onStageResync?: () => void;
@@ -339,7 +341,9 @@ export function PlaygroundChrome({
           )}
         </div>
         <div
-          className="relative flex min-w-0 shrink-0 items-center justify-start gap-1 py-0.5"
+          className={`relative flex min-w-0 shrink-0 items-center justify-start gap-1 py-0.5${
+            lockPlacement != null ? " min-h-7" : ""
+          }`}
           data-testid="playground-mode-row"
         >
           <ModeButton

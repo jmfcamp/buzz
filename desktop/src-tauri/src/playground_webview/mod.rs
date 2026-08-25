@@ -346,6 +346,41 @@ fn bounds_are_usable(bounds: &PlaygroundBounds) -> bool {
     bounds.width >= MIN_EDGE && bounds.height >= MIN_EDGE
 }
 
+/// Logical offset of the HTML content view inside the native window frame.
+/// `getBoundingClientRect()` is content-relative; `add_child` / `set_position`
+/// are frame-relative. Decorated pop-outs have a titlebar (~28px on macOS);
+/// overlay titlebars report inner == outer so this is (0, 0).
+fn window_content_origin(window: &tauri::Window) -> LogicalPosition<f64> {
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let Ok(outer) = window.outer_position() else {
+        return LogicalPosition::new(0.0, 0.0);
+    };
+    let Ok(inner) = window.inner_position() else {
+        return LogicalPosition::new(0.0, 0.0);
+    };
+    content_origin_from_inner_outer(inner.x, inner.y, outer.x, outer.y, scale)
+}
+
+fn content_origin_from_inner_outer(
+    inner_x: i32,
+    inner_y: i32,
+    outer_x: i32,
+    outer_y: i32,
+    scale: f64,
+) -> LogicalPosition<f64> {
+    LogicalPosition::new(
+        (inner_x - outer_x) as f64 / scale,
+        (inner_y - outer_y) as f64 / scale,
+    )
+}
+
+fn playground_webview_position(
+    bounds: &PlaygroundBounds,
+    origin: LogicalPosition<f64>,
+) -> LogicalPosition<f64> {
+    LogicalPosition::new(bounds.x + origin.x, bounds.y + origin.y)
+}
+
 fn apply_bounds(
     app: &AppHandle,
     sid: &str,
@@ -355,8 +390,12 @@ fn apply_bounds(
     let Some(webview) = app.get_webview(&playground_webview_label(sid, window_label)) else {
         return Ok(());
     };
+    let origin = app
+        .get_window(window_label)
+        .map(|window| window_content_origin(&window))
+        .unwrap_or(LogicalPosition::new(0.0, 0.0));
     webview
-        .set_position(LogicalPosition::new(bounds.x, bounds.y))
+        .set_position(playground_webview_position(bounds, origin))
         .map_err(|error| error.to_string())?;
     webview
         .set_size(LogicalSize::new(
@@ -526,7 +565,14 @@ pub async fn playground_webview_show(
 
     if let Some(webview) = app.get_webview(&label) {
         apply_bounds(&app, &sid, &window_label, &bounds)?;
-        sync_user_agent(&app, &manager, &sid, &window_label, user_agent.as_deref(), true)?;
+        sync_user_agent(
+            &app,
+            &manager,
+            &sid,
+            &window_label,
+            user_agent.as_deref(),
+            true,
+        )?;
         if webview.url().ok().as_ref() != Some(&url) && webview.url().ok().is_none() {
             navigate_playground(&webview, url)?;
         }
@@ -573,17 +619,25 @@ pub async fn playground_webview_show(
             let _ = payload.event() == PageLoadEvent::Finished;
         });
 
+    let origin = window_content_origin(&window);
     let webview = window
         .add_child(
             builder,
-            LogicalPosition::new(bounds.x, bounds.y),
+            playground_webview_position(&bounds, origin),
             LogicalSize::new(bounds.width.max(1.0), bounds.height.max(1.0)),
         )
         .map_err(|error| error.to_string())?;
     if !show {
         webview.hide().map_err(|error| error.to_string())?;
     }
-    sync_user_agent(&app, &manager, &sid, &window_label, user_agent.as_deref(), false)?;
+    sync_user_agent(
+        &app,
+        &manager,
+        &sid,
+        &window_label,
+        user_agent.as_deref(),
+        false,
+    )?;
     emit_nav(&app, nav.clone());
     Ok(nav)
 }
@@ -633,7 +687,14 @@ pub async fn playground_webview_set_bounds(
     let window_label = normalize_window_label(window_label.as_deref());
     remember_bounds(&manager, &sid, &bounds);
     apply_bounds(&app, &sid, &window_label, &bounds)?;
-    sync_user_agent(&app, &manager, &sid, &window_label, user_agent.as_deref(), true)
+    sync_user_agent(
+        &app,
+        &manager,
+        &sid,
+        &window_label,
+        user_agent.as_deref(),
+        true,
+    )
 }
 
 #[tauri::command]
@@ -1069,6 +1130,28 @@ mod tests {
             capture::playground_screenshot_target("demo").expect("label"),
             "playground-demo"
         );
+    }
+
+    #[test]
+    fn content_origin_offsets_decorated_titlebar_and_is_zero_for_overlay() {
+        let decorated = content_origin_from_inner_outer(0, 28, 0, 0, 1.0);
+        assert_eq!(decorated.x, 0.0);
+        assert_eq!(decorated.y, 28.0);
+        let retina = content_origin_from_inner_outer(0, 56, 0, 0, 2.0);
+        assert_eq!(retina.x, 0.0);
+        assert_eq!(retina.y, 28.0);
+        let overlay = content_origin_from_inner_outer(100, 200, 100, 200, 2.0);
+        assert_eq!(overlay.x, 0.0);
+        assert_eq!(overlay.y, 0.0);
+        let bounds = PlaygroundBounds {
+            x: 12.0,
+            y: 40.0,
+            width: 800.0,
+            height: 600.0,
+        };
+        let positioned = playground_webview_position(&bounds, decorated);
+        assert_eq!(positioned.x, 12.0);
+        assert_eq!(positioned.y, 68.0);
     }
 
     #[test]

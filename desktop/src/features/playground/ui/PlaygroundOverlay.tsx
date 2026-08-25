@@ -135,6 +135,7 @@ export function PlaygroundOverlay({
         hideDismiss={chromeLayout.hideDismiss}
         hideDispose={chromeLayout.hideDispose}
         hideDock={chromeLayout.hideDock}
+        lockPlacement={lockPlacement}
         mode={mode}
         onModeChange={setMode}
         onStageResync={bumpStageLayout}
