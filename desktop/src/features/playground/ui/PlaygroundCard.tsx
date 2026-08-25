@@ -5,7 +5,10 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import { deriveShellRoute } from "@/app/AppShell.helpers";
-import { openPopoutWindow } from "@/features/popout/lib/popoutWindow";
+import {
+  openPopoutWindow,
+  popoutErrorMessage,
+} from "@/features/popout/lib/popoutWindow";
 import {
   playgroundConversationFromRoute,
   playgroundConversationHasOpenThread,
@@ -106,9 +109,7 @@ export function PlaygroundCard({ card }: { card: PlaygroundCardData }) {
         if (!(await ensureUp())) return;
         addPlaygroundSession(card);
       } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : "Playground is down.",
-        );
+        toast.error(popoutErrorMessage(error, "Playground is down."));
       } finally {
         setBusy(false);
       }
@@ -131,9 +132,7 @@ export function PlaygroundCard({ card }: { card: PlaygroundCardData }) {
           playground: card,
         });
       } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : "Could not open playground.",
-        );
+        toast.error(popoutErrorMessage(error, "Could not open playground."));
       } finally {
         setBusy(false);
       }
@@ -168,9 +167,7 @@ export function PlaygroundCard({ card }: { card: PlaygroundCardData }) {
           playground: card,
         });
       } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : "Could not open split.",
-        );
+        toast.error(popoutErrorMessage(error, "Could not open split."));
       } finally {
         setBusy(false);
       }

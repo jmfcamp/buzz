@@ -22,12 +22,40 @@ function sanitizeLabelPart(value: string): string {
   return cleaned.slice(0, 48) || "x";
 }
 
+/** Tiny non-crypto hash (cyrb53) so long sid+channel prefixes cannot collide. */
+function hashLabelSeed(value: string): string {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < value.length; i++) {
+    const ch = value.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
+  h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
+  h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  const a = (h1 >>> 0).toString(16).padStart(8, "0");
+  const b = (h2 >>> 0).toString(16).padStart(8, "0");
+  return `${a}${b}`.slice(0, 16);
+}
+
 export function popoutStorageKey(label: string): string {
   return `${POPOUT_STORAGE_PREFIX}${label}`;
 }
 
 export function popoutLabel(kind: PopoutKind, seed: string): string {
-  return `${POPOUT_WINDOW_LABEL_PREFIX}${kind}-${sanitizeLabelPart(seed)}`;
+  const hash = sanitizeLabelPart(hashLabelSeed(`${kind}:${seed}`));
+  return `${POPOUT_WINDOW_LABEL_PREFIX}${kind}-${hash}`;
+}
+
+/** Tauri `invoke` often rejects with a raw string, not an Error. */
+export function popoutErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error
+    ? error.message
+    : typeof error === "string"
+      ? error
+      : fallback;
 }
 
 export function writePopoutPayload(label: string, payload: PopoutPayload) {

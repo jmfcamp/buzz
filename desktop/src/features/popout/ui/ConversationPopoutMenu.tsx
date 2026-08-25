@@ -1,7 +1,10 @@
 import { AppWindow, Columns2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { openPopoutWindow } from "@/features/popout/lib/popoutWindow";
+import {
+  openPopoutWindow,
+  popoutErrorMessage,
+} from "@/features/popout/lib/popoutWindow";
 import { listPlaygroundSessions } from "@/features/playground/lib/sessions";
 import type { PlaygroundCard } from "@/features/playground/lib/types";
 import { Button } from "@/shared/ui/button";
@@ -60,9 +63,7 @@ export function ConversationPopoutMenu({
         threadId,
       });
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Could not open window.",
-      );
+      toast.error(popoutErrorMessage(error, "Could not open window."));
     }
   }
 
@@ -81,9 +82,7 @@ export function ConversationPopoutMenu({
         playground,
       });
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Could not open split window.",
-      );
+      toast.error(popoutErrorMessage(error, "Could not open split."));
     }
   }
 
