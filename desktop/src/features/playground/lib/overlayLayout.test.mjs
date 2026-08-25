@@ -21,8 +21,18 @@ import {
   playgroundOverlaySurfaceIsOpaque,
   playgroundChromeLayoutFlags,
   playgroundResizeHandleSitsOutsideHost,
+  playgroundShowsTitlebarGap,
   playgroundStageLayoutKey,
 } from "./overlayLayout.ts";
+
+test("titlebar gap shows for fullscreen and locked pop-outs", () => {
+  assert.equal(playgroundShowsTitlebarGap(false), false);
+  assert.equal(playgroundShowsTitlebarGap(false, null), false);
+  assert.equal(playgroundShowsTitlebarGap(true), true);
+  assert.equal(playgroundShowsTitlebarGap(false, "window"), true);
+  assert.equal(playgroundShowsTitlebarGap(false, "dock"), true);
+  assert.equal(playgroundShowsTitlebarGap(true, "dock"), true);
+});
 
 test("fullscreen titlebar gap matches the app chrome strip", () => {
   assert.equal(

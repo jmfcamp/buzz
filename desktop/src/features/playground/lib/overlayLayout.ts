@@ -62,6 +62,14 @@ export const PLAYGROUND_DOCK_RESIZE_HANDLE_TEST_ID = "playground-dock-resize";
  */
 export const playgroundFullscreenTitlebarGapClass = `${topChromeBackdrop.height} ${PLAYGROUND_OVERLAY_SURFACE_CLASS}`;
 
+/** 40px overlay gap so traffic lights stay clickable. Pop-outs need it too. */
+export function playgroundShowsTitlebarGap(
+  fullscreen: boolean,
+  lockPlacement?: "window" | "dock" | null,
+): boolean {
+  return fullscreen || lockPlacement != null;
+}
+
 export const PLAYGROUND_CHROME_CLASS = `relative z-20 flex shrink-0 flex-col gap-1 overflow-visible border-b border-border pointer-events-auto px-2 py-1 ${PLAYGROUND_OVERLAY_SURFACE_CLASS}`;
 
 /**

@@ -22,6 +22,7 @@ import {
   playgroundChromeLayoutFlags,
   playgroundFullscreenTitlebarGapClass,
   playgroundOverlayPlacementClass,
+  playgroundShowsTitlebarGap,
   playgroundStageLayoutKey,
 } from "../lib/overlayLayout";
 import type { PlaygroundSession } from "../lib/sessions";
@@ -119,7 +120,7 @@ export function PlaygroundOverlay({
         ...(dockVisible ? { width: widthPx } : undefined),
       }}
     >
-      {fullscreen ? (
+      {playgroundShowsTitlebarGap(fullscreen, lockPlacement) ? (
         <div
           aria-hidden
           className={cn("shrink-0", playgroundFullscreenTitlebarGapClass)}
