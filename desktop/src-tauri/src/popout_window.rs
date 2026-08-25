@@ -54,6 +54,7 @@ pub async fn open_popout_window(
     app: tauri::AppHandle,
     label: String,
     title: String,
+    fullscreen: Option<bool>,
 ) -> Result<(), String> {
     if !label.starts_with("popout-") {
         return Err("invalid popout window label".into());
@@ -61,6 +62,8 @@ pub async fn open_popout_window(
     if let Some(window) = app.get_webview_window(&label) {
         return show_and_focus(window);
     }
+
+    let start_fullscreen = fullscreen.unwrap_or(false);
 
     let builder =
         WebviewWindowBuilder::new(&app, label.as_str(), WebviewUrl::App("index.html".into()))
@@ -73,6 +76,20 @@ pub async fn open_popout_window(
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true)
         .traffic_light_position(tauri::LogicalPosition::new(16.0, 25.0));
+
+    #[cfg(target_os = "macos")]
+    let builder = if start_fullscreen {
+        builder.fullscreen(true)
+    } else {
+        builder
+    };
+
+    #[cfg(not(target_os = "macos"))]
+    let builder = if start_fullscreen {
+        builder.maximized(true)
+    } else {
+        builder
+    };
 
     match builder.build() {
         Ok(_) => {

@@ -1,5 +1,9 @@
 import { getStorageItem, setStorageItem } from "@/shared/lib/safeStorage";
 import { hideAllPinWebviews } from "@/features/pinned-sites/lib/pinWebview";
+import {
+  dismissEmbeddedWindow,
+  registerEmbedOpenHandler,
+} from "@/features/popout/lib/embeddedWindows";
 import type { PlaygroundCard } from "./types";
 import { playgroundSessionsMatchingCard } from "./updates";
 import {
@@ -130,6 +134,7 @@ export function addPlaygroundSession(card: PlaygroundCard): PlaygroundSession {
   store.overlaySid = session.sid;
   persist();
   emit();
+  dismissEmbeddedWindow();
   void hideAllPinWebviews();
   return session;
 }
@@ -148,6 +153,7 @@ export function showPlaygroundSession(sid: string) {
   store.overlaySid = sid;
   persist();
   emit();
+  dismissEmbeddedWindow();
   void hideAllPinWebviews();
 }
 
@@ -176,6 +182,7 @@ export function notePlaygroundCard(card: PlaygroundCard) {
 export function parkPlaygroundThen(select: () => void): () => void {
   return () => {
     dismissPlayground();
+    dismissEmbeddedWindow();
     select();
   };
 }
@@ -238,3 +245,5 @@ if (import.meta.env.MODE === "test") {
     notePlaygroundCard,
   };
 }
+
+registerEmbedOpenHandler(dismissPlayground);

@@ -22,6 +22,11 @@ import {
   PLAYGROUND_POLL_INTERVAL_MS,
   nextPlaygroundDomUpdate,
 } from "./updates.ts";
+import {
+  getActiveEmbeddedWindow,
+  subscribeEmbeddedWindows,
+  getEmbeddedWindowsStore,
+} from "@/features/popout/lib/embeddedWindows";
 import { currentPopoutPayload } from "@/features/popout/lib/popoutWindow";
 import {
   evalPlaygroundWebview,
@@ -78,18 +83,29 @@ function usePlaygroundFenceWatcher() {
   }, []);
 }
 
+function activeEmbedPlaygroundSid(): string | null {
+  return getActiveEmbeddedWindow()?.payload.playground?.sid ?? null;
+}
+
 function usePlaygroundWebviewKeeper() {
   const { sessions, overlaySid } = React.useSyncExternalStore(
     subscribePlayground,
     getPlaygroundStore,
     getPlaygroundStore,
   );
+  React.useSyncExternalStore(
+    subscribeEmbeddedWindows,
+    getEmbeddedWindowsStore,
+    getEmbeddedWindowsStore,
+  );
   const popout = currentPopoutPayload();
+  const embedSid = activeEmbedPlaygroundSid();
 
   React.useEffect(() => {
     if (popout) return;
     for (const session of sessions.values()) {
       if (overlaySid === session.sid) continue;
+      if (embedSid === session.sid) continue;
       void showPlaygroundWebview({
         sid: session.sid,
         url: session.url,
@@ -99,7 +115,7 @@ function usePlaygroundWebviewKeeper() {
         evalPlaygroundWebview(session.sid, PLAYGROUND_DOM_PROBE_SCRIPT),
       );
     }
-  }, [sessions, overlaySid, popout]);
+  }, [sessions, overlaySid, popout, embedSid]);
 }
 
 function usePlaygroundUpdatePolling() {
@@ -111,6 +127,7 @@ function usePlaygroundUpdatePolling() {
       const { overlaySid } = getPlaygroundStore();
       for (const session of listPlaygroundSessions()) {
         if (overlaySid === session.sid) continue;
+        if (activeEmbedPlaygroundSid() === session.sid) continue;
         try {
           await evalPlaygroundWebview(session.sid, PLAYGROUND_DOM_PROBE_SCRIPT);
           const raw = await playgroundWebviewDomHash(session.sid, session.url);
@@ -130,6 +147,7 @@ function usePlaygroundUpdatePolling() {
       const { overlaySid } = getPlaygroundStore();
       for (const session of listPlaygroundSessions()) {
         if (overlaySid === session.sid) continue;
+        if (activeEmbedPlaygroundSid() === session.sid) continue;
         try {
           const http = await pollPlaygroundWebview(session.sid, session.url);
           if (http.changed) markPlaygroundUpdate(session.sid);

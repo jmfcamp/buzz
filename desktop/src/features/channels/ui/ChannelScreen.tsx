@@ -16,7 +16,7 @@ import {
 } from "@/features/channels/readState/readStateFormat";
 import { ChannelScreenEmptyState } from "@/features/channels/ui/ChannelScreenEmptyState";
 import { ChannelScreenHeader } from "@/features/channels/ui/ChannelScreenHeader";
-import { isPopoutThreadOnlyLayout } from "@/features/popout/lib/popoutWindow";
+import { usePopoutThreadOnlyLayout } from "@/features/popout/lib/popoutLayout";
 import { ChannelPane } from "@/features/channels/ui/ChannelScreenLazyViews";
 import { WelcomeAgentCreateDialog } from "@/features/channels/ui/WelcomeAgentCreateDialog";
 import { ForumChannelContent } from "@/features/channels/ui/ForumChannelContent";
@@ -688,7 +688,7 @@ export function ChannelScreen({
   const isNarrowPanelViewport =
     channelContentWidthPx > 0 &&
     channelContentWidthPx < AUXILIARY_PANEL_SINGLE_COLUMN_BREAKPOINT_PX;
-  const isPopoutThreadOnly = isPopoutThreadOnlyLayout();
+  const isPopoutThreadOnly = usePopoutThreadOnlyLayout();
   const isSinglePanelView =
     isPopoutThreadOnly ||
     (isNarrowPanelViewport &&

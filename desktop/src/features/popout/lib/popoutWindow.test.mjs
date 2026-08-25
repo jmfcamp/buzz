@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { installLocalStorage } from "../../playground/lib/testStorage.mjs";
+
 import { popoutErrorMessage, popoutLabel } from "./popoutWindow.ts";
 
 test("split labels stay unique when sid+channel prefixes collide at 48 chars", () => {
@@ -43,4 +45,62 @@ test("popoutErrorMessage prefers Error and string throws over the fallback", () 
     popoutErrorMessage({ reason: "nope" }, "Could not open split."),
     "Could not open split.",
   );
+});
+
+
+test("start-fullscreen is passed into the OS create payload", async () => {
+  installLocalStorage();
+  const { resetPopoutSettingsForTests, setStartFullscreen } = await import(
+    "./popoutSettings.ts"
+  );
+  const { popoutCreateInvokeArgs } = await import("./popoutWindow.ts");
+  resetPopoutSettingsForTests();
+  setStartFullscreen(false);
+  assert.deepEqual(
+    popoutCreateInvokeArgs({ label: "popout-thread-aaa", title: "Thread" }),
+    { label: "popout-thread-aaa", title: "Thread", fullscreen: false },
+  );
+  setStartFullscreen(true);
+  assert.deepEqual(
+    popoutCreateInvokeArgs({ label: "popout-thread-aaa", title: "Thread" }),
+    { label: "popout-thread-aaa", title: "Thread", fullscreen: true },
+  );
+  resetPopoutSettingsForTests();
+});
+
+test("embed path does not call OS window create", async () => {
+  installLocalStorage();
+  const settings = await import("./popoutSettings.ts");
+  const embedded = await import("./embeddedWindows.ts");
+  const { openPopoutWindow } = await import("./popoutWindow.ts");
+  settings.resetPopoutSettingsForTests();
+  embedded.resetEmbeddedWindowsForTests();
+  settings.setShowWindowsSection(true);
+  settings.setEmbedInMain(true);
+
+  const invokes = [];
+  const internals = {
+    invoke(cmd, args) {
+      invokes.push({ cmd, args });
+      return Promise.resolve();
+    },
+  };
+  globalThis.__TAURI_INTERNALS__ = internals;
+
+  await openPopoutWindow({
+    kind: "thread",
+    title: "Design review",
+    seed: "chan-thread-1",
+    channelId: "chan",
+    threadId: "thread-1",
+  });
+
+  assert.equal(invokes.length, 0);
+  assert.equal(embedded.listEmbeddedWindows().length, 1);
+  assert.equal(embedded.getActiveEmbeddedWindow()?.payload.kind, "thread");
+  assert.equal(embedded.getActiveEmbeddedWindow()?.payload.threadId, "thread-1");
+
+  delete globalThis.__TAURI_INTERNALS__;
+  settings.resetPopoutSettingsForTests();
+  embedded.resetEmbeddedWindowsForTests();
 });

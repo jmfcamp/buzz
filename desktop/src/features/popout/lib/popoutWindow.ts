@@ -3,6 +3,12 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import type { PlaygroundCard } from "@/features/playground/lib/types";
 
+import { openEmbeddedWindow } from "./embeddedWindows";
+import {
+  isEmbedInMainEnabled,
+  isStartFullscreenEnabled,
+} from "./popoutSettings";
+
 export const POPOUT_STORAGE_PREFIX = "buzz.popout.v1:";
 export const POPOUT_WINDOW_LABEL_PREFIX = "popout-";
 
@@ -115,6 +121,35 @@ export function isPopoutThreadOnlyLayout(
   return payload.kind === "thread" || payload.kind === "split";
 }
 
+export function popoutPayloadFromInput(input: {
+  kind: PopoutKind;
+  title: string;
+  channelId?: string;
+  threadId?: string;
+  playground?: PlaygroundCard;
+}): PopoutPayload {
+  return {
+    kind: input.kind,
+    title: input.title,
+    ...(input.channelId ? { channelId: input.channelId } : {}),
+    ...(input.threadId ? { threadId: input.threadId } : {}),
+    ...(input.playground ? { playground: input.playground } : {}),
+  };
+}
+
+/** Args sent to the Tauri `open_popout_window` command for a new OS window. */
+export function popoutCreateInvokeArgs(input: {
+  label: string;
+  title: string;
+  fullscreen?: boolean;
+}): { label: string; title: string; fullscreen: boolean } {
+  return {
+    label: input.label,
+    title: input.title,
+    fullscreen: input.fullscreen ?? isStartFullscreenEnabled(),
+  };
+}
+
 export async function openPopoutWindow(input: {
   kind: PopoutKind;
   title: string;
@@ -124,15 +159,17 @@ export async function openPopoutWindow(input: {
   playground?: PlaygroundCard;
 }): Promise<void> {
   const label = popoutLabel(input.kind, input.seed);
-  writePopoutPayload(label, {
-    kind: input.kind,
-    title: input.title,
-    ...(input.channelId ? { channelId: input.channelId } : {}),
-    ...(input.threadId ? { threadId: input.threadId } : {}),
-    ...(input.playground ? { playground: input.playground } : {}),
-  });
+  const payload = popoutPayloadFromInput(input);
+  if (isEmbedInMainEnabled()) {
+    openEmbeddedWindow({ label, payload });
+    return;
+  }
+  writePopoutPayload(label, payload);
   if (!isTauri()) {
     return;
   }
-  await invoke("open_popout_window", { label, title: input.title });
+  await invoke(
+    "open_popout_window",
+    popoutCreateInvokeArgs({ label, title: input.title }),
+  );
 }

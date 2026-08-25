@@ -1,4 +1,4 @@
-import { AppWindow, Columns2, MessageSquare } from "lucide-react";
+import { AppWindow, Columns2, MessageSquare, X } from "lucide-react";
 import { useSyncExternalStore } from "react";
 
 import {
@@ -6,11 +6,23 @@ import {
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarMenu,
+  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/shared/ui/sidebar";
 import { SidebarMenuLabel } from "@/shared/ui/sidebar-menu-label";
 
+import {
+  closeEmbeddedWindow,
+  getEmbeddedWindowsStore,
+  showEmbeddedWindow,
+  subscribeEmbeddedWindows,
+} from "../lib/embeddedWindows";
+import {
+  isEmbedInMainEnabled,
+  subscribePopoutSettings,
+  getPopoutSettings,
+} from "../lib/popoutSettings";
 import {
   focusPopoutWindow,
   getPopoutWindows,
@@ -18,8 +30,7 @@ import {
   subscribePopoutWindows,
 } from "../lib/popoutWindows";
 
-function PopoutRowIcon({ label }: { label: string }) {
-  const kind = popoutKindFromLabel(label);
+function PopoutRowIcon({ kind }: { kind: string | null }) {
   const className = "h-4 w-4";
   if (kind === "split") return <Columns2 className={className} />;
   if (kind === "thread") return <MessageSquare className={className} />;
@@ -27,11 +38,38 @@ function PopoutRowIcon({ label }: { label: string }) {
 }
 
 export function WindowsSection() {
-  const rows = useSyncExternalStore(
+  const settings = useSyncExternalStore(
+    subscribePopoutSettings,
+    getPopoutSettings,
+    getPopoutSettings,
+  );
+  const osRows = useSyncExternalStore(
     subscribePopoutWindows,
     getPopoutWindows,
     getPopoutWindows,
   );
+  const embedded = useSyncExternalStore(
+    subscribeEmbeddedWindows,
+    getEmbeddedWindowsStore,
+    getEmbeddedWindowsStore,
+  );
+
+  if (!settings.showWindowsSection) return null;
+
+  const embedOn = isEmbedInMainEnabled();
+  const rows = embedOn
+    ? embedded.windows.map((row) => ({
+        label: row.label,
+        title: row.title,
+        kind: row.payload.kind,
+        active: embedded.activeLabel === row.label,
+      }))
+    : osRows.map((row) => ({
+        label: row.label,
+        title: row.title,
+        kind: popoutKindFromLabel(row.label),
+        active: false,
+      }));
   if (rows.length === 0) return null;
 
   return (
@@ -46,15 +84,35 @@ export function WindowsSection() {
               <SidebarMenuButton
                 className="data-[active=true]:font-normal"
                 data-testid={`open-window-${row.label}`}
+                isActive={row.active}
                 onClick={() => {
+                  if (embedOn) {
+                    showEmbeddedWindow(row.label);
+                    return;
+                  }
                   void focusPopoutWindow(row.label);
                 }}
                 tooltip={row.title}
                 type="button"
               >
-                <PopoutRowIcon label={row.label} />
+                <PopoutRowIcon kind={row.kind} />
                 <SidebarMenuLabel>{row.title}</SidebarMenuLabel>
               </SidebarMenuButton>
+              {embedOn ? (
+                <SidebarMenuAction
+                  aria-label={`Close ${row.title}`}
+                  data-testid={`close-window-${row.label}`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    closeEmbeddedWindow(row.label);
+                  }}
+                  showOnHover
+                  type="button"
+                >
+                  <X />
+                </SidebarMenuAction>
+              ) : null}
             </SidebarMenuItem>
           ))}
         </SidebarMenu>

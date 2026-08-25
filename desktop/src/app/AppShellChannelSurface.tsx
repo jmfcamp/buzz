@@ -1,4 +1,5 @@
 import type * as React from "react";
+import { useSyncExternalStore } from "react";
 import * as BuzzTheme from "@/app/BuzzThemeSurfaces";
 import { HuddleRoomHeader, HuddleStartingView } from "@/features/huddle";
 import {
@@ -6,6 +7,17 @@ import {
   playgroundFullscreenTitlebarGapClass,
 } from "@/features/playground/lib/overlayLayout";
 import { PlaygroundHost } from "@/features/playground/ui/PlaygroundHost";
+import {
+  getActiveEmbeddedWindow,
+  getEmbeddedWindowsStore,
+  subscribeEmbeddedWindows,
+} from "@/features/popout/lib/embeddedWindows";
+import { PopoutLayoutProvider } from "@/features/popout/lib/popoutLayout";
+import {
+  getPopoutSettings,
+  isEmbedInMainEnabled,
+  subscribePopoutSettings,
+} from "@/features/popout/lib/popoutSettings";
 import { currentPopoutPayload } from "@/features/popout/lib/popoutWindow";
 import { MainInsetProvider } from "@/shared/layout/MainInsetContext";
 import { chromeCssVarDefaults } from "@/shared/layout/chromeLayout";
@@ -30,29 +42,47 @@ export function AppShellChannelSurface({
   terminal,
 }: AppShellChannelSurfaceProps) {
   const { isMobile, openMobile, state: sidebarState } = useSidebar();
-  const popout = currentPopoutPayload();
-  const isPopout = popout != null;
-  const isSplitPopout = popout?.kind === "split";
-  const contentUnframed = isHuddleRoom || isPopout;
+  useSyncExternalStore(
+    subscribePopoutSettings,
+    getPopoutSettings,
+    getPopoutSettings,
+  );
+  useSyncExternalStore(
+    subscribeEmbeddedWindows,
+    getEmbeddedWindowsStore,
+    getEmbeddedWindowsStore,
+  );
+  const osPopout = currentPopoutPayload();
+  const embed =
+    osPopout || !isEmbedInMainEnabled() ? null : getActiveEmbeddedWindow();
+  const payload = osPopout ?? embed?.payload ?? null;
+  const isOsPopout = osPopout != null;
+  const isSplit = payload?.kind === "split";
+  const contentUnframed =
+    isHuddleRoom ||
+    isOsPopout ||
+    (embed != null && embed.payload.kind !== "playground");
   const hasCollapsedSidebarGutter =
     !isHuddleRoom &&
     !hasCommunityRail &&
     (isMobile ? !openMobile : sidebarState === "collapsed");
 
   const panes = (
-    <>
+    <PopoutLayoutProvider payload={isOsPopout ? null : payload}>
       {isHuddleRoom && !isHuddleRoomStarting ? <HuddleRoomHeader /> : null}
-      {isSplitPopout ? <PlaygroundHost /> : null}
+      {isSplit ? <PlaygroundHost /> : null}
       <BuzzTheme.ContentSurface
-        className={isSplitPopout ? "min-w-0" : undefined}
+        className={isSplit ? "min-w-0" : undefined}
         terminal={terminal}
         unframed={contentUnframed}
       >
         {isHuddleRoomStarting ? <HuddleStartingView /> : children}
       </BuzzTheme.ContentSurface>
-      {isSplitPopout ? null : <PlaygroundHost />}
-    </>
+      {isSplit ? null : <PlaygroundHost />}
+    </PopoutLayoutProvider>
   );
+
+  const splitHost = isOsPopout || (embed != null && isSplit);
 
   return (
     <MainInsetProvider mainInsetRef={mainInsetRef}>
@@ -60,7 +90,7 @@ export function AppShellChannelSurface({
         ref={mainInsetRef}
         className={cn(
           "relative isolate z-0 min-h-0 min-w-0 overflow-hidden",
-          isPopout && "flex flex-col",
+          splitHost && "flex flex-col",
           isHuddleRoom ? "bg-background" : "bg-sidebar",
           hasCollapsedSidebarGutter && "pl-2",
         )}
@@ -76,7 +106,7 @@ export function AppShellChannelSurface({
             data-collapsed-content-gutter
           />
         ) : null}
-        {isPopout ? (
+        {isOsPopout ? (
           <>
             <div
               aria-hidden
@@ -88,12 +118,16 @@ export function AppShellChannelSurface({
             <div
               className={cn(
                 "relative flex min-h-0 min-w-0 flex-1",
-                isSplitPopout && "flex-row",
+                isSplit && "flex-row",
               )}
             >
               {panes}
             </div>
           </>
+        ) : embed != null && isSplit ? (
+          <div className="relative flex min-h-0 min-w-0 flex-1 flex-row">
+            {panes}
+          </div>
         ) : (
           panes
         )}

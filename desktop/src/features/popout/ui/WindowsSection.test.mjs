@@ -35,6 +35,14 @@ afterEach(async () => {
     "../lib/popoutWindows.ts"
   );
   resetPopoutWindowsForTests();
+  const { resetPopoutSettingsForTests } = await import(
+    "../lib/popoutSettings.ts"
+  );
+  const { resetEmbeddedWindowsForTests } = await import(
+    "../lib/embeddedWindows.ts"
+  );
+  resetPopoutSettingsForTests();
+  resetEmbeddedWindowsForTests();
   globalThis.localStorage?.clear();
 });
 
@@ -85,6 +93,40 @@ test("Clearing the last pop-out hides the Windows section", async () => {
   assert.ok(screen.getByTestId("windows-section"));
   await act(() => {
     setPopoutWindowsForTests([]);
+  });
+  assert.equal(screen.queryByTestId("windows-section"), null);
+});
+
+
+test("Show Windows off hides the section even when pop-outs exist", async () => {
+  const { setPopoutWindowsForTests } = await import("../lib/popoutWindows.ts");
+  const { setShowWindowsSection } = await import("../lib/popoutSettings.ts");
+  setPopoutWindowsForTests([{ label: "popout-thread-aaa", title: "Thread" }]);
+  setShowWindowsSection(false);
+  const screen = await renderSection();
+  assert.equal(screen.queryByTestId("windows-section"), null);
+});
+
+test("embed mode lists embedded windows and can close them", async () => {
+  const { act } = await import("@testing-library/react");
+  const { setEmbedInMain, setShowWindowsSection } = await import(
+    "../lib/popoutSettings.ts"
+  );
+  const { openEmbeddedWindow, closeEmbeddedWindow } = await import(
+    "../lib/embeddedWindows.ts"
+  );
+  setShowWindowsSection(true);
+  setEmbedInMain(true);
+  openEmbeddedWindow({
+    label: "popout-thread-aaa",
+    payload: { kind: "thread", title: "Design review", threadId: "t1" },
+  });
+  const screen = await renderSection();
+  assert.ok(screen.getByTestId("windows-section"));
+  assert.ok(screen.getByTestId("open-window-popout-thread-aaa"));
+  assert.ok(screen.getByTestId("close-window-popout-thread-aaa"));
+  await act(() => {
+    closeEmbeddedWindow("popout-thread-aaa");
   });
   assert.equal(screen.queryByTestId("windows-section"), null);
 });

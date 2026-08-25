@@ -1,7 +1,7 @@
 import * as React from "react";
 import { ArrowDown } from "lucide-react";
 
-import { isPopoutThreadOnlyLayout } from "@/features/popout/lib/popoutWindow";
+import { usePopoutThreadOnlyLayout } from "@/features/popout/lib/popoutLayout";
 import { ConversationPopoutMenu } from "@/features/popout/ui/ConversationPopoutMenu";
 
 import { useKnownAgentPubkeys } from "@/features/agents/useKnownAgentPubkeys";
@@ -256,7 +256,7 @@ export function MessageThreadPanel({
   >(null);
   const isOverlay = useIsThreadPanelOverlay();
   const threadHeadId = threadHead?.id ?? null;
-  const isPopoutThreadOnly = isPopoutThreadOnlyLayout();
+  const isPopoutThreadOnly = usePopoutThreadOnlyLayout();
   useEscapeKey(
     onClose,
     !isHuddleTranscript &&
