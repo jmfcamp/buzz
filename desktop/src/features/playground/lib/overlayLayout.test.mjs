@@ -19,6 +19,7 @@ import {
   playgroundFullscreenTitlebarGapClass,
   playgroundOverlayPlacementClass,
   playgroundOverlaySurfaceIsOpaque,
+  playgroundChromeLayoutFlags,
   playgroundResizeHandleSitsOutsideHost,
   playgroundStageLayoutKey,
 } from "./overlayLayout.ts";
@@ -163,4 +164,25 @@ test("stage layout key changes when fullscreen or dock toggles", () => {
     playgroundStageLayoutKey(true, 0),
     playgroundStageLayoutKey(true, 1),
   );
+});
+
+test("locked chrome hides dispose/dock/dismiss; split still shows fullscreen", () => {
+  assert.deepEqual(playgroundChromeLayoutFlags(), {
+    hideDispose: false,
+    hideDock: false,
+    hideDismiss: false,
+    showFullscreen: true,
+  });
+  assert.deepEqual(playgroundChromeLayoutFlags("window"), {
+    hideDispose: true,
+    hideDock: true,
+    hideDismiss: true,
+    showFullscreen: false,
+  });
+  assert.deepEqual(playgroundChromeLayoutFlags("dock"), {
+    hideDispose: true,
+    hideDock: true,
+    hideDismiss: true,
+    showFullscreen: true,
+  });
 });

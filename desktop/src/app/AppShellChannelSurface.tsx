@@ -26,7 +26,9 @@ export function AppShellChannelSurface({
   terminal,
 }: AppShellChannelSurfaceProps) {
   const { isMobile, openMobile, state: sidebarState } = useSidebar();
-  const isSplitPopout = currentPopoutPayload()?.kind === "split";
+  const popout = currentPopoutPayload();
+  const isSplitPopout = popout?.kind === "split";
+  const contentUnframed = isHuddleRoom || popout != null;
   const hasCollapsedSidebarGutter =
     !isHuddleRoom &&
     !hasCommunityRail &&
@@ -43,7 +45,7 @@ export function AppShellChannelSurface({
           hasCollapsedSidebarGutter && "pl-2",
         )}
         data-buzz-content-surface={isHuddleRoom ? true : undefined}
-        data-buzz-content-unframed={isHuddleRoom ? true : undefined}
+        data-buzz-content-unframed={contentUnframed ? true : undefined}
         data-buzz-glass-inset
         data-buzz-shadow-viewport
         style={chromeCssVarDefaults as React.CSSProperties}
@@ -59,7 +61,7 @@ export function AppShellChannelSurface({
         <BuzzTheme.ContentSurface
           className={isSplitPopout ? "min-w-0" : undefined}
           terminal={terminal}
-          unframed={isHuddleRoom}
+          unframed={contentUnframed}
         >
           {isHuddleRoomStarting ? <HuddleStartingView /> : children}
         </BuzzTheme.ContentSurface>

@@ -331,6 +331,14 @@ function NativeStageHost({
     // moves that keep the same size (fullscreen toggle, inspect restore).
     void layoutKey;
 
+    // Chrome is shrink-0 above the stage. Observe it so WKWebView bounds
+    // follow both chrome rows, not just host size (ResizeObserver ignores
+    // a host that only *moves* when the mode row appears). Look it up
+    // before the first sync so the native rect never covers the mode row.
+    const chrome = host
+      .closest('[data-testid="playground-overlay"]')
+      ?.querySelector('[data-testid="playground-chrome"]');
+
     const sync = () => {
       if (cancelled || !hostRef.current) return;
       const bounds = readPlaygroundStageBounds(
@@ -338,6 +346,7 @@ function NativeStageHost({
         viewportWidth != null && viewportHeight != null
           ? { width: viewportWidth, height: viewportHeight }
           : undefined,
+        chrome,
       );
       if (!playgroundWebviewBoundsAreUsable(bounds)) return;
       if (!opened) {
@@ -358,12 +367,6 @@ function NativeStageHost({
     sync();
     const observer = new ResizeObserver(sync);
     observer.observe(host);
-    // Chrome is shrink-0 above the stage. Observe it so WKWebView bounds
-    // follow both chrome rows, not just host size (ResizeObserver ignores
-    // a host that only *moves* when the mode row appears).
-    const chrome = host
-      .closest('[data-testid="playground-overlay"]')
-      ?.querySelector('[data-testid="playground-chrome"]');
     if (chrome) {
       observer.observe(chrome);
     }

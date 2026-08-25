@@ -141,3 +141,34 @@ export function playgroundStageLayoutKey(
 ): string {
   return `${playgroundOverlayPlacement(fullscreen, docked)}:${epoch}`;
 }
+
+export type PlaygroundChromeLayoutFlags = {
+  hideDispose: boolean;
+  hideDock: boolean;
+  hideDismiss: boolean;
+  showFullscreen: boolean;
+};
+
+/**
+ * Pop-outs lock split/window placement: hide dispose, dock, and dismiss.
+ * Split pop-outs still expose fullscreen so the playground can cover both
+ * panes; playground-only pop-outs are already the full window.
+ */
+export function playgroundChromeLayoutFlags(
+  lockPlacement?: "window" | "dock",
+): PlaygroundChromeLayoutFlags {
+  if (lockPlacement == null) {
+    return {
+      hideDispose: false,
+      hideDock: false,
+      hideDismiss: false,
+      showFullscreen: true,
+    };
+  }
+  return {
+    hideDispose: true,
+    hideDock: true,
+    hideDismiss: true,
+    showFullscreen: lockPlacement === "dock",
+  };
+}

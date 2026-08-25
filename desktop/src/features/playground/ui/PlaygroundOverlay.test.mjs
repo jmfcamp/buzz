@@ -810,6 +810,7 @@ test("locked window chrome keeps the mode row and hides layout controls", async 
   assert.ok(screen.getByTestId("playground-mode-mobile"));
   assert.match(chrome.className, /shrink-0/);
   assert.match(chrome.className, /flex-col/);
+  assert.match(modeRow.className, /shrink-0/);
   assert.doesNotMatch(chrome.className, /overflow-hidden/);
   assert.equal(screen.queryByTestId("playground-dispose"), null);
   assert.equal(screen.queryByTestId("playground-fullscreen"), null);
@@ -877,8 +878,9 @@ test("locked dock is an in-flow split pane and does not snap to a thread", async
     assert.match(overlay.className, new RegExp(`\\b${token}\\b`));
   }
   assert.ok(screen.getByTestId("playground-mode-row"));
+  assert.match(screen.getByTestId("playground-mode-row").className, /shrink-0/);
   assert.equal(screen.queryByTestId("playground-dispose"), null);
-  assert.equal(screen.queryByTestId("playground-fullscreen"), null);
+  assert.ok(screen.getByTestId("playground-fullscreen"));
   assert.equal(screen.queryByTestId("playground-dock"), null);
   assert.equal(screen.queryByTestId("playground-dismiss"), null);
 
@@ -895,4 +897,94 @@ test("locked dock is an in-flow split pane and does not snap to a thread", async
   });
   await fireEvent.pointerUp(window);
   assert.equal(overlay.style.width, `${before + 80}px`);
+});
+
+test("locked dock fullscreen covers both panes and restores the split", async () => {
+  const { createElement } = await import("react");
+  const { render, screen, fireEvent } = await import("@testing-library/react");
+  const { PlaygroundOverlay } = await import("./PlaygroundOverlay.tsx");
+  const { addPlaygroundSession, configurePlaygroundScope } = await import(
+    "../lib/sessions.ts"
+  );
+  const { playgroundOverlaySearchState } = await import("../lib/dock.ts");
+  const { PLAYGROUND_CHANNEL_THREAD_PANEL_TEST_ID } = await import(
+    "../lib/dock.ts"
+  );
+  const { PLAYGROUND_FULLSCREEN_TITLEBAR_GAP_TEST_ID } = await import(
+    "../lib/overlayLayout.ts"
+  );
+
+  configurePlaygroundScope("pub", "wss://relay.example.com");
+  const session = addPlaygroundSession({
+    hula: "playground",
+    v: 1,
+    name: "Demo",
+    url: "https://app.example.com",
+    sid: "demo-lock-dock-fs",
+  });
+  render(
+    createElement(
+      "div",
+      { "data-testid": "playground-main-standin", className: "flex flex-row" },
+      createElement(PlaygroundOverlay, {
+        conversation: { channelId: "hula-id", draftKey: "thread:root-1" },
+        lockPlacement: "dock",
+        session,
+      }),
+      createElement(
+        "div",
+        {
+          "data-testid": PLAYGROUND_CHANNEL_THREAD_PANEL_TEST_ID,
+          className: "min-w-0 flex-1",
+        },
+        "thread",
+      ),
+    ),
+  );
+
+  const overlay = screen.getByTestId("playground-overlay");
+  stubMainWidth(overlay, 1000);
+  assert.equal(overlay.getAttribute("data-docked"), "true");
+  assert.equal(screen.queryByTestId("playground-dispose"), null);
+  assert.equal(screen.queryByTestId("playground-dock"), null);
+  assert.equal(screen.queryByTestId("playground-dismiss"), null);
+
+  await fireEvent.click(screen.getByTestId("playground-fullscreen"));
+  const fullscreenOverlay = screen.getByTestId("playground-overlay");
+  assert.equal(fullscreenOverlay.getAttribute("data-fullscreen"), "true");
+  assert.equal(fullscreenOverlay.getAttribute("data-docked"), "true");
+  assert.equal(
+    playgroundOverlaySearchState(fullscreenOverlay).placement,
+    "fullscreen",
+  );
+  assert.match(fullscreenOverlay.className, /fixed/);
+  assert.match(fullscreenOverlay.className, /inset-0/);
+  assert.equal(fullscreenOverlay.parentElement === document.body, true);
+  assert.ok(screen.getByTestId(PLAYGROUND_FULLSCREEN_TITLEBAR_GAP_TEST_ID));
+  assert.equal(screen.queryByTestId("playground-dock"), null);
+  assert.equal(screen.queryByTestId("playground-dispose"), null);
+  assert.equal(screen.queryByTestId("playground-dismiss"), null);
+
+  await fireEvent.keyDown(window, { key: "Escape" });
+  const dockedOverlay = screen.getByTestId("playground-overlay");
+  assert.equal(dockedOverlay.getAttribute("data-fullscreen"), null);
+  assert.equal(dockedOverlay.getAttribute("data-docked"), "true");
+  assert.equal(playgroundOverlaySearchState(dockedOverlay).placement, "dock");
+  assert.match(dockedOverlay.className, /relative/);
+  assert.doesNotMatch(dockedOverlay.className, /\babsolute\b/);
+  assert.equal(dockedOverlay.parentElement === document.body, false);
+  assert.equal(
+    screen.queryByTestId(PLAYGROUND_FULLSCREEN_TITLEBAR_GAP_TEST_ID),
+    null,
+  );
+  assert.ok(screen.getByTestId("playground-fullscreen"));
+  assert.equal(screen.queryByTestId("playground-dock"), null);
+  assert.equal(screen.queryByTestId("playground-dismiss"), null);
+  assert.equal(screen.queryByTestId("playground-dispose"), null);
+  assert.match(
+    screen
+      .getByTestId("playground-webview-host")
+      .getAttribute("data-layout-key") ?? "",
+    /^dock:/,
+  );
 });

@@ -19,6 +19,7 @@ import {
   PLAYGROUND_FULLSCREEN_TITLEBAR_GAP_TEST_ID,
   PLAYGROUND_OPAQUE_FILL_STYLE,
   PLAYGROUND_OVERLAY_SURFACE_CLASS,
+  playgroundChromeLayoutFlags,
   playgroundFullscreenTitlebarGapClass,
   playgroundOverlayPlacementClass,
   playgroundStageLayoutKey,
@@ -97,6 +98,7 @@ export function PlaygroundOverlay({
 
   const placement = playgroundOverlayPlacement(fullscreen, docked);
   const dockVisible = placement === "dock";
+  const chromeLayout = playgroundChromeLayoutFlags(lockPlacement);
 
   // Exiting fullscreen restores dock when they entered from dock
   // (`docked` stays true). Escape / the fullscreen control do not expand.
@@ -130,13 +132,16 @@ export function PlaygroundOverlay({
         conversation={conversation}
         docked={docked}
         fullscreen={fullscreen}
-        lockLayout={lockPlacement != null}
+        hideDismiss={chromeLayout.hideDismiss}
+        hideDispose={chromeLayout.hideDispose}
+        hideDock={chromeLayout.hideDock}
         mode={mode}
         onModeChange={setMode}
         onStageResync={bumpStageLayout}
         onToggleDock={toggleDock}
         onToggleFullscreen={() => setOverlayFullscreen(!fullscreen)}
         session={session}
+        showFullscreen={chromeLayout.showFullscreen}
       />
       <PlaygroundStage
         layoutKey={playgroundStageLayoutKey(fullscreen, layoutEpoch, docked)}

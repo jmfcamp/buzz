@@ -197,3 +197,25 @@ test("desktop and responsive stages stay unbezeled rectangles", async () => {
   assert.equal(responsive.queryByTestId("playground-device-frame"), null);
   assert.ok(responsive.getByTestId("playground-stage-resize"));
 });
+
+test("clamp native bounds below playground chrome", async () => {
+  const { readPlaygroundStageBounds } = await import("../lib/deviceBezel.ts");
+  const host = {
+    getBoundingClientRect: () => ({
+      x: 8,
+      y: 48,
+      width: 640,
+      height: 400,
+      bottom: 448,
+    }),
+  };
+  const chrome = {
+    getBoundingClientRect: () => ({ bottom: 80 }),
+  };
+  assert.deepEqual(readPlaygroundStageBounds(host, undefined, chrome), {
+    x: 8,
+    y: 80,
+    width: 640,
+    height: 368,
+  });
+});
