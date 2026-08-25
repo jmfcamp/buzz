@@ -10,6 +10,7 @@ export type PopoutKind = "thread" | "playground" | "split";
 
 export type PopoutPayload = {
   kind: PopoutKind;
+  title?: string;
   channelId?: string;
   threadId?: string;
   playground?: PlaygroundCard;
@@ -125,6 +126,7 @@ export async function openPopoutWindow(input: {
   const label = popoutLabel(input.kind, input.seed);
   writePopoutPayload(label, {
     kind: input.kind,
+    title: input.title,
     ...(input.channelId ? { channelId: input.channelId } : {}),
     ...(input.threadId ? { threadId: input.threadId } : {}),
     ...(input.playground ? { playground: input.playground } : {}),

@@ -9,6 +9,7 @@ import {
 
 import type { AppView } from "@/app/AppShell.helpers";
 import { PlaygroundSection } from "@/features/playground/ui/PlaygroundSection";
+import { WindowsSection } from "@/features/popout/ui/WindowsSection";
 import {
   dismissPlayground,
   parkPlaygroundThen,
@@ -218,6 +219,7 @@ export function AppSidebarPrimaryMenu({
         ))}
       </SidebarMenu>
       <PlaygroundSection />
+      <WindowsSection />
     </SidebarHeader>
   );
 }

@@ -1,0 +1,88 @@
+import assert from "node:assert/strict";
+import { afterEach, test } from "node:test";
+
+import { installLocalStorage } from "../../playground/lib/testStorage.mjs";
+
+import {
+  filterPopoutWindows,
+  popoutKindFromLabel,
+  resolvePopoutTitle,
+  resetPopoutWindowsForTests,
+} from "./popoutWindows.ts";
+import { popoutStorageKey, writePopoutPayload } from "./popoutWindow.ts";
+
+afterEach(() => {
+  resetPopoutWindowsForTests();
+  if (typeof globalThis.localStorage?.clear === "function") {
+    globalThis.localStorage.clear();
+  }
+});
+
+test("filterPopoutWindows keeps only labels starting with popout-", () => {
+  const filtered = filterPopoutWindows([
+    { label: "main", title: "Buzz" },
+    { label: "popout-thread-aaa", title: "Thread" },
+    { label: "huddle-xyz", title: "Huddle" },
+    { label: "popout-playground-bbb", title: "Demo" },
+    { label: "popout-split-ccc", title: "Split Demo" },
+  ]);
+  assert.deepEqual(
+    filtered.map((row) => row.label),
+    ["popout-thread-aaa", "popout-playground-bbb", "popout-split-ccc"],
+  );
+});
+
+test("filterPopoutWindows drops an empty list to empty", () => {
+  assert.deepEqual(filterPopoutWindows([]), []);
+});
+
+test("popoutKindFromLabel reads kind from the label prefix", () => {
+  assert.equal(popoutKindFromLabel("popout-thread-aaa"), "thread");
+  assert.equal(popoutKindFromLabel("popout-playground-bbb"), "playground");
+  assert.equal(popoutKindFromLabel("popout-split-ccc"), "split");
+  assert.equal(popoutKindFromLabel("main"), null);
+});
+
+test("resolvePopoutTitle prefers native title, then payload, then kind", () => {
+  assert.equal(
+    resolvePopoutTitle({ label: "popout-thread-aaa", title: "  Hello  " }),
+    "Hello",
+  );
+  assert.equal(
+    resolvePopoutTitle({ label: "popout-thread-aaa", title: "  " }),
+    "Thread",
+  );
+  assert.equal(
+    resolvePopoutTitle({ label: "popout-split-bbb", title: "" }),
+    "Split",
+  );
+  assert.equal(
+    resolvePopoutTitle({ label: "popout-playground-ccc", title: "" }),
+    "Playground",
+  );
+});
+
+test("resolvePopoutTitle falls back to payload title when native is empty", () => {
+  installLocalStorage();
+  writePopoutPayload("popout-thread-aaa", {
+    kind: "thread",
+    title: "Design review",
+  });
+  assert.equal(
+    resolvePopoutTitle({ label: "popout-thread-aaa", title: "" }),
+    "Design review",
+  );
+});
+
+test("writePopoutPayload stores the window title for list fallback", () => {
+  installLocalStorage();
+  writePopoutPayload("popout-playground-xyz", {
+    kind: "playground",
+    title: "Demo",
+  });
+  const raw = globalThis.localStorage.getItem(
+    popoutStorageKey("popout-playground-xyz"),
+  );
+  assert.ok(raw);
+  assert.equal(JSON.parse(raw).title, "Demo");
+});
