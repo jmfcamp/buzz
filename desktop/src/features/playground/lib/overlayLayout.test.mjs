@@ -8,6 +8,7 @@ import {
   PLAYGROUND_OPAQUE_FILL_STYLE,
   PLAYGROUND_OVERLAY_SURFACE_CLASS,
   PLAYGROUND_DOCKED_OVERLAY_CLASS,
+  PLAYGROUND_SPLIT_PANE_OVERLAY_CLASS,
   PLAYGROUND_DOCK_RESIZE_HANDLE_CLASS,
   PLAYGROUND_RESIZE_HANDLE_CLASS,
   PLAYGROUND_RESIZE_HANDLE_GUTTER_CLASS,
@@ -54,6 +55,14 @@ test("overlay surface is fully opaque", () => {
     PLAYGROUND_DOCKED_OVERLAY_CLASS,
   );
   assert.equal(
+    playgroundOverlayPlacementClass("dock", true),
+    PLAYGROUND_SPLIT_PANE_OVERLAY_CLASS,
+  );
+  assert.doesNotMatch(PLAYGROUND_SPLIT_PANE_OVERLAY_CLASS, /absolute/);
+  assert.match(PLAYGROUND_SPLIT_PANE_OVERLAY_CLASS, /relative/);
+  assert.match(PLAYGROUND_SPLIT_PANE_OVERLAY_CLASS, /shrink-0/);
+  assert.match(PLAYGROUND_SPLIT_PANE_OVERLAY_CLASS, /pr-2/);
+  assert.equal(
     playgroundOverlayPlacementClass("window"),
     PLAYGROUND_WINDOWED_OVERLAY_CLASS,
   );
@@ -62,6 +71,10 @@ test("overlay surface is fully opaque", () => {
     true,
   );
   assert.equal(playgroundOverlaySurfaceIsOpaque(PLAYGROUND_CHROME_CLASS), true);
+  assert.match(PLAYGROUND_CHROME_CLASS, /flex-col/);
+  assert.match(PLAYGROUND_CHROME_CLASS, /shrink-0/);
+  assert.match(PLAYGROUND_CHROME_CLASS, /overflow-visible/);
+  assert.doesNotMatch(PLAYGROUND_CHROME_CLASS, /overflow-hidden/);
   assert.doesNotMatch(PLAYGROUND_CHROME_CLASS, /backdrop-blur|\/\d+/);
   assert.equal(
     playgroundOverlaySurfaceIsOpaque("absolute inset-0 z-30 bg-background/95"),

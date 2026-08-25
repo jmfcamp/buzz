@@ -52,6 +52,9 @@ export function PlaygroundOverlay({
   }, []);
 
   const getThreadEdge = React.useCallback(() => {
+    // Split pop-outs are real panes. The thread is the other flex child,
+    // not a channel column to overlay up to.
+    if (lockPlacement === "dock") return null;
     if (!playgroundConversationHasOpenThread(conversation)) return null;
     const main = overlayRef.current?.parentElement;
     if (!main) return null;
@@ -59,7 +62,7 @@ export function PlaygroundOverlay({
       `[data-testid="${PLAYGROUND_CHANNEL_THREAD_PANEL_TEST_ID}"]`,
     );
     return readPlaygroundDockThreadEdge(main, thread);
-  }, [conversation]);
+  }, [conversation, lockPlacement]);
 
   const { onResetWidth, onResizeStart, prepareDockWidth, widthPx } =
     usePlaygroundDockWidth(getMainWidth, getThreadEdge);
@@ -103,7 +106,7 @@ export function PlaygroundOverlay({
         "flex min-h-0 min-w-0 flex-col isolate",
         placement !== "dock" && "overflow-hidden",
         PLAYGROUND_OVERLAY_SURFACE_CLASS,
-        playgroundOverlayPlacementClass(placement),
+        playgroundOverlayPlacementClass(placement, lockPlacement === "dock"),
       )}
       data-docked={docked ? "true" : undefined}
       data-fullscreen={fullscreen ? "true" : undefined}

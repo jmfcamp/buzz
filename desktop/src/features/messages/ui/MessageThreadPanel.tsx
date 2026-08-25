@@ -993,7 +993,7 @@ export function MessageThreadPanel({
         enterMotion={!isFocusMode}
         footer={threadFooter}
         header={
-          isHuddleTranscript ? undefined : (
+          isHuddleTranscript || isPopoutThreadOnly ? undefined : (
             <AuxiliaryPanelHeader>{threadHeaderContent}</AuxiliaryPanelHeader>
           )
         }

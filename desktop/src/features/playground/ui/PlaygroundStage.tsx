@@ -358,6 +358,15 @@ function NativeStageHost({
     sync();
     const observer = new ResizeObserver(sync);
     observer.observe(host);
+    // Chrome is shrink-0 above the stage. Observe it so WKWebView bounds
+    // follow both chrome rows, not just host size (ResizeObserver ignores
+    // a host that only *moves* when the mode row appears).
+    const chrome = host
+      .closest('[data-testid="playground-overlay"]')
+      ?.querySelector('[data-testid="playground-chrome"]');
+    if (chrome) {
+      observer.observe(chrome);
+    }
     window.addEventListener("resize", sync);
     const visualViewport = window.visualViewport;
     visualViewport?.addEventListener("resize", sync);
@@ -390,7 +399,7 @@ function NativeStageHost({
 
   return (
     <div
-      className={cn("h-full min-h-[12rem] w-full bg-background")}
+      className={cn("h-full min-h-0 w-full bg-background")}
       data-layout-key={layoutKey}
       data-testid="playground-webview-host"
       data-user-agent={userAgent}

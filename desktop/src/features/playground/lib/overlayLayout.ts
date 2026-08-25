@@ -32,6 +32,13 @@ export const PLAYGROUND_DOCKED_OVERLAY_CLASS =
   "absolute inset-y-0 left-0 z-30 overflow-visible border-r border-border pr-2";
 
 /**
+ * In-flow left pane for split pop-outs. Never `absolute` — the thread is
+ * the other flex child and must reflow, not sit underneath.
+ */
+export const PLAYGROUND_SPLIT_PANE_OVERLAY_CLASS =
+  "relative z-30 flex h-full min-h-0 shrink-0 flex-col overflow-visible border-r border-border pr-2";
+
+/**
  * Shared 8px thickness for playground edge handles. Native WKWebView eats
  * clicks, so the hit target must be a real gutter *outside* the host — a
  * 1px border under the webview can hover (CSS) and still miss pointerdown.
@@ -55,7 +62,7 @@ export const PLAYGROUND_DOCK_RESIZE_HANDLE_TEST_ID = "playground-dock-resize";
  */
 export const playgroundFullscreenTitlebarGapClass = `${topChromeBackdrop.height} ${PLAYGROUND_OVERLAY_SURFACE_CLASS}`;
 
-export const PLAYGROUND_CHROME_CLASS = `relative z-20 flex shrink-0 flex-col gap-1 border-b border-border pointer-events-auto px-2 py-1 ${PLAYGROUND_OVERLAY_SURFACE_CLASS}`;
+export const PLAYGROUND_CHROME_CLASS = `relative z-20 flex shrink-0 flex-col gap-1 overflow-visible border-b border-border pointer-events-auto px-2 py-1 ${PLAYGROUND_OVERLAY_SURFACE_CLASS}`;
 
 /**
  * Force alpha 1 so macOS titlebar vibrancy cannot blend through `--background`
@@ -113,12 +120,15 @@ export function playgroundResizeHandleSitsOutsideHost(
 
 export function playgroundOverlayPlacementClass(
   placement: PlaygroundOverlayPlacement,
+  inFlowSplit = false,
 ): string {
   switch (placement) {
     case "fullscreen":
       return PLAYGROUND_FULLSCREEN_OVERLAY_CLASS;
     case "dock":
-      return PLAYGROUND_DOCKED_OVERLAY_CLASS;
+      return inFlowSplit
+        ? PLAYGROUND_SPLIT_PANE_OVERLAY_CLASS
+        : PLAYGROUND_DOCKED_OVERLAY_CLASS;
     default:
       return PLAYGROUND_WINDOWED_OVERLAY_CLASS;
   }

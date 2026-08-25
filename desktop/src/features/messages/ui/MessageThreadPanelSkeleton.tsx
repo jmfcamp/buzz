@@ -1,4 +1,5 @@
 import type { ThreadPanelLayoutProps } from "@/features/channels/lib/threadPanelLayout";
+import { isPopoutThreadOnlyLayout } from "@/features/popout/lib/popoutWindow";
 import {
   THREAD_PANEL_COLUMN_CLASS,
   THREAD_PANEL_COMPOSER_GUTTER_CLASS,
@@ -106,7 +107,11 @@ export function MessageThreadPanelSkeleton({
 }: MessageThreadPanelSkeletonProps) {
   const isOverlay = useIsThreadPanelOverlay();
   const hasConstrainedColumn = columnMaxWidthPx != null;
-  useEscapeKey(onClose, isOverlay || isSinglePanelView || isFocusMode);
+  const isPopoutThreadOnly = isPopoutThreadOnlyLayout();
+  useEscapeKey(
+    onClose,
+    !isPopoutThreadOnly && (isOverlay || isSinglePanelView || isFocusMode),
+  );
 
   const threadHeaderContent = (
     <AuxiliaryPanelHeaderGroup
@@ -161,7 +166,9 @@ export function MessageThreadPanelSkeleton({
       enterMotion={!isFocusMode}
       footer={<ThreadComposerSkeleton columnMaxWidthPx={columnMaxWidthPx} />}
       header={
-        <AuxiliaryPanelHeader>{threadHeaderContent}</AuxiliaryPanelHeader>
+        isPopoutThreadOnly ? undefined : (
+          <AuxiliaryPanelHeader>{threadHeaderContent}</AuxiliaryPanelHeader>
+        )
       }
       isSinglePanelView={isSinglePanelView}
       layout={layout}

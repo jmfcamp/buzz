@@ -779,3 +779,120 @@ test("dock button without a thread keeps the half-inset default", async () => {
   await fireEvent.click(screen.getByTestId("playground-dock"));
   assert.equal(overlay.style.width, "500px");
 });
+
+test("locked window chrome keeps the mode row and hides layout controls", async () => {
+  const { createElement } = await import("react");
+  const { render, screen } = await import("@testing-library/react");
+  const { PlaygroundOverlay } = await import("./PlaygroundOverlay.tsx");
+  const { addPlaygroundSession, configurePlaygroundScope } = await import(
+    "../lib/sessions.ts"
+  );
+
+  configurePlaygroundScope("pub", "wss://relay.example.com");
+  const session = addPlaygroundSession({
+    hula: "playground",
+    v: 1,
+    name: "Demo",
+    url: "https://app.example.com",
+    sid: "demo-lock-window",
+  });
+  render(
+    createElement(PlaygroundOverlay, { lockPlacement: "window", session }),
+  );
+
+  const overlay = screen.getByTestId("playground-overlay");
+  const chrome = screen.getByTestId("playground-chrome");
+  const modeRow = screen.getByTestId("playground-mode-row");
+  assert.match(overlay.className, /inset-0/);
+  assert.ok(chrome.contains(modeRow));
+  assert.ok(screen.getByTestId("playground-mode-desktop"));
+  assert.ok(screen.getByTestId("playground-mode-responsive"));
+  assert.ok(screen.getByTestId("playground-mode-mobile"));
+  assert.match(chrome.className, /shrink-0/);
+  assert.match(chrome.className, /flex-col/);
+  assert.doesNotMatch(chrome.className, /overflow-hidden/);
+  assert.equal(screen.queryByTestId("playground-dispose"), null);
+  assert.equal(screen.queryByTestId("playground-fullscreen"), null);
+  assert.equal(screen.queryByTestId("playground-dock"), null);
+  assert.equal(screen.queryByTestId("playground-dismiss"), null);
+  const host = screen.getByTestId("playground-webview-host");
+  assert.ok(chrome.compareDocumentPosition(host) & 4);
+});
+
+test("locked dock is an in-flow split pane and does not snap to a thread", async () => {
+  const { createElement } = await import("react");
+  const { render, screen, fireEvent } = await import("@testing-library/react");
+  const { PlaygroundOverlay } = await import("./PlaygroundOverlay.tsx");
+  const { addPlaygroundSession, configurePlaygroundScope } = await import(
+    "../lib/sessions.ts"
+  );
+  const { PLAYGROUND_CHANNEL_THREAD_PANEL_TEST_ID } = await import(
+    "../lib/dock.ts"
+  );
+  const {
+    PLAYGROUND_DOCK_RESIZE_HANDLE_TEST_ID,
+    PLAYGROUND_SPLIT_PANE_OVERLAY_CLASS,
+  } = await import("../lib/overlayLayout.ts");
+
+  configurePlaygroundScope("pub", "wss://relay.example.com");
+  const session = addPlaygroundSession({
+    hula: "playground",
+    v: 1,
+    name: "Demo",
+    url: "https://app.example.com",
+    sid: "demo-lock-dock",
+  });
+  render(
+    createElement(
+      "div",
+      { "data-testid": "playground-main-standin", className: "flex flex-row" },
+      createElement(PlaygroundOverlay, {
+        conversation: { channelId: "hula-id", draftKey: "thread:root-1" },
+        lockPlacement: "dock",
+        session,
+      }),
+      createElement(
+        "div",
+        {
+          "data-testid": PLAYGROUND_CHANNEL_THREAD_PANEL_TEST_ID,
+          className: "min-w-0 flex-1",
+        },
+        "thread",
+      ),
+    ),
+  );
+
+  const overlay = screen.getByTestId("playground-overlay");
+  stubMainWidth(overlay, 1000);
+  stubThreadPanel(screen.getByTestId(PLAYGROUND_CHANNEL_THREAD_PANEL_TEST_ID), {
+    mainWidth: 1000,
+    threadWidth: 380,
+  });
+
+  assert.equal(overlay.getAttribute("data-docked"), "true");
+  assert.match(overlay.className, /relative/);
+  assert.doesNotMatch(overlay.className, /\babsolute\b/);
+  assert.doesNotMatch(overlay.className, /inset-y-0/);
+  for (const token of PLAYGROUND_SPLIT_PANE_OVERLAY_CLASS.split(/\s+/)) {
+    assert.match(overlay.className, new RegExp(`\\b${token}\\b`));
+  }
+  assert.ok(screen.getByTestId("playground-mode-row"));
+  assert.equal(screen.queryByTestId("playground-dispose"), null);
+  assert.equal(screen.queryByTestId("playground-fullscreen"), null);
+  assert.equal(screen.queryByTestId("playground-dock"), null);
+  assert.equal(screen.queryByTestId("playground-dismiss"), null);
+
+  const handle = screen.getByTestId(PLAYGROUND_DOCK_RESIZE_HANDLE_TEST_ID);
+  assert.ok(overlay.contains(handle));
+  const before = Number.parseFloat(overlay.style.width);
+  assert.ok(before > 0);
+  assert.notEqual(overlay.style.width, "620px");
+
+  await fireEvent.pointerDown(handle, { clientX: 256 + before, clientY: 200 });
+  await fireEvent.pointerMove(window, {
+    clientX: 256 + before + 80,
+    clientY: 200,
+  });
+  await fireEvent.pointerUp(window);
+  assert.equal(overlay.style.width, `${before + 80}px`);
+});
