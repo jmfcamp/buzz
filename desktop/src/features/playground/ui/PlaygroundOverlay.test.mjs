@@ -806,10 +806,11 @@ test("locked window chrome keeps the mode row and hides layout controls", async 
   const overlay = screen.getByTestId("playground-overlay");
   const chrome = screen.getByTestId("playground-chrome");
   const modeRow = screen.getByTestId("playground-mode-row");
-  const gap = screen.getByTestId(PLAYGROUND_FULLSCREEN_TITLEBAR_GAP_TEST_ID);
   assert.match(overlay.className, /inset-0/);
-  assert.ok(overlay.contains(gap));
-  assert.ok(gap.compareDocumentPosition(chrome) & 4);
+  assert.equal(
+    screen.queryByTestId(PLAYGROUND_FULLSCREEN_TITLEBAR_GAP_TEST_ID),
+    null,
+  );
   assert.ok(chrome.contains(modeRow));
   assert.ok(screen.getByTestId("playground-mode-desktop"));
   assert.ok(screen.getByTestId("playground-mode-responsive"));
@@ -878,11 +879,10 @@ test("locked dock is an in-flow split pane and does not snap to a thread", async
     threadWidth: 380,
   });
 
-  const gap = screen.getByTestId(PLAYGROUND_FULLSCREEN_TITLEBAR_GAP_TEST_ID);
   assert.equal(overlay.getAttribute("data-docked"), "true");
-  assert.ok(overlay.contains(gap));
-  assert.ok(
-    gap.compareDocumentPosition(screen.getByTestId("playground-chrome")) & 4,
+  assert.equal(
+    screen.queryByTestId(PLAYGROUND_FULLSCREEN_TITLEBAR_GAP_TEST_ID),
+    null,
   );
   assert.match(overlay.className, /relative/);
   assert.doesNotMatch(overlay.className, /\babsolute\b/);
@@ -987,7 +987,10 @@ test("locked dock fullscreen covers both panes and restores the split", async ()
   assert.match(dockedOverlay.className, /relative/);
   assert.doesNotMatch(dockedOverlay.className, /\babsolute\b/);
   assert.equal(dockedOverlay.parentElement === document.body, false);
-  assert.ok(screen.getByTestId(PLAYGROUND_FULLSCREEN_TITLEBAR_GAP_TEST_ID));
+  assert.equal(
+    screen.queryByTestId(PLAYGROUND_FULLSCREEN_TITLEBAR_GAP_TEST_ID),
+    null,
+  );
   assert.ok(screen.getByTestId("playground-fullscreen"));
   assert.equal(screen.queryByTestId("playground-dock"), null);
   assert.equal(screen.queryByTestId("playground-dismiss"), null);

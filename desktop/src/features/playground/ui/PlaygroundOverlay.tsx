@@ -120,7 +120,7 @@ export function PlaygroundOverlay({
         ...(dockVisible ? { width: widthPx } : undefined),
       }}
     >
-      {playgroundShowsTitlebarGap(fullscreen, lockPlacement) ? (
+      {playgroundShowsTitlebarGap(fullscreen) ? (
         <div
           aria-hidden
           className={cn("shrink-0", playgroundFullscreenTitlebarGapClass)}

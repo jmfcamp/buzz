@@ -25,12 +25,12 @@ import {
   playgroundStageLayoutKey,
 } from "./overlayLayout.ts";
 
-test("titlebar gap shows for fullscreen and locked pop-outs", () => {
+test("titlebar gap shows only for fullscreen, not locked pop-outs", () => {
   assert.equal(playgroundShowsTitlebarGap(false), false);
   assert.equal(playgroundShowsTitlebarGap(false, null), false);
   assert.equal(playgroundShowsTitlebarGap(true), true);
-  assert.equal(playgroundShowsTitlebarGap(false, "window"), true);
-  assert.equal(playgroundShowsTitlebarGap(false, "dock"), true);
+  assert.equal(playgroundShowsTitlebarGap(false, "window"), false);
+  assert.equal(playgroundShowsTitlebarGap(false, "dock"), false);
   assert.equal(playgroundShowsTitlebarGap(true, "dock"), true);
 });
 
