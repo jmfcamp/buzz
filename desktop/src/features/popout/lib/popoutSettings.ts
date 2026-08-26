@@ -23,6 +23,13 @@ let showWindowsSection = readBool(SHOW_WINDOWS_SECTION_KEY, true);
 let startFullscreen = readBool(START_FULLSCREEN_KEY, false);
 let embedInMain = readBool(EMBED_IN_MAIN_KEY, false);
 
+// Fullscreen (OS windows) and embed (in-app) cannot both be on. If both were
+// stored true, drop embed so leftover OS windows keep their fullscreen pref.
+if (startFullscreen && embedInMain) {
+  embedInMain = false;
+  writeBool(EMBED_IN_MAIN_KEY, false);
+}
+
 export type PopoutSettings = {
   showWindowsSection: boolean;
   startFullscreen: boolean;
@@ -81,12 +88,20 @@ export function setShowWindowsSection(enabled: boolean): void {
 export function setStartFullscreen(enabled: boolean): void {
   startFullscreen = enabled;
   writeBool(START_FULLSCREEN_KEY, enabled);
+  if (enabled && embedInMain) {
+    embedInMain = false;
+    writeBool(EMBED_IN_MAIN_KEY, false);
+  }
   emit();
 }
 
 export function setEmbedInMain(enabled: boolean): void {
   embedInMain = enabled && showWindowsSection;
   writeBool(EMBED_IN_MAIN_KEY, embedInMain);
+  if (embedInMain && startFullscreen) {
+    startFullscreen = false;
+    writeBool(START_FULLSCREEN_KEY, false);
+  }
   emit();
 }
 

@@ -16,6 +16,8 @@ afterEach(() => {
   if (typeof globalThis.localStorage?.clear === "function") {
     globalThis.localStorage.clear();
   }
+  delete globalThis.__TAURI_INTERNALS__;
+  delete globalThis.isTauri;
 });
 
 test("filterPopoutWindows keeps only labels starting with popout-", () => {
@@ -85,4 +87,25 @@ test("writePopoutPayload stores the window title for list fallback", () => {
   );
   assert.ok(raw);
   assert.equal(JSON.parse(raw).title, "Demo");
+});
+
+test("focusPopoutWindow invokes the native focus command", async () => {
+  const invokes = [];
+  const internals = {
+    invoke(cmd, args) {
+      invokes.push({ cmd, args });
+      return Promise.resolve();
+    },
+  };
+  globalThis.isTauri = true;
+  globalThis.__TAURI_INTERNALS__ = internals;
+  globalThis.window = globalThis.window ?? globalThis;
+  globalThis.window.__TAURI_INTERNALS__ = internals;
+  const { focusPopoutWindow } = await import("./popoutWindows.ts");
+  await focusPopoutWindow("popout-thread-aaa");
+  assert.deepEqual(invokes, [
+    { cmd: "focus_popout_window", args: { label: "popout-thread-aaa" } },
+  ]);
+  await focusPopoutWindow("main");
+  assert.equal(invokes.length, 1);
 });

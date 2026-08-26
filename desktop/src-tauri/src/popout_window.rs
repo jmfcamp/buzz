@@ -11,10 +11,72 @@ pub struct PopoutWindowInfo {
     pub title: String,
 }
 
+/// Bring a companion to the front.
+///
+/// Tao's `set_focus` is a no-op while the window is miniaturized or not
+/// visible, and overlay/hidden-title companions often stay behind the main
+/// window that just handled the sidebar click. Unminimize + show first, then
+/// pulse always-on-top around `set_focus`. On macOS also activate the app and
+/// order the NSWindow front so a windowed (non-fullscreen) pop-out on another
+/// Space or behind the main session actually rises.
 fn show_and_focus(window: tauri::WebviewWindow) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    activate_ns_app();
+
+    let _ = window.unminimize();
     window.show().map_err(|error| error.to_string())?;
-    window.set_focus().map_err(|error| error.to_string())?;
+
+    #[cfg(target_os = "macos")]
+    raise_nswindow(&window);
+
+    let _ = window.set_always_on_top(true);
+    let focus_result = window.set_focus();
+    let _ = window.set_always_on_top(false);
+    focus_result.map_err(|error| error.to_string())?;
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn activate_ns_app() {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::NSApplication;
+
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let app = NSApplication::sharedApplication(mtm);
+    #[allow(deprecated)]
+    app.activateIgnoringOtherApps(true);
+    NSApplication::activate(&app);
+}
+
+/// Overlay titlebar windows sometimes ignore `makeKeyAndOrderFront` from Tao
+/// while the main window still owns the click. `orderFrontRegardless` plus
+/// MoveToActiveSpace covers minimized, behind, and other-Space companions.
+#[cfg(target_os = "macos")]
+fn raise_nswindow(window: &tauri::WebviewWindow) {
+    use objc2::runtime::AnyObject;
+
+    if objc2::MainThreadMarker::new().is_none() {
+        return;
+    }
+    let Ok(ptr) = window.ns_window() else {
+        return;
+    };
+    if ptr.is_null() {
+        return;
+    }
+    let ns_window = ptr as *mut AnyObject;
+    unsafe {
+        // NSWindowCollectionBehaviorMoveToActiveSpace = 1 << 1
+        let current: usize = objc2::msg_send![ns_window, collectionBehavior];
+        let behavior = current | (1 << 1);
+        let _: () = objc2::msg_send![ns_window, setCollectionBehavior: behavior];
+        let _: () = objc2::msg_send![ns_window, deminiaturize: std::ptr::null::<AnyObject>()];
+        let _: () =
+            objc2::msg_send![ns_window, makeKeyAndOrderFront: std::ptr::null::<AnyObject>()];
+        let _: () = objc2::msg_send![ns_window, orderFrontRegardless];
+    }
 }
 
 pub fn emit_popout_windows_changed(app: &tauri::AppHandle) {

@@ -37,6 +37,17 @@ function PopoutRowIcon({ kind }: { kind: string | null }) {
   return <AppWindow className={className} />;
 }
 
+export function activateWindowsSectionRow(
+  host: "embed" | "os",
+  label: string,
+): void {
+  if (host === "embed") {
+    showEmbeddedWindow(label);
+    return;
+  }
+  void focusPopoutWindow(label);
+}
+
 export function WindowsSection() {
   const settings = useSyncExternalStore(
     subscribePopoutSettings,
@@ -59,12 +70,14 @@ export function WindowsSection() {
   const embedOn = isEmbedInMainEnabled();
   const rows = embedOn
     ? embedded.windows.map((row) => ({
+        host: "embed" as const,
         label: row.label,
         title: row.title,
         kind: row.payload.kind,
         active: embedded.activeLabel === row.label,
       }))
     : osRows.map((row) => ({
+        host: "os" as const,
         label: row.label,
         title: row.title,
         kind: popoutKindFromLabel(row.label),
@@ -86,11 +99,7 @@ export function WindowsSection() {
                 data-testid={`open-window-${row.label}`}
                 isActive={row.active}
                 onClick={() => {
-                  if (embedOn) {
-                    showEmbeddedWindow(row.label);
-                    return;
-                  }
-                  void focusPopoutWindow(row.label);
+                  activateWindowsSectionRow(row.host, row.label);
                 }}
                 tooltip={row.title}
                 type="button"
@@ -98,7 +107,7 @@ export function WindowsSection() {
                 <PopoutRowIcon kind={row.kind} />
                 <SidebarMenuLabel>{row.title}</SidebarMenuLabel>
               </SidebarMenuButton>
-              {embedOn ? (
+              {row.host === "embed" ? (
                 <SidebarMenuAction
                   aria-label={`Close ${row.title}`}
                   data-testid={`close-window-${row.label}`}
