@@ -36,6 +36,7 @@ use crate::acp::{
 };
 use crate::config::{compose_session_title, DedupMode, PermissionMode};
 use crate::observer;
+use crate::openclaw_session::{compose_openclaw_session_key, ConversationKey};
 use crate::queue::{
     CancelReason, ContextMessage, ConversationContext, FlushBatch, PromptChannelInfo,
     PromptProfile, PromptProfileLookup, ThreadTags,
@@ -106,18 +107,21 @@ pub struct ChannelDeliveryState {
     pub delivered_event_ids: HashSet<String>,
 }
 
-/// Per-channel session IDs, turn counters, and delivery state.
+/// Per-conversation session IDs, turn counters, and delivery state.
 ///
 /// Separated from `OwnedAgent` so the state machine is testable without
-/// spawning a real agent subprocess.
+/// spawning a real agent subprocess. ACP `sessionId` is cached per
+/// [`ConversationKey`] (channel + optional thread root) so a thread gets its
+/// own `session/new` — and therefore its own OpenClaw `_meta.sessionKey` —
+/// instead of reusing the parent channel session.
 #[derive(Default)]
 pub struct SessionState {
-    /// channel_id → session_id
-    pub sessions: HashMap<Uuid, String>,
+    /// conversation → ACP session_id
+    pub sessions: HashMap<ConversationKey, String>,
     pub heartbeat_session: Option<String>,
-    /// Per-channel turn counters for proactive session rotation.
+    /// Per-conversation turn counters for proactive session rotation.
     /// Incremented on each successful prompt; reset when the session is rotated.
-    pub turn_counts: HashMap<Uuid, u32>,
+    pub turn_counts: HashMap<ConversationKey, u32>,
     /// Turn counter for the heartbeat session.
     pub heartbeat_turn_count: u32,
     /// Whether the live heartbeat session has successfully received `[Base]`.
@@ -132,9 +136,9 @@ pub struct SessionState {
     /// fetch fails — all fail open. Cleared on session invalidation alongside
     /// `core_sections` so the next session picks up any canvas change.
     pub canvas_sections: HashMap<Uuid, String>,
-    /// Per-channel successful-delivery state. Created with the ACP session and
-    /// cleared atomically with every invalidation path.
-    pub deliveries: HashMap<Uuid, ChannelDeliveryState>,
+    /// Per-conversation successful-delivery state. Created with the ACP session
+    /// and cleared atomically with every invalidation path.
+    pub deliveries: HashMap<ConversationKey, ChannelDeliveryState>,
 }
 
 impl SessionState {
@@ -152,14 +156,33 @@ impl SessionState {
         }
     }
 
-    /// Invalidate a single channel's session and turn counter.
-    /// Returns `true` if the channel had an active session.
+    /// Invalidate every conversation session for `channel_id` (membership
+    /// removal, idle model switch). Returns `true` if any session existed.
     pub fn invalidate_channel(&mut self, channel_id: &Uuid) -> bool {
-        self.turn_counts.remove(channel_id);
+        self.turn_counts
+            .retain(|key, _| key.channel_id != *channel_id);
         self.core_sections.remove(channel_id);
         self.canvas_sections.remove(channel_id);
-        self.deliveries.remove(channel_id);
-        self.sessions.remove(channel_id).is_some()
+        self.deliveries
+            .retain(|key, _| key.channel_id != *channel_id);
+        let had_session = self
+            .sessions
+            .keys()
+            .any(|key| key.channel_id == *channel_id);
+        self.sessions.retain(|key, _| key.channel_id != *channel_id);
+        had_session
+    }
+
+    /// Drop one conversation's ACP session without touching sibling threads
+    /// or the parent channel session.
+    pub fn invalidate_conversation(&mut self, key: &ConversationKey) -> bool {
+        self.turn_counts.remove(key);
+        self.deliveries.remove(key);
+        if key.thread_root.is_none() {
+            self.core_sections.remove(&key.channel_id);
+            self.canvas_sections.remove(&key.channel_id);
+        }
+        self.sessions.remove(key).is_some()
     }
 
     /// Invalidate all sessions and turn counters (e.g. after agent exit).
@@ -176,22 +199,32 @@ impl SessionState {
 
     pub(crate) fn mark_channel_delivery_success(
         &mut self,
-        channel_id: Uuid,
+        conversation: ConversationKey,
         standing_context_sent: bool,
         event_ids: impl IntoIterator<Item = String>,
     ) {
-        let delivery = self.deliveries.entry(channel_id).or_default();
+        let delivery = self.deliveries.entry(conversation).or_default();
         delivery.standing_context_sent |= standing_context_sent;
         delivery.delivered_event_ids.extend(event_ids);
     }
 
+    pub(crate) fn has_session_for_channel(&self, channel_id: Uuid) -> bool {
+        self.sessions.keys().any(|key| key.channel_id == channel_id)
+    }
+
     #[cfg(test)]
     fn has_channel_state(&self, channel_id: &Uuid) -> bool {
-        self.sessions.contains_key(channel_id)
-            || self.turn_counts.contains_key(channel_id)
+        self.has_session_for_channel(*channel_id)
+            || self
+                .turn_counts
+                .keys()
+                .any(|key| key.channel_id == *channel_id)
             || self.core_sections.contains_key(channel_id)
             || self.canvas_sections.contains_key(channel_id)
-            || self.deliveries.contains_key(channel_id)
+            || self
+                .deliveries
+                .keys()
+                .any(|key| key.channel_id == *channel_id)
     }
 }
 
@@ -641,6 +674,10 @@ pub struct PromptContext {
     /// the desktop keys per (agent, relay) pair, e.g. `session_config_captured`,
     /// mirroring the `managed_agent_runtime_lifecycle` frames.
     pub relay_url: String,
+    /// OpenClaw agent id parsed from `--session agent:<id>:buzz`. When set,
+    /// conversation `session/new` sends `_meta.sessionKey`. Heartbeats omit it
+    /// so they keep the process-lifetime leftover key.
+    pub openclaw_agent_id: Option<String>,
 }
 
 impl AgentPool {
@@ -672,7 +709,7 @@ impl AgentPool {
         if let Some(cid) = channel_id {
             let idx = self.agents.iter().position(|slot| {
                 slot.as_ref()
-                    .map(|a| a.state.sessions.contains_key(&cid))
+                    .map(|a| a.state.has_session_for_channel(cid))
                     .unwrap_or(false)
             });
             if let Some(i) = idx {
@@ -711,7 +748,7 @@ impl AgentPool {
     pub fn has_session_for(&self, channel_id: Uuid) -> bool {
         self.agents.iter().any(|slot| {
             slot.as_ref()
-                .map(|a| a.state.sessions.contains_key(&channel_id))
+                .map(|a| a.state.has_session_for_channel(channel_id))
                 .unwrap_or(false)
         })
     }
@@ -796,14 +833,25 @@ impl AgentPool {
             return true;
         }
 
-        let Some(agent) = self.agents.iter_mut().flatten().find(|agent| {
-            agent.state.sessions.get(&channel_id).map(String::as_str) == Some(session_id.as_str())
-        }) else {
+        let Some(agent) = self
+            .agents
+            .iter_mut()
+            .flatten()
+            .find(|agent| agent.state.sessions.values().any(|sid| sid == &session_id))
+        else {
+            return false;
+        };
+        let Some(conversation) = agent
+            .state
+            .sessions
+            .iter()
+            .find_map(|(key, sid)| (sid == &session_id).then(|| key.clone()))
+        else {
             return false;
         };
         agent
             .state
-            .mark_channel_delivery_success(channel_id, false, [event_id]);
+            .mark_channel_delivery_success(conversation, false, [event_id]);
         true
     }
 
@@ -885,7 +933,7 @@ impl AgentPool {
             .agents
             .iter_mut()
             .flatten()
-            .find(|a| a.state.sessions.contains_key(&channel_id))
+            .find(|a| a.state.has_session_for_channel(channel_id))
         else {
             return IdleSwitchResult::NoIdleAgent;
         };
@@ -1003,6 +1051,9 @@ struct NewSessionChannelContext<'a> {
     name: Option<&'a str>,
     id: Option<Uuid>,
     channel_type: Option<&'a str>,
+    /// OpenClaw Gateway key (`_meta.sessionKey`). `None` for heartbeats and
+    /// non-OpenClaw agents so the process `--session` default remains leftover.
+    session_key: Option<&'a str>,
 }
 
 async fn create_session_and_apply_model(
@@ -1055,6 +1106,7 @@ async fn create_session_and_apply_model(
                 combined_system_prompt.as_deref(),
             ),
             session_title.as_deref(),
+            channel.session_key,
         )
         .await?;
 
@@ -1776,6 +1828,7 @@ pub async fn run_prompt_task(
     turn_id: String,
 ) {
     // Is this a channel prompt or a heartbeat?
+    let conversation = batch.as_ref().map(ConversationKey::from_batch);
     let source = match &batch {
         Some(b) => PromptSource::Channel(b.channel_id),
         None => PromptSource::Heartbeat,
@@ -1883,8 +1936,10 @@ pub async fn run_prompt_task(
         if let (PromptSource::Channel(cid), Some(owner_pk)) =
             (&source, ctx.agent_owner_pubkey.as_ref())
         {
-            let is_new_channel_session = !agent.state.sessions.contains_key(cid);
-            if is_new_channel_session && !agent.state.core_sections.contains_key(cid) {
+            let is_new_conversation = conversation
+                .as_ref()
+                .is_none_or(|key| !agent.state.sessions.contains_key(key));
+            if is_new_conversation && !agent.state.core_sections.contains_key(cid) {
                 // Bounded — we'd rather start the session with no core hint
                 // than block session creation on a stalled relay.
                 const CORE_FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
@@ -1937,9 +1992,11 @@ pub async fn run_prompt_task(
     let mut title_channel: Option<String> = None;
     let mut origin_channel_type: Option<String> = None;
     if let PromptSource::Channel(cid) = &source {
-        let is_new_channel_session = !agent.state.sessions.contains_key(cid);
-        let needs_canvas = is_new_channel_session && !agent.state.canvas_sections.contains_key(cid);
-        if is_new_channel_session {
+        let is_new_conversation = conversation
+            .as_ref()
+            .is_none_or(|key| !agent.state.sessions.contains_key(key));
+        let needs_canvas = is_new_conversation && !agent.state.canvas_sections.contains_key(cid);
+        if is_new_conversation {
             let (is_dm, resolved_channel, resolved_channel_type) =
                 resolve_new_session_channel_context(&ctx.channel_info, *cid).await;
             title_channel = resolved_channel;
@@ -1979,13 +2036,28 @@ pub async fn run_prompt_task(
 
     let (session_id, is_new_session) = match &source {
         PromptSource::Channel(cid) => {
-            if let Some(sid) = agent.state.sessions.get(cid) {
+            let conversation_key = conversation
+                .clone()
+                .unwrap_or_else(|| ConversationKey::channel(*cid));
+            if let Some(sid) = agent.state.sessions.get(&conversation_key) {
                 (sid.clone(), false)
             } else {
                 // The title is channel-qualified (`Agent · #channel`) so one
                 // agent in several channels doesn't produce identical session
                 // rows; `title_channel` comes from the single resolve above and
                 // is `None` for DM, unresolved, and unnamed channels.
+                //
+                // OpenClaw's mapper uses `_meta.sessionKey` when present, else
+                // the process `--session` leftover. Heartbeats omit the key.
+                // Confirmed DMs use `direct:`; unresolved types stay `channel:`.
+                let session_key = ctx.openclaw_agent_id.as_deref().map(|agent_id| {
+                    compose_openclaw_session_key(
+                        agent_id,
+                        conversation_key.channel_id,
+                        conversation_key.thread_root.as_deref(),
+                        origin_channel_type.as_deref() == Some("dm"),
+                    )
+                });
                 match create_session_and_apply_model(
                     &mut agent,
                     &ctx,
@@ -1996,6 +2068,7 @@ pub async fn run_prompt_task(
                         name: title_channel.as_deref(),
                         id: Some(*cid),
                         channel_type: origin_channel_type.as_deref(),
+                        session_key: session_key.as_deref(),
                     },
                 )
                 .await
@@ -2003,13 +2076,17 @@ pub async fn run_prompt_task(
                     Ok(sid) => {
                         tracing::info!(
                             target: "pool::session",
+                            conversation = ?conversation_key,
                             "created session {sid} for channel {cid}"
                         );
-                        agent.state.sessions.insert(*cid, sid.clone());
+                        agent
+                            .state
+                            .sessions
+                            .insert(conversation_key.clone(), sid.clone());
                         agent
                             .state
                             .deliveries
-                            .insert(*cid, ChannelDeliveryState::default());
+                            .insert(conversation_key, ChannelDeliveryState::default());
                         // Seed a zero usage baseline: buzz-acp spawned this session
                         // so prior usage is zero by definition — first turn is reliable.
                         agent.acp.notify_session_spawned(&sid);
@@ -2061,6 +2138,7 @@ pub async fn run_prompt_task(
                         name: None,
                         id: None,
                         channel_type: None,
+                        session_key: None,
                     },
                 )
                 .await
@@ -2139,11 +2217,16 @@ pub async fn run_prompt_task(
     // sessions created before this field existed fail safe by behaving as
     // undelivered once, rather than silently omitting standing context.
     let mut standing_context_sent = match &source {
-        PromptSource::Channel(cid) => agent
-            .state
-            .deliveries
-            .get(cid)
-            .is_some_and(|delivery| delivery.standing_context_sent),
+        PromptSource::Channel(cid) => {
+            let key = conversation
+                .clone()
+                .unwrap_or_else(|| ConversationKey::channel(*cid));
+            agent
+                .state
+                .deliveries
+                .get(&key)
+                .is_some_and(|delivery| delivery.standing_context_sent)
+        }
         PromptSource::Heartbeat => agent.state.heartbeat_standing_context_sent,
     };
 
@@ -2183,7 +2266,10 @@ pub async fn run_prompt_task(
                     // prompt below must not repeat it. Every other arm returns.
                     standing_context_sent = true;
                     if !agent.has_system_prompt_support() {
-                        agent.state.mark_channel_delivery_success(*cid, true, []);
+                        let key = conversation
+                            .clone()
+                            .unwrap_or_else(|| ConversationKey::channel(*cid));
+                        agent.state.mark_channel_delivery_success(key, true, []);
                     }
                     let usage = agent.acp.take_turn_usage();
                     publish_agent_turn_metric(
@@ -2351,7 +2437,7 @@ pub async fn run_prompt_task(
         let delivered_ids = agent
             .state
             .deliveries
-            .get(&b.channel_id)
+            .get(&ConversationKey::from_batch(b))
             .map(|delivery| &delivery.delivered_event_ids)
             .cloned()
             .unwrap_or_default();
@@ -2621,8 +2707,11 @@ pub async fn run_prompt_task(
                         }
                         if let PromptSource::Channel(cid) = &source {
                             let standing_sent = !agent.has_system_prompt_support();
+                            let key = conversation
+                                .clone()
+                                .unwrap_or_else(|| ConversationKey::channel(*cid));
                             agent.state.mark_channel_delivery_success(
-                                *cid,
+                                key,
                                 standing_sent,
                                 pending_delivered_event_ids.iter().cloned(),
                             );
@@ -2669,8 +2758,11 @@ pub async fn run_prompt_task(
 
             if let PromptSource::Channel(cid) = &source {
                 let standing_sent = !agent.has_system_prompt_support();
+                let key = conversation
+                    .clone()
+                    .unwrap_or_else(|| ConversationKey::channel(*cid));
                 agent.state.mark_channel_delivery_success(
-                    *cid,
+                    key,
                     standing_sent,
                     pending_delivered_event_ids.iter().cloned(),
                 );
@@ -2688,7 +2780,10 @@ pub async fn run_prompt_task(
                 if limit > 0 {
                     match &source {
                         PromptSource::Channel(cid) => {
-                            let count = agent.state.turn_counts.entry(*cid).or_insert(0);
+                            let key = conversation
+                                .clone()
+                                .unwrap_or_else(|| ConversationKey::channel(*cid));
+                            let count = agent.state.turn_counts.entry(key).or_insert(0);
                             *count += 1;
                             *count >= limit
                         }
@@ -2707,7 +2802,11 @@ pub async fn run_prompt_task(
                     target: "pool::session",
                     "rotating session for {source:?} after {stop_reason:?}",
                 );
-                agent.state.invalidate(&source);
+                if let Some(key) = conversation.as_ref() {
+                    agent.state.invalidate_conversation(key);
+                } else {
+                    agent.state.invalidate(&source);
+                }
             }
 
             let core_stop = acp_stop_to_core(&stop_reason);
@@ -4733,6 +4832,10 @@ mod tests {
     use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp};
     use serde_json::json;
 
+    fn ck(id: Uuid) -> ConversationKey {
+        ConversationKey::channel(id)
+    }
+
     fn test_mcp_server() -> McpServer {
         McpServer {
             name: "dev".into(),
@@ -6123,11 +6226,11 @@ done"#
         agent
             .state
             .sessions
-            .insert(channel_id, "live-session".into());
+            .insert(ck(channel_id), "live-session".into());
         agent
             .state
             .deliveries
-            .insert(channel_id, ChannelDeliveryState::default());
+            .insert(ck(channel_id), ChannelDeliveryState::default());
 
         let mut ctx = make_prompt_context_no_owner();
         ctx.base_prompt = Some("standing-once");
@@ -6167,7 +6270,7 @@ done"#
                     PromptOutcome::Ok(StopReason::EndTurn)
                 )),
             }
-            let delivery = &result.agent.state.deliveries[&channel_id];
+            let delivery = &result.agent.state.deliveries[&ck(channel_id)];
             assert_eq!(
                 delivery.standing_context_sent,
                 turn >= 2,
@@ -6298,11 +6401,11 @@ done"#
         agent
             .state
             .sessions
-            .insert(channel_id, "live-session".into());
+            .insert(ck(channel_id), "live-session".into());
         agent
             .state
             .deliveries
-            .insert(channel_id, ChannelDeliveryState::default());
+            .insert(ck(channel_id), ChannelDeliveryState::default());
 
         let mut ctx = make_prompt_context_no_owner();
         ctx.context_message_limit = 10;
@@ -6344,7 +6447,7 @@ done"#
             ));
             agent = result.agent;
         }
-        let delivery = &agent.state.deliveries[&channel_id];
+        let delivery = &agent.state.deliveries[&ck(channel_id)];
         assert!(delivery.delivered_event_ids.contains(&carry_over_id));
         assert!(delivery.delivered_event_ids.contains(&new_event_id));
         agent.acp.shutdown().await;
@@ -6451,11 +6554,11 @@ printf '%s\n' '{{"jsonrpc":"2.0","id":0,"result":{{"stopReason":"end_turn"}}}}'"
         agent
             .state
             .sessions
-            .insert(channel_id, "live-session".into());
+            .insert(ck(channel_id), "live-session".into());
         agent
             .state
             .deliveries
-            .insert(channel_id, ChannelDeliveryState::default());
+            .insert(ck(channel_id), ChannelDeliveryState::default());
 
         // Model the adversarial ordering: the task result has already retired
         // its TaskMeta and returned the agent before the successful ack arrives.
@@ -6529,19 +6632,19 @@ printf '%s\n' '{{"jsonrpc":"2.0","id":0,"result":{{"stopReason":"end_turn"}}}}'"
         let mut state = SessionState::default();
         state
             .deliveries
-            .insert(channel, ChannelDeliveryState::default());
+            .insert(ck(channel), ChannelDeliveryState::default());
 
         // Building or attempting a prompt does not mutate delivery state.
-        let delivery = state.deliveries.get(&channel).unwrap();
+        let delivery = state.deliveries.get(&ck(channel)).unwrap();
         assert!(!delivery.standing_context_sent);
         assert!(delivery.delivered_event_ids.is_empty());
 
         state.mark_channel_delivery_success(
-            channel,
+            ck(channel),
             true,
             ["trigger".to_string(), "context".to_string()],
         );
-        let delivery = state.deliveries.get(&channel).unwrap();
+        let delivery = state.deliveries.get(&ck(channel)).unwrap();
         assert!(delivery.standing_context_sent);
         assert_eq!(delivery.delivered_event_ids.len(), 2);
     }
@@ -6550,17 +6653,17 @@ printf '%s\n' '{{"jsonrpc":"2.0","id":0,"result":{{"stopReason":"end_turn"}}}}'"
     fn delivery_state_is_cleared_on_rotation_and_restarts_empty() {
         let channel = Uuid::new_v4();
         let mut state = SessionState::default();
-        state.sessions.insert(channel, "old-session".into());
-        state.mark_channel_delivery_success(channel, true, ["old-event".to_string()]);
+        state.sessions.insert(ck(channel), "old-session".into());
+        state.mark_channel_delivery_success(ck(channel), true, ["old-event".to_string()]);
 
         assert!(state.invalidate_channel(&channel));
-        assert!(!state.deliveries.contains_key(&channel));
+        assert!(!state.deliveries.contains_key(&ck(channel)));
 
-        state.sessions.insert(channel, "new-session".into());
+        state.sessions.insert(ck(channel), "new-session".into());
         state
             .deliveries
-            .insert(channel, ChannelDeliveryState::default());
-        let delivery = state.deliveries.get(&channel).unwrap();
+            .insert(ck(channel), ChannelDeliveryState::default());
+        let delivery = state.deliveries.get(&ck(channel)).unwrap();
         assert!(!delivery.standing_context_sent);
         assert!(delivery.delivered_event_ids.is_empty());
     }
@@ -6667,21 +6770,21 @@ printf '%s\n' '{{"jsonrpc":"2.0","id":0,"result":{{"stopReason":"end_turn"}}}}'"
         let ch_a = Uuid::new_v4();
         let ch_b = Uuid::new_v4();
         let mut s = SessionState::default();
-        s.sessions.insert(ch_a, "sess-a".into());
-        s.sessions.insert(ch_b, "sess-b".into());
-        s.turn_counts.insert(ch_a, 5);
-        s.turn_counts.insert(ch_b, 3);
+        s.sessions.insert(ck(ch_a), "sess-a".into());
+        s.sessions.insert(ck(ch_b), "sess-b".into());
+        s.turn_counts.insert(ck(ch_a), 5);
+        s.turn_counts.insert(ck(ch_b), 3);
         s.core_sections.insert(ch_a, "core-a".into());
         s.core_sections.insert(ch_b, "core-b".into());
         s.deliveries.insert(
-            ch_a,
+            ck(ch_a),
             ChannelDeliveryState {
                 standing_context_sent: true,
                 delivered_event_ids: HashSet::from(["event-a".into()]),
             },
         );
         s.deliveries.insert(
-            ch_b,
+            ck(ch_b),
             ChannelDeliveryState {
                 standing_context_sent: true,
                 delivered_event_ids: HashSet::from(["event-b".into()]),
@@ -6703,12 +6806,12 @@ printf '%s\n' '{{"jsonrpc":"2.0","id":0,"result":{{"stopReason":"end_turn"}}}}'"
             &ControlSignal::Rotate,
         );
 
-        assert!(!s.sessions.contains_key(&ch_a));
-        assert!(!s.turn_counts.contains_key(&ch_a));
+        assert!(!s.sessions.contains_key(&ck(ch_a)));
+        assert!(!s.turn_counts.contains_key(&ck(ch_a)));
         assert!(!s.core_sections.contains_key(&ch_a));
         assert!(!s.has_channel_state(&ch_a));
-        assert_eq!(s.sessions.get(&ch_b).unwrap(), "sess-b");
-        assert_eq!(*s.turn_counts.get(&ch_b).unwrap(), 3);
+        assert_eq!(s.sessions.get(&ck(ch_b)).unwrap(), "sess-b");
+        assert_eq!(*s.turn_counts.get(&ck(ch_b)).unwrap(), 3);
         assert_eq!(s.core_sections.get(&ch_b).unwrap(), "core-b");
         assert_eq!(s.heartbeat_session.as_deref(), Some("sess-hb"));
         assert_eq!(s.heartbeat_turn_count, 7);
@@ -6724,10 +6827,10 @@ printf '%s\n' '{{"jsonrpc":"2.0","id":0,"result":{{"stopReason":"end_turn"}}}}'"
             &ControlSignal::Cancel,
         );
 
-        assert_eq!(s.sessions.get(&ch_a).unwrap(), "sess-a");
-        assert_eq!(*s.turn_counts.get(&ch_a).unwrap(), 5);
+        assert_eq!(s.sessions.get(&ck(ch_a)).unwrap(), "sess-a");
+        assert_eq!(*s.turn_counts.get(&ck(ch_a)).unwrap(), 5);
         assert_eq!(s.core_sections.get(&ch_a).unwrap(), "core-a");
-        assert_eq!(s.sessions.get(&ch_b).unwrap(), "sess-b");
+        assert_eq!(s.sessions.get(&ck(ch_b)).unwrap(), "sess-b");
     }
 
     #[test]
@@ -6735,13 +6838,13 @@ printf '%s\n' '{{"jsonrpc":"2.0","id":0,"result":{{"stopReason":"end_turn"}}}}'"
         let (mut s, ch_a, ch_b) = make_state();
         s.invalidate(&PromptSource::Channel(ch_a));
 
-        assert!(!s.sessions.contains_key(&ch_a));
-        assert!(!s.turn_counts.contains_key(&ch_a));
+        assert!(!s.sessions.contains_key(&ck(ch_a)));
+        assert!(!s.turn_counts.contains_key(&ck(ch_a)));
         assert!(!s.core_sections.contains_key(&ch_a));
         assert!(!s.has_channel_state(&ch_a));
         // ch_b untouched
-        assert_eq!(s.sessions.get(&ch_b).unwrap(), "sess-b");
-        assert_eq!(*s.turn_counts.get(&ch_b).unwrap(), 3);
+        assert_eq!(s.sessions.get(&ck(ch_b)).unwrap(), "sess-b");
+        assert_eq!(*s.turn_counts.get(&ck(ch_b)).unwrap(), 3);
         assert_eq!(s.core_sections.get(&ch_b).unwrap(), "core-b");
         // heartbeat untouched
         assert_eq!(s.heartbeat_session.as_deref(), Some("sess-hb"));
@@ -6758,8 +6861,8 @@ printf '%s\n' '{{"jsonrpc":"2.0","id":0,"result":{{"stopReason":"end_turn"}}}}'"
         assert!(!s.heartbeat_standing_context_sent);
         // channels untouched
         assert_eq!(s.sessions.len(), 2);
-        assert_eq!(*s.turn_counts.get(&ch_a).unwrap(), 5);
-        assert_eq!(*s.turn_counts.get(&ch_b).unwrap(), 3);
+        assert_eq!(*s.turn_counts.get(&ck(ch_a)).unwrap(), 5);
+        assert_eq!(*s.turn_counts.get(&ck(ch_b)).unwrap(), 3);
         assert_eq!(s.core_sections.get(&ch_a).unwrap(), "core-a");
         assert_eq!(s.core_sections.get(&ch_b).unwrap(), "core-b");
     }
@@ -6786,8 +6889,8 @@ printf '%s\n' '{{"jsonrpc":"2.0","id":0,"result":{{"stopReason":"end_turn"}}}}'"
         // Everything still intact.
         assert_eq!(s.sessions.len(), 2);
         assert_eq!(s.turn_counts.len(), 2);
-        assert_eq!(*s.turn_counts.get(&ch_a).unwrap(), 5);
-        assert_eq!(*s.turn_counts.get(&ch_b).unwrap(), 3);
+        assert_eq!(*s.turn_counts.get(&ck(ch_a)).unwrap(), 5);
+        assert_eq!(*s.turn_counts.get(&ck(ch_b)).unwrap(), 3);
         assert_eq!(s.core_sections.get(&ch_a).unwrap(), "core-a");
         assert_eq!(s.core_sections.get(&ch_b).unwrap(), "core-b");
     }
@@ -6805,17 +6908,40 @@ printf '%s\n' '{{"jsonrpc":"2.0","id":0,"result":{{"stopReason":"end_turn"}}}}'"
     fn test_invalidate_channel_returns_true_when_session_existed() {
         let (mut s, ch_a, ch_b) = make_state();
         assert!(s.invalidate_channel(&ch_a));
-        assert!(!s.sessions.contains_key(&ch_a));
-        assert!(!s.turn_counts.contains_key(&ch_a));
+        assert!(!s.sessions.contains_key(&ck(ch_a)));
+        assert!(!s.turn_counts.contains_key(&ck(ch_a)));
         assert!(!s.core_sections.contains_key(&ch_a));
         assert!(!s.has_channel_state(&ch_a));
         // ch_b untouched
-        assert_eq!(s.sessions.get(&ch_b).unwrap(), "sess-b");
-        assert_eq!(*s.turn_counts.get(&ch_b).unwrap(), 3);
+        assert_eq!(s.sessions.get(&ck(ch_b)).unwrap(), "sess-b");
+        assert_eq!(*s.turn_counts.get(&ck(ch_b)).unwrap(), 3);
         assert_eq!(s.core_sections.get(&ch_b).unwrap(), "core-b");
         // heartbeat untouched
         assert_eq!(s.heartbeat_session.as_deref(), Some("sess-hb"));
         assert_eq!(s.heartbeat_turn_count, 7);
+    }
+
+    #[test]
+    fn test_thread_conversation_does_not_reuse_parent_channel_session() {
+        let (mut s, ch_a, ch_b) = make_state();
+        let thread = ConversationKey {
+            channel_id: ch_a,
+            thread_root: Some("ab".repeat(32)),
+        };
+        s.sessions.insert(thread.clone(), "sess-thread".into());
+
+        assert_eq!(s.sessions.get(&ck(ch_a)).unwrap(), "sess-a");
+        assert_eq!(s.sessions.get(&thread).unwrap(), "sess-thread");
+        assert_ne!(
+            s.sessions.get(&ck(ch_a)).unwrap(),
+            s.sessions.get(&thread).unwrap()
+        );
+
+        s.invalidate_conversation(&thread);
+        assert!(s.sessions.get(&thread).is_none());
+        assert_eq!(s.sessions.get(&ck(ch_a)).unwrap(), "sess-a");
+        assert_eq!(s.sessions.get(&ck(ch_b)).unwrap(), "sess-b");
+        assert_eq!(s.core_sections.get(&ch_a).unwrap(), "core-a");
     }
 
     #[test]
@@ -6837,12 +6963,12 @@ printf '%s\n' '{{"jsonrpc":"2.0","id":0,"result":{{"stopReason":"end_turn"}}}}'"
         for ch in &removed {
             s.invalidate_channel(ch);
         }
-        assert!(!s.sessions.contains_key(&ch_a));
-        assert!(!s.turn_counts.contains_key(&ch_a));
+        assert!(!s.sessions.contains_key(&ck(ch_a)));
+        assert!(!s.turn_counts.contains_key(&ck(ch_a)));
         assert!(!s.core_sections.contains_key(&ch_a));
         assert!(!s.has_channel_state(&ch_a));
-        assert_eq!(s.sessions.get(&ch_b).unwrap(), "sess-b");
-        assert_eq!(*s.turn_counts.get(&ch_b).unwrap(), 3);
+        assert_eq!(s.sessions.get(&ck(ch_b)).unwrap(), "sess-b");
+        assert_eq!(*s.turn_counts.get(&ck(ch_b)).unwrap(), 3);
         assert_eq!(s.core_sections.get(&ch_b).unwrap(), "core-b");
     }
 
@@ -6865,8 +6991,8 @@ printf '%s\n' '{{"jsonrpc":"2.0","id":0,"result":{{"stopReason":"end_turn"}}}}'"
 
         assert!(!s.has_channel_state(&ch_a));
         // ch_b untouched — the switch is channel-scoped.
-        assert_eq!(s.sessions.get(&ch_b).unwrap(), "sess-b");
-        assert_eq!(*s.turn_counts.get(&ch_b).unwrap(), 3);
+        assert_eq!(s.sessions.get(&ck(ch_b)).unwrap(), "sess-b");
+        assert_eq!(*s.turn_counts.get(&ck(ch_b)).unwrap(), 3);
     }
 
     // ── requeue_cancelled_batch ────────────────────────────────────────────
@@ -7992,6 +8118,7 @@ printf '%s\n' '{{"jsonrpc":"2.0","id":0,"result":{{"stopReason":"end_turn"}}}}'"
             memory_enabled: false,
             harness_name: "goose".to_string(),
             relay_url: "ws://127.0.0.1:3000".to_string(),
+            openclaw_agent_id: None,
         }
     }
 
@@ -8097,14 +8224,14 @@ printf '%s\n' '{{"jsonrpc":"2.0","id":0,"result":{{"stopReason":"end_turn"}}}}'"
     fn test_invalidate_channel_clears_canvas_section() {
         let ch = Uuid::new_v4();
         let mut s = SessionState::default();
-        s.sessions.insert(ch, "sess".into());
+        s.sessions.insert(ck(ch), "sess".into());
         s.canvas_sections
             .insert(ch, "[Channel Canvas]\nrev abc".into());
 
         s.invalidate_channel(&ch);
 
         assert!(!s.canvas_sections.contains_key(&ch));
-        assert!(!s.sessions.contains_key(&ch));
+        assert!(!s.sessions.contains_key(&ck(ch)));
     }
 
     #[test]
@@ -8114,7 +8241,7 @@ printf '%s\n' '{{"jsonrpc":"2.0","id":0,"result":{{"stopReason":"end_turn"}}}}'"
         let mut s = SessionState::default();
         s.canvas_sections.insert(ch_a, "canvas-a".into());
         s.canvas_sections.insert(ch_b, "canvas-b".into());
-        s.sessions.insert(ch_a, "sess-a".into());
+        s.sessions.insert(ck(ch_a), "sess-a".into());
 
         s.invalidate_all();
 
@@ -8127,8 +8254,8 @@ printf '%s\n' '{{"jsonrpc":"2.0","id":0,"result":{{"stopReason":"end_turn"}}}}'"
         let ch_a = Uuid::new_v4();
         let ch_b = Uuid::new_v4();
         let mut s = SessionState::default();
-        s.sessions.insert(ch_a, "sess-a".into());
-        s.sessions.insert(ch_b, "sess-b".into());
+        s.sessions.insert(ck(ch_a), "sess-a".into());
+        s.sessions.insert(ck(ch_b), "sess-b".into());
         s.canvas_sections.insert(ch_a, "canvas-a".into());
         s.canvas_sections.insert(ch_b, "canvas-b".into());
 
@@ -8620,6 +8747,7 @@ done"#
                 name: None,
                 id: None,
                 channel_type: None,
+                session_key: None,
             },
         )
         .await
@@ -8657,6 +8785,7 @@ done"#
                 name: None,
                 id: None,
                 channel_type: None,
+                session_key: None,
             },
         )
         .await
@@ -8691,6 +8820,7 @@ done"#
                 name: None,
                 id: None,
                 channel_type: None,
+                session_key: None,
             },
         )
         .await
@@ -8724,6 +8854,7 @@ done"#
                 name: None,
                 id: None,
                 channel_type: None,
+                session_key: None,
             },
         )
         .await
@@ -8764,6 +8895,7 @@ exit 0"#
                 name: None,
                 id: None,
                 channel_type: None,
+                session_key: None,
             },
         )
         .await
@@ -8891,6 +9023,7 @@ done"#
                 name: None,
                 id: None,
                 channel_type: None,
+                session_key: None,
             },
         )
         .await
@@ -8962,6 +9095,7 @@ done"#
                 name: None,
                 id: None,
                 channel_type: None,
+                session_key: None,
             },
         )
         .await
@@ -9017,6 +9151,7 @@ done"#
                 name: None,
                 id: None,
                 channel_type: None,
+                session_key: None,
             },
         )
         .await
@@ -9059,6 +9194,7 @@ done"#
                 name: None,
                 id: None,
                 channel_type: None,
+                session_key: None,
             },
         )
         .await
@@ -9100,6 +9236,7 @@ done"#
                 name: None,
                 id: None,
                 channel_type: None,
+                session_key: None,
             },
         )
         .await
@@ -9166,6 +9303,7 @@ done"#
                 name: None,
                 id: None,
                 channel_type: None,
+                session_key: None,
             },
         )
         .await
@@ -9203,6 +9341,7 @@ done"#
                 name: None,
                 id: None,
                 channel_type: None,
+                session_key: None,
             },
         )
         .await
@@ -9276,6 +9415,7 @@ done"#
                 name: None,
                 id: None,
                 channel_type: None,
+                session_key: None,
             },
         )
         .await
@@ -9317,6 +9457,7 @@ done"#
                 name: None,
                 id: None,
                 channel_type: None,
+                session_key: None,
             },
         )
         .await
