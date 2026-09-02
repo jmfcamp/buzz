@@ -104,3 +104,46 @@ test("embed path does not call OS window create", async () => {
   settings.resetPopoutSettingsForTests();
   embedded.resetEmbeddedWindowsForTests();
 });
+
+test("OS split parks the main overlay playground", async () => {
+  installLocalStorage();
+  const settings = await import("./popoutSettings.ts");
+  const embedded = await import("./embeddedWindows.ts");
+  const sessions = await import("../../playground/lib/sessions.ts");
+  const { openPopoutWindow } = await import("./popoutWindow.ts");
+  settings.resetPopoutSettingsForTests();
+  embedded.resetEmbeddedWindowsForTests();
+  sessions.resetPlaygroundState();
+
+  sessions.configurePlaygroundScope("pub", "wss://relay.example.com");
+  sessions.addPlaygroundSession({
+    hula: "playground",
+    v: 1,
+    name: "Demo",
+    url: "https://app.example.com",
+    sid: "demo-1",
+  });
+  assert.equal(sessions.getActivePlaygroundSid(), "demo-1");
+
+  await openPopoutWindow({
+    kind: "split",
+    title: "Split Demo",
+    seed: "demo-1-chan-thread",
+    channelId: "chan",
+    threadId: "thread-1",
+    playground: {
+      hula: "playground",
+      v: 1,
+      name: "Demo",
+      url: "https://app.example.com",
+      sid: "demo-1",
+    },
+  });
+
+  assert.equal(sessions.getActivePlaygroundSid(), null);
+  assert.equal(embedded.listEmbeddedWindows().length, 0);
+
+  settings.resetPopoutSettingsForTests();
+  embedded.resetEmbeddedWindowsForTests();
+  sessions.resetPlaygroundState();
+});

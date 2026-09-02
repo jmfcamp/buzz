@@ -53,6 +53,27 @@ export function playgroundWebviewId(sid: string): string {
   return `${PLAYGROUND_WEBVIEW_PREFIX}${sid}`;
 }
 
+/**
+ * Native child label for a playground on a specific window.
+ * Main stays `playground-{sid}`; other windows use `playground-{sid}--{window}`.
+ */
+export function playgroundWebviewLabelForWindow(
+  sid: string,
+  windowLabel = "main",
+): string {
+  const cleaned = windowLabel.trim() || "main";
+  if (cleaned === "main") return playgroundWebviewId(sid);
+  return `${PLAYGROUND_WEBVIEW_PREFIX}${sid}--${cleaned}`;
+}
+
+/** True when this hide/close invoke targets the caller's current window. */
+export function playgroundHideCloseIsWindowScoped(
+  args: Record<string, unknown>,
+  windowLabel: string,
+): boolean {
+  return args.windowLabel === windowLabel;
+}
+
 export function isPlaygroundInspectTarget(webviewId: string): boolean {
   return (
     webviewId.startsWith(PLAYGROUND_WEBVIEW_PREFIX) &&

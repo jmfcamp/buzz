@@ -5,6 +5,7 @@ import { installLocalStorage } from "../../playground/lib/testStorage.mjs";
 
 import {
   filterPopoutWindows,
+  playgroundSidsHostedInOsPopouts,
   popoutKindFromLabel,
   resolvePopoutTitle,
   resetPopoutWindowsForTests,
@@ -108,4 +109,31 @@ test("focusPopoutWindow invokes the native focus command", async () => {
   ]);
   await focusPopoutWindow("main");
   assert.equal(invokes.length, 1);
+});
+
+test("playgroundSidsHostedInOsPopouts collects split and playground sids", () => {
+  installLocalStorage();
+  const playground = {
+    hula: "playground",
+    v: 1,
+    name: "Demo",
+    url: "https://app.example.com",
+    sid: "demo-1",
+  };
+  writePopoutPayload("popout-split-aaa", {
+    kind: "split",
+    playground,
+  });
+  writePopoutPayload("popout-thread-bbb", { kind: "thread", title: "Thread" });
+  writePopoutPayload("popout-playground-ccc", {
+    kind: "playground",
+    playground: { ...playground, sid: "demo-2" },
+  });
+  const hosted = playgroundSidsHostedInOsPopouts([
+    { label: "popout-split-aaa" },
+    { label: "popout-thread-bbb" },
+    { label: "popout-playground-ccc" },
+    { label: "main" },
+  ]);
+  assert.deepEqual([...hosted].sort(), ["demo-1", "demo-2"]);
 });

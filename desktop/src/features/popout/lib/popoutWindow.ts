@@ -3,6 +3,9 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import type { PlaygroundCard } from "@/features/playground/lib/types";
 
+import { hidePlaygroundWebview } from "@/features/playground/lib/webview";
+import { dismissPlayground } from "@/features/playground/lib/sessions";
+
 import { openEmbeddedWindow } from "./embeddedWindows";
 import {
   isEmbedInMainEnabled,
@@ -165,6 +168,15 @@ export async function openPopoutWindow(input: {
     return;
   }
   writePopoutPayload(label, payload);
+  // OS playground/split gets its own window-scoped WKWebView. Park the main
+  // overlay and hide main playground-{sid} so it cannot drift over main.
+  if (
+    input.playground?.sid &&
+    (input.kind === "playground" || input.kind === "split")
+  ) {
+    dismissPlayground();
+    void hidePlaygroundWebview(input.playground.sid);
+  }
   if (!isTauri()) {
     return;
   }

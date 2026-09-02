@@ -1092,6 +1092,10 @@ mod tests {
             playground_webview_label("demo", "popout-thread-x"),
             "playground-demo--popout-thread-x"
         );
+        assert_ne!(
+            playground_webview_label("demo", "main"),
+            playground_webview_label("demo", "popout-split-abc")
+        );
         assert_eq!(normalize_window_label(None), APP_WEBVIEW_LABEL);
         assert_eq!(normalize_window_label(Some("")), APP_WEBVIEW_LABEL);
     }

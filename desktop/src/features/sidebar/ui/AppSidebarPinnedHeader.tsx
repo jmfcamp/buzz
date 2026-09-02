@@ -11,7 +11,7 @@ import type { AppView } from "@/app/AppShell.helpers";
 import { PlaygroundSection } from "@/features/playground/ui/PlaygroundSection";
 import { WindowsSection } from "@/features/popout/ui/WindowsSection";
 import {
-  dismissPlayground,
+  parkPlaygroundHost,
   parkPlaygroundThen,
 } from "@/features/playground/lib/sessions";
 import { usePinnedSites } from "@/features/pinned-sites/hooks";
@@ -86,7 +86,7 @@ export function AppSidebarPinnedHeader({
         currentPubkey={currentPubkey}
         focusRequest={searchFocusRequest}
         onOpenChannel={(channelId) => {
-          dismissPlayground();
+          parkPlaygroundHost();
           onSelectChannel(channelId);
         }}
         onOpenResult={onOpenSearchResult}

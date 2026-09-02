@@ -41,6 +41,20 @@ export function popoutKindFromLabel(label: string): PopoutKind | null {
   return null;
 }
 
+/** Sids currently shown in an OS pop-out playground or split window. */
+export function playgroundSidsHostedInOsPopouts(
+  rows: Array<{ label: string }>,
+): Set<string> {
+  const sids = new Set<string>();
+  for (const row of rows) {
+    const kind = popoutKindFromLabel(row.label);
+    if (kind !== "playground" && kind !== "split") continue;
+    const sid = readPopoutPayload(row.label)?.playground?.sid;
+    if (sid) sids.add(sid);
+  }
+  return sids;
+}
+
 export function resolvePopoutTitle(row: {
   label: string;
   title?: string;

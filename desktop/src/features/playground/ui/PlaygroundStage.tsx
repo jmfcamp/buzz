@@ -17,6 +17,7 @@ import { DEFAULT_RESPONSIVE_VIEWPORT } from "../lib/types";
 import { PLAYGROUND_DOM_PROBE_SCRIPT } from "../lib/updates";
 import {
   evalPlaygroundWebview,
+  hidePlaygroundWebview,
   playgroundWebviewBoundsAreUsable,
   setPlaygroundWebviewBounds,
   showPlaygroundWebview,
@@ -99,7 +100,7 @@ function ResponsiveStage({
             value={width}
           />
         </label>
-        <span className="text-2xs text-muted-foreground">×</span>
+        <span className="text-2xs text-muted-foreground">Ã</span>
         <label className="flex items-center gap-1 text-2xs text-muted-foreground">
           H
           <input
@@ -321,6 +322,17 @@ function NativeStageHost({
 }) {
   const viewportWidth = viewport?.width;
   const viewportHeight = viewport?.height;
+
+  React.useEffect(() => {
+    const sid = session.sid;
+    return () => {
+      // React unmount (navigate away, leave split, deactivate embed) must
+      // hide the window-scoped native child. Overlay teardown alone is not
+      // enough — WKWebView stays painted after the host DOM is gone.
+      // Kept off the layoutKey effect so fullscreen/dock resyncs do not hide.
+      void hidePlaygroundWebview(sid);
+    };
+  }, [session.sid]);
 
   React.useLayoutEffect(() => {
     const host = hostRef.current;

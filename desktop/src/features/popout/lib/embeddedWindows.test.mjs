@@ -78,3 +78,49 @@ async function importPair() {
   const windows = await import("./embeddedWindows.ts");
   return { ...settings, ...windows };
 }
+
+test("dismissing and closing an embed split parks the playground host", async () => {
+  const {
+    closeEmbeddedWindow,
+    dismissEmbeddedWindow,
+    getActiveEmbeddedWindow,
+    openEmbeddedWindow,
+    setEmbedInMain,
+    setShowWindowsSection,
+    showEmbeddedWindow,
+  } = await importPair();
+
+  setShowWindowsSection(true);
+  setEmbedInMain(true);
+  const playground = {
+    hula: "playground",
+    v: 1,
+    name: "Demo",
+    url: "https://app.example.com",
+    sid: "demo-1",
+  };
+  openEmbeddedWindow({
+    label: "popout-split-aaa",
+    payload: {
+      kind: "split",
+      title: "Split Demo",
+      threadId: "t1",
+      playground,
+    },
+  });
+  assert.equal(getActiveEmbeddedWindow()?.label, "popout-split-aaa");
+  dismissEmbeddedWindow();
+  assert.equal(getActiveEmbeddedWindow(), null);
+
+  showEmbeddedWindow("popout-split-aaa");
+  assert.equal(getActiveEmbeddedWindow()?.label, "popout-split-aaa");
+  openEmbeddedWindow({
+    label: "popout-thread-bbb",
+    payload: { kind: "thread", title: "Design", threadId: "t2" },
+  });
+  assert.equal(getActiveEmbeddedWindow()?.label, "popout-thread-bbb");
+
+  closeEmbeddedWindow("popout-thread-bbb");
+  assert.equal(getActiveEmbeddedWindow(), null);
+  closeEmbeddedWindow("popout-split-aaa");
+});

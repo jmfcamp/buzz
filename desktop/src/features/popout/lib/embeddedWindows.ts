@@ -1,4 +1,5 @@
 import { hideAllPinWebviews } from "@/features/pinned-sites/lib/pinWebview";
+import { hidePlaygroundWebview } from "@/features/playground/lib/webview";
 import { getStorageItem, setStorageItem } from "@/shared/lib/safeStorage";
 
 import type { PlaygroundCard } from "@/features/playground/lib/types";
@@ -163,24 +164,40 @@ export function openEmbeddedWindow(input: {
 export function showEmbeddedWindow(label: string) {
   const row = store.windows.find((entry) => entry.label === label);
   if (!row) return;
+  const previous =
+    store.activeLabel != null && store.activeLabel !== label
+      ? store.windows.find((entry) => entry.label === store.activeLabel)
+      : null;
+  const previousSid = previous?.payload.playground?.sid ?? null;
   store.activeLabel = label;
   persist();
   emit();
   hideOverlays();
+  // Leaving an embed playground/split must hide its window-scoped webview.
+  if (previousSid && previousSid !== row.payload.playground?.sid) {
+    void hidePlaygroundWebview(previousSid);
+  }
 }
 
 export function dismissEmbeddedWindow() {
   if (store.activeLabel == null) return;
+  const active = store.windows.find((row) => row.label === store.activeLabel);
+  const sid = active?.payload.playground?.sid ?? null;
   store.activeLabel = null;
   persist();
   emit();
+  if (sid) void hidePlaygroundWebview(sid);
 }
 
 export function closeEmbeddedWindow(label: string) {
+  const closing = store.windows.find((row) => row.label === label);
+  const sid = closing?.payload.playground?.sid ?? null;
+  const wasActive = store.activeLabel === label;
   store.windows = store.windows.filter((row) => row.label !== label);
-  if (store.activeLabel === label) store.activeLabel = null;
+  if (wasActive) store.activeLabel = null;
   persist();
   emit();
+  if (sid && wasActive) void hidePlaygroundWebview(sid);
 }
 
 function defaultTitle(kind: EmbeddedPayload["kind"]): string {

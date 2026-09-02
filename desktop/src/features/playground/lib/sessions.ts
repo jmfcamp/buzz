@@ -2,6 +2,7 @@ import { getStorageItem, setStorageItem } from "@/shared/lib/safeStorage";
 import { hideAllPinWebviews } from "@/features/pinned-sites/lib/pinWebview";
 import {
   dismissEmbeddedWindow,
+  getActiveEmbeddedWindow,
   registerEmbedOpenHandler,
 } from "@/features/popout/lib/embeddedWindows";
 import type { PlaygroundCard } from "./types";
@@ -176,15 +177,35 @@ export function notePlaygroundCard(card: PlaygroundCard) {
 }
 
 /**
- * Park the overlay, then run a left-nav destination. Safe when no overlay
- * is open. Does not dispose the session row.
+ * Park overlay and in-main embed, then run a left-nav destination. Safe
+ * when nothing is showing. Does not dispose the session row.
  */
 export function parkPlaygroundThen(select: () => void): () => void {
   return () => {
-    dismissPlayground();
-    dismissEmbeddedWindow();
+    parkPlaygroundHost();
     select();
   };
+}
+
+/**
+ * Park whatever is hosting a playground in the main window: overlay and/or
+ * active embed. Always hides the native webview for the parked sid so
+ * navigate-away cannot leave an orphan WKWebView when overlaySid was already
+ * null (embed-only / split-embed path).
+ */
+export function parkPlaygroundHost(): void {
+  const overlaySid = store.overlaySid;
+  const embed = getActiveEmbeddedWindowSafe();
+  const embedSid = embed?.payload.playground?.sid ?? null;
+  if (store.overlaySid != null) {
+    store.overlaySid = null;
+    persist();
+    emit();
+  }
+  dismissEmbeddedWindow();
+  const sid = overlaySid ?? embedSid;
+  if (sid) void hidePlaygroundWebview(sid);
+  notifyPinRestore();
 }
 
 export function dismissPlayground() {
@@ -203,6 +224,14 @@ export function disposePlayground(sid: string) {
   emit();
   void closePlaygroundWebview(sid);
   notifyPinRestore();
+}
+
+function getActiveEmbeddedWindowSafe() {
+  try {
+    return getActiveEmbeddedWindow();
+  } catch {
+    return null;
+  }
 }
 
 function notifyPinRestore() {
@@ -233,6 +262,7 @@ if (import.meta.env.MODE === "test") {
     addPlaygroundSession,
     hasPlaygroundSession,
     parkPlaygroundThen,
+    parkPlaygroundHost,
     showPlaygroundSession,
     dismissPlayground,
     disposePlayground,
