@@ -180,9 +180,16 @@ async fn post_assistant_reply(
     text: &str,
 ) -> Result<(), anyhow::Error> {
     let thread_ref = dest.reply_to.as_deref().and_then(thread_ref_from_anchor);
-    let builder =
-        buzz_sdk::build_message(dest.channel_id, text, thread_ref.as_ref(), &[], false, &[])
-            .map_err(|e| anyhow::anyhow!("build_message failed: {e}"))?;
+    let builder = buzz_sdk::build_message(
+        dest.channel_id,
+        text,
+        thread_ref.as_ref(),
+        &[],
+        false,
+        &[],
+        &[],
+    )
+    .map_err(|e| anyhow::anyhow!("build_message failed: {e}"))?;
     let event = builder
         .sign_with_keys(&rest.keys)
         .map_err(|e| anyhow::anyhow!("sign failed: {e}"))?;
