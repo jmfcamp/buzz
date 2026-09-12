@@ -6,7 +6,6 @@ use url::Url;
 
 use crate::nostr_bind;
 
-
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PendingCommunityDeepLink {
