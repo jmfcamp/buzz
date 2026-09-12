@@ -359,7 +359,7 @@ jobs:
               --target "${{ needs.setup.outputs.source_sha }}" \
               --title "Hula Buzz Desktop v${VERSION}" \
               --notes "$NOTES" \
-              "${PRERELEASE_FLAGS[@]}"
+              ${PRERELEASE_FLAGS[@]+"${PRERELEASE_FLAGS[@]}"}
           fi
           gh release upload "$TAG" staged/* --repo "$HULA_REPO" --clobber
 
