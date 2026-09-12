@@ -50,6 +50,7 @@ export type MentionCandidate = {
   secondaryLabel?: string | null;
   ownerPubkey?: string | null;
   isAgent: boolean;
+  isActiveAgent?: boolean;
   isManagedAgent?: boolean;
   isGlobalSearchResult?: boolean;
 };
@@ -210,11 +211,14 @@ export function buildTeamMentionCandidates(
       .filter((member): member is TeamMentionMember => member !== null);
     if (teamMembers.length !== resolution.resolvedPersonas.length) return [];
 
-    const mentionNames = new Set<string>();
+    const mentionNames = new Map<string, TeamMentionMember>();
     for (const member of teamMembers) {
       const mentionName = member.displayName.trim().toLowerCase();
-      if (mentionNames.has(mentionName)) return [];
-      mentionNames.add(mentionName);
+      const previous = mentionNames.get(mentionName);
+      // Exact-key members can reserve distinct labels at selection time. A
+      // persona without a key cannot yet be disambiguated that way.
+      if (previous && (!previous.pubkey || !member.pubkey)) return [];
+      mentionNames.set(mentionName, member);
     }
 
     return [

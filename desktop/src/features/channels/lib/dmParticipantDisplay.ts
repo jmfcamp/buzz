@@ -15,6 +15,7 @@ export type DmParticipantDisplay = {
 export type DirectMessageIntroParticipant = {
   avatarUrl: string | null;
   displayName: string;
+  isAgent?: boolean;
   pubkey: string;
 };
 
@@ -99,6 +100,7 @@ export function buildDirectMessageIntro({
         profiles,
         pubkey: participant.pubkey,
       }),
+      ...(profile?.isAgent === true ? { isAgent: true } : {}),
       pubkey: participant.pubkey,
     };
   });

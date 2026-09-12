@@ -1,5 +1,4 @@
 import { AppWindow, Columns2 } from "lucide-react";
-import * as React from "react";
 import { toast } from "sonner";
 
 import { openPopoutWindow } from "@/features/popout/lib/popoutWindow";
