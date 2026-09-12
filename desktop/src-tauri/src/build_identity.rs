@@ -153,7 +153,10 @@ mod tests {
 
     #[test]
     fn duplicate_instance_links_follow_the_build_scheme() {
-        assert!(is_deep_link_for_scheme("hulabuzz://message?id=1", "hulabuzz"));
+        assert!(is_deep_link_for_scheme(
+            "hulabuzz://message?id=1",
+            "hulabuzz"
+        ));
         assert!(!is_deep_link_for_scheme(
             "buzz-demo-board-1234567812345678://message?id=1",
             "hulabuzz"

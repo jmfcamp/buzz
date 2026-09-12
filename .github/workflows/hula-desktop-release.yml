@@ -1,0 +1,301 @@
+# Hula Buzz — Mac desktop release + Tauri auto-updater
+#
+# Mac-only (darwin-aarch64) first drop. Does NOT use Block signing keys,
+# Block updater endpoints, Apple notarization, or `just release-desktop`.
+#
+# Triggers:
+#   - workflow_dispatch with version (preferred)
+#   - push of tag hula-desktop-vX.Y.Z
+#
+# Secrets (jmfcamp/buzz):
+#   TAURI_SIGNING_PRIVATE_KEY
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  (empty string if key has no password)
+#
+# Pubkey + updater endpoint are committed in desktop/src-tauri/tauri.conf.json.
+# Rolling updater URL:
+#   https://github.com/jmfcamp/buzz/releases/download/hula-desktop-latest/latest.json
+
+name: Hula Desktop Release
+
+concurrency:
+  group: hula-desktop-release-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: false
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Desktop semver to publish (X.Y.Z or X.Y.Z-prerelease)
+        required: true
+        type: string
+      promote_updater:
+        description: Also update hula-desktop-latest/latest.json
+        required: true
+        type: boolean
+        default: true
+  push:
+    tags:
+      - 'hula-desktop-v[0-9]*'
+
+env:
+  HULA_UPDATER_ENDPOINT: https://github.com/jmfcamp/buzz/releases/download/hula-desktop-latest/latest.json
+  HULA_REPO: jmfcamp/buzz
+
+jobs:
+  setup:
+    name: Setup
+    if: github.repository == 'jmfcamp/buzz'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      source_sha: ${{ steps.source.outputs.source_sha }}
+      promote_updater: ${{ steps.version.outputs.promote_updater }}
+    steps:
+      - name: Determine version
+        id: version
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ inputs.version }}"
+            PROMOTE="${{ inputs.promote_updater }}"
+          else
+            VERSION="${GITHUB_REF_NAME#hula-desktop-v}"
+            PROMOTE=true
+          fi
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::Invalid version '$VERSION'. Expected semver (e.g. 0.5.18 or 0.5.18-beta.1)"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "promote_updater=$PROMOTE" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Record source SHA
+        id: source
+        run: echo "source_sha=$(git rev-parse 'HEAD^{commit}')" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse Block updater endpoint / missing Hula pubkey
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, sys
+          cfg = json.load(open("desktop/src-tauri/tauri.conf.json"))
+          updater = cfg.get("plugins", {}).get("updater", {})
+          endpoints = updater.get("endpoints") or []
+          pubkey = updater.get("pubkey") or ""
+          bad = [e for e in endpoints if "block/buzz" in e or "buzz-desktop-latest" in e]
+          if bad:
+              print("::error::tauri.conf.json still points at Block updater:", bad)
+              sys.exit(1)
+          expected = "https://github.com/jmfcamp/buzz/releases/download/hula-desktop-latest/latest.json"
+          if expected not in endpoints:
+              print("::error::missing Hula updater endpoint in tauri.conf.json")
+              sys.exit(1)
+          if len(pubkey) < 40:
+              print("::error::Hula updater pubkey missing from tauri.conf.json")
+              sys.exit(1)
+          print("Hula updater config OK")
+          PY
+
+  release-macos-arm64:
+    name: Release macOS (Apple Silicon)
+    if: github.repository == 'jmfcamp/buzz'
+    runs-on: macos-latest
+    needs: setup
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.setup.outputs.version }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ needs.setup.outputs.source_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: cashapp/activate-hermit@cea9af7913204a965fd488637a8d1811bba2e616 # v1
+
+      - name: Install desktop dependencies
+        run: just desktop-install-ci
+
+      - name: Patch version
+        run: |
+          cd desktop && node scripts/set-version-from-tag.mjs "$VERSION"
+          cd src-tauri && cargo update --workspace
+
+      - name: Generate release config
+        run: |
+          set -euo pipefail
+          export BUZZ_UPDATER_PUBLIC_KEY
+          BUZZ_UPDATER_PUBLIC_KEY=$(python3 -c 'import json; print(json.load(open("desktop/src-tauri/tauri.conf.json"))["plugins"]["updater"]["pubkey"])')
+          export BUZZ_UPDATER_ENDPOINT="$HULA_UPDATER_ENDPOINT"
+          cd desktop && node scripts/build-release-config.mjs
+          # Guard: release config must never mention block/buzz
+          if grep -E 'block/buzz|buzz-desktop-latest' desktop/src-tauri/tauri.release.conf.json; then
+            echo "::error::release config leaked a Block updater reference"
+            exit 1
+          fi
+
+      - name: Build sidecars
+        run: |
+          cargo build --release -p buzz-acp -p buzz-agent -p buzz-backend-kubernetes -p buzz-dev-mcp -p git-credential-nostr -p buzz-cli
+          ./scripts/bundle-sidecars.sh
+
+      - name: Resolve mesh-llm rev
+        id: mesh_rev
+        run: |
+          set -euo pipefail
+          REV=$(python3 -c 'import tomllib; d=tomllib.load(open("Cargo.lock", "rb")); p=next(p for p in d["package"] if p["name"] == "mesh-llm-sdk"); print(p["source"].rsplit("#", 1)[1])')
+          [[ -n "$REV" ]] || { echo "::error::could not resolve mesh-llm rev from Cargo.lock"; exit 1; }
+          echo "rev=$REV" >> "$GITHUB_OUTPUT"
+          echo "short=${REV:0:7}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore mesh llama build cache
+        id: llama_cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ github.workspace }}/.cache/mesh-llama
+          key: mesh-llama-${{ runner.os }}-metal-${{ steps.mesh_rev.outputs.rev }}
+
+      - name: Build mesh llama native libraries
+        if: steps.llama_cache.outputs.cache-hit != 'true'
+        env:
+          MESH_REV_SHORT: ${{ steps.mesh_rev.outputs.short }}
+        run: |
+          set -euo pipefail
+          cargo fetch --manifest-path desktop/src-tauri/Cargo.toml
+          SHORT="$MESH_REV_SHORT"
+          MESH_ROOT=$(find "${CARGO_HOME:-$HOME/.cargo}/git/checkouts" -path "*/$SHORT" -type d -name "$SHORT" | head -1)
+          if [[ -z "$MESH_ROOT" ]]; then
+            echo "::error::mesh-llm checkout for $SHORT not found after cargo fetch"
+            exit 1
+          fi
+          export LLAMA_STAGE_BACKEND=metal
+          export LLAMA_STAGE_BUILD_DIR="$GITHUB_WORKSPACE/.cache/mesh-llama/build-stage-abi-metal"
+          export CMAKE_OSX_DEPLOYMENT_TARGET=10.15
+          "$MESH_ROOT/scripts/prepare-llama.sh" pinned
+          "$MESH_ROOT/scripts/build-llama.sh" -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15
+
+      - name: Save mesh llama build cache
+        if: steps.llama_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ github.workspace }}/.cache/mesh-llama
+          key: mesh-llama-${{ runner.os }}-metal-${{ steps.mesh_rev.outputs.rev }}
+
+      - name: Build unsigned Tauri app (updater-signed)
+        run: cd desktop && pnpm tauri build --verbose --no-sign --features mesh-llm --config src-tauri/tauri.release.conf.json
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+          MACOSX_DEPLOYMENT_TARGET: "10.15"
+          CMAKE_OSX_DEPLOYMENT_TARGET: "10.15"
+          LLAMA_STAGE_BACKEND: metal
+          LLAMA_STAGE_BUILD_DIR: ${{ github.workspace }}/.cache/mesh-llama/build-stage-abi-metal
+          SKIPPY_LLAMA_AUTO_BUILD: "0"
+          TAURI_BUNDLER_DMG_IGNORE_CI: "true"
+
+      - name: Locate and stage artifacts
+        id: artifacts
+        run: |
+          set -euo pipefail
+          BUNDLE_DIR="desktop/src-tauri/target/release/bundle"
+          mkdir -p staged
+
+          DMG=$(find "$BUNDLE_DIR/dmg" -name '*.dmg' -type f | head -1)
+          [[ -n "$DMG" ]] || { echo "::error::No DMG found in $BUNDLE_DIR/dmg"; exit 1; }
+
+          # productName is "Hula Buzz" → app bundle has a space
+          APP=$(find "$BUNDLE_DIR/macos" -maxdepth 1 -name '*.app' -type d | head -1)
+          [[ -n "$APP" ]] || { echo "::error::No .app found in $BUNDLE_DIR/macos"; exit 1; }
+
+          ARCHIVE=$(find "$BUNDLE_DIR/macos" -name '*.tar.gz' ! -name '*.sig' -type f | head -1)
+          SIG="${ARCHIVE}.sig"
+          [[ -n "$ARCHIVE" && -f "$SIG" ]] || { echo "::error::Updater archive or .sig missing"; exit 1; }
+
+          DMG_NAME="HulaBuzz_${VERSION}_aarch64.dmg"
+          ARCHIVE_NAME="HulaBuzz_${VERSION}_aarch64.app.tar.gz"
+          cp "$DMG" "staged/$DMG_NAME"
+          cp "$ARCHIVE" "staged/$ARCHIVE_NAME"
+          cp "$SIG" "staged/${ARCHIVE_NAME}.sig"
+
+          echo "dmg_name=$DMG_NAME" >> "$GITHUB_OUTPUT"
+          echo "archive_name=$ARCHIVE_NAME" >> "$GITHUB_OUTPUT"
+          echo "sig_path=staged/${ARCHIVE_NAME}.sig" >> "$GITHUB_OUTPUT"
+          ls -la staged
+
+      - name: Generate Mac-only latest.json
+        run: |
+          set -euo pipefail
+          BASE="https://github.com/${HULA_REPO}/releases/download/hula-desktop-v${VERSION}"
+          bash desktop/scripts/generate-oss-latest-json.sh "$VERSION" \
+            "darwin-aarch64:${{ steps.artifacts.outputs.sig_path }}:${BASE}/${{ steps.artifacts.outputs.archive_name }}" \
+            > staged/latest.json
+          # Relabel notes for Hula branding
+          jq --arg notes "Hula Buzz v${VERSION}" '.notes = $notes' staged/latest.json > staged/latest.json.tmp
+          mv staged/latest.json.tmp staged/latest.json
+          cp staged/latest.json staged/updater-manifest.json
+          cat staged/latest.json
+          if grep -E 'block/buzz|buzz-desktop-latest' staged/latest.json; then
+            echo "::error::latest.json leaked a Block reference"
+            exit 1
+          fi
+
+      - name: Create versioned GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="hula-desktop-v${VERSION}"
+          NOTES="Hula Buzz desktop ${VERSION} (Mac aarch64).
+
+          One-time install: download the DMG, open it, drag Hula Buzz to Applications.
+          Thereafter the in-app updater checks:
+          ${HULA_UPDATER_ENDPOINT}
+
+          Note: this build is updater-signed (Tauri) but not yet Apple-notarized.
+          First launch may require right-click → Open under Gatekeeper.
+          "
+          if gh release view "$TAG" --repo "$HULA_REPO" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — uploading/clobbering assets"
+          else
+            PRERELEASE_FLAGS=()
+            if [[ "$VERSION" == *-* ]]; then
+              PRERELEASE_FLAGS=(--prerelease --latest=false)
+            fi
+            gh release create "$TAG" \
+              --repo "$HULA_REPO" \
+              --target "${{ needs.setup.outputs.source_sha }}" \
+              --title "Hula Buzz Desktop v${VERSION}" \
+              --notes "$NOTES" \
+              "${PRERELEASE_FLAGS[@]}"
+          fi
+          gh release upload "$TAG" staged/* --repo "$HULA_REPO" --clobber
+
+      - name: Update rolling hula-desktop-latest
+        if: needs.setup.outputs.promote_updater == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          ROLLING=hula-desktop-latest
+          if ! gh release view "$ROLLING" --repo "$HULA_REPO" >/dev/null 2>&1; then
+            gh release create "$ROLLING" \
+              --repo "$HULA_REPO" \
+              --target "${{ needs.setup.outputs.source_sha }}" \
+              --title "Hula Buzz Desktop (auto-updater rolling)" \
+              --notes "Rolling Tauri updater manifest for Hula Buzz. Clients fetch latest.json from this release." \
+              --latest=false
+          fi
+          # Only publish latest.json on the rolling tag (installers stay on versioned release)
+          gh release upload "$ROLLING" staged/latest.json --repo "$HULA_REPO" --clobber
+          echo "Promoted updater manifest to $ROLLING/latest.json for v${VERSION}"

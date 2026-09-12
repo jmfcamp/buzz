@@ -939,7 +939,39 @@ bump-relay-version version:
     cargo update -p buzz-relay
     echo "Bumped buzz-relay to {{ version }} and regenerated Cargo.lock"
 
+# Hula Buzz Mac desktop release (jmfcamp/buzz only).
+# Never use `just release-desktop` on this fork — that recipe PRs block/buzz.
+# Tags hula-desktop-v<version> on the current HEAD and pushes to origin.
+hula-desktop-release version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    VERSION="{{ version }}"
+    if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+        echo "Error: '$VERSION' is not valid semver (expected X.Y.Z)"
+        exit 1
+    fi
+    REPO=$(git remote get-url origin | sed -E 's|.*github.com[:/]||; s|\.git$||')
+    if [[ "$REPO" != "jmfcamp/buzz" ]]; then
+        echo "Error: origin must be jmfcamp/buzz (got '$REPO')"
+        exit 1
+    fi
+    if ! git diff --quiet || ! git diff --cached --quiet; then
+        echo "Error: working tree is dirty. Commit or stash first."
+        exit 1
+    fi
+    TAG="hula-desktop-v${VERSION}"
+    if git rev-parse "$TAG" >/dev/null 2>&1; then
+        echo "Error: tag '$TAG' already exists locally"
+        exit 1
+    fi
+    echo "Creating annotated tag $TAG at $(git rev-parse --short HEAD)..."
+    git tag -a "$TAG" -m "Hula Buzz Desktop v${VERSION}"
+    git push origin "refs/tags/$TAG"
+    echo "Pushed $TAG — GitHub Actions workflow 'Hula Desktop Release' should start."
+    echo "Updater URL: https://github.com/jmfcamp/buzz/releases/download/hula-desktop-latest/latest.json"
+
 # Open or update the desktop release PR from an immutable origin/main snapshot
+# WARNING (Hula fork): do not run this on jmfcamp/buzz — it targets block/buzz.
 release-desktop *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
