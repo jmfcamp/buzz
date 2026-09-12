@@ -60,7 +60,7 @@ export function BotsDirectoryGrid({
           dataTestId={`bot-card-${card.id}`}
           key={card.id}
           label={card.name}
-          modelLabel={card.status.label}
+          subtitle={card.status.label}
           onClick={() => onOpenBot(card.id)}
         />
       ))}

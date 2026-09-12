@@ -207,6 +207,7 @@ export function ChannelMemberInviteCard({
                   <UserAvatar
                     avatarUrl={invitee.avatarUrl ?? null}
                     displayName={formatSearchUserName(invitee)}
+                    shape={invitee.isAgent ? "squircle" : "circle"}
                     size="xs"
                   />
                   <span className="font-medium">
@@ -298,6 +299,7 @@ export function ChannelMemberInviteCard({
                         <UserAvatar
                           avatarUrl={result.avatarUrl}
                           displayName={formatSearchUserName(result)}
+                          shape={result.isAgent ? "squircle" : "circle"}
                           size="xs"
                         />
                         <p className="truncate text-sm font-medium leading-5">

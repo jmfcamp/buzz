@@ -293,43 +293,43 @@ export function PlaygroundChrome({
             </ChromeTooltipButton>
           ) : null}
           {lockLayout ? null : (
-          <ChromeTooltipButton
-            aria-label={playgroundFullscreenTooltip(fullscreen)}
-            data-testid="playground-fullscreen"
-            onClick={onToggleFullscreen}
-            size="icon-xs"
-            tooltip={playgroundFullscreenTooltip(fullscreen)}
-            type="button"
-            variant="outline"
-          >
-            {fullscreen ? <Minimize2 /> : <Maximize2 />}
-          </ChromeTooltipButton>
-          {fullscreen ? null : (
-            <ChromeTooltipButton
-              aria-label={playgroundDockTooltip(docked)}
-              data-testid="playground-dock"
-              onClick={onToggleDock}
-              size="icon-xs"
-              tooltip={playgroundDockTooltip(docked)}
-              type="button"
-              variant="outline"
-            >
-              {docked ? <PanelLeftOpen /> : <PanelLeftClose />}
-            </ChromeTooltipButton>
-          )}
-          )}
-          {lockLayout ? null : (
-          <ChromeTooltipButton
-            aria-label={playgroundChromeTooltip("dismiss")}
-            data-testid="playground-dismiss"
-            onClick={() => dismissPlayground()}
-            size="icon-xs"
-            tooltip={playgroundChromeTooltip("dismiss")}
-            type="button"
-            variant="outline"
-          >
-            <ChevronLeft />
-          </ChromeTooltipButton>
+            <>
+              <ChromeTooltipButton
+                aria-label={playgroundFullscreenTooltip(fullscreen)}
+                data-testid="playground-fullscreen"
+                onClick={onToggleFullscreen}
+                size="icon-xs"
+                tooltip={playgroundFullscreenTooltip(fullscreen)}
+                type="button"
+                variant="outline"
+              >
+                {fullscreen ? <Minimize2 /> : <Maximize2 />}
+              </ChromeTooltipButton>
+              {fullscreen ? null : (
+                <ChromeTooltipButton
+                  aria-label={playgroundDockTooltip(docked)}
+                  data-testid="playground-dock"
+                  onClick={onToggleDock}
+                  size="icon-xs"
+                  tooltip={playgroundDockTooltip(docked)}
+                  type="button"
+                  variant="outline"
+                >
+                  {docked ? <PanelLeftOpen /> : <PanelLeftClose />}
+                </ChromeTooltipButton>
+              )}
+              <ChromeTooltipButton
+                aria-label={playgroundChromeTooltip("dismiss")}
+                data-testid="playground-dismiss"
+                onClick={() => dismissPlayground()}
+                size="icon-xs"
+                tooltip={playgroundChromeTooltip("dismiss")}
+                type="button"
+                variant="outline"
+              >
+                <ChevronLeft />
+              </ChromeTooltipButton>
+            </>
           )}
         </div>
         <div

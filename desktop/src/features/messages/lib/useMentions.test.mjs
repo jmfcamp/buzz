@@ -7,14 +7,10 @@ import {
   hasMention,
 } from "./hasMention.ts";
 import {
-  admitSendMentionPubkeys,
   extractMentionPubkeys,
+  selectedMentionLabel,
+  selectedMentionLabels,
 } from "./extractMentionPubkeys.ts";
-
-const MO = "d5c385179f67f8965e567c6721bd93f494bc74ef0ed67499b5842589564083ae";
-const FIZZ = "1".repeat(64);
-const NON_MEMBER_AGENT = "2".repeat(64);
-const ADA = "3".repeat(64);
 
 // ── Plain @mention ────────────────────────────────────────────────────
 
@@ -188,95 +184,6 @@ test("manual prefix mentions choose the longest name at each offset", () => {
   assert.deepEqual(pubkeys, ["fast-fizz-pubkey", "codex-pubkey"]);
 });
 
-test("admitSendMentionPubkeys: picker-selected catalog bot current member stays admitted", () => {
-  assert.deepEqual(
-    admitSendMentionPubkeys({
-      text: "@mo test",
-      selectedMentions: new Map([["mo", MO]]),
-      memberCandidates: [
-        {
-          displayName: "mo",
-          isMember: true,
-          pubkey: MO,
-        },
-      ],
-      agentIdentityPubkeys: new Set([MO]),
-      selectedAgentPubkeys: new Set([MO]),
-      admittedAgentPubkeys: new Set(),
-      memberPubkeys: [MO, ADA],
-      managedAgentPubkeys: [],
-      relayAgents: [],
-    }),
-    [MO],
-  );
-});
-
-test("admitSendMentionPubkeys: managed agents still require directory admission", () => {
-  const memberCandidates = [
-    { displayName: "Fizz", isMember: true, pubkey: FIZZ },
-    { displayName: "mo", isMember: true, pubkey: MO },
-  ];
-
-  assert.deepEqual(
-    admitSendMentionPubkeys({
-      text: "@Fizz @mo",
-      selectedMentions: new Map([
-        ["Fizz", FIZZ],
-        ["mo", MO],
-      ]),
-      memberCandidates,
-      agentIdentityPubkeys: new Set([FIZZ, MO]),
-      selectedAgentPubkeys: new Set([FIZZ, MO]),
-      admittedAgentPubkeys: new Set([FIZZ]),
-      memberPubkeys: [FIZZ, MO],
-      managedAgentPubkeys: [FIZZ],
-      relayAgents: [],
-    }),
-    [FIZZ, MO],
-  );
-
-  assert.deepEqual(
-    admitSendMentionPubkeys({
-      text: "@Fizz @mo",
-      selectedMentions: new Map([
-        ["Fizz", FIZZ],
-        ["mo", MO],
-      ]),
-      memberCandidates,
-      agentIdentityPubkeys: new Set([FIZZ, MO]),
-      selectedAgentPubkeys: new Set([FIZZ, MO]),
-      admittedAgentPubkeys: new Set(),
-      memberPubkeys: [FIZZ, MO],
-      managedAgentPubkeys: [FIZZ],
-      relayAgents: [],
-    }),
-    [MO],
-  );
-});
-
-test("admitSendMentionPubkeys: non-member agents stay gated", () => {
-  assert.deepEqual(
-    admitSendMentionPubkeys({
-      text: "@Remote @mo",
-      selectedMentions: new Map([
-        ["Remote", NON_MEMBER_AGENT],
-        ["mo", MO],
-      ]),
-      memberCandidates: [
-        { displayName: "mo", isMember: true, pubkey: MO },
-        { displayName: "Remote", isMember: false, pubkey: NON_MEMBER_AGENT },
-      ],
-      agentIdentityPubkeys: new Set([MO, NON_MEMBER_AGENT]),
-      selectedAgentPubkeys: new Set([MO, NON_MEMBER_AGENT]),
-      admittedAgentPubkeys: new Set(),
-      memberPubkeys: [MO],
-      managedAgentPubkeys: [],
-      relayAgents: [],
-    }),
-    [MO],
-  );
-});
-
 test("keeps manually typed prefix member mentions at distinct offsets", () => {
   const pubkeys = extractMentionPubkeys({
     text: "@Fast Fizz Codex, please pair with @Fast Fizz.",
@@ -341,4 +248,80 @@ test("does not treat escaped or unclosed backticks as code", () => {
 test("requires matching inline-code delimiter lengths", () => {
   assert.equal(hasMention("`` @Alice ` still code ``", "Alice"), false);
   assert.equal(hasMention("`` @Alice `", "Alice"), true);
+});
+
+for (const selected of [false, true]) {
+  test(`duplicate names ${selected ? "stay bound to selection after rename" : "require explicit selection"}`, () => {
+    const opts = {
+      text: "@Scout hello",
+      selectedMentions: new Map(selected ? [["Scout", "first"]] : []),
+      memberCandidates: [
+        {
+          pubkey: "first",
+          displayName: selected ? "Renamed" : "Scout",
+          isMember: true,
+        },
+        { pubkey: "second", displayName: "Scout", isMember: true },
+      ],
+    };
+    if (selected) assert.deepEqual(extractMentionPubkeys(opts), ["first"]);
+    else
+      assert.throws(
+        () => extractMentionPubkeys(opts),
+        /ambiguous.*Choose a recipient/,
+      );
+  });
+}
+
+test("a second same-name selection cannot redirect the first mention", () => {
+  const selected = new Map([["Scout", "first"]]);
+  const secondLabel = selectedMentionLabel("Scout", "second", selected);
+  selected.set(secondLabel, "second");
+  assert.deepEqual(
+    extractMentionPubkeys({
+      text: `@Scout and @${secondLabel}`,
+      selectedMentions: selected,
+      memberCandidates: [],
+    }),
+    ["first", "second"],
+  );
+});
+
+test("qualified-looking names cannot redirect an existing selection", () => {
+  const selected = new Map([
+    ["Scout", "first"],
+    ["Scout (second)", "third"],
+  ]);
+  const label = selectedMentionLabel("Scout", "second", selected);
+  assert.notEqual(label.toLowerCase(), "scout (second)");
+  selected.set(label, "second");
+  assert.deepEqual(
+    extractMentionPubkeys({
+      text: `@Scout and @Scout (second) and @${label}`,
+      selectedMentions: selected,
+      memberCandidates: [],
+    }),
+    ["first", "third", "second"],
+  );
+  assert.equal(selectedMentionLabel("Scout", "second", selected), label);
+});
+
+test("same-name teammates are bound sequentially without replacing either recipient", () => {
+  const selected = selectedMentionLabels(
+    [
+      { displayName: "Scout", pubkey: "first" },
+      { displayName: "Scout", pubkey: "second" },
+    ],
+    new Map(),
+  );
+  const bindings = new Map(selected.map((s) => [s.displayName, s.pubkey]));
+  assert.equal(bindings.size, 2);
+  assert.deepEqual(
+    extractMentionPubkeys({
+      text: selected.map((s) => `@${s.displayName}`).join(" "),
+      selectedMentions: bindings,
+      memberCandidates: [],
+    }),
+    ["first", "second"],
+  );
 });
