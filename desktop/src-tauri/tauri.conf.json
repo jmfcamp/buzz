@@ -42,11 +42,16 @@
   },
   "plugins": {
     "updater": {
-      "endpoints": []
+      "endpoints": [
+        "https://github.com/jmfcamp/buzz/releases/download/hula-desktop-latest/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZEMzVFNkQ4QjJFOUI4OEEKUldTS3VPbXkyT1kxYlpCc2VZa1AvZzNEL3REL04yUytxVk9iYzRWOWlYc0JSTDJjUDZVZUs4NzMK"
     },
     "deep-link": {
       "desktop": {
-        "schemes": ["hulabuzz"]
+        "schemes": [
+          "hulabuzz"
+        ]
       }
     }
   },
