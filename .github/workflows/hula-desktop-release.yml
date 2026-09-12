@@ -137,12 +137,18 @@ jobs:
           export BUZZ_UPDATER_PUBLIC_KEY
           BUZZ_UPDATER_PUBLIC_KEY=$(python3 -c 'import json; print(json.load(open("desktop/src-tauri/tauri.conf.json"))["plugins"]["updater"]["pubkey"])')
           export BUZZ_UPDATER_ENDPOINT="$HULA_UPDATER_ENDPOINT"
-          cd desktop && node scripts/build-release-config.mjs
-          # Guard: release config must never mention block/buzz
-          if grep -E 'block/buzz|buzz-desktop-latest' desktop/src-tauri/tauri.release.conf.json; then
-            echo "::error::release config leaked a Block updater reference"
-            exit 1
-          fi
+          # build-release-config.mjs writes relative to cwd (desktop/)
+          (
+            cd desktop
+            node scripts/build-release-config.mjs
+            # Guard: release config must never mention block/buzz
+            if grep -E 'block/buzz|buzz-desktop-latest' src-tauri/tauri.release.conf.json; then
+              echo "::error::release config leaked a Block updater reference"
+              exit 1
+            fi
+            # Confirm updater artifacts are enabled in the merged release delta
+            python3 -c 'import json,sys; cfg=json.load(open("src-tauri/tauri.release.conf.json")); ok=cfg.get("bundle",{}).get("createUpdaterArtifacts") is True; print("createUpdaterArtifacts=true OK") if ok else (print("::error::createUpdaterArtifacts missing/false in tauri.release.conf.json"), sys.exit(1))'
+          )
 
       - name: Build sidecars
         run: |
@@ -192,6 +198,8 @@ jobs:
           key: mesh-llama-${{ runner.os }}-metal-${{ steps.mesh_rev.outputs.rev }}
 
       - name: Build unsigned Tauri app (updater-signed)
+        # --no-sign skips Apple codesign AND Tauri updater .sig generation.
+        # createUpdaterArtifacts still emits .app.tar.gz; we sign it next.
         run: cd desktop && pnpm tauri build --verbose --no-sign --features mesh-llm --config src-tauri/tauri.release.conf.json
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -204,6 +212,53 @@ jobs:
           SKIPPY_LLAMA_AUTO_BUILD: "0"
           TAURI_BUNDLER_DMG_IGNORE_CI: "true"
 
+      # Tauri CLI treats --no-sign as skipping updater signing too (see build log:
+      # "Updater signing is skipped due to --no-sign flag"). Match Block's
+      # release.yml: build the .app.tar.gz if needed, then `tauri signer sign`.
+      - name: Ensure updater archive is signed
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          BUNDLE_DIR="desktop/src-tauri/target/release/bundle"
+          MACOS_DIR="$BUNDLE_DIR/macos"
+
+          echo "==> bundle/macos before signing:"
+          ls -la "$MACOS_DIR" || true
+          echo "==> bundle/dmg before signing:"
+          ls -la "$BUNDLE_DIR/dmg" || true
+
+          if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY secret is empty; cannot sign updater archive"
+            exit 1
+          fi
+
+          # productName is "Hula Buzz" → paths contain a space
+          APP=$(find "$MACOS_DIR" -maxdepth 1 -name '*.app' -type d | head -1)
+          [[ -n "$APP" ]] || { echo "::error::No .app found in $MACOS_DIR"; exit 1; }
+          APP_BASENAME=$(basename "$APP")
+          ARCHIVE="$MACOS_DIR/${APP_BASENAME}.tar.gz"
+
+          if [[ ! -f "$ARCHIVE" ]]; then
+            echo "==> Creating updater archive from $APP_BASENAME"
+            # Prefer existing *.tar.gz elsewhere under bundle/, else tar the .app
+            FOUND=$(find "$BUNDLE_DIR" -name '*.tar.gz' ! -name '*.sig' -type f | head -1 || true)
+            if [[ -n "$FOUND" ]]; then
+              cp "$FOUND" "$ARCHIVE"
+            else
+              (cd "$MACOS_DIR" && tar -czf "${APP_BASENAME}.tar.gz" "$APP_BASENAME")
+            fi
+          fi
+
+          rm -f "${ARCHIVE}.sig"
+          # tauri signer needs an absolute path; quote for spaces in productName
+          TARBALL_ABS="$(cd "$(dirname "$ARCHIVE")" && pwd)/$(basename "$ARCHIVE")"
+          echo "==> Signing updater archive: $TARBALL_ABS"
+          (cd desktop && pnpm tauri signer sign "$TARBALL_ABS")
+          [[ -f "${ARCHIVE}.sig" ]] || { echo "::error::signer did not produce ${ARCHIVE}.sig"; exit 1; }
+          ls -la "$ARCHIVE" "${ARCHIVE}.sig"
+
       - name: Locate and stage artifacts
         id: artifacts
         run: |
@@ -211,16 +266,43 @@ jobs:
           BUNDLE_DIR="desktop/src-tauri/target/release/bundle"
           mkdir -p staged
 
-          DMG=$(find "$BUNDLE_DIR/dmg" -name '*.dmg' -type f | head -1)
-          [[ -n "$DMG" ]] || { echo "::error::No DMG found in $BUNDLE_DIR/dmg"; exit 1; }
+          dump_bundle() {
+            echo "==> ls -la $BUNDLE_DIR/macos"
+            ls -la "$BUNDLE_DIR/macos" || true
+            echo "==> ls -la $BUNDLE_DIR/dmg"
+            ls -la "$BUNDLE_DIR/dmg" || true
+            echo "==> find updater-ish files under $BUNDLE_DIR"
+            find "$BUNDLE_DIR" \( -name '*.tar.gz' -o -name '*.sig' -o -name '*.app' -o -name '*.dmg' \) -print 2>/dev/null || true
+          }
+
+          fail() {
+            echo "::error::$1"
+            dump_bundle
+            exit 1
+          }
+
+          dump_bundle
+
+          DMG=$(find "$BUNDLE_DIR/dmg" -name '*.dmg' -type f | head -1 || true)
+          [[ -n "$DMG" ]] || fail "No DMG found in $BUNDLE_DIR/dmg"
 
           # productName is "Hula Buzz" → app bundle has a space
-          APP=$(find "$BUNDLE_DIR/macos" -maxdepth 1 -name '*.app' -type d | head -1)
-          [[ -n "$APP" ]] || { echo "::error::No .app found in $BUNDLE_DIR/macos"; exit 1; }
+          APP=$(find "$BUNDLE_DIR/macos" -maxdepth 1 -name '*.app' -type d | head -1 || true)
+          [[ -n "$APP" ]] || fail "No .app found in $BUNDLE_DIR/macos"
 
-          ARCHIVE=$(find "$BUNDLE_DIR/macos" -name '*.tar.gz' ! -name '*.sig' -type f | head -1)
+          # Prefer macos/*.tar.gz; fall back to anywhere under bundle/
+          ARCHIVE=$(find "$BUNDLE_DIR/macos" -name '*.tar.gz' ! -name '*.sig' -type f | head -1 || true)
+          if [[ -z "$ARCHIVE" ]]; then
+            ARCHIVE=$(find "$BUNDLE_DIR" -name '*.tar.gz' ! -name '*.sig' -type f | head -1 || true)
+          fi
+          [[ -n "$ARCHIVE" ]] || fail "Updater .tar.gz missing under $BUNDLE_DIR"
+
           SIG="${ARCHIVE}.sig"
-          [[ -n "$ARCHIVE" && -f "$SIG" ]] || { echo "::error::Updater archive or .sig missing"; exit 1; }
+          if [[ ! -f "$SIG" ]]; then
+            # Some Tauri layouts nest .sig beside a differently named archive
+            SIG=$(find "$BUNDLE_DIR" -name '*.tar.gz.sig' -type f | head -1 || true)
+          fi
+          [[ -n "$SIG" && -f "$SIG" ]] || fail "Updater .sig missing for archive: $ARCHIVE"
 
           DMG_NAME="HulaBuzz_${VERSION}_aarch64.dmg"
           ARCHIVE_NAME="HulaBuzz_${VERSION}_aarch64.app.tar.gz"
