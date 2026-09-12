@@ -4,6 +4,7 @@ mod acp;
 mod config;
 mod engram_fetch;
 mod filter;
+mod last_mile;
 mod observer;
 mod pi_launcher;
 mod pool;
@@ -3303,7 +3304,19 @@ async fn tokio_main() -> Result<()> {
 
                                     if subscribed_channel_ids.contains(&ch) {
                                         tracing::debug!(channel_id = %ch, "membership notification: channel already subscribed");
-                                    } else if let Some(filter) = config::resolve_dynamic_channel_filter(&config, ch, &rules) {
+                                    } else if let Some(filter) = {
+                                        let channel_type = ctx
+                                            .channel_info
+                                            .resolve_channel_metadata(ch)
+                                            .await
+                                            .map(|info| info.channel_type);
+                                        config::resolve_dynamic_channel_filter(
+                                            &config,
+                                            ch,
+                                            &rules,
+                                            channel_type.as_deref(),
+                                        )
+                                    } {
                                         tracing::info!(channel_id = %ch, "membership notification: subscribing to new channel");
                                         if let Err(e) = relay.subscribe_channel_from(ch, filter, Some(ts)).await {
                                             tracing::warn!("failed to subscribe to new channel {ch}: {e}");
