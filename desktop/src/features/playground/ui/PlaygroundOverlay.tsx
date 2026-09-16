@@ -19,8 +19,10 @@ import {
   PLAYGROUND_FULLSCREEN_TITLEBAR_GAP_TEST_ID,
   PLAYGROUND_OPAQUE_FILL_STYLE,
   PLAYGROUND_OVERLAY_SURFACE_CLASS,
+  playgroundChromeLayoutFlags,
   playgroundFullscreenTitlebarGapClass,
   playgroundOverlayPlacementClass,
+  playgroundShowsTitlebarGap,
   playgroundStageLayoutKey,
 } from "../lib/overlayLayout";
 import type { PlaygroundSession } from "../lib/sessions";
@@ -52,6 +54,9 @@ export function PlaygroundOverlay({
   }, []);
 
   const getThreadEdge = React.useCallback(() => {
+    // Split pop-outs are real panes. The thread is the other flex child,
+    // not a channel column to overlay up to.
+    if (lockPlacement === "dock") return null;
     if (!playgroundConversationHasOpenThread(conversation)) return null;
     const main = overlayRef.current?.parentElement;
     if (!main) return null;
@@ -59,7 +64,7 @@ export function PlaygroundOverlay({
       `[data-testid="${PLAYGROUND_CHANNEL_THREAD_PANEL_TEST_ID}"]`,
     );
     return readPlaygroundDockThreadEdge(main, thread);
-  }, [conversation]);
+  }, [conversation, lockPlacement]);
 
   const { onResetWidth, onResizeStart, prepareDockWidth, widthPx } =
     usePlaygroundDockWidth(getMainWidth, getThreadEdge);
@@ -94,6 +99,7 @@ export function PlaygroundOverlay({
 
   const placement = playgroundOverlayPlacement(fullscreen, docked);
   const dockVisible = placement === "dock";
+  const chromeLayout = playgroundChromeLayoutFlags(lockPlacement);
 
   // Exiting fullscreen restores dock when they entered from dock
   // (`docked` stays true). Escape / the fullscreen control do not expand.
@@ -103,7 +109,7 @@ export function PlaygroundOverlay({
         "flex min-h-0 min-w-0 flex-col isolate",
         placement !== "dock" && "overflow-hidden",
         PLAYGROUND_OVERLAY_SURFACE_CLASS,
-        playgroundOverlayPlacementClass(placement),
+        playgroundOverlayPlacementClass(placement, lockPlacement === "dock"),
       )}
       data-docked={docked ? "true" : undefined}
       data-fullscreen={fullscreen ? "true" : undefined}
@@ -114,7 +120,7 @@ export function PlaygroundOverlay({
         ...(dockVisible ? { width: widthPx } : undefined),
       }}
     >
-      {fullscreen ? (
+      {playgroundShowsTitlebarGap(fullscreen) ? (
         <div
           aria-hidden
           className={cn("shrink-0", playgroundFullscreenTitlebarGapClass)}
@@ -127,13 +133,17 @@ export function PlaygroundOverlay({
         conversation={conversation}
         docked={docked}
         fullscreen={fullscreen}
-        lockLayout={lockPlacement != null}
+        hideDismiss={chromeLayout.hideDismiss}
+        hideDispose={chromeLayout.hideDispose}
+        hideDock={chromeLayout.hideDock}
+        lockPlacement={lockPlacement}
         mode={mode}
         onModeChange={setMode}
         onStageResync={bumpStageLayout}
         onToggleDock={toggleDock}
         onToggleFullscreen={() => setOverlayFullscreen(!fullscreen)}
         session={session}
+        showFullscreen={chromeLayout.showFullscreen}
       />
       <PlaygroundStage
         layoutKey={playgroundStageLayoutKey(fullscreen, layoutEpoch, docked)}

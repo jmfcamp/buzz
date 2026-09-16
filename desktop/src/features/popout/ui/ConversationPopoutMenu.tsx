@@ -1,7 +1,10 @@
 import { AppWindow, Columns2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { openPopoutWindow } from "@/features/popout/lib/popoutWindow";
+import {
+  openPopoutWindow,
+  popoutErrorMessage,
+} from "@/features/popout/lib/popoutWindow";
 import { listPlaygroundSessions } from "@/features/playground/lib/sessions";
 import type { PlaygroundCard } from "@/features/playground/lib/types";
 import { Button } from "@/shared/ui/button";
@@ -15,11 +18,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/shared/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 
 function sessionAsCard(session: {
   sid: string;
@@ -46,40 +45,44 @@ export function ConversationPopoutMenu({
   threadId,
 }: {
   channelId: string;
-  threadId?: string | null;
+  threadId: string;
 }) {
   const playgrounds = listPlaygroundSessions().map(sessionAsCard);
 
   async function openPlain() {
+    if (!threadId) {
+      toast.error("Open a thread first.");
+      return;
+    }
     try {
       await openPopoutWindow({
         kind: "thread",
-        title: threadId ? "Thread" : "Channel",
-        seed: threadId ? `${channelId}-${threadId}` : channelId,
+        title: "Thread",
+        seed: `${channelId}-${threadId}`,
         channelId,
-        ...(threadId ? { threadId } : {}),
+        threadId,
       });
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Could not open window.",
-      );
+      toast.error(popoutErrorMessage(error, "Could not open window."));
     }
   }
 
   async function openSplit(playground: PlaygroundCard) {
+    if (!threadId) {
+      toast.error("Open a thread first.");
+      return;
+    }
     try {
       await openPopoutWindow({
         kind: "split",
         title: playground.name,
-        seed: `${playground.sid}-${channelId}-${threadId ?? "channel"}`,
+        seed: `${playground.sid}-${channelId}-${threadId}`,
         channelId,
-        ...(threadId ? { threadId } : {}),
+        threadId,
         playground,
       });
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Could not open split window.",
-      );
+      toast.error(popoutErrorMessage(error, "Could not open split."));
     }
   }
 
