@@ -197,7 +197,9 @@ export function closeEmbeddedWindow(label: string) {
   if (wasActive) store.activeLabel = null;
   persist();
   emit();
-  if (sid && wasActive) void hidePlaygroundWebview(sid);
+  // Always hide: an inactive row can still own a leaked topmost child if a
+  // prior dismiss raced an in-flight show.
+  if (sid) void hidePlaygroundWebview(sid);
 }
 
 function defaultTitle(kind: EmbeddedPayload["kind"]): string {

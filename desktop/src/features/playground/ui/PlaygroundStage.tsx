@@ -363,16 +363,24 @@ function NativeStageHost({
       if (!playgroundWebviewBoundsAreUsable(bounds)) return;
       if (!opened) {
         opened = true;
+        const sid = session.sid;
         void showPlaygroundWebview({
-          sid: session.sid,
+          sid,
           url: session.url,
           bounds,
           userAgent,
-        }).then(() =>
-          evalPlaygroundWebview(session.sid, PLAYGROUND_DOM_PROBE_SCRIPT),
-        );
+        }).then(() => {
+          // Dismiss/unmount may have won the race while show was in flight.
+          // Re-hide so the WKWebView cannot sit orphaned above the shell.
+          if (cancelled) {
+            void hidePlaygroundWebview(sid);
+            return;
+          }
+          return evalPlaygroundWebview(sid, PLAYGROUND_DOM_PROBE_SCRIPT);
+        });
         return;
       }
+      if (cancelled) return;
       void setPlaygroundWebviewBounds(session.sid, bounds, userAgent);
     };
 

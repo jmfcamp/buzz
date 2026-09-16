@@ -176,7 +176,7 @@ test("stage layout key changes when fullscreen or dock toggles", () => {
   );
 });
 
-test("locked chrome hides dispose/dock/dismiss; split still shows fullscreen", () => {
+test("locked chrome hides dispose/dock; OS pop-out hides dismiss; embed keeps it", () => {
   assert.deepEqual(playgroundChromeLayoutFlags(), {
     hideDispose: false,
     hideDock: false,
@@ -186,10 +186,22 @@ test("locked chrome hides dispose/dock/dismiss; split still shows fullscreen", (
   assert.deepEqual(playgroundChromeLayoutFlags("window"), {
     hideDispose: true,
     hideDock: true,
+    hideDismiss: false,
+    showFullscreen: false,
+  });
+  assert.deepEqual(playgroundChromeLayoutFlags("window", { isOsPopout: true }), {
+    hideDispose: true,
+    hideDock: true,
     hideDismiss: true,
     showFullscreen: false,
   });
   assert.deepEqual(playgroundChromeLayoutFlags("dock"), {
+    hideDispose: true,
+    hideDock: true,
+    hideDismiss: false,
+    showFullscreen: true,
+  });
+  assert.deepEqual(playgroundChromeLayoutFlags("dock", { isOsPopout: true }), {
     hideDispose: true,
     hideDock: true,
     hideDismiss: true,

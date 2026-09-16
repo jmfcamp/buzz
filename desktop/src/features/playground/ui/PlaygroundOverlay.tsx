@@ -25,6 +25,7 @@ import {
   playgroundShowsTitlebarGap,
   playgroundStageLayoutKey,
 } from "../lib/overlayLayout";
+import { currentPopoutPayload } from "@/features/popout/lib/popoutWindow";
 import type { PlaygroundSession } from "../lib/sessions";
 import { usePlaygroundDockWidth } from "../lib/usePlaygroundDockWidth";
 import { PlaygroundChrome } from "./PlaygroundChrome";
@@ -99,7 +100,9 @@ export function PlaygroundOverlay({
 
   const placement = playgroundOverlayPlacement(fullscreen, docked);
   const dockVisible = placement === "dock";
-  const chromeLayout = playgroundChromeLayoutFlags(lockPlacement);
+  const chromeLayout = playgroundChromeLayoutFlags(lockPlacement, {
+    isOsPopout: currentPopoutPayload() != null,
+  });
 
   // Exiting fullscreen restores dock when they entered from dock
   // (`docked` stays true). Escape / the fullscreen control do not expand.

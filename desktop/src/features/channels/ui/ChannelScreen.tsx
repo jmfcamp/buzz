@@ -19,7 +19,6 @@ import {
 import { ChannelScreenEmptyState } from "@/features/channels/ui/ChannelScreenEmptyState";
 import { ChannelScreenHeader } from "@/features/channels/ui/ChannelScreenHeader";
 import { usePopoutThreadOnlyLayout } from "@/features/popout/lib/popoutLayout";
-import { ChannelPane } from "@/features/channels/ui/ChannelScreenLazyViews";
 import { WelcomeAgentCreateDialog } from "@/features/channels/ui/WelcomeAgentCreateDialog";
 import { ForumChannelContent } from "@/features/channels/ui/ForumChannelContent";
 import { MembersSidebar } from "@/features/channels/ui/MembersSidebar";

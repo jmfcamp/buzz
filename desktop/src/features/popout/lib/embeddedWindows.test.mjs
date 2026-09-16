@@ -124,3 +124,55 @@ test("dismissing and closing an embed split parks the playground host", async ()
   assert.equal(getActiveEmbeddedWindow(), null);
   closeEmbeddedWindow("popout-split-aaa");
 });
+
+
+test("closeEmbeddedWindow removes inactive rows and parks active sid", async () => {
+  const settings = await import("./popoutSettings.ts");
+  const {
+    closeEmbeddedWindow,
+    getActiveEmbeddedWindow,
+    listEmbeddedWindows,
+    openEmbeddedWindow,
+    showEmbeddedWindow,
+  } = await import("./embeddedWindows.ts");
+
+  settings.setShowWindowsSection(true);
+  settings.setEmbedInMain(true);
+  openEmbeddedWindow({
+    label: "popout-playground-one",
+    payload: {
+      kind: "playground",
+      title: "One",
+      playground: {
+        hula: "playground",
+        v: 1,
+        name: "One",
+        url: "https://one.example.com",
+        sid: "one",
+      },
+    },
+  });
+  openEmbeddedWindow({
+    label: "popout-playground-two",
+    payload: {
+      kind: "playground",
+      title: "Two",
+      playground: {
+        hula: "playground",
+        v: 1,
+        name: "Two",
+        url: "https://two.example.com",
+        sid: "two",
+      },
+    },
+  });
+  showEmbeddedWindow("popout-playground-two");
+  assert.equal(getActiveEmbeddedWindow()?.label, "popout-playground-two");
+  closeEmbeddedWindow("popout-playground-one");
+  assert.equal(listEmbeddedWindows().length, 1);
+  assert.equal(listEmbeddedWindows()[0]?.label, "popout-playground-two");
+  assert.equal(getActiveEmbeddedWindow()?.label, "popout-playground-two");
+  closeEmbeddedWindow("popout-playground-two");
+  assert.equal(listEmbeddedWindows().length, 0);
+  assert.equal(getActiveEmbeddedWindow(), null);
+});

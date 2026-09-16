@@ -164,3 +164,65 @@ test("parkPlaygroundHost parks overlay and embed-only split", async () => {
   assert.equal(selected, true);
   assert.equal(embedded.getActiveEmbeddedWindow(), null);
 });
+
+
+test("dismissPlayground parks embed-only host like parkPlaygroundHost", async () => {
+  const {
+    configurePlaygroundScope,
+    dismissPlayground,
+    getActivePlaygroundSid,
+  } = await import("./sessions.ts");
+  const settings = await import("../../popout/lib/popoutSettings.ts");
+  const embedded = await import("../../popout/lib/embeddedWindows.ts");
+
+  configurePlaygroundScope("pub", "wss://relay.example.com");
+  settings.setShowWindowsSection(true);
+  settings.setEmbedInMain(true);
+  embedded.openEmbeddedWindow({
+    label: "popout-playground-bbb",
+    payload: {
+      kind: "playground",
+      title: "Demo",
+      playground: card,
+    },
+  });
+  assert.equal(embedded.getActiveEmbeddedWindow()?.label, "popout-playground-bbb");
+  assert.equal(getActivePlaygroundSid(), null);
+
+  dismissPlayground();
+  assert.equal(embedded.getActiveEmbeddedWindow(), null);
+  assert.equal(getActivePlaygroundSid(), null);
+});
+
+test("dismissPlayground is an alias of parkPlaygroundHost for chrome X", async () => {
+  const {
+    addPlaygroundSession,
+    configurePlaygroundScope,
+    dismissPlayground,
+    getActivePlaygroundSid,
+  } = await import("./sessions.ts");
+  const settings = await import("../../popout/lib/popoutSettings.ts");
+  const embedded = await import("../../popout/lib/embeddedWindows.ts");
+
+  configurePlaygroundScope("pub", "wss://relay.example.com");
+  addPlaygroundSession(card);
+  settings.setShowWindowsSection(true);
+  settings.setEmbedInMain(true);
+  embedded.openEmbeddedWindow({
+    label: "popout-split-ccc",
+    payload: {
+      kind: "split",
+      title: "Split",
+      threadId: "t1",
+      playground: { ...card, sid: "demo-2", name: "Other" },
+    },
+  });
+  // Overlay was parked when the embed opened.
+  assert.equal(getActivePlaygroundSid(), null);
+  assert.equal(embedded.getActiveEmbeddedWindow()?.label, "popout-split-ccc");
+
+  // Chrome X must tear down the embed host, same as parkPlaygroundHost.
+  dismissPlayground();
+  assert.equal(embedded.getActiveEmbeddedWindow(), null);
+  assert.equal(getActivePlaygroundSid(), null);
+});

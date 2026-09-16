@@ -159,12 +159,14 @@ export type PlaygroundChromeLayoutFlags = {
 };
 
 /**
- * Pop-outs lock split/window placement: hide dispose, dock, and dismiss.
- * Split pop-outs still expose fullscreen so the playground can cover both
- * panes; playground-only pop-outs are already the full window.
+ * Locked placement (split/window) hides dispose and dock.
+ * OS pop-outs also hide dismiss (close the OS window instead). In-main embeds
+ * keep dismiss so chrome X can park React state and the native WKWebView.
+ * Split still exposes fullscreen so the playground can cover both panes.
  */
 export function playgroundChromeLayoutFlags(
   lockPlacement?: "window" | "dock",
+  options?: { isOsPopout?: boolean },
 ): PlaygroundChromeLayoutFlags {
   if (lockPlacement == null) {
     return {
@@ -177,7 +179,7 @@ export function playgroundChromeLayoutFlags(
   return {
     hideDispose: true,
     hideDock: true,
-    hideDismiss: true,
+    hideDismiss: options?.isOsPopout === true,
     showFullscreen: lockPlacement === "dock",
   };
 }
