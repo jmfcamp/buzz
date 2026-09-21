@@ -6,9 +6,9 @@ use std::path::PathBuf;
 
 use crate::app_state::keyring_service;
 use crate::managed_agents::config_bridge::claude::{
-    OPENCLAW_WORKSPACE_MCP_NAME, remove_mcp_server, upsert_http_mcp_server,
+    remove_mcp_server, upsert_http_mcp_server, OPENCLAW_WORKSPACE_MCP_NAME,
 };
-use crate::managed_agents::{BackendKind, ManagedAgentRecord, load_managed_agents};
+use crate::managed_agents::{load_managed_agents, BackendKind, ManagedAgentRecord};
 use crate::secret_store::SecretStore;
 
 const GRANT_KEY: &str = "openclaw-workspace-mcp-grant";

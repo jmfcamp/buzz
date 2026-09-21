@@ -381,11 +381,9 @@ mod tests {
         remove_mcp_server(Some(dir.path()), OPENCLAW_WORKSPACE_MCP_NAME).unwrap();
         let raw2 = std::fs::read_to_string(&path).unwrap();
         let val2: serde_json::Value = serde_json::from_str(&raw2).unwrap();
-        assert!(
-            val2["mcpServers"]
-                .get(OPENCLAW_WORKSPACE_MCP_NAME)
-                .is_none()
-        );
+        assert!(val2["mcpServers"]
+            .get(OPENCLAW_WORKSPACE_MCP_NAME)
+            .is_none());
     }
 
     #[test]
