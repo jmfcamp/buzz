@@ -90,11 +90,14 @@ pub(crate) fn mcp_config_path(config_dir: Option<&std::path::Path>) -> Option<st
 }
 
 /// Upsert an HTTP MCP server entry into `.claude.json` (creates parents/file).
+/// `headers` must include Authorization (Bearer …); additional keys (e.g. CF Access)
+/// are merged in. Authorization from `authorization` always wins.
 pub(crate) fn upsert_http_mcp_server(
     config_dir: Option<&std::path::Path>,
     name: &str,
     url: &str,
     authorization: &str,
+    headers: Option<&std::collections::HashMap<String, String>>,
 ) -> Result<std::path::PathBuf, String> {
     let path = mcp_config_path(config_dir).ok_or_else(|| "home directory unavailable".to_string())?;
     if let Some(parent) = path.parent() {
@@ -124,14 +127,25 @@ pub(crate) fn upsert_http_mcp_server(
     if !servers.is_object() {
         *servers = serde_json::json!({});
     }
+    let mut header_map = serde_json::Map::new();
+    if let Some(extra) = headers {
+        for (k, v) in extra {
+            if k.trim().is_empty() || v.trim().is_empty() {
+                continue;
+            }
+            header_map.insert(k.clone(), serde_json::Value::String(v.clone()));
+        }
+    }
+    header_map.insert(
+        "Authorization".to_string(),
+        serde_json::Value::String(authorization.to_string()),
+    );
     servers.as_object_mut().unwrap().insert(
         name.to_string(),
         serde_json::json!({
             "type": "http",
             "url": url,
-            "headers": {
-                "Authorization": authorization
-            }
+            "headers": header_map
         }),
     );
     let pretty = serde_json::to_string_pretty(&root)
@@ -356,6 +370,7 @@ mod tests {
             OPENCLAW_WORKSPACE_MCP_NAME,
             "https://workspace.hulapreview.com/mcp",
             "Bearer test.jwt.token",
+            None,
         )
         .unwrap();
         assert!(path.ends_with(".claude.json"));
@@ -372,5 +387,28 @@ mod tests {
         let raw2 = std::fs::read_to_string(&path).unwrap();
         let val2: serde_json::Value = serde_json::from_str(&raw2).unwrap();
         assert!(val2["mcpServers"].get(OPENCLAW_WORKSPACE_MCP_NAME).is_none());
+    }
+
+    #[test]
+    fn upsert_http_mcp_server_merges_cf_headers() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut headers = std::collections::HashMap::new();
+        headers.insert("CF-Access-Client-Id".into(), "cf-id".into());
+        headers.insert("CF-Access-Client-Secret".into(), "cf-secret".into());
+        headers.insert("Authorization".into(), "Bearer stale".into());
+        let path = upsert_http_mcp_server(
+            Some(dir.path()),
+            OPENCLAW_WORKSPACE_MCP_NAME,
+            "https://workspace.hulapreview.com/mcp",
+            "Bearer wins",
+            Some(&headers),
+        )
+        .unwrap();
+        let raw = std::fs::read_to_string(&path).unwrap();
+        let val: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        let hdrs = &val["mcpServers"][OPENCLAW_WORKSPACE_MCP_NAME]["headers"];
+        assert_eq!(hdrs["Authorization"], "Bearer wins");
+        assert_eq!(hdrs["CF-Access-Client-Id"], "cf-id");
+        assert_eq!(hdrs["CF-Access-Client-Secret"], "cf-secret");
     }
 }

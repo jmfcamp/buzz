@@ -16,6 +16,7 @@ export async function applyOpenClawWorkspaceGrant(input: {
   url: string;
   authorization: string;
   expiresAt: string;
+  headers?: Record<string, string>;
   relay?: string;
   connectedViaRelay?: boolean;
 }): Promise<OpenClawWorkspaceStatus> {
@@ -23,6 +24,7 @@ export async function applyOpenClawWorkspaceGrant(input: {
     url: input.url,
     authorization: input.authorization,
     expiresAt: input.expiresAt,
+    headers: input.headers ?? null,
     relay: input.relay ?? null,
     connectedViaRelay: input.connectedViaRelay ?? true,
   });
