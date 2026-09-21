@@ -75,8 +75,6 @@ fn json_string(val: &serde_json::Value, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-
-
 pub(crate) const OPENCLAW_WORKSPACE_MCP_NAME: &str = "openclaw-workspace";
 
 /// Resolve the `.claude.json` path the same way [`read_config_file`] does.
@@ -99,7 +97,8 @@ pub(crate) fn upsert_http_mcp_server(
     authorization: &str,
     headers: Option<&std::collections::HashMap<String, String>>,
 ) -> Result<std::path::PathBuf, String> {
-    let path = mcp_config_path(config_dir).ok_or_else(|| "home directory unavailable".to_string())?;
+    let path =
+        mcp_config_path(config_dir).ok_or_else(|| "home directory unavailable".to_string())?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("failed to create Claude config dir: {e}"))?;
@@ -170,7 +169,6 @@ pub(crate) fn upsert_http_mcp_server(
     }
     Ok(path)
 }
-
 
 /// Remove an MCP server entry by name. No-op if missing.
 pub(crate) fn remove_mcp_server(
@@ -379,14 +377,15 @@ mod tests {
         let server = &val["mcpServers"][OPENCLAW_WORKSPACE_MCP_NAME];
         assert_eq!(server["type"], "http");
         assert_eq!(server["url"], "https://workspace.hulapreview.com/mcp");
-        assert_eq!(
-            server["headers"]["Authorization"],
-            "Bearer test.jwt.token"
-        );
+        assert_eq!(server["headers"]["Authorization"], "Bearer test.jwt.token");
         remove_mcp_server(Some(dir.path()), OPENCLAW_WORKSPACE_MCP_NAME).unwrap();
         let raw2 = std::fs::read_to_string(&path).unwrap();
         let val2: serde_json::Value = serde_json::from_str(&raw2).unwrap();
-        assert!(val2["mcpServers"].get(OPENCLAW_WORKSPACE_MCP_NAME).is_none());
+        assert!(
+            val2["mcpServers"]
+                .get(OPENCLAW_WORKSPACE_MCP_NAME)
+                .is_none()
+        );
     }
 
     #[test]

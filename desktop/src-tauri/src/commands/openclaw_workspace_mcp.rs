@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use tauri::AppHandle;
 
 use crate::managed_agents::openclaw_workspace_mcp::{
-    apply_grant, disconnect, status, OpenClawWorkspaceGrant, OpenClawWorkspaceStatus,
+    OpenClawWorkspaceGrant, OpenClawWorkspaceStatus, apply_grant, disconnect, status,
 };
 
 #[tauri::command]
@@ -56,6 +56,8 @@ pub fn apply_openclaw_workspace_mcp_grant(
 }
 
 #[tauri::command]
-pub fn disconnect_openclaw_workspace_mcp(app: AppHandle) -> Result<OpenClawWorkspaceStatus, String> {
+pub fn disconnect_openclaw_workspace_mcp(
+    app: AppHandle,
+) -> Result<OpenClawWorkspaceStatus, String> {
     disconnect(&app)
 }

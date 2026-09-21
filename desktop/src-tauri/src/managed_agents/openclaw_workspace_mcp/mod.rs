@@ -6,9 +6,9 @@ use std::path::PathBuf;
 
 use crate::app_state::keyring_service;
 use crate::managed_agents::config_bridge::claude::{
-    remove_mcp_server, upsert_http_mcp_server, OPENCLAW_WORKSPACE_MCP_NAME,
+    OPENCLAW_WORKSPACE_MCP_NAME, remove_mcp_server, upsert_http_mcp_server,
 };
-use crate::managed_agents::{load_managed_agents, BackendKind, ManagedAgentRecord};
+use crate::managed_agents::{BackendKind, ManagedAgentRecord, load_managed_agents};
 use crate::secret_store::SecretStore;
 
 const GRANT_KEY: &str = "openclaw-workspace-mcp-grant";
@@ -49,8 +49,8 @@ pub fn load_grant() -> Result<Option<OpenClawWorkspaceGrant>, String> {
     let Some(raw) = raw else {
         return Ok(None);
     };
-    let grant: OpenClawWorkspaceGrant = serde_json::from_str(&raw)
-        .map_err(|e| format!("corrupt openclaw workspace grant: {e}"))?;
+    let grant: OpenClawWorkspaceGrant =
+        serde_json::from_str(&raw).map_err(|e| format!("corrupt openclaw workspace grant: {e}"))?;
     Ok(Some(grant))
 }
 

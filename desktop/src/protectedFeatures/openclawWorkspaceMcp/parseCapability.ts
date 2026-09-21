@@ -50,7 +50,8 @@ export function parseOpenClawWorkspaceMcpCapability(
   if (!mcp || typeof mcp !== "object") return null;
   const m = mcp as Record<string, unknown>;
   if (typeof m.url !== "string" || !m.url.trim()) return null;
-  if (typeof m.authorization !== "string" || !m.authorization.trim()) return null;
+  if (typeof m.authorization !== "string" || !m.authorization.trim())
+    return null;
   if (typeof m.expiresAt !== "string" || !m.expiresAt.trim()) return null;
   const headers = parseHeaders(m.headers);
   const v = typeof obj.v === "number" ? obj.v : 1;
