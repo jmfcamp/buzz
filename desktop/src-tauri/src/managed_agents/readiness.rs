@@ -1517,6 +1517,7 @@ mod tests {
             env_vars,
             start_on_app_launch: false,
             auto_restart_on_config_change: true,
+            use_openclaw_workspace: false,
             runtime_pid: None,
             backend: Default::default(),
             backend_agent_id: None,
