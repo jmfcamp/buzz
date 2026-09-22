@@ -811,6 +811,7 @@ export async function createManagedAgent(input: CreateManagedAgentInput) {
         respondTo: input.respondTo,
         respondToAllowlist: input.respondToAllowlist,
         relayMesh: input.relayMesh,
+        useOpenClawWorkspace: input.useOpenClawWorkspace ?? false,
       },
     },
   );

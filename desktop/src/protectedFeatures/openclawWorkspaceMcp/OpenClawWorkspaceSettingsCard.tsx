@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { useFeatureEnabled } from "@/shared/features";
 import { Button } from "@/shared/ui/button";
 import {
   disconnectOpenClawWorkspace,
   fetchOpenClawWorkspaceStatus,
+  refreshOpenClawWorkspace,
+  testOpenClawWorkspace,
   type OpenClawWorkspaceStatus,
 } from "./api";
 
@@ -17,13 +20,15 @@ function formatExpiry(iso: string | null | undefined): string {
   });
 }
 
+type BusyAction = "test" | "refresh" | "disconnect" | null;
+
 export function OpenClawWorkspaceSettingsCard() {
   const enabled = useFeatureEnabled("openclaw-workspace-mcp");
   const [status, setStatus] = useState<OpenClawWorkspaceStatus | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<BusyAction>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
+  const reload = useCallback(async () => {
     try {
       setError(null);
       setStatus(await fetchOpenClawWorkspaceStatus());
@@ -34,12 +39,30 @@ export function OpenClawWorkspaceSettingsCard() {
 
   useEffect(() => {
     if (!enabled) return;
-    void refresh();
-  }, [enabled, refresh]);
+    void reload();
+  }, [enabled, reload]);
 
   if (!enabled) return null;
 
   const connected = status?.connected === true;
+  const anyBusy = busy !== null;
+
+  async function runAction(
+    action: Exclude<BusyAction, null>,
+    work: () => Promise<void>,
+  ) {
+    setBusy(action);
+    setError(null);
+    try {
+      await work();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      toast.error(message);
+    } finally {
+      setBusy(null);
+    }
+  }
 
   return (
     <div
@@ -80,22 +103,59 @@ export function OpenClawWorkspaceSettingsCard() {
           ) : null}
         </div>
         {connected ? (
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={busy}
-            onClick={() => {
-              setBusy(true);
-              void disconnectOpenClawWorkspace()
-                .then(setStatus)
-                .catch((err) =>
-                  setError(err instanceof Error ? err.message : String(err)),
-                )
-                .finally(() => setBusy(false));
-            }}
-          >
-            Disconnect
-          </Button>
+          <div className="flex shrink-0 flex-wrap justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={anyBusy}
+              data-testid="settings-openclaw-workspace-test"
+              onClick={() => {
+                void runAction("test", async () => {
+                  const result = await testOpenClawWorkspace();
+                  if (result.ok) {
+                    toast.success(result.message);
+                  } else {
+                    setError(result.message);
+                    toast.error(result.message);
+                  }
+                });
+              }}
+            >
+              {busy === "test" ? "Testing…" : "Test"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={anyBusy}
+              data-testid="settings-openclaw-workspace-refresh"
+              onClick={() => {
+                void runAction("refresh", async () => {
+                  const next = await refreshOpenClawWorkspace();
+                  setStatus(next);
+                  toast.success(
+                    "Re-applied the stored grant to Claude MCP configs. A new JWT arrives on the next relay AUTH.",
+                  );
+                });
+              }}
+            >
+              {busy === "refresh" ? "Refreshing…" : "Refresh"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={anyBusy}
+              data-testid="settings-openclaw-workspace-disconnect"
+              onClick={() => {
+                void runAction("disconnect", async () => {
+                  const next = await disconnectOpenClawWorkspace();
+                  setStatus(next);
+                  toast.success("Disconnected OpenClaw workspace.");
+                });
+              }}
+            >
+              {busy === "disconnect" ? "Disconnecting…" : "Disconnect"}
+            </Button>
+          </div>
         ) : null}
       </div>
     </div>

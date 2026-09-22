@@ -176,7 +176,10 @@ export function usePersonaActions() {
     intent?: AgentCreateIntent,
     backendIntent?: BackendIntent | null,
     targetChannel?: Pick<Channel, "id" | "name"> | null,
-    options?: { publishCatalogUpdates?: boolean },
+    options?: {
+      publishCatalogUpdates?: boolean;
+      useOpenClawWorkspace?: boolean;
+    },
   ): Promise<boolean> {
     if (isPersonaSubmitPending) {
       return false;
@@ -241,6 +244,9 @@ export function usePersonaActions() {
           runtime,
           undefined,
           startIntent ?? undefined,
+          {
+            useOpenClawWorkspace: options?.useOpenClawWorkspace === true,
+          },
         );
 
         try {

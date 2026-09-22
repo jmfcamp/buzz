@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use tauri::AppHandle;
 
 use crate::managed_agents::openclaw_workspace_mcp::{
-    apply_grant, disconnect, status, OpenClawWorkspaceGrant, OpenClawWorkspaceStatus,
+    apply_grant, disconnect, refresh, status, test_connection, OpenClawWorkspaceGrant,
+    OpenClawWorkspaceStatus, OpenClawWorkspaceTestResult,
 };
 
 #[tauri::command]
@@ -60,4 +61,16 @@ pub fn disconnect_openclaw_workspace_mcp(
     app: AppHandle,
 ) -> Result<OpenClawWorkspaceStatus, String> {
     disconnect(&app)
+}
+
+/// Re-apply the stored grant to Claude MCP configs (no new JWT mint).
+#[tauri::command]
+pub fn refresh_openclaw_workspace_mcp(app: AppHandle) -> Result<OpenClawWorkspaceStatus, String> {
+    refresh(&app)
+}
+
+/// Authenticated MCP `initialize` ping using the stored grant.
+#[tauri::command]
+pub async fn test_openclaw_workspace_mcp() -> Result<OpenClawWorkspaceTestResult, String> {
+    test_connection().await
 }

@@ -237,6 +237,105 @@ pub fn disconnect(app: &tauri::AppHandle) -> Result<OpenClawWorkspaceStatus, Str
     })
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenClawWorkspaceTestResult {
+    pub ok: bool,
+    pub message: String,
+    pub http_status: Option<u16>,
+}
+
+/// Re-apply the stored grant to Claude `mcpServers` (opted-in agents + home config).
+/// Does **not** mint a new JWT — that arrives on the next relay AUTH / HULA frame.
+/// Clears nothing; if no grant is stored, returns an actionable error.
+pub fn refresh(app: &tauri::AppHandle) -> Result<OpenClawWorkspaceStatus, String> {
+    let grant = load_grant()?.ok_or_else(|| {
+        "No OpenClaw workspace grant is stored. Join a Hula relay (or wait for the next AUTH) so a capability can be provisioned, then try again.".to_string()
+    })?;
+    apply_grant(app, grant)
+}
+
+/// Authenticated MCP ping: POST JSON-RPC `initialize` to the grant URL with the
+/// stored Authorization (+ optional CF Access headers). Does not log secrets.
+pub async fn test_connection() -> Result<OpenClawWorkspaceTestResult, String> {
+    let grant = load_grant()?
+        .ok_or_else(|| "Not connected — no OpenClaw workspace grant is stored.".to_string())?;
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("failed to build HTTP client: {e}"))?;
+
+    let mut req = client
+        .post(&grant.url)
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .header(
+            reqwest::header::ACCEPT,
+            "application/json, text/event-stream",
+        )
+        .header(reqwest::header::AUTHORIZATION, grant.authorization.as_str());
+
+    if let Some(headers) = &grant.headers {
+        for (key, value) in headers {
+            if key.eq_ignore_ascii_case("authorization") {
+                continue;
+            }
+            req = req.header(key.as_str(), value.as_str());
+        }
+    }
+
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": { "name": "hula-buzz", "version": "0" }
+        }
+    });
+
+    let response = req
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("MCP request failed: {e}"))?;
+
+    let status = response.status();
+    let http_status = Some(status.as_u16());
+
+    if status.as_u16() == 401 || status.as_u16() == 403 {
+        return Ok(OpenClawWorkspaceTestResult {
+            ok: false,
+            message: "MCP rejected credentials. Try Refresh after the next relay AUTH, or Disconnect and reconnect.".into(),
+            http_status,
+        });
+    }
+
+    if !status.is_success() {
+        let text = response.text().await.unwrap_or_default();
+        let snippet: String = text.chars().take(160).collect();
+        let detail = if snippet.trim().is_empty() {
+            String::new()
+        } else {
+            format!(": {snippet}")
+        };
+        return Ok(OpenClawWorkspaceTestResult {
+            ok: false,
+            message: format!("MCP returned HTTP {}{detail}", status.as_u16()),
+            http_status,
+        });
+    }
+
+    // Body may be JSON or SSE; a 2xx after auth is enough to call the grant healthy.
+    let _ = response.bytes().await;
+    Ok(OpenClawWorkspaceTestResult {
+        ok: true,
+        message: "MCP accepted initialize — connection looks healthy.".into(),
+        http_status,
+    })
+}
+
 pub fn status() -> Result<OpenClawWorkspaceStatus, String> {
     match load_grant()? {
         Some(grant) => Ok(OpenClawWorkspaceStatus {

@@ -12,6 +12,7 @@ import { Input } from "@/shared/ui/input";
 import { Textarea } from "@/shared/ui/textarea";
 import { AgentCreationPreview } from "./AgentCreationPreview";
 import { AgentIdentityFields } from "./AgentDescriptionField";
+import { OpenClawWorkspaceToggleField } from "./OpenClawWorkspaceToggleField";
 import { PersonaDropdownField } from "./PersonaDropdownField";
 import type { EnvVarsValue } from "./EnvVarsEditor";
 import { PersonaAdvancedFields } from "./PersonaAdvancedFields";
@@ -118,6 +119,8 @@ type AgentDefinitionDialogProps = {
 
 export type AgentDefinitionSubmitOptions = {
   publishCatalogUpdates: boolean;
+  /** Create-flow only: opt the new managed instance into OpenClaw workspace MCP. */
+  useOpenClawWorkspace?: boolean;
 };
 
 export function AgentDefinitionDialog({
@@ -158,6 +161,7 @@ export function AgentDefinitionDialog({
   const [behaviorDraft, setBehaviorDraft] = React.useState(
     emptyPersonaBehaviorDraft,
   );
+  const [useOpenClawWorkspace, setUseOpenClawWorkspace] = React.useState(false);
   // The seed the draft is diffed against at submit: an untouched quad
   // submits no behavior group, keeping unrelated edits hash-quiet.
   const behaviorSeedRef = React.useRef(emptyPersonaBehaviorDraft);
@@ -234,6 +238,7 @@ export function AgentDefinitionDialog({
     setEnvVars(nextEnvVars);
     // Advanced always starts collapsed and only changes from its toggle.
     setShowAdvancedFields(false);
+    setUseOpenClawWorkspace(false);
     setIsAvatarUploadPending(false);
     setHasUserChanges(false);
     isRuntimeAutoSeededRef.current = false;
@@ -321,6 +326,7 @@ export function AgentDefinitionDialog({
       setBehaviorDraft(emptyPersonaBehaviorDraft);
       behaviorSeedRef.current = emptyPersonaBehaviorDraft;
       setShowAdvancedFields(false);
+      setUseOpenClawWorkspace(false);
       setIsAvatarUploadPending(false);
       setHasUserChanges(false);
       setIsAddHarnessOpen(false);
@@ -389,7 +395,10 @@ export function AgentDefinitionDialog({
       return;
     }
 
-    await onSubmit(baseInput, { publishCatalogUpdates: false });
+    await onSubmit(baseInput, {
+      publishCatalogUpdates: false,
+      useOpenClawWorkspace,
+    });
   }
 
   function handleSubmitForm(event: React.FormEvent<HTMLFormElement>) {
@@ -771,6 +780,18 @@ export function AgentDefinitionDialog({
           onDescriptionChange={setDescriptionDraft}
           onDisplayNameChange={setDisplayName}
         />
+
+        {isCreateMode ? (
+          <OpenClawWorkspaceToggleField
+            checked={useOpenClawWorkspace}
+            disabled={isPending}
+            id="create-agent-openclaw-workspace"
+            onCheckedChange={(value) => {
+              setHasUserChanges(true);
+              setUseOpenClawWorkspace(value);
+            }}
+          />
+        ) : null}
 
         <div className="space-y-1.5">
           <label

@@ -8,6 +8,12 @@ export type OpenClawWorkspaceStatus = {
   agentsUpdated: number;
 };
 
+export type OpenClawWorkspaceTestResult = {
+  ok: boolean;
+  message: string;
+  httpStatus?: number | null;
+};
+
 export async function fetchOpenClawWorkspaceStatus(): Promise<OpenClawWorkspaceStatus> {
   return invokeTauri<OpenClawWorkspaceStatus>(
     "get_openclaw_workspace_mcp_status",
@@ -38,5 +44,17 @@ export async function applyOpenClawWorkspaceGrant(input: {
 export async function disconnectOpenClawWorkspace(): Promise<OpenClawWorkspaceStatus> {
   return invokeTauri<OpenClawWorkspaceStatus>(
     "disconnect_openclaw_workspace_mcp",
+  );
+}
+
+/** Re-apply stored grant to Claude MCP configs (does not mint a new JWT). */
+export async function refreshOpenClawWorkspace(): Promise<OpenClawWorkspaceStatus> {
+  return invokeTauri<OpenClawWorkspaceStatus>("refresh_openclaw_workspace_mcp");
+}
+
+/** Authenticated MCP initialize ping using the stored grant. */
+export async function testOpenClawWorkspace(): Promise<OpenClawWorkspaceTestResult> {
+  return invokeTauri<OpenClawWorkspaceTestResult>(
+    "test_openclaw_workspace_mcp",
   );
 }

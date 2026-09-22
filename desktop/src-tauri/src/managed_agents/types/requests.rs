@@ -195,6 +195,9 @@ pub struct CreateManagedAgentRequest {
     pub respond_to_allowlist: Vec<String>,
     #[serde(default)]
     pub relay_mesh: Option<RelayMeshConfig>,
+    /// Opt the new instance into OpenClaw workspace MCP (Hula). Default false.
+    #[serde(default)]
+    pub use_openclaw_workspace: bool,
 }
 
 /// Patch request for updating a managed agent's mutable fields.
