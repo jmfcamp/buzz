@@ -1705,7 +1705,6 @@ mod tests {
     #[path = "openrouter_tests.rs"]
     mod openrouter_tests;
 }
-
 // Goose file-config-aware requirement tests live in a sibling file so this
 // module stays under the desktop file-size ratchet.
 #[cfg(test)]

@@ -1771,7 +1771,6 @@ fn discovery_publish_path_drops_mid_flight_delete() {
     }));
 
     let _entries = discover_acp_runtimes_from(Some(dir.path()), true);
-
     assert!(
         lookup_loaded_harness_by_id("mid-flight-delete").is_none(),
         "discovery's publish must not resurrect a harness deleted mid-discovery"
