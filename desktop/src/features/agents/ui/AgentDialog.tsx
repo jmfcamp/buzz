@@ -79,6 +79,7 @@ type AgentDialogDefinitionEditProps = {
     options: AgentDefinitionSubmitOptions,
   ) => Promise<unknown>;
   publishCatalogUpdatesOnSave?: boolean;
+  initialUseOpenClawWorkspace?: boolean;
 };
 
 type AgentDialogProps =

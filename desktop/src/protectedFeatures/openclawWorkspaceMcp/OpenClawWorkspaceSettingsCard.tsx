@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { relayClient } from "@/shared/api/relayClient";
+import { useReconnectRelay } from "@/shared/api/useReconnectRelay";
 import { useFeatureEnabled } from "@/shared/features";
 import { Button } from "@/shared/ui/button";
 import {
@@ -20,10 +22,30 @@ function formatExpiry(iso: string | null | undefined): string {
   });
 }
 
-type BusyAction = "test" | "refresh" | "disconnect" | null;
+const RECONNECT_POLL_MS = 15_000;
+const RECONNECT_POLL_INTERVAL_MS = 800;
+
+type BusyAction = "test" | "refresh" | "disconnect" | "reconnect" | null;
+
+async function pollOpenClawUntilConnected(
+  onTick: (status: OpenClawWorkspaceStatus) => void,
+  timeoutMs = RECONNECT_POLL_MS,
+  intervalMs = RECONNECT_POLL_INTERVAL_MS,
+): Promise<OpenClawWorkspaceStatus> {
+  const deadline = Date.now() + timeoutMs;
+  let last = await fetchOpenClawWorkspaceStatus();
+  onTick(last);
+  while (!last.connected && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    last = await fetchOpenClawWorkspaceStatus();
+    onTick(last);
+  }
+  return last;
+}
 
 export function OpenClawWorkspaceSettingsCard() {
   const enabled = useFeatureEnabled("openclaw-workspace-mcp");
+  const { reconnect, isPending: isRelayReconnectPending } = useReconnectRelay();
   const [status, setStatus] = useState<OpenClawWorkspaceStatus | null>(null);
   const [busy, setBusy] = useState<BusyAction>(null);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +67,7 @@ export function OpenClawWorkspaceSettingsCard() {
   if (!enabled) return null;
 
   const connected = status?.connected === true;
-  const anyBusy = busy !== null;
+  const anyBusy = busy !== null || isRelayReconnectPending;
 
   async function runAction(
     action: Exclude<BusyAction, null>,
@@ -87,15 +109,17 @@ export function OpenClawWorkspaceSettingsCard() {
               ) : null}
               <span className="mt-1 block">
                 OpenClaw FS + skill pack mode is available. Enable it per agent
-                in Advanced → “Use OpenClaw workspace (MCP)”.
+                with “Use OpenClaw workspace (MCP)” when creating or editing an
+                agent.
               </span>
             </p>
           ) : (
             <p className="mt-1 text-sm text-muted-foreground/70">
               Join a Hula relay that provisions workspace MCP to connect
-              automatically. After connecting, turn on “Use OpenClaw workspace
-              (MCP)” on each agent that should use remote FS + skills_list /
-              skills_get (default stays local).
+              automatically, or use Reconnect to force a relay AUTH so a new
+              grant can arrive. After connecting, turn on “Use OpenClaw
+              workspace (MCP)” on each agent that should use remote FS +
+              skills_list / skills_get (default stays local).
             </p>
           )}
           {error ? (
@@ -156,7 +180,45 @@ export function OpenClawWorkspaceSettingsCard() {
               {busy === "disconnect" ? "Disconnecting…" : "Disconnect"}
             </Button>
           </div>
-        ) : null}
+        ) : (
+          <div className="flex shrink-0 flex-wrap justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={anyBusy}
+              data-testid="settings-openclaw-workspace-reconnect"
+              onClick={() => {
+                void runAction("reconnect", async () => {
+                  // Mint happens only after NIP-42 AUTH. If the relay socket is
+                  // already up, drop it so preconnect runs a full AUTH and the
+                  // relay can remint + push a HULA capability (same path as
+                  // initial auto-connect). OpenClawWorkspaceRelayListener /
+                  // handleProtectedRelayPayload still apply the grant.
+                  if (relayClient.getConnectionState() === "connected") {
+                    relayClient.disconnect();
+                  }
+                  await reconnect();
+                  const next = await pollOpenClawUntilConnected(setStatus);
+                  if (next.connected) {
+                    toast.success(
+                      next.connectedViaRelay
+                        ? "OpenClaw workspace connected via relay."
+                        : "OpenClaw workspace connected.",
+                    );
+                  } else {
+                    toast.message(
+                      "Still waiting for relay AUTH / grant — stay joined to the Hula relay.",
+                    );
+                  }
+                });
+              }}
+            >
+              {busy === "reconnect" || isRelayReconnectPending
+                ? "Reconnecting…"
+                : "Reconnect"}
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

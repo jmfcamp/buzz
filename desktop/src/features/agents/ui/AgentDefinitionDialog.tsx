@@ -115,11 +115,13 @@ type AgentDefinitionDialogProps = {
   createRunSection?: React.ReactNode;
   /** Extra create-mode submit gate (e.g. incomplete provider config). */
   createSubmitBlocked?: boolean;
+  /** Seed for OpenClaw workspace opt-in (definition-edit with linked instances). */
+  initialUseOpenClawWorkspace?: boolean;
 };
 
 export type AgentDefinitionSubmitOptions = {
   publishCatalogUpdates: boolean;
-  /** Create-flow only: opt the new managed instance into OpenClaw workspace MCP. */
+  /** Opt managed instance(s) into OpenClaw workspace MCP (create + definition-edit). */
   useOpenClawWorkspace?: boolean;
 };
 
@@ -140,6 +142,7 @@ export function AgentDefinitionDialog({
   publishCatalogUpdatesOnSave = false,
   createRunSection,
   createSubmitBlocked = false,
+  initialUseOpenClawWorkspace = false,
 }: AgentDefinitionDialogProps) {
   const runtimesLoading = runtimeCatalogStatus === "loading";
   const [displayName, setDisplayName] = React.useState("");
@@ -238,12 +241,12 @@ export function AgentDefinitionDialog({
     setEnvVars(nextEnvVars);
     // Advanced always starts collapsed and only changes from its toggle.
     setShowAdvancedFields(false);
-    setUseOpenClawWorkspace(false);
+    setUseOpenClawWorkspace(initialUseOpenClawWorkspace === true);
     setIsAvatarUploadPending(false);
     setHasUserChanges(false);
     isRuntimeAutoSeededRef.current = false;
     hasSeededForOpenRef.current = false;
-  }, [initialValues, open]);
+  }, [initialUseOpenClawWorkspace, initialValues, open]);
 
   React.useEffect(() => {
     if (
@@ -390,6 +393,7 @@ export function AgentDefinitionDialog({
         },
         {
           publishCatalogUpdates: publishCatalogUpdatesOnSave && hasUserChanges,
+          useOpenClawWorkspace,
         },
       );
       return;
@@ -781,17 +785,19 @@ export function AgentDefinitionDialog({
           onDisplayNameChange={setDisplayName}
         />
 
-        {isCreateMode ? (
-          <OpenClawWorkspaceToggleField
-            checked={useOpenClawWorkspace}
-            disabled={isPending}
-            id="create-agent-openclaw-workspace"
-            onCheckedChange={(value) => {
-              setHasUserChanges(true);
-              setUseOpenClawWorkspace(value);
-            }}
-          />
-        ) : null}
+        <OpenClawWorkspaceToggleField
+          checked={useOpenClawWorkspace}
+          disabled={isPending}
+          id={
+            isCreateMode
+              ? "create-agent-openclaw-workspace"
+              : "edit-definition-openclaw-workspace"
+          }
+          onCheckedChange={(value) => {
+            setHasUserChanges(true);
+            setUseOpenClawWorkspace(value);
+          }}
+        />
 
         <div className="space-y-1.5">
           <label

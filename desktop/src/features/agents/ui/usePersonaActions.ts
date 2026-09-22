@@ -63,6 +63,7 @@ import {
   buildInstanceInputForDefinition,
   type BackendIntent,
 } from "../lib/instanceInputForDefinition";
+import { setManagedAgentUseOpenClawWorkspace } from "@/shared/api/tauriManagedAgents";
 
 type PersonaFeedbackSurface = "catalog" | "library";
 
@@ -206,6 +207,28 @@ export function usePersonaActions() {
         } else {
           await updatePersonaMutation.mutateAsync(input);
           setPersonaNoticeMessage(personaSaveNotice(input.displayName, null));
+        }
+        // OpenClaw workspace is per managed instance; propagate the dialog
+        // toggle onto every local agent spawned from this definition.
+        if (typeof options?.useOpenClawWorkspace === "boolean") {
+          const linked = (
+            queryClient.getQueryData<ManagedAgent[]>(managedAgentsQueryKey) ??
+            []
+          ).filter((agent) => agent.personaId === input.id);
+          for (const agent of linked) {
+            if (agent.useOpenClawWorkspace === options.useOpenClawWorkspace) {
+              continue;
+            }
+            await setManagedAgentUseOpenClawWorkspace(
+              agent.pubkey,
+              options.useOpenClawWorkspace,
+            );
+          }
+          if (linked.length > 0) {
+            void queryClient.invalidateQueries({
+              queryKey: managedAgentsQueryKey,
+            });
+          }
         }
       } else {
         const runtime = availableRuntimes.find(

@@ -338,6 +338,17 @@ export function AgentsView() {
                   : null
           }
           initialValues={personas.personaDialogState.initialValues}
+          initialUseOpenClawWorkspace={Boolean(
+            "id" in personas.personaDialogState.initialValues &&
+              (agents.managedAgents ?? []).some(
+                (agent) =>
+                  agent.personaId ===
+                    (
+                      personas.personaDialogState!
+                        .initialValues as { id: string }
+                    ).id && agent.useOpenClawWorkspace === true,
+              ),
+          )}
           isPending={personas.isPending}
           mode="definition-edit"
           runtimes={personas.acpRuntimesQuery.data ?? []}

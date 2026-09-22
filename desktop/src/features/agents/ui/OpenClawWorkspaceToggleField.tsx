@@ -1,4 +1,5 @@
 import { useFeatureEnabled } from "@/shared/features";
+import { Switch } from "@/shared/ui/switch";
 
 type OpenClawWorkspaceToggleFieldProps = {
   checked: boolean;
@@ -10,8 +11,8 @@ type OpenClawWorkspaceToggleFieldProps = {
 };
 
 /**
- * Top-level “Use OpenClaw workspace (MCP)” control for create/edit agent forms.
- * Gated by the Hula `openclaw-workspace-mcp` feature flag.
+ * Top-level “OpenClaw workspace” control for create/edit agent forms.
+ * Gated by the Hula `openclaw-workspace-mcp` feature flag (same as Settings card).
  */
 export function OpenClawWorkspaceToggleField({
   checked,
@@ -24,20 +25,29 @@ export function OpenClawWorkspaceToggleField({
   if (!enabled) return null;
 
   return (
-    <div className="space-y-1.5" data-testid={testId ?? id}>
-      <label
-        className="flex items-center gap-2 text-sm font-medium"
-        htmlFor={id}
-      >
-        <input
+    <section
+      className="space-y-2 rounded-lg border border-border/60 bg-muted/20 p-3"
+      data-testid={testId ?? id}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0 space-y-0.5">
+          <p className="text-sm font-semibold text-foreground">
+            OpenClaw workspace
+          </p>
+          <label
+            className="text-sm font-medium text-foreground"
+            htmlFor={id}
+          >
+            Use OpenClaw workspace (MCP)
+          </label>
+        </div>
+        <Switch
           checked={checked}
           disabled={disabled}
           id={id}
-          onChange={(event) => onCheckedChange(event.target.checked)}
-          type="checkbox"
+          onCheckedChange={onCheckedChange}
         />
-        Use OpenClaw workspace (MCP)
-      </label>
+      </div>
       <p className="text-xs text-muted-foreground">
         {checked
           ? "Remote OpenClaw FS + skills via MCP (skills_list / skills_get). Local Mac disk is not the workspace."
@@ -50,6 +60,6 @@ export function OpenClawWorkspaceToggleField({
           error instead of falling back to local disk.
         </p>
       ) : null}
-    </div>
+    </section>
   );
 }

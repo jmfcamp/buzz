@@ -240,7 +240,7 @@ function AgentSummary({
             <span className="h-2.5 w-2.5" />
           )}
           {agent.useOpenClawWorkspace ? (
-            <OpenClawWorkspaceBadge size={14} />
+            <OpenClawWorkspaceBadge size={20} />
           ) : null}
         </span>
         <div className="min-w-0 flex-1">

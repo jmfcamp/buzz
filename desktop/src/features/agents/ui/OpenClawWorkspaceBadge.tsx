@@ -5,7 +5,7 @@ export const OPENCLAW_WORKSPACE_BADGE_SRC = "/harness-logos/openclaw.svg";
 
 type OpenClawWorkspaceBadgeProps = {
   className?: string;
-  /** Pixel size of the badge shell (default matches presence-dot scale on cards). */
+  /** Pixel size of the badge shell (~2× presence-dot; callers pass 36 / 20). */
   size?: number;
 };
 
@@ -15,7 +15,7 @@ type OpenClawWorkspaceBadgeProps = {
  */
 export function OpenClawWorkspaceBadge({
   className,
-  size = 18,
+  size = 20,
 }: OpenClawWorkspaceBadgeProps) {
   return (
     <span

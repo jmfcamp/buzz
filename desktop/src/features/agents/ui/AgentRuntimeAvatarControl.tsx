@@ -193,8 +193,8 @@ export function AgentRuntimeAvatarControl({
     <div className="relative h-24 w-24">
       {useOpenClawWorkspace ? (
         <OpenClawWorkspaceBadge
-          className="pointer-events-none absolute left-0 top-0 z-10"
-          size={18}
+          className="pointer-events-none absolute bottom-0 left-0 z-10"
+          size={ACTIVE_DOT_SIZE * 2}
         />
       ) : null}
       <MaskedAvatarBadgeFrame
