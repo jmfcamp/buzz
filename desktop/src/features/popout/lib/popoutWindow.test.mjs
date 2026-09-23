@@ -351,3 +351,106 @@ test("shouldSeedPopoutChannelRoute only seeds once for channel/thread companions
     false,
   );
 });
+
+test("popoutPayloadFromInput snapshots playground pins for thread/split", async () => {
+  const pins = await import("@/features/playground/lib/conversationPins.ts");
+  pins.resetConversationPlaygroundPins();
+  pins.pinPlaygroundToConversation("thread:thread-1", {
+    hula: "playground",
+    v: 1,
+    name: "Demo",
+    url: "https://app.example.com",
+    sid: "demo-1",
+    pin: "4455",
+  });
+  const { popoutPayloadFromInput, popoutPlaygroundPinsScopeKey } = await import(
+    "./popoutWindow.ts"
+  );
+
+  assert.equal(
+    popoutPlaygroundPinsScopeKey("chan", "thread-1"),
+    "thread:thread-1",
+  );
+  assert.equal(popoutPlaygroundPinsScopeKey("chan", null), "channel:chan");
+
+  const threadPayload = popoutPayloadFromInput({
+    kind: "thread",
+    title: "Thread",
+    channelId: "chan",
+    threadId: "thread-1",
+  });
+  assert.equal(threadPayload.playgroundPins?.length, 1);
+  assert.equal(threadPayload.playgroundPins?.[0]?.sid, "demo-1");
+
+  const splitPayload = popoutPayloadFromInput({
+    kind: "split",
+    title: "Split",
+    channelId: "chan",
+    threadId: "thread-1",
+    playground: {
+      hula: "playground",
+      v: 1,
+      name: "Demo",
+      url: "https://app.example.com",
+      sid: "demo-1",
+    },
+  });
+  assert.equal(splitPayload.playgroundPins?.length, 1);
+
+  const playgroundOnly = popoutPayloadFromInput({
+    kind: "playground",
+    title: "Demo",
+    channelId: "chan",
+    threadId: "thread-1",
+    playground: {
+      hula: "playground",
+      v: 1,
+      name: "Demo",
+      url: "https://app.example.com",
+      sid: "demo-1",
+    },
+  });
+  assert.equal(playgroundOnly.playgroundPins, undefined);
+
+  pins.resetConversationPlaygroundPins();
+});
+
+test("openPopoutWindow writes playgroundPins into localStorage payload", async () => {
+  installLocalStorage();
+  const pins = await import("@/features/playground/lib/conversationPins.ts");
+  pins.resetConversationPlaygroundPins();
+  pins.pinPlaygroundToConversation("thread:thread-1", {
+    hula: "playground",
+    v: 1,
+    name: "Demo",
+    url: "https://app.example.com",
+    sid: "demo-1",
+  });
+  const settings = await import("./popoutSettings.ts");
+  const embedded = await import("./embeddedWindows.ts");
+  const { openPopoutWindow, popoutLabel, readPopoutPayload } = await import(
+    "./popoutWindow.ts"
+  );
+  settings.resetPopoutSettingsForTests();
+  embedded.resetEmbeddedWindowsForTests();
+  settings.setEmbedInMain(false);
+
+  const invokes = installTauriInvoke();
+  await openPopoutWindow({
+    kind: "thread",
+    title: "Design review",
+    seed: "chan-thread-pins",
+    channelId: "chan",
+    threadId: "thread-1",
+  });
+  const label = popoutLabel("thread", "chan-thread-pins");
+  const payload = readPopoutPayload(label);
+  assert.equal(payload?.playgroundPins?.length, 1);
+  assert.equal(payload?.playgroundPins?.[0]?.name, "Demo");
+  assert.equal(invokes.length, 1);
+
+  uninstallTauriInvoke();
+  settings.resetPopoutSettingsForTests();
+  embedded.resetEmbeddedWindowsForTests();
+  pins.resetConversationPlaygroundPins();
+});
