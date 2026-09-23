@@ -52,8 +52,10 @@ export type BuildMentionCandidatesInput = {
 /**
  * Merge the channel roster, agent directories, global people search, and
  * standalone personas into the deduplicated candidate list the mention
- * autocomplete ranks. Archived identities and agents the viewer may not
- * mention are dropped; identities appearing in several sources are coalesced
+ * autocomplete ranks. NIP-IA archived identities (`isArchived`, from the
+ * relay `kind:13535` snapshot) are dropped at add time even when they still
+ * appear in a roster or directory cache. Agents the viewer may not mention
+ * are also dropped; identities appearing in several sources are coalesced
  * into a single entry that keeps the richest field from each.
  */
 export function buildMentionCandidates({

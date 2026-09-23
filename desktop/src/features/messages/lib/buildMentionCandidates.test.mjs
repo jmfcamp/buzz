@@ -78,6 +78,60 @@ test("archived identities never become candidates", () => {
   );
 });
 
+test("archived roster members and directory agents stay out even when still cached", () => {
+  const candidates = buildMentionCandidates(
+    input({
+      isArchived: (pubkey) => pubkey === ARCHIVED_PUBKEY,
+      memberPubkeys: new Set([ARCHIVED_PUBKEY, MEMBER_PUBKEY]),
+      members: [
+        {
+          pubkey: ARCHIVED_PUBKEY,
+          displayName: "Archived Bot",
+          isAgent: true,
+          role: "bot",
+        },
+        { pubkey: MEMBER_PUBKEY, displayName: "Ada", isAgent: false },
+      ],
+      mentionableAgentPubkeys: new Set([ARCHIVED_PUBKEY, AGENT_PUBKEY]),
+      managedAgents: [
+        {
+          pubkey: ARCHIVED_PUBKEY,
+          name: "Archived Managed",
+          status: "stopped",
+        },
+      ],
+      relayAgents: [
+        {
+          pubkey: ARCHIVED_PUBKEY,
+          name: "Archived Relay",
+          ownerPubkey: null,
+          status: "online",
+        },
+        {
+          pubkey: AGENT_PUBKEY,
+          name: "Scout",
+          ownerPubkey: null,
+          status: "online",
+        },
+      ],
+      managedAgentNamesByPubkey: new Map([[ARCHIVED_PUBKEY, "Archived Managed"]]),
+      relayAgentNamesByPubkey: new Map([
+        [ARCHIVED_PUBKEY, "Archived Relay"],
+        [AGENT_PUBKEY, "Scout"],
+      ]),
+    }),
+  );
+
+  assert.deepEqual(
+    candidates.map((candidate) => candidate.pubkey).sort(),
+    [AGENT_PUBKEY, MEMBER_PUBKEY].sort(),
+  );
+  assert.equal(
+    candidates.some((candidate) => candidate.pubkey === ARCHIVED_PUBKEY),
+    false,
+  );
+});
+
 test("an agent outside the mentionable set is hidden once its directory is ready", () => {
   const relayAgents = [
     { pubkey: AGENT_PUBKEY, name: "Scout", ownerPubkey: null, status: "away" },
