@@ -454,3 +454,75 @@ test("openPopoutWindow writes playgroundPins into localStorage payload", async (
   embedded.resetEmbeddedWindowsForTests();
   pins.resetConversationPlaygroundPins();
 });
+
+test("popoutPayloadFromInput snapshots channel-scoped pins for channel companions", async () => {
+  const pins = await import("@/features/playground/lib/conversationPins.ts");
+  pins.resetConversationPlaygroundPins();
+  pins.pinPlaygroundToConversation("channel:chan", {
+    hula: "playground",
+    v: 1,
+    name: "Channel Demo",
+    url: "https://channel.example.com",
+    sid: "chan-demo-1",
+  });
+  // Thread pin must not leak into a channel-only companion snapshot.
+  pins.pinPlaygroundToConversation("thread:thread-1", {
+    hula: "playground",
+    v: 1,
+    name: "Thread Demo",
+    url: "https://thread.example.com",
+    sid: "thread-demo-1",
+  });
+  const { popoutPayloadFromInput } = await import("./popoutWindow.ts");
+
+  const channelPayload = popoutPayloadFromInput({
+    kind: "thread",
+    title: "Channel",
+    channelId: "chan",
+    // No threadId — ConversationPopoutMenu channel detach path.
+  });
+  assert.equal(channelPayload.playgroundPins?.length, 1);
+  assert.equal(channelPayload.playgroundPins?.[0]?.sid, "chan-demo-1");
+  assert.equal(channelPayload.playgroundPins?.[0]?.name, "Channel Demo");
+
+  pins.resetConversationPlaygroundPins();
+});
+
+test("openPopoutWindow writes channel playgroundPins without threadId", async () => {
+  installLocalStorage();
+  const pins = await import("@/features/playground/lib/conversationPins.ts");
+  pins.resetConversationPlaygroundPins();
+  pins.pinPlaygroundToConversation("channel:chan", {
+    hula: "playground",
+    v: 1,
+    name: "Home App",
+    url: "https://home.example.com",
+    sid: "home-1",
+  });
+  const settings = await import("./popoutSettings.ts");
+  const embedded = await import("./embeddedWindows.ts");
+  const { openPopoutWindow, popoutLabel, readPopoutPayload } = await import(
+    "./popoutWindow.ts"
+  );
+  settings.resetPopoutSettingsForTests();
+  embedded.resetEmbeddedWindowsForTests();
+  settings.setEmbedInMain(false);
+
+  const invokes = installTauriInvoke();
+  await openPopoutWindow({
+    kind: "thread",
+    title: "Channel",
+    seed: "chan",
+    channelId: "chan",
+  });
+  const label = popoutLabel("thread", "chan");
+  const payload = readPopoutPayload(label);
+  assert.equal(payload?.playgroundPins?.length, 1);
+  assert.equal(payload?.playgroundPins?.[0]?.sid, "home-1");
+  assert.equal(invokes.length, 1);
+
+  uninstallTauriInvoke();
+  settings.resetPopoutSettingsForTests();
+  embedded.resetEmbeddedWindowsForTests();
+  pins.resetConversationPlaygroundPins();
+});
