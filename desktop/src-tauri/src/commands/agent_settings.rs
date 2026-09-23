@@ -115,9 +115,13 @@ pub async fn set_managed_agent_auto_restart(
 #[tauri::command]
 pub async fn set_managed_agent_use_openclaw_workspace(
     pubkey: String,
-    use_openclaw_workspace: bool,
+    // Named use_open_claw_workspace so Tauri camelCase IPC key is
+    // `useOpenClawWorkspace` (matches the frontend). `use_openclaw_workspace`
+    // would become `useOpenclawWorkspace` and reject the invoke.
+    use_open_claw_workspace: bool,
     app: AppHandle,
 ) -> Result<ManagedAgentSummary, String> {
+    let use_openclaw_workspace = use_open_claw_workspace;
     tokio::task::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let _store_guard = state

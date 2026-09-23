@@ -196,7 +196,9 @@ pub struct CreateManagedAgentRequest {
     #[serde(default)]
     pub relay_mesh: Option<RelayMeshConfig>,
     /// Opt the new instance into OpenClaw workspace MCP (Hula). Default false.
-    #[serde(default)]
+    /// Explicit rename: snake `use_openclaw_workspace` camelCases to
+    /// `useOpenclawWorkspace`, but the frontend sends `useOpenClawWorkspace`.
+    #[serde(default, rename = "useOpenClawWorkspace", alias = "useOpenclawWorkspace")]
     pub use_openclaw_workspace: bool,
 }
 
