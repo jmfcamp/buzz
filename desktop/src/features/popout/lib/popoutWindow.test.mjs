@@ -5,7 +5,6 @@ import { installLocalStorage } from "../../playground/lib/testStorage.mjs";
 
 import { popoutErrorMessage, popoutLabel } from "./popoutWindow.ts";
 
-
 function installTauriInvoke() {
   const invokes = [];
   const internals = {
@@ -126,7 +125,10 @@ test("embed path does not call OS window create for playground", async () => {
   assert.equal(invokes.length, 0);
   assert.equal(embedded.listEmbeddedWindows().length, 1);
   assert.equal(embedded.getActiveEmbeddedWindow()?.payload.kind, "playground");
-  assert.equal(embedded.getActiveEmbeddedWindow()?.payload.playground?.sid, "demo-1");
+  assert.equal(
+    embedded.getActiveEmbeddedWindow()?.payload.playground?.sid,
+    "demo-1",
+  );
 
   delete globalThis.__TAURI_INTERNALS__;
   settings.resetPopoutSettingsForTests();
