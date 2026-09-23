@@ -116,7 +116,9 @@ test("archived roster members and directory agents stay out even when still cach
           status: "online",
         },
       ],
-      managedAgentNamesByPubkey: new Map([[ARCHIVED_PUBKEY, "Archived Managed"]]),
+      managedAgentNamesByPubkey: new Map([
+        [ARCHIVED_PUBKEY, "Archived Managed"],
+      ]),
       relayAgentNamesByPubkey: new Map([
         [ARCHIVED_PUBKEY, "Archived Relay"],
         [AGENT_PUBKEY, "Scout"],

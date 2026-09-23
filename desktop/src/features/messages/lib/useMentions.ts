@@ -22,9 +22,7 @@ import {
   uniqueAutocompleteLabels,
 } from "@/features/agents/lib/agentAutocompleteEligibility";
 import { isReservedCommunityAgentName } from "@/features/agents/lib/reservedAgentNames";
-import {
-  reservedCommunityBotRoutes as buildReservedCommunityBotRoutes,
-} from "@/features/agents/lib/reservedCommunityMentionRouting";
+import { reservedCommunityBotRoutes as buildReservedCommunityBotRoutes } from "@/features/agents/lib/reservedCommunityMentionRouting";
 import { useCommunityBotsQuery } from "@/features/community-bots/hooks";
 import {
   useInfiniteUserSearchQuery,
