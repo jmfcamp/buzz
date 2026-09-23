@@ -742,7 +742,6 @@ test("relayAgentIsSharedWithUser: includePublicAnyone false keeps owners and all
   );
 });
 
-
 test("getMentionableAgentPubkeys: channel publish hides owned clones outside this channel", () => {
   const inChannel = {
     pubkey: PUB_A,
@@ -776,7 +775,12 @@ test("getMentionableAgentPubkeys: channel publish hides owned clones outside thi
     currentPubkey: CURRENT_PUBKEY,
     eligibilityScope: { type: "channel", channelId: "general" },
     managedAgentPubkeys: [],
-    relayAgents: [inChannel, otherChannelClone, unjoinedClone, foreignInChannel],
+    relayAgents: [
+      inChannel,
+      otherChannelClone,
+      unjoinedClone,
+      foreignInChannel,
+    ],
     sharedChannelIds: new Set(["general", "elsewhere"]),
     includePublicAnyone: false,
   };

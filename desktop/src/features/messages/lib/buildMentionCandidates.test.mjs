@@ -581,7 +581,9 @@ test("owned same-named clones outside the channel stay hidden (Fizz flood)", () 
     }),
   );
 
-  const fizz = candidates.filter((candidate) => candidate.displayName === "Fizz");
+  const fizz = candidates.filter(
+    (candidate) => candidate.displayName === "Fizz",
+  );
   assert.deepEqual(
     fizz.map((candidate) => candidate.pubkey),
     [LOCAL_FIZZ],
