@@ -251,7 +251,22 @@ export function buildMentionCandidates({
       preferredPubkeys: memberPubkeys,
     },
   );
-  return reservedCommunityBotRoutes && reservedCommunityBotRoutes.size > 0
-    ? applyReservedCommunityMentionRouting(coalesced, reservedCommunityBotRoutes)
-    : coalesced;
+  const routed =
+    reservedCommunityBotRoutes && reservedCommunityBotRoutes.size > 0
+      ? applyReservedCommunityMentionRouting(
+          coalesced,
+          reservedCommunityBotRoutes,
+        )
+      : coalesced;
+  // Routing can keep a catalog/fallback pubkey that also appears on the
+  // roster under a richer non-member source. Re-assert membership from the
+  // merged channel set so in-channel community bots never show
+  // "not in channel".
+  return routed.map((candidate) => {
+    if (!candidate.pubkey || candidate.isMember) return candidate;
+    if (!memberPubkeys.has(normalizePubkey(candidate.pubkey))) {
+      return candidate;
+    }
+    return { ...candidate, isMember: true };
+  });
 }

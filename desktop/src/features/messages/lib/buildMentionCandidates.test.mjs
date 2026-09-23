@@ -168,3 +168,70 @@ for (const locallyManaged of [true, false]) {
     assert.equal(Boolean(candidate.isManagedAgent), locallyManaged);
   });
 }
+
+test("in-channel reserved community bot stays isMember after catalog route", () => {
+  const channelMo = "b".repeat(64);
+  const catalogMo = "a".repeat(64);
+  const candidates = buildMentionCandidates(
+    input({
+      memberPubkeys: new Set([channelMo]),
+      members: [
+        {
+          pubkey: channelMo,
+          displayName: "Mo",
+          role: "bot",
+          isAgent: true,
+        },
+      ],
+      mentionableAgentPubkeys: new Set([channelMo, catalogMo]),
+      relayAgents: [
+        {
+          pubkey: catalogMo,
+          name: "Mo",
+          ownerPubkey: null,
+          agentType: "openclaw",
+          channels: [],
+          channelIds: [],
+          capabilities: [],
+          status: "online",
+          respondTo: null,
+          respondToAllowlist: [],
+        },
+      ],
+      // Channel-preferred route (see reservedCommunityBotRoutes).
+      reservedCommunityBotRoutes: new Map([["mo", channelMo]]),
+    }),
+  );
+  const mo = candidates.filter((c) => c.displayName === "Mo");
+  assert.equal(mo.length, 1);
+  assert.equal(mo[0]?.pubkey, channelMo);
+  assert.equal(mo[0]?.isMember, true);
+});
+
+test("memberPubkeys re-asserts isMember when routed identity matches roster", () => {
+  const mo = "b".repeat(64);
+  const candidates = buildMentionCandidates(
+    input({
+      memberPubkeys: new Set([mo]),
+      members: [],
+      mentionableAgentPubkeys: new Set([mo]),
+      relayAgents: [
+        {
+          pubkey: mo,
+          name: "Mo",
+          ownerPubkey: null,
+          agentType: "openclaw",
+          channels: [],
+          channelIds: [],
+          capabilities: [],
+          status: "online",
+          respondTo: null,
+          respondToAllowlist: [],
+        },
+      ],
+      reservedCommunityBotRoutes: new Map([["mo", mo]]),
+    }),
+  );
+  const hit = candidates.find((c) => c.displayName === "Mo");
+  assert.equal(hit?.isMember, true);
+});
