@@ -58,3 +58,8 @@ export async function testOpenClawWorkspace(): Promise<OpenClawWorkspaceTestResu
     "test_openclaw_workspace_mcp",
   );
 }
+
+/** Notify UI (create Switch gate, etc.) that OpenClaw workspace status changed. */
+export function emitOpenClawWorkspaceStatusChanged(): void {
+  window.dispatchEvent(new Event("buzz:openclaw-workspace-status"));
+}

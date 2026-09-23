@@ -12,8 +12,13 @@ use crate::app_state::keyring_service;
 use crate::managed_agents::config_bridge::claude::{
     remove_mcp_server, upsert_http_mcp_server, OPENCLAW_WORKSPACE_MCP_NAME,
 };
-use crate::managed_agents::{load_managed_agents, BackendKind, ManagedAgentRecord};
+use crate::app_state::AppState;
+use crate::managed_agents::{
+    current_instance_id, load_managed_agents, save_managed_agents, stop_managed_agent_process,
+    sync_managed_agent_processes, BackendKind, ManagedAgentRecord,
+};
 use crate::secret_store::SecretStore;
+use tauri::Manager;
 
 const GRANT_KEY: &str = "openclaw-workspace-mcp-grant";
 
@@ -214,7 +219,77 @@ pub fn apply_grant(
     })
 }
 
+/// Stop every running managed agent that has `use_openclaw_workspace` enabled.
+/// Does **not** clear the per-agent flag — reconnect + start again is enough.
+fn stop_running_openclaw_agents(app: &tauri::AppHandle) -> usize {
+    let state = app.state::<AppState>();
+    let Ok(_store_guard) = state.managed_agents_store_lock.lock() else {
+        return 0;
+    };
+    let Ok(mut records) = load_managed_agents(app) else {
+        return 0;
+    };
+    let Ok(mut runtimes) = state.managed_agent_processes.lock() else {
+        return 0;
+    };
+
+    let (sync_changed, exited_pubkeys) =
+        sync_managed_agent_processes(&mut records, &mut runtimes, &current_instance_id(app));
+    for pubkey in &exited_pubkeys {
+        state.clear_agent_session_caches(pubkey);
+    }
+
+    let targets: Vec<String> = records
+        .iter()
+        .filter(|record| {
+            record.use_openclaw_workspace
+                && record.backend == BackendKind::Local
+                && (record.runtime_pid.is_some()
+                    || runtimes
+                        .keys()
+                        .any(|key| key.pubkey.eq_ignore_ascii_case(&record.pubkey)))
+        })
+        .map(|record| record.pubkey.clone())
+        .collect();
+
+    let mut stopped = 0usize;
+    for pubkey in targets {
+        let Some(record) = records
+            .iter_mut()
+            .find(|record| record.pubkey.eq_ignore_ascii_case(&pubkey))
+        else {
+            continue;
+        };
+        match stop_managed_agent_process(app, record, &mut runtimes) {
+            Ok(()) => {
+                stopped += 1;
+                state.clear_agent_session_caches(&pubkey);
+            }
+            Err(error) => {
+                eprintln!(
+                    "buzz-desktop: openclaw disconnect: failed to stop agent {pubkey}: {error}"
+                );
+            }
+        }
+    }
+
+    if sync_changed || stopped > 0 {
+        let _ = save_managed_agents(app, &records);
+    }
+    stopped
+}
+
+fn grant_is_expired(expires_at: &str) -> bool {
+    let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(expires_at) else {
+        // Unparseable expiry — treat as still valid; disconnect is explicit.
+        return false;
+    };
+    parsed < chrono::Utc::now()
+}
+
+/// Clear grant, strip MCP, and stop opted-in running agents.
 pub fn disconnect(app: &tauri::AppHandle) -> Result<OpenClawWorkspaceStatus, String> {
+    let stopped = stop_running_openclaw_agents(app);
     let _ = clear_grant();
     let _ = remove_mcp_server(None, OPENCLAW_WORKSPACE_MCP_NAME);
     // Remove from all Claude managed agents (opted-in or not) so a stale MCP
@@ -233,7 +308,7 @@ pub fn disconnect(app: &tauri::AppHandle) -> Result<OpenClawWorkspaceStatus, Str
         expires_at: None,
         url: None,
         connected_via_relay: false,
-        agents_updated: 0,
+        agents_updated: stopped,
     })
 }
 
@@ -338,6 +413,13 @@ pub async fn test_connection() -> Result<OpenClawWorkspaceTestResult, String> {
 
 pub fn status() -> Result<OpenClawWorkspaceStatus, String> {
     match load_grant()? {
+        Some(grant) if grant_is_expired(&grant.expires_at) => Ok(OpenClawWorkspaceStatus {
+            connected: false,
+            expires_at: Some(grant.expires_at),
+            url: Some(grant.url),
+            connected_via_relay: grant.connected_via_relay,
+            agents_updated: 0,
+        }),
         Some(grant) => Ok(OpenClawWorkspaceStatus {
             connected: true,
             expires_at: Some(grant.expires_at),
@@ -353,6 +435,19 @@ pub fn status() -> Result<OpenClawWorkspaceStatus, String> {
             agents_updated: 0,
         }),
     }
+}
+
+/// If the stored grant is expired (or missing), treat the workspace as down:
+/// stop opted-in running agents and clear the grant. Returns the post-check status.
+pub fn reconcile_expired_grant(app: &tauri::AppHandle) -> Result<OpenClawWorkspaceStatus, String> {
+    let Some(grant) = load_grant()? else {
+        return status();
+    };
+    if !grant_is_expired(&grant.expires_at) {
+        return status();
+    }
+    // Expired grant is "down" — same stop behavior as an explicit Disconnect.
+    disconnect(app)
 }
 
 #[cfg(test)]

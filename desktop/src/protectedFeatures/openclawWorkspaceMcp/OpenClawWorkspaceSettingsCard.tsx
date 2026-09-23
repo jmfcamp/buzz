@@ -6,6 +6,7 @@ import { useFeatureEnabled } from "@/shared/features";
 import { Button } from "@/shared/ui/button";
 import {
   disconnectOpenClawWorkspace,
+  emitOpenClawWorkspaceStatusChanged,
   fetchOpenClawWorkspaceStatus,
   refreshOpenClawWorkspace,
   testOpenClawWorkspace,
@@ -156,6 +157,7 @@ export function OpenClawWorkspaceSettingsCard() {
                 void runAction("refresh", async () => {
                   const next = await refreshOpenClawWorkspace();
                   setStatus(next);
+                  emitOpenClawWorkspaceStatusChanged();
                   toast.success(
                     "Re-applied the stored grant to Claude MCP configs. A new JWT arrives on the next relay AUTH.",
                   );
@@ -173,7 +175,13 @@ export function OpenClawWorkspaceSettingsCard() {
                 void runAction("disconnect", async () => {
                   const next = await disconnectOpenClawWorkspace();
                   setStatus(next);
-                  toast.success("Disconnected OpenClaw workspace.");
+                  emitOpenClawWorkspaceStatusChanged();
+                  const stopped = next.agentsUpdated ?? 0;
+                  toast.success(
+                    stopped > 0
+                      ? `Disconnected OpenClaw workspace. Stopped ${stopped} OpenClaw agent${stopped === 1 ? "" : "s"}.`
+                      : "Disconnected OpenClaw workspace.",
+                  );
                 });
               }}
             >
@@ -199,6 +207,7 @@ export function OpenClawWorkspaceSettingsCard() {
                   }
                   await reconnect();
                   const next = await pollOpenClawUntilConnected(setStatus);
+                  emitOpenClawWorkspaceStatusChanged();
                   if (next.connected) {
                     toast.success(
                       next.connectedViaRelay

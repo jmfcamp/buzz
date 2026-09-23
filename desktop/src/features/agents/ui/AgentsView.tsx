@@ -35,6 +35,7 @@ import {
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
 import { PageHeader } from "@/shared/ui/PageHeader";
+import type { AgentPersona, ManagedAgent } from "@/shared/api/types";
 import { getInheritedAgentDefaults } from "./bakedEnvHelpers";
 
 export function AgentsView() {
@@ -49,6 +50,25 @@ export function AgentsView() {
   const fullAiDefaultsTriggerRef = React.useRef<HTMLButtonElement>(null);
   const compactActionsTriggerRef = React.useRef<HTMLButtonElement>(null);
   const [isAiDefaultsOpen, setIsAiDefaultsOpen] = React.useState(false);
+  const [agentToEdit, setAgentToEdit] = React.useState<ManagedAgent | null>(null);
+
+  const handleEditPersona = React.useCallback(
+    (persona: AgentPersona) => {
+      // Prefer instance-edit when a managed agent is linked so the OpenClaw
+      // Switch (and other per-instance settings) always appear — same surface
+      // as Profile → Edit agent.
+      const linked = (agents.managedAgents ?? []).find(
+        (agent) => agent.personaId === persona.id,
+      );
+      if (linked) {
+        setAgentToEdit(linked);
+        return;
+      }
+      personas.openEdit(persona);
+    },
+    [agents.managedAgents, personas],
+  );
+
 
   function openAiDefaults(trigger: HTMLButtonElement | null) {
     aiDefaultsTriggerRef.current = trigger;
@@ -270,7 +290,7 @@ export function AgentsView() {
               isPersonasPending={personas.isPending}
               onOpenCatalog={() => openCommunityCatalog("agents")}
               onDuplicatePersona={personas.openDuplicate}
-              onEditPersona={personas.openEdit}
+              onEditPersona={handleEditPersona}
               onSharePersona={personas.openShare}
               onDeactivatePersona={(persona) => {
                 void personas.handleSetActive(persona, false, "library");
@@ -323,6 +343,20 @@ export function AgentsView() {
             }
           }}
           open={agents.agentToAddToChannel !== null}
+        />
+      ) : null}
+      {agentToEdit ? (
+        <AgentDialog
+          agent={agentToEdit}
+          mode="instance-edit"
+          onOpenChange={(open) => {
+            if (!open) setAgentToEdit(null);
+          }}
+          onUpdated={(updated) => {
+            setAgentToEdit(updated);
+            void agents.refetchManagedAgents();
+          }}
+          open={agentToEdit !== null}
         />
       ) : null}
       {personas.personaDialogState ? (

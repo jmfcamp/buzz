@@ -1022,6 +1022,13 @@ export function AgentInstanceEditDialog({
                 />
               </div>
             </div>
+            <OpenClawWorkspaceToggleField
+              checked={useOpenClawWorkspace}
+              disabled={isSaving}
+              id="edit-agent-openclaw-workspace"
+              onCheckedChange={setUseOpenClawWorkspace}
+            />
+
             <OwnerOnlyAccessField
               accessLocked={agentAccessOwnerOnly === true}
               allowlist={respondToAllowlist}
@@ -1029,12 +1036,6 @@ export function AgentInstanceEditDialog({
               mode={respondTo}
               onAllowlistChange={setRespondToAllowlist}
               onModeChange={setRespondTo}
-            />
-            <OpenClawWorkspaceToggleField
-              checked={useOpenClawWorkspace}
-              disabled={isSaving}
-              id="edit-agent-openclaw-workspace"
-              onCheckedChange={setUseOpenClawWorkspace}
             />
             <RunOnSummarySection backend={agent.backend} />
 

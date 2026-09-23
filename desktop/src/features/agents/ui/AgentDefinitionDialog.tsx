@@ -797,6 +797,7 @@ export function AgentDefinitionDialog({
             setHasUserChanges(true);
             setUseOpenClawWorkspace(value);
           }}
+          requireConnected={isCreateMode}
         />
 
         <div className="space-y-1.5">
