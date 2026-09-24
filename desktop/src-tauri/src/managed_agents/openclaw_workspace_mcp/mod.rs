@@ -217,9 +217,7 @@ pub fn fetch_project_instructions_at(
     let response = match req.send() {
         Ok(r) => r,
         Err(e) => {
-            eprintln!(
-                "buzz-desktop: openclaw project-instructions fetch failed ({url}): {e}"
-            );
+            eprintln!("buzz-desktop: openclaw project-instructions fetch failed ({url}): {e}");
             return Ok(None);
         }
     };
@@ -239,9 +237,7 @@ pub fn fetch_project_instructions_at(
     let text = match response.text() {
         Ok(t) => t,
         Err(e) => {
-            eprintln!(
-                "buzz-desktop: openclaw project-instructions body read failed ({url}): {e}"
-            );
+            eprintln!("buzz-desktop: openclaw project-instructions body read failed ({url}): {e}");
             return Ok(None);
         }
     };
@@ -732,8 +728,17 @@ mod tests {
         assert!(text.contains("openclaw-workspace"));
         assert!(text.contains("~/Documents/Hula") || text.contains("/Users/.../Hula"));
         // Forbids treating local Mac checkout as project root.
-        assert!(text.to_lowercase().contains("never") || text.contains("Do **not**") || text.contains("only"));
-        assert!(text.contains("Never `cd`") || text.contains("Never cd") || text.contains("never `cd`") || text.contains("Never `cd` to"));
+        assert!(
+            text.to_lowercase().contains("never")
+                || text.contains("Do **not**")
+                || text.contains("only")
+        );
+        assert!(
+            text.contains("Never `cd`")
+                || text.contains("Never cd")
+                || text.contains("never `cd`")
+                || text.contains("Never `cd` to")
+        );
     }
 
     #[test]
@@ -776,7 +781,9 @@ mod tests {
         assert!(once.contains("Be kind."));
         assert!(once.contains("OpenClaw workspace (Hula)"));
         // CLAUDE.md precedes standing block content from standing merge.
-        assert!(once.find("host-injected").unwrap() < once.find("OpenClaw workspace (Hula)").unwrap());
+        assert!(
+            once.find("host-injected").unwrap() < once.find("OpenClaw workspace (Hula)").unwrap()
+        );
         let twice = merge_host_injected_claude_md(Some(once.clone()), Some("# Rules\nBe kind."));
         assert_eq!(Some(once), twice);
     }
