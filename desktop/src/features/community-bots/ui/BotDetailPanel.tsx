@@ -55,7 +55,11 @@ export function BotDetailPanel({
         className="overflow-y-auto px-4 pb-6"
         data-testid="bot-detail-scroll-body"
       >
-        <BotDetailView botId={botId} onOpenChannel={onOpenChannel} />
+        <BotDetailView
+          botId={botId}
+          onClose={onClose}
+          onOpenChannel={onOpenChannel}
+        />
       </AuxiliaryPanelBody>
     </AuxiliaryPanel>
   );
