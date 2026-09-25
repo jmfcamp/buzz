@@ -2,17 +2,18 @@ import * as React from "react";
 import { UserRound } from "lucide-react";
 
 import { useAvatarPresentation } from "@/features/profile/avatarPresentationStore";
+import { avatarSourceUrlForShape } from "@/features/profile/ui/ProfileAvatarEditor.utils";
 import { parseAnimatedAvatarUrl } from "@/shared/lib/animatedAvatar";
 import { cn } from "@/shared/lib/cn";
 import { getInitials } from "@/shared/lib/initials";
 import { rewriteRelayUrl } from "@/shared/lib/mediaUrl";
 import { Avatar, AvatarFallback, AvatarImage } from "@/shared/ui/avatar";
+import { Spinner } from "@/shared/ui/spinner";
 import {
   OpenClawWorkspaceBadge,
   openClawWorkspaceBadgeSizeForAvatar,
 } from "@/shared/ui/OpenClawWorkspaceBadge";
 import { useOpenClawWorkspaceAvatarEnabled } from "@/shared/ui/openClawWorkspaceAvatarContext";
-import { Spinner } from "@/shared/ui/spinner";
 
 /**
  * A `data:` URL is inlined bytes — rendering it makes no network request, so an
@@ -28,6 +29,17 @@ type ProfileAvatarProps = {
   avatarUrl: string | null;
   avatarDataUrl?: string | null;
   label: string;
+  /**
+   * Label used to derive fallback initials; defaults to `label`.
+   *
+   * `label` stays the full visible/alt identity, but some callers build it
+   * as a generated role-prefixed key fallback ("Agent npub1abcd…wxyz"),
+   * which `getInitials` reads as ordinary words — collapsing every unnamed
+   * identity onto the same "AN"/"PN" initials. Identity-aware callers pass
+   * the unprefixed compact key here so key-fallback avatars keep distinct
+   * key-tail initials; authored display names keep their name initials.
+   */
+  initialsLabel?: string;
   className?: string;
   iconClassName?: string;
   imageClassName?: string;
@@ -57,6 +69,7 @@ export function ProfileAvatar({
   avatarUrl,
   avatarDataUrl,
   label,
+  initialsLabel,
   className,
   iconClassName,
   imageClassName,
@@ -68,7 +81,7 @@ export function ProfileAvatar({
   showOpenClawWorkspaceBadge,
   openClawBadgeAvatarPx = 32,
 }: ProfileAvatarProps) {
-  const initials = getInitials(label);
+  const initials = getInitials(initialsLabel ?? label);
   const fromContext = useOpenClawWorkspaceAvatarEnabled(pubkey);
   const showOpenClawBadge = showOpenClawWorkspaceBadge ?? fromContext;
   const openClawBadgeSize = openClawWorkspaceBadgeSizeForAvatar(
@@ -76,16 +89,17 @@ export function ProfileAvatar({
   );
   const presentation = useAvatarPresentation(avatarUrl);
   const presentedAvatarUrl = presentation?.displayUrl ?? avatarUrl;
+  const shapedAvatarUrl = avatarSourceUrlForShape(presentedAvatarUrl, shape);
 
   // Animated avatars show their static poster frame until hovered, then play
   // the animation.
-  const animated = parseAnimatedAvatarUrl(presentedAvatarUrl);
+  const animated = parseAnimatedAvatarUrl(shapedAvatarUrl);
   const [isHovered, setIsHovered] = React.useState(false);
   const baseUrl = animated
     ? isHovered
       ? animated.animationUrl
       : animated.posterUrl
-    : presentedAvatarUrl;
+    : shapedAvatarUrl;
 
   // Compute the live (proxied) source. Failures are tracked per resolved URL so
   // the poster and hover animation can recover independently. Under `untrusted`
@@ -114,66 +128,66 @@ export function ProfileAvatar({
   return (
     <span className="relative inline-flex shrink-0">
       <Avatar
-        className={cn(
-          "shrink-0 text-primary shadow-xs",
-          shape === "squircle" && "rounded-[30%]",
-          // Animated avatars carry their own backdrop disc and transparent
-          // surroundings — any container fill would flatten the pop-out.
-          plain || animated ? "bg-transparent shadow-none" : "bg-primary/20",
-          className,
-        )}
-        data-testid={testId}
-        onMouseEnter={animated ? () => setIsHovered(true) : undefined}
-        onMouseLeave={animated ? () => setIsHovered(false) : undefined}
-      >
-        {src !== undefined ? (
-          <AvatarImage
-            alt={`${label} avatar`}
-            className={cn(
-              "object-cover",
-              presentation?.state === "pending" && "brightness-75",
-              imageClassName,
-            )}
-            data-testid={testId ? `${testId}-image` : undefined}
-            onLoadingStatusChange={(status) => {
-              if (status === "error") setFailedSrc(liveSrc);
-              if (status === "loaded" && src === liveSrc) {
-                setFailedSrc(null);
-              }
-            }}
-            referrerPolicy="no-referrer"
-            src={src}
-          />
-        ) : null}
-        {shouldShowFallback ? (
-          <AvatarFallback
-            className={cn(
-              "font-semibold text-primary",
-              plain || animated ? "bg-transparent" : "bg-primary/20",
-            )}
-            data-testid={testId ? `${testId}-fallback` : undefined}
-            delayMs={src === undefined ? undefined : 200}
-          >
-            {initials.length > 0 ? (
-              initials
-            ) : (
-              <UserRound className={iconClassName} />
-            )}
-          </AvatarFallback>
-        ) : null}
-        {presentation?.state === "pending" ? (
-          <span
-            aria-label="Avatar upload pending"
-            className="pointer-events-none absolute inset-0 flex items-center justify-center text-white drop-shadow-sm"
-            data-testid={testId ? `${testId}-upload-pending` : undefined}
-            role="status"
-          >
-            <span className="flex size-7 items-center justify-center rounded-full bg-black/35">
-              <Spinner aria-hidden="true" className="border-2" size={16} />
-            </span>
+      className={cn(
+        "shrink-0 text-primary shadow-xs",
+        shape === "squircle" && "rounded-squircle",
+        // Animated avatars carry their own backdrop disc and transparent
+        // surroundings — any container fill would flatten the pop-out.
+        plain || animated ? "bg-transparent shadow-none" : "bg-primary/20",
+        className,
+      )}
+      data-testid={testId}
+      onMouseEnter={animated ? () => setIsHovered(true) : undefined}
+      onMouseLeave={animated ? () => setIsHovered(false) : undefined}
+    >
+      {src !== undefined ? (
+        <AvatarImage
+          alt={`${label} avatar`}
+          className={cn(
+            "object-cover",
+            presentation?.state === "pending" && "brightness-75",
+            imageClassName,
+          )}
+          data-testid={testId ? `${testId}-image` : undefined}
+          onLoadingStatusChange={(status) => {
+            if (status === "error") setFailedSrc(liveSrc);
+            if (status === "loaded" && src === liveSrc) {
+              setFailedSrc(null);
+            }
+          }}
+          referrerPolicy="no-referrer"
+          src={src}
+        />
+      ) : null}
+      {shouldShowFallback ? (
+        <AvatarFallback
+          className={cn(
+            "font-semibold text-primary",
+            plain || animated ? "bg-transparent" : "bg-primary/20",
+          )}
+          data-testid={testId ? `${testId}-fallback` : undefined}
+          delayMs={src === undefined ? undefined : 200}
+        >
+          {initials.length > 0 ? (
+            initials
+          ) : (
+            <UserRound className={iconClassName} />
+          )}
+        </AvatarFallback>
+      ) : null}
+      {presentation?.state === "pending" ? (
+        <span
+          aria-label="Avatar upload pending"
+          className="pointer-events-none absolute inset-0 flex items-center justify-center text-white drop-shadow-sm"
+          data-testid={testId ? `${testId}-upload-pending` : undefined}
+          role="status"
+        >
+          <span className="flex size-7 items-center justify-center rounded-full bg-black/35">
+            <Spinner aria-hidden="true" className="border-2" size={16} />
           </span>
-        ) : null}
-      </Avatar>
+        </span>
+      ) : null}
+    </Avatar>
       {showOpenClawBadge ? (
         <OpenClawWorkspaceBadge
           className="pointer-events-none absolute bottom-0 left-0 z-10"

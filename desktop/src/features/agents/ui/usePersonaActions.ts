@@ -350,6 +350,7 @@ export function usePersonaActions() {
             avatarUrl: persona.avatarUrl ?? undefined,
             description: persona.description ?? undefined,
             systemPrompt: persona.systemPrompt,
+            acpCommand: persona.acpCommand,
             runtime: persona.runtime ?? undefined,
             model: persona.model ?? undefined,
             provider: persona.provider ?? undefined,
@@ -358,6 +359,7 @@ export function usePersonaActions() {
               respondTo:
                 persona.respondTo === "anyone" ? "anyone" : "owner-only",
               parallelism: persona.parallelism ?? undefined,
+              sessionPolicy: persona.sessionPolicy ?? "channel",
             },
             // Provenance on the copy: without it the copy's fresh local id is
             // the only identifier, and the catalog offers "Add" again.

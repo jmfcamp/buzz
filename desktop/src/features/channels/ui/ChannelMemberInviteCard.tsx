@@ -3,7 +3,7 @@ import * as React from "react";
 
 import { overlayCommunityBotDisplayName } from "@/features/community-bots/lib/displayName";
 import { parsePubkeyInput } from "@/shared/lib/nostrUtils";
-import { truncatePubkey } from "@/shared/lib/pubkey";
+import { truncateNpub } from "@/shared/lib/pubkey";
 import { PubKey } from "@/shared/ui/PubKey";
 import { useIsArchivedPredicate } from "@/features/identity-archive/hooks";
 import { useUserSearchQuery } from "@/features/profile/hooks";
@@ -20,7 +20,7 @@ function formatSearchUserName(user: UserSearchResult) {
   return (
     overlayCommunityBotDisplayName(user.displayName, user.pubkey) ||
     user.nip05Handle?.trim() ||
-    truncatePubkey(user.pubkey)
+    truncateNpub(user.pubkey)
   );
 }
 
@@ -272,12 +272,12 @@ export function ChannelMemberInviteCard({
                       <div className="flex min-w-0 items-center gap-2">
                         <UserAvatar
                           avatarUrl={null}
-                          displayName={truncatePubkey(directInvitee.pubkey)}
+                          displayName={truncateNpub(directInvitee.pubkey)}
                           pubkey={directInvitee.pubkey}
                           size="xs"
                         />
                         <p className="truncate text-sm font-medium leading-5">
-                          {truncatePubkey(directInvitee.pubkey)}
+                          {truncateNpub(directInvitee.pubkey)}
                         </p>
                         <span className="shrink-0 text-xs text-muted-foreground">
                           by public key
@@ -374,7 +374,7 @@ export function ChannelMemberInviteCard({
         <div className="space-y-1 text-sm text-destructive">
           {submissionErrors.map((error) => (
             <p key={`${error.pubkey}-${error.error}`}>
-              {truncatePubkey(error.pubkey)}: {error.error}
+              {truncateNpub(error.pubkey)}: {error.error}
             </p>
           ))}
         </div>

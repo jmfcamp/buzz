@@ -196,6 +196,7 @@ export function BotActivityComposerAction({
                 pubkey={agent.pubkey}
                 shape="squircle"
                 size="xs"
+                testId={`bot-activity-composer-avatar-${agent.pubkey}`}
               />
             ))}
           </span>
