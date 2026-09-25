@@ -1,4 +1,4 @@
-import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
+import { normalizePubkey, truncateNpub } from "@/shared/lib/pubkey";
 
 export type MentionCandidateForRanking = {
   displayName: string | null;
@@ -119,7 +119,7 @@ export function rankMentionCandidates<T extends MentionCandidateForRanking>(
     .map((candidate, order) => {
       const label =
         candidate.displayName ??
-        (candidate.pubkey ? truncatePubkey(candidate.pubkey) : "agent");
+        (candidate.pubkey ? truncateNpub(candidate.pubkey) : "agent");
 
       // Empty query: preserve open-@ listing of every candidate.
       if (!lowerQuery) {

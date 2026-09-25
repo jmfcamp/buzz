@@ -205,6 +205,7 @@ function DmChannelIcon({
           size={DM_AVATAR_SIZE}
           status={presenceStatus}
           statusTestId={`channel-presence-${channelName}`}
+          testId={`channel-avatar-${channelName}`}
         />
       </span>
     );

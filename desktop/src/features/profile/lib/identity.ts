@@ -1,11 +1,11 @@
 import { overlayCommunityBotDisplayName } from "@/features/community-bots/lib/displayName";
 import type { CommunityBot } from "@/features/community-bots/lib/types";
 import type { Profile, UserProfileSummary } from "@/shared/api/types";
-import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
+import { normalizePubkey, truncateNpub } from "@/shared/lib/pubkey";
 
 export type UserProfileLookup = Record<string, UserProfileSummary>;
 
-export { truncatePubkey };
+export { truncateNpub };
 
 /**
  * Deep-equal two profile lookups by value. Used to stabilise the merged
@@ -131,7 +131,12 @@ export function resolveUserLabel(input: {
     return nip05Handle;
   }
 
-  return truncatePubkey(pubkey);
+  const safeFallback = fallbackName?.trim();
+  if (safeFallback) {
+    return safeFallback;
+  }
+
+  return truncateNpub(pubkey);
 }
 
 /**
@@ -191,6 +196,6 @@ export function formatOwnerLabel(
   return (
     owner?.displayName?.trim() ||
     owner?.nip05Handle?.trim() ||
-    truncatePubkey(ownerPubkey)
+    truncateNpub(ownerPubkey)
   );
 }

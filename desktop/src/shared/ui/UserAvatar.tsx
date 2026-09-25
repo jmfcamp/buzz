@@ -1,5 +1,6 @@
 import * as React from "react";
 
+import { avatarSourceUrlForShape } from "@/features/profile/ui/ProfileAvatarEditor.utils";
 import { parseAnimatedAvatarUrl } from "@/shared/lib/animatedAvatar";
 import { cn } from "@/shared/lib/cn";
 import { getInitials } from "@/shared/lib/initials";
@@ -46,6 +47,17 @@ function fallbackColorClass(displayName: string) {
 type UserAvatarProps = {
   avatarUrl: string | null;
   displayName: string;
+  /**
+   * Label used to derive fallback initials; defaults to `displayName`.
+   *
+   * Callers whose `displayName` is a generated role-prefixed key fallback
+   * ("Agent npub1abcd…wxyz") pass the unprefixed compact key here:
+   * word-initials would collapse every unnamed identity onto "AN"/"PN",
+   * while the compact key keeps distinct key-tail initials. Authored
+   * display names keep their name initials. The fallback color keeps
+   * hashing `displayName`, which still contains the key.
+   */
+  initialsLabel?: string;
   size?: UserAvatarSize;
   accent?: boolean;
   shape?: "circle" | "squircle";
@@ -53,21 +65,14 @@ type UserAvatarProps = {
   fallbackDelayMs?: number;
   imageDraggable?: boolean;
   testId?: string;
-  /**
-   * Local agent pubkey — when set, overlays the OpenClaw crab badge if that
-   * agent has `useOpenClawWorkspace` enabled (looked up from app context).
-   */
   pubkey?: string | null;
-  /**
-   * Explicit override for the OpenClaw badge. Prefer this when the caller
-   * already has the managed-agent flag; otherwise pass `pubkey`.
-   */
   showOpenClawWorkspaceBadge?: boolean;
 };
 
 export function UserAvatar({
   avatarUrl,
   displayName,
+  initialsLabel,
   size = "md",
   accent = false,
   shape,
@@ -78,22 +83,23 @@ export function UserAvatar({
   pubkey,
   showOpenClawWorkspaceBadge,
 }: UserAvatarProps) {
-  const initials = getInitials(displayName);
-  // Animated avatars show their static poster frame until hovered, then play
-  // the animation.
-  const animated = parseAnimatedAvatarUrl(avatarUrl);
-  const [isHovered, setIsHovered] = React.useState(false);
-  const src = animated
-    ? rewriteRelayUrl(isHovered ? animated.animationUrl : animated.posterUrl)
-    : avatarUrl
-      ? rewriteRelayUrl(avatarUrl)
-      : null;
-  const resolvedShape = shape ?? "circle";
-  const radiusClass =
-    resolvedShape === "squircle" ? "rounded-[30%]" : "rounded-full";
+  const initials = getInitials(initialsLabel ?? displayName);
   const fromContext = useOpenClawWorkspaceAvatarEnabled(pubkey);
   const showBadge = showOpenClawWorkspaceBadge ?? fromContext;
   const badgeSize = openClawWorkspaceBadgeSizeForAvatar(sizePixels[size]);
+  const resolvedShape = shape ?? "circle";
+  const shapedAvatarUrl = avatarSourceUrlForShape(avatarUrl, resolvedShape);
+  // Animated avatars show their static poster frame until hovered, then play
+  // the animation.
+  const animated = parseAnimatedAvatarUrl(shapedAvatarUrl);
+  const [isHovered, setIsHovered] = React.useState(false);
+  const src = animated
+    ? rewriteRelayUrl(isHovered ? animated.animationUrl : animated.posterUrl)
+    : shapedAvatarUrl
+      ? rewriteRelayUrl(shapedAvatarUrl)
+      : null;
+  const radiusClass =
+    resolvedShape === "squircle" ? "rounded-squircle" : "rounded-full";
 
   return (
     <span
@@ -107,32 +113,33 @@ export function UserAvatar({
         // Animated avatars carry their own backdrop disc and transparent
         // surroundings — any container fill would flatten the pop-out.
         className={cn("h-full w-full", radiusClass, !animated && "shadow-xs")}
+        data-avatar-shape={resolvedShape}
         data-testid={testId}
         onMouseEnter={animated ? () => setIsHovered(true) : undefined}
         onMouseLeave={animated ? () => setIsHovered(false) : undefined}
       >
-        {src ? (
-          <AvatarImage
-            alt={`${displayName} avatar`}
-            className={cn("object-cover", !animated && "bg-secondary")}
-            data-testid={testId ? `${testId}-image` : undefined}
-            draggable={imageDraggable}
-            referrerPolicy="no-referrer"
-            src={src}
-          />
-        ) : null}
-        <AvatarFallback
-          className={cn(
-            "font-semibold",
-            accent
-              ? "bg-primary text-primary-foreground"
-              : fallbackColorClass(displayName),
-          )}
-          data-testid={testId ? `${testId}-fallback` : undefined}
-          delayMs={fallbackDelayMs}
-        >
-          {initials}
-        </AvatarFallback>
+      {src ? (
+        <AvatarImage
+          alt={`${displayName} avatar`}
+          className={cn("object-cover", !animated && "bg-secondary")}
+          data-testid={testId ? `${testId}-image` : undefined}
+          draggable={imageDraggable}
+          referrerPolicy="no-referrer"
+          src={src}
+        />
+      ) : null}
+      <AvatarFallback
+        className={cn(
+          "font-semibold",
+          accent
+            ? "bg-primary text-primary-foreground"
+            : fallbackColorClass(displayName),
+        )}
+        data-testid={testId ? `${testId}-fallback` : undefined}
+        delayMs={fallbackDelayMs}
+      >
+        {initials}
+      </AvatarFallback>
       </Avatar>
       {showBadge ? (
         <OpenClawWorkspaceBadge
