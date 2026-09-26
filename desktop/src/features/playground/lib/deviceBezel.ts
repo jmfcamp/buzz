@@ -314,6 +314,16 @@ export function playgroundStageMeasureElement(host: HTMLElement): HTMLElement {
   return host;
 }
 
+/** Overlay window host or RHS side-panel host (Browsers / channel idle-aux). */
+export function playgroundStageRootElement(
+  host: Element,
+): Element | null | undefined {
+  return (
+    host.closest?.('[data-testid="playground-overlay"]') ??
+    host.closest?.('[data-testid="playground-side-panel"]')
+  );
+}
+
 /**
  * Native WKWebView bounds come from the inner screen host, never the outer
  * bezel box. When the element has laid out, use the **live** rect for x/y and
@@ -333,9 +343,9 @@ export function readPlaygroundStageBounds(
   const rect = measure.getBoundingClientRect();
   const chromeEl =
     chrome ??
-    measure
-      .closest?.('[data-testid="playground-overlay"]')
-      ?.querySelector('[data-testid="playground-chrome"]');
+    playgroundStageRootElement(measure)?.querySelector(
+      '[data-testid="playground-chrome"]',
+    );
   const chromeBottom = chromeEl?.getBoundingClientRect().bottom;
   const rawX = typeof rect.left === "number" ? rect.left : rect.x;
   const rawY = typeof rect.top === "number" ? rect.top : rect.y;
@@ -369,9 +379,9 @@ export function readPlaygroundStageBounds(
 export function playgroundStageChromeElement(
   host: Element,
 ): Element | null | undefined {
-  return host
-    .closest?.('[data-testid="playground-overlay"]')
-    ?.querySelector('[data-testid="playground-chrome"]');
+  return playgroundStageRootElement(host)?.querySelector(
+    '[data-testid="playground-chrome"]',
+  );
 }
 
 /**
@@ -384,7 +394,7 @@ export function playgroundStageBoundsSyncTargets(host: Element): {
   observe: Element[];
   scroll: Element[];
 } {
-  const overlay = host.closest('[data-testid="playground-overlay"]');
+  const overlay = playgroundStageRootElement(host) ?? null;
   const chrome = overlay?.querySelector('[data-testid="playground-chrome"]');
   const mobileBackdrop = host.closest(
     '[data-testid="playground-mobile-backdrop"]',

@@ -16,7 +16,6 @@ test("every icon-only chrome control has a delayed-tooltip label", () => {
     assert.ok(label.length > 0);
     assert.equal(label, PLAYGROUND_CHROME_TOOLTIPS[id]);
   }
-  assert.equal(playgroundChromeTooltip("dispose"), "Dispose");
   assert.equal(playgroundChromeTooltip("back"), "Back");
   assert.equal(playgroundChromeTooltip("forward"), "Forward");
   assert.equal(playgroundChromeTooltip("refresh"), "Refresh");

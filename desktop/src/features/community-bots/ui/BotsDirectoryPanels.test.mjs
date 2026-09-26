@@ -108,7 +108,7 @@ test("empty directory points people at Settings → Communities → Bots", async
   );
 });
 
-test("pop-out shows about, identity, and an empty channel list without a Status section", async () => {
+test("pop-out shows about, identity, Message, and an empty channel list without a Status section", async () => {
   const { createElement } = await import("react");
   const { render, screen } = await import("@testing-library/react");
   const { BotDetailContent } = await import("./BotsDirectoryPanels.tsx");
@@ -123,9 +123,13 @@ test("pop-out shows about, identity, and an empty channel list without a Status 
     },
   });
 
+  let messageClicks = 0;
   const { container } = render(
     createElement(BotDetailContent, {
       detail,
+      onMessage: () => {
+        messageClicks += 1;
+      },
       onOpenChannel: () => {},
     }),
   );
@@ -142,10 +146,15 @@ test("pop-out shows about, identity, and an empty channel list without a Status 
   assert.equal(screen.queryByTestId("bot-detail-back"), null);
   assert.ok(screen.getByTestId("bot-detail-public-key"));
   assert.ok(screen.getByTestId("bot-detail-channels-empty"));
+  assert.ok(screen.getByTestId("bot-detail-avatar"));
+  const message = screen.getByTestId("bot-detail-message");
+  assert.equal(message.textContent?.includes("Message"), true);
+  message.click();
+  assert.equal(messageClicks, 1);
   assertNoRuntimeControls(container);
 });
 
-test("pop-out channel rows match Agents links and still have no start/stop/message", async () => {
+test("pop-out channel rows match Agents links and keep no start/stop/edit controls", async () => {
   const { createElement } = await import("react");
   const { render, screen } = await import("@testing-library/react");
   const { BotDetailContent } = await import("./BotsDirectoryPanels.tsx");
@@ -168,6 +177,7 @@ test("pop-out channel rows match Agents links and still have no start/stop/messa
   const { container } = render(
     createElement(BotDetailContent, {
       detail,
+      onMessage: () => {},
       onOpenChannel: (channelId) => opened.push(channelId),
     }),
   );
@@ -183,5 +193,32 @@ test("pop-out channel rows match Agents links and still have no start/stop/messa
   );
   channel.click();
   assert.deepEqual(opened, ["general"]);
+  assert.ok(screen.getByTestId("bot-detail-message"));
   assertNoRuntimeControls(container);
+});
+
+test("hero content uses extra top padding so the avatar clears the panel edge", async () => {
+  const { createElement } = await import("react");
+  const { render, screen } = await import("@testing-library/react");
+  const { BotDetailContent } = await import("./BotsDirectoryPanels.tsx");
+
+  const detail = communityBotDirectoryDetail({
+    bot: mo,
+    channels: [],
+    profile: { about: null },
+  });
+
+  render(
+    createElement(BotDetailContent, {
+      detail,
+      onMessage: () => {},
+      onOpenChannel: () => {},
+    }),
+  );
+
+  const content = screen.getByTestId("bot-detail-content");
+  assert.match(content.className, /\bpt-8\b/);
+  const avatar = screen.getByTestId("bot-detail-avatar");
+  assert.match(avatar.className, /\bh-20\b/);
+  assert.match(avatar.className, /\bw-20\b/);
 });

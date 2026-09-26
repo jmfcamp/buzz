@@ -41,6 +41,9 @@ pub struct BrowserAgentGrant {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_root: Option<String>,
     pub mode: BrowserAgentMode,
+    /// When true, Drive grant stays but the page lock is off so the human can assist.
+    #[serde(default)]
+    pub user_has_control: bool,
     pub created_at_ms: u64,
 }
 
@@ -114,6 +117,76 @@ impl BrowserAgentGrantStore {
             .collect()
     }
 
+
+    pub fn get_for_surface(&self, surface_id: &str) -> Option<BrowserAgentGrant> {
+        let Ok(map) = self.grants.lock() else {
+            return None;
+        };
+        map.values()
+            .find(|g| g.surface_id == surface_id)
+            .cloned()
+    }
+
+    /// Move a surface grant onto `new_label` (detach / host switch). Idempotent when
+    /// the grant is already on that label.
+
+    /// Move a grant from one playground tab surface to another (tab switch).
+    /// Updates both `surface_id` and `webview_label`. Idempotent when already on target.
+    pub fn rebind_across_surfaces(
+        &self,
+        from_surface_id: &str,
+        to_surface_id: &str,
+        new_label: &str,
+    ) -> Option<BrowserAgentGrant> {
+        let mut map = self.grants.lock().ok()?;
+        if let Some(existing) = map.get(new_label) {
+            if existing.surface_id == to_surface_id {
+                return Some(existing.clone());
+            }
+        }
+        let old_key = map
+            .iter()
+            .find(|(_, g)| g.surface_id == from_surface_id)
+            .map(|(k, _)| k.clone())?;
+        let mut grant = map.remove(&old_key)?;
+        grant.surface_id = to_surface_id.to_string();
+        grant.webview_label = new_label.to_string();
+        map.insert(new_label.to_string(), grant.clone());
+        Some(grant)
+    }
+
+    pub fn rebind_surface_to_label(
+        &self,
+        surface_id: &str,
+        new_label: &str,
+    ) -> Option<BrowserAgentGrant> {
+        let mut map = self.grants.lock().ok()?;
+        if let Some(existing) = map.get(new_label) {
+            if existing.surface_id == surface_id {
+                return Some(existing.clone());
+            }
+        }
+        let old_key = map
+            .iter()
+            .find(|(_, g)| g.surface_id == surface_id)
+            .map(|(k, _)| k.clone())?;
+        let mut grant = map.remove(&old_key)?;
+        grant.webview_label = new_label.to_string();
+        map.insert(new_label.to_string(), grant.clone());
+        Some(grant)
+    }
+
+    pub fn set_user_has_control(
+        &self,
+        webview_label: &str,
+        user_has_control: bool,
+    ) -> Option<BrowserAgentGrant> {
+        let mut map = self.grants.lock().ok()?;
+        let grant = map.get_mut(webview_label)?;
+        grant.user_has_control = user_has_control;
+        Some(grant.clone())
+    }
+
     pub fn require_mode(
         &self,
         webview_label: &str,
@@ -174,6 +247,7 @@ mod tests {
             channel_id: "chan".into(),
             thread_root: None,
             mode,
+            user_has_control: false,
             created_at_ms: 1,
         }
     }
@@ -243,12 +317,55 @@ mod tests {
     }
 
     #[test]
-    fn take_control_clears_to_off() {
+    fn rebind_moves_grant_across_window_labels() {
+        let store = BrowserAgentGrantStore::default();
+        store
+            .set(sample("playground-demo", "aa", BrowserAgentMode::Drive), false)
+            .unwrap();
+        let next = store
+            .rebind_surface_to_label("demo", "playground-demo--pop")
+            .expect("rebind");
+        assert_eq!(next.webview_label, "playground-demo--pop");
+        assert!(store.get("playground-demo").is_none());
+        assert_eq!(
+            store.get("playground-demo--pop").unwrap().agent_pubkey,
+            "aa"
+        );
+    }
+
+    #[test]
+    fn user_has_control_pauses_without_clearing() {
         let store = BrowserAgentGrantStore::default();
         store
             .set(sample("playground-a", "aa", BrowserAgentMode::Drive), false)
             .unwrap();
-        assert!(store.clear("playground-a").is_some());
+        let paused = store
+            .set_user_has_control("playground-a", true)
+            .expect("pause");
+        assert!(paused.user_has_control);
+        assert!(matches!(paused.mode, BrowserAgentMode::Drive));
+        assert!(store.get("playground-a").is_some());
+        let resumed = store
+            .set_user_has_control("playground-a", false)
+            .expect("resume");
+        assert!(!resumed.user_has_control);
+    }
+
+    #[test]
+    fn rebind_across_surfaces_updates_surface_and_label() {
+        let store = BrowserAgentGrantStore::default();
+        let mut g = sample("playground-a", "aa", BrowserAgentMode::Drive);
+        g.surface_id = "a".into();
+        store.set(g, false).unwrap();
+        let next = store
+            .rebind_across_surfaces("a", "b", "playground-b")
+            .expect("rebind");
+        assert_eq!(next.surface_id, "b");
+        assert_eq!(next.webview_label, "playground-b");
         assert!(store.get("playground-a").is_none());
+        assert_eq!(
+            store.get("playground-b").unwrap().mode,
+            BrowserAgentMode::Drive
+        );
     }
 }

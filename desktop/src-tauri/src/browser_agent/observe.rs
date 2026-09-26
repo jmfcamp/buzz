@@ -23,11 +23,25 @@ pub struct ObserveEvent {
     pub payload: Option<Value>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct BrowserObserveBuffer {
     next_id: Mutex<u64>,
     rings: Mutex<HashMap<String, VecDeque<ObserveEvent>>>,
     root: Mutex<Option<PathBuf>>,
+    /// Last emitted main-frame nav per label: (url, title) for dedupe / title fill.
+    last_nav: Mutex<HashMap<String, (String, Option<String>)>>,
+}
+
+impl Default for BrowserObserveBuffer {
+    fn default() -> Self {
+        Self {
+            // Ids start at 1 so after_id=0 means "from the beginning".
+            next_id: Mutex::new(1),
+            rings: Mutex::new(HashMap::new()),
+            root: Mutex::new(None),
+            last_nav: Mutex::new(HashMap::new()),
+        }
+    }
 }
 
 impl BrowserObserveBuffer {
@@ -63,6 +77,41 @@ impl BrowserObserveBuffer {
         self.mirror_jsonl(&event);
     }
 
+    /// Main-frame nav only: drop same-URL repeats; allow one upgrade when title arrives.
+    /// Returns true when an event was recorded.
+    pub fn push_nav(
+        &self,
+        webview_label: &str,
+        url: &str,
+        title: Option<&str>,
+        at_ms: u64,
+    ) -> bool {
+        let url = url.trim();
+        if url.is_empty() || url == "about:blank" {
+            return false;
+        }
+        let title = title.map(str::trim).filter(|s| !s.is_empty()).map(|s| s.to_string());
+        if let Ok(mut last) = self.last_nav.lock() {
+            if let Some((prev_url, prev_title)) = last.get(webview_label) {
+                if prev_url == url {
+                    // Same URL: only emit again when title newly available.
+                    if title.is_none() || prev_title.as_ref() == title.as_ref() || prev_title.is_some()
+                    {
+                        return false;
+                    }
+                }
+            }
+            last.insert(webview_label.to_string(), (url.to_string(), title.clone()));
+        }
+        self.push(
+            webview_label,
+            "nav",
+            Some(serde_json::json!({ "url": url, "title": title })),
+            at_ms,
+        );
+        true
+    }
+
     pub fn poll(
         &self,
         webview_label: &str,
@@ -85,6 +134,9 @@ impl BrowserObserveBuffer {
     pub fn clear(&self, webview_label: &str) {
         if let Ok(mut rings) = self.rings.lock() {
             rings.remove(webview_label);
+        }
+        if let Ok(mut last) = self.last_nav.lock() {
+            last.remove(webview_label);
         }
     }
 
@@ -239,15 +291,23 @@ pub fn instrumentation_js(webview_label: &str, drive: bool) -> String {
       return XS.apply(this, arguments);
     }};
   }})();
-  push('nav', {{ url: location.href, title: document.title }});
+  function pushNavIfChanged(url, title) {{
+    url = String(url || location.href);
+    title = title == null ? document.title : title;
+    var last = window.__buzzBrowserAgentNav;
+    if (last && last.url === url && (last.title || '') === (title || '')) return;
+    window.__buzzBrowserAgentNav = {{ url: url, title: title || '' }};
+    push('nav', {{ url: url, title: title || null }});
+  }}
+  // Top-level only (no iframe hooks). Initial nav comes from host page-load.
   window.addEventListener('hashchange', function() {{
-    push('nav', {{ url: location.href, title: document.title }});
+    pushNavIfChanged(location.href, document.title);
   }});
   var cursor = document.getElementById('__buzz_agent_cursor');
   if (!cursor) {{
     cursor = document.createElement('div');
     cursor.id = '__buzz_agent_cursor';
-    cursor.style.cssText = 'position:fixed;z-index:2147483646;width:18px;height:18px;margin:-9px 0 0 -9px;border:2px solid #ff6b00;border-radius:50%;background:rgba(255,107,0,0.25);pointer-events:none;display:none;transition:left 80ms linear,top 80ms linear,opacity 120ms;';
+    cursor.style.cssText = 'position:fixed;z-index:2147483646;width:18px;height:18px;margin:-9px 0 0 -9px;border:2px solid #ff6b00;border-radius:50%;background:rgba(255,107,0,0.25);pointer-events:none;display:none;transition:left 400ms ease-out,top 400ms ease-out,opacity 120ms,transform 120ms;';
     document.documentElement.appendChild(cursor);
   }}
   var lock = document.getElementById('__buzz_agent_lock');
@@ -262,7 +322,37 @@ pub fn instrumentation_js(webview_label: &str, drive: bool) -> String {
     lock.style.display = DRIVE ? 'block' : 'none';
     cursor.style.display = DRIVE ? 'block' : 'none';
   }}
+  // Block human scroll while Drive lock is up. Agent scrollBy/pressKey stay
+  // allowed (programmatic / !isTrusted). Take control calls setDrive(false).
+  function blockHumanScroll(e) {{
+    if (!DRIVE) return;
+    if (e && e.isTrusted === false) return;
+    try {{ e.preventDefault(); }} catch (err) {{}}
+    try {{ e.stopPropagation(); }} catch (err) {{}}
+  }}
+  function blockHumanScrollKey(e) {{
+    if (!DRIVE) return;
+    if (e && e.isTrusted === false) return;
+    var k = e.key || e.code;
+    if (
+      k === ' ' || k === 'Spacebar' || k === 'Space' ||
+      k === 'PageUp' || k === 'PageDown' ||
+      k === 'ArrowUp' || k === 'ArrowDown' ||
+      k === 'Home' || k === 'End'
+    ) {{
+      try {{ e.preventDefault(); }} catch (err) {{}}
+      try {{ e.stopPropagation(); }} catch (err) {{}}
+    }}
+  }}
+  document.addEventListener('wheel', blockHumanScroll, {{ capture: true, passive: false }});
+  document.addEventListener('touchmove', blockHumanScroll, {{ capture: true, passive: false }});
+  document.addEventListener('keydown', blockHumanScrollKey, true);
+  lock.addEventListener('wheel', blockHumanScroll, {{ passive: false }});
+  lock.addEventListener('touchmove', blockHumanScroll, {{ passive: false }});
+  var cursorChain = Promise.resolve();
   function moveCursor(x, y, flash) {{
+    var dur = 300 + Math.floor(Math.random() * 301);
+    cursor.style.transition = 'left ' + dur + 'ms ease-out, top ' + dur + 'ms ease-out, opacity 120ms, transform 120ms';
     cursor.style.left = x + 'px';
     cursor.style.top = y + 'px';
     cursor.style.display = 'block';
@@ -271,42 +361,324 @@ pub fn instrumentation_js(webview_label: &str, drive: bool) -> String {
       cursor.style.transform = 'scale(1.4)';
       setTimeout(function(){{ cursor.style.transform = 'scale(1)'; }}, 120);
     }}
-  }}
-  function clickAt(x, y) {{
-    moveCursor(x, y, true);
-    var el = document.elementFromPoint(x, y);
-    if (!el) return JSON.stringify({{ ok:false, error:'no element' }});
-    ['mouseover','mousedown','mouseup','click'].forEach(function(type) {{
-      el.dispatchEvent(new MouseEvent(type, {{ bubbles:true, cancelable:true, clientX:x, clientY:y, view:window }}));
+    return new Promise(function(resolve) {{
+      setTimeout(resolve, dur + (flash ? 140 : 0));
     }});
-    return JSON.stringify({{ ok:true, tag: el.tagName }});
   }}
-  function typeText(text, selector) {{
-    var el = selector ? document.querySelector(selector) : document.activeElement;
-    if (!el) return JSON.stringify({{ ok:false, error:'no target' }});
-    el.focus();
-    if ('value' in el) {{
-      el.value = (el.value || '') + text;
-      el.dispatchEvent(new Event('input', {{ bubbles:true }}));
-      el.dispatchEvent(new Event('change', {{ bubbles:true }}));
-    }} else if (el.isContentEditable) {{
-      el.textContent = (el.textContent || '') + text;
+  function enqueueAction(fn) {{
+    var run = cursorChain.then(function() {{ return fn(); }});
+    cursorChain = run.catch(function(){{}});
+    return run;
+  }}
+  function isAgentChrome(el) {{
+    if (!el || !el.id) return false;
+    return el.id === '__buzz_agent_lock' || el.id === '__buzz_agent_cursor';
+  }}
+  function hitTest(x, y) {{
+    var els = [];
+    try {{
+      if (typeof document.elementsFromPoint === 'function') {{
+        els = document.elementsFromPoint(x, y) || [];
+      }} else {{
+        var one = document.elementFromPoint(x, y);
+        if (one) els = [one];
+      }}
+    }} catch (e) {{ els = []; }}
+    for (var i = 0; i < els.length; i++) {{
+      if (!isAgentChrome(els[i])) return els[i];
     }}
-    return JSON.stringify({{ ok:true }});
+    return null;
   }}
-  function scrollBy(dx, dy) {{
-    window.scrollBy(dx || 0, dy || 0);
-    return JSON.stringify({{ ok:true, x: window.scrollX, y: window.scrollY }});
+  function describeHit(el) {{
+    if (!el) return null;
+    var tag = (el.tagName || '').toLowerCase();
+    var role = el.getAttribute && el.getAttribute('role');
+    var name = (el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('name') || el.getAttribute('title'))) || '';
+    if (!name && el.innerText) name = String(el.innerText).trim().slice(0, 80);
+    if (!name && el.value != null && (tag === 'input' || tag === 'textarea')) name = String(el.value).slice(0, 80);
+    return {{ tag: tag, role: role || undefined, name: name || undefined }};
+  }}
+  function isFocusable(el) {{
+    if (!el || el.disabled) return false;
+    var tag = (el.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'select' || tag === 'textarea' || tag === 'button') return true;
+    if (tag === 'a' && el.href) return true;
+    if (el.isContentEditable) return true;
+    if (typeof el.tabIndex === 'number' && el.tabIndex >= 0) return true;
+    return false;
+  }}
+  function makeResult(id, kind, ok, hit, error) {{
+    var r = {{ id: id, ok: !!ok, kind: kind, url: location.href }};
+    if (hit) r.hit = hit;
+    if (error) r.error = String(error);
+    return JSON.stringify(r);
+  }}
+  function dispatchPointer(el, type, x, y, extra) {{
+    var opts = {{
+      bubbles: true, cancelable: true, composed: true,
+      clientX: x, clientY: y, view: window,
+      pointerId: 1, pointerType: 'mouse', isPrimary: true
+    }};
+    if (extra) {{ for (var k in extra) opts[k] = extra[k]; }}
+    try {{
+      if (typeof PointerEvent === 'function') {{
+        el.dispatchEvent(new PointerEvent(type, opts));
+        return;
+      }}
+    }} catch (e) {{}}
+  }}
+  function setNativeValue(el, value) {{
+    var proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    var desc = Object.getOwnPropertyDescriptor(proto, 'value');
+    if (desc && desc.set) desc.set.call(el, value);
+    else el.value = value;
+  }}
+  function clickAt(x, y, id) {{
+    id = id || ('d' + Date.now());
+    return enqueueAction(async function() {{
+      await moveCursor(x, y, true);
+      var el = hitTest(x, y);
+      if (!el) return makeResult(id, 'click', false, null, 'no element');
+      var hit = describeHit(el);
+      try {{
+        dispatchPointer(el, 'pointerover', x, y, {{ buttons: 0 }});
+        el.dispatchEvent(new MouseEvent('mouseover', {{ bubbles:true, cancelable:true, clientX:x, clientY:y, view:window }}));
+        dispatchPointer(el, 'pointerdown', x, y, {{ buttons: 1 }});
+        el.dispatchEvent(new MouseEvent('mousedown', {{ bubbles:true, cancelable:true, clientX:x, clientY:y, buttons:1, view:window }}));
+        if (isFocusable(el) && typeof el.focus === 'function') {{
+          try {{ el.focus(); }} catch (e) {{}}
+        }}
+        dispatchPointer(el, 'pointerup', x, y, {{ buttons: 0 }});
+        el.dispatchEvent(new MouseEvent('mouseup', {{ bubbles:true, cancelable:true, clientX:x, clientY:y, view:window }}));
+        el.dispatchEvent(new MouseEvent('click', {{ bubbles:true, cancelable:true, clientX:x, clientY:y, view:window }}));
+      }} catch (e) {{
+        return makeResult(id, 'click', false, hit, e);
+      }}
+      return makeResult(id, 'click', true, hit, null);
+    }});
+  }}
+  function hoverAt(x, y, id) {{
+    id = id || ('d' + Date.now());
+    return enqueueAction(async function() {{
+      await moveCursor(x, y, false);
+      var el = hitTest(x, y);
+      if (!el) return makeResult(id, 'hover', false, null, 'no element');
+      var hit = describeHit(el);
+      try {{
+        dispatchPointer(el, 'pointerover', x, y, {{ buttons: 0 }});
+        el.dispatchEvent(new MouseEvent('mouseover', {{ bubbles:true, cancelable:true, clientX:x, clientY:y, view:window }}));
+        el.dispatchEvent(new MouseEvent('mousemove', {{ bubbles:true, cancelable:true, clientX:x, clientY:y, view:window }}));
+      }} catch (e) {{
+        return makeResult(id, 'hover', false, hit, e);
+      }}
+      return makeResult(id, 'hover', true, hit, null);
+    }});
+  }}
+  function typeText(text, selector, id) {{
+    id = id || ('d' + Date.now());
+    text = String(text == null ? '' : text);
+    return enqueueAction(async function() {{
+      var el = selector ? document.querySelector(selector) : document.activeElement;
+      if (!el) return makeResult(id, 'type', false, null, 'no target');
+      try {{ el.focus(); }} catch (e) {{}}
+      var hit = describeHit(el);
+      try {{
+        if ('value' in el) {{
+          var base = el.value || '';
+          for (var i = 0; i < text.length; i++) {{
+            base = base + text.charAt(i);
+            setNativeValue(el, base);
+            el.dispatchEvent(new Event('input', {{ bubbles:true }}));
+            try {{
+              el.dispatchEvent(new InputEvent('input', {{ bubbles:true, data: text.charAt(i), inputType: 'insertText' }}));
+            }} catch (e) {{}}
+            await new Promise(function(r) {{ setTimeout(r, 30 + Math.floor(Math.random() * 31)); }});
+          }}
+          el.dispatchEvent(new Event('change', {{ bubbles:true }}));
+        }} else if (el.isContentEditable) {{
+          for (var j = 0; j < text.length; j++) {{
+            el.textContent = (el.textContent || '') + text.charAt(j);
+            el.dispatchEvent(new Event('input', {{ bubbles:true }}));
+            await new Promise(function(r) {{ setTimeout(r, 30 + Math.floor(Math.random() * 31)); }});
+          }}
+        }} else {{
+          return makeResult(id, 'type', false, hit, 'target not editable');
+        }}
+      }} catch (e) {{
+        return makeResult(id, 'type', false, hit, e);
+      }}
+      return makeResult(id, 'type', true, hit, null);
+    }});
+  }}
+  function scrollBy(dx, dy, id) {{
+    id = id || ('d' + Date.now());
+    return enqueueAction(async function() {{
+      window.scrollBy(dx || 0, dy || 0);
+      return makeResult(id, 'scroll', true, null, null);
+    }});
+  }}
+  function keyCodeFor(key) {{
+    var map = {{
+      Enter: 'Enter', Tab: 'Tab', Escape: 'Escape', Backspace: 'Backspace',
+      ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight', ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown'
+    }};
+    return map[key] || key;
+  }}
+  function keyOpts(key) {{
+    return {{
+      key: key, code: keyCodeFor(key), bubbles: true, cancelable: true,
+      composed: true, view: window
+    }};
+  }}
+  function focusables() {{
+    var nodes = document.querySelectorAll('a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])');
+    var out = [];
+    for (var i = 0; i < nodes.length; i++) {{
+      var n = nodes[i];
+      if (n.disabled || n.getAttribute('aria-hidden') === 'true') continue;
+      if (isAgentChrome(n)) continue;
+      out.push(n);
+    }}
+    return out;
+  }}
+  function moveTab(shift) {{
+    var list = focusables();
+    if (!list.length) return;
+    var cur = document.activeElement;
+    var idx = list.indexOf(cur);
+    var next;
+    if (shift) {{
+      next = idx <= 0 ? list[list.length - 1] : list[idx - 1];
+    }} else {{
+      next = (idx < 0 || idx >= list.length - 1) ? list[0] : list[idx + 1];
+    }}
+    try {{ next.focus(); }} catch (e) {{}}
+  }}
+  function pressKey(key, id) {{
+    id = id || ('d' + Date.now());
+    key = String(key || '');
+    return enqueueAction(async function() {{
+    var el = document.activeElement || document.body;
+    var hit = describeHit(el);
+    var opts = keyOpts(key);
+    try {{
+      var kd = new KeyboardEvent('keydown', opts);
+      var prevented = !el.dispatchEvent(kd) || kd.defaultPrevented;
+      if (!prevented) {{
+        try {{ el.dispatchEvent(new KeyboardEvent('keypress', opts)); }} catch (e) {{}}
+        if (key === 'Enter') {{
+          var tag = (el.tagName || '').toLowerCase();
+          if (tag === 'textarea') {{
+            if ('value' in el) {{
+              var start = el.selectionStart != null ? el.selectionStart : el.value.length;
+              var end = el.selectionEnd != null ? el.selectionEnd : start;
+              setNativeValue(el, el.value.slice(0, start) + '\n' + el.value.slice(end));
+              try {{ el.selectionStart = el.selectionEnd = start + 1; }} catch (e) {{}}
+              el.dispatchEvent(new Event('input', {{ bubbles:true }}));
+            }}
+          }} else {{
+            var form = el.form || (el.closest && el.closest('form'));
+            if (form && typeof form.requestSubmit === 'function') {{
+              try {{ form.requestSubmit(); }} catch (e) {{
+                try {{ form.submit(); }} catch (e2) {{}}
+              }}
+            }} else if (tag === 'button' || (tag === 'input' && /submit|button/i.test(el.type || ''))) {{
+              try {{ el.click(); }} catch (e) {{}}
+            }}
+          }}
+        }} else if (key === 'Tab') {{
+          moveTab(false);
+        }} else if (key === 'Backspace') {{
+          if ('value' in el && typeof el.value === 'string') {{
+            var s = el.selectionStart != null ? el.selectionStart : el.value.length;
+            var epos = el.selectionEnd != null ? el.selectionEnd : s;
+            if (s !== epos) {{
+              setNativeValue(el, el.value.slice(0, s) + el.value.slice(epos));
+              try {{ el.selectionStart = el.selectionEnd = s; }} catch (e) {{}}
+            }} else if (s > 0) {{
+              setNativeValue(el, el.value.slice(0, s - 1) + el.value.slice(s));
+              try {{ el.selectionStart = el.selectionEnd = s - 1; }} catch (e) {{}}
+            }}
+            el.dispatchEvent(new Event('input', {{ bubbles:true }}));
+          }} else if (el.isContentEditable) {{
+            document.execCommand && document.execCommand('delete');
+          }}
+        }} else if (key === 'Escape') {{
+          // no special-case site logic; page handlers already got keydown
+        }}
+      }}
+      el.dispatchEvent(new KeyboardEvent('keyup', opts));
+    }} catch (e) {{
+      return makeResult(id, 'key', false, hit, e);
+    }}
+    return makeResult(id, 'key', true, describeHit(document.activeElement || el), null);
+    }});
+  }}
+  function waitForCheck(urlContains, selector, text, id, _timeoutMs) {{
+    id = id || ('d' + Date.now());
+    try {{
+      if (urlContains && String(location.href).indexOf(urlContains) === -1) {{
+        return makeResult(id, 'waitFor', false, null, 'urlContains not matched');
+      }}
+      if (selector) {{
+        var el = document.querySelector(selector);
+        if (!el) return makeResult(id, 'waitFor', false, null, 'selector not found');
+      }}
+      if (text) {{
+        var bodyText = (document.body && (document.body.innerText || document.body.textContent)) || '';
+        if (bodyText.indexOf(text) === -1) {{
+          return makeResult(id, 'waitFor', false, null, 'text not found');
+        }}
+      }}
+      return makeResult(id, 'waitFor', true, null, null);
+    }} catch (e) {{
+      return makeResult(id, 'waitFor', false, null, e);
+    }}
+  }}
+  function snapshotCollect() {{
+    var focused = document.activeElement ? describeHit(document.activeElement) : null;
+    var interactives = [];
+    var nodes = document.querySelectorAll('a[href],button,input,select,textarea,[role="button"],[role="link"],[role="textbox"],[tabindex]:not([tabindex="-1"])');
+    for (var i = 0; i < nodes.length && interactives.length < 80; i++) {{
+      var n = nodes[i];
+      if (isAgentChrome(n)) continue;
+      var rect = n.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) continue;
+      if (rect.bottom < 0 || rect.right < 0 || rect.top > innerHeight || rect.left > innerWidth) continue;
+      var style = window.getComputedStyle(n);
+      if (style && (style.visibility === 'hidden' || style.display === 'none' || style.opacity === '0')) continue;
+      var hit = describeHit(n);
+      var value = null;
+      if ('value' in n && n.value != null && String(n.value).length) value = String(n.value).slice(0, 120);
+      interactives.push({{
+        tag: hit.tag, role: hit.role, name: hit.name, value: value,
+        center: {{ x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) }}
+      }});
+    }}
+    return JSON.stringify({{
+      url: location.href,
+      title: document.title,
+      viewport: {{ width: innerWidth, height: innerHeight, dpr: window.devicePixelRatio || 1 }},
+      scroll: {{ x: window.scrollX, y: window.scrollY }},
+      focused: focused,
+      interactives: interactives
+    }});
   }}
   window.__buzzBrowserAgent = {{
     label: LABEL,
     push: push,
+    pushNavIfChanged: pushNavIfChanged,
     drain: drain,
     setDrive: setDrive,
     moveCursor: moveCursor,
     clickAt: clickAt,
+    hoverAt: hoverAt,
     typeText: typeText,
-    scrollBy: scrollBy
+    scrollBy: scrollBy,
+    pressKey: pressKey,
+    waitForCheck: waitForCheck,
+    hitTest: hitTest,
+    snapshotCollect: snapshotCollect
   }};
   setDrive(DRIVE);
   return 'ok';
@@ -329,6 +701,23 @@ pub fn drain_to_cookie_js(after_id: u64, limit: usize) -> String {
 }
 
 pub const DRAIN_COOKIE: &str = "__buzz_ba_drain";
+pub const SNAPSHOT_COOKIE: &str = "__buzz_ba_snapshot";
+
+/// Collect a11y/DOM snapshot into a cookie for host readback.
+pub fn snapshot_to_cookie_js() -> String {
+    format!(
+        r#"(function(){{
+  var agent = window.__buzzBrowserAgent;
+  if (!agent || !agent.snapshotCollect) return;
+  var raw = agent.snapshotCollect();
+  try {{
+    document.cookie = '__buzz_ba_snapshot=' + encodeURIComponent(raw) + '; path=/; SameSite=Lax';
+  }} catch (e) {{}}
+  try {{ window.__buzzSnapshotLast = raw; }} catch (e) {{}}
+}})();"#
+    )
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -347,10 +736,48 @@ mod tests {
     }
 
     #[test]
+    fn push_nav_dedupes_same_url_and_fills_title() {
+        let buf = BrowserObserveBuffer::default();
+        assert!(buf.push_nav("playground-a", "https://a.test/", None, 1));
+        assert!(!buf.push_nav("playground-a", "https://a.test/", None, 2));
+        assert!(buf.push_nav("playground-a", "https://a.test/", Some("Hello"), 3));
+        assert!(!buf.push_nav("playground-a", "https://a.test/", Some("Hello"), 4));
+        assert!(!buf.push_nav("playground-a", "about:blank", Some("x"), 5));
+        let events = buf.poll("playground-a", 0, 10);
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[1].payload.as_ref().unwrap()["title"], "Hello");
+    }
+
+    #[test]
     fn instrumentation_mentions_network_and_cursor() {
         let js = instrumentation_js("playground-x", true);
         assert!(js.contains("fetch"));
         assert!(js.contains("__buzz_agent_cursor"));
         assert!(js.contains("setDrive"));
+        assert!(js.contains("pushNavIfChanged"));
+        assert!(js.contains("setNativeValue"));
+        assert!(js.contains("enqueueAction"));
+    }
+
+    #[test]
+    fn click_hit_test_skips_lock_and_cursor() {
+        let js = instrumentation_js("playground-x", true);
+        assert!(js.contains("elementsFromPoint"));
+        assert!(js.contains("__buzz_agent_lock"));
+        assert!(js.contains("isAgentChrome"));
+        assert!(js.contains("pointerdown"));
+        assert!(js.contains("pressKey"));
+        assert!(js.contains("waitForCheck"));
+    }
+
+    #[test]
+    fn drive_lock_blocks_trusted_human_scroll_events() {
+        let js = instrumentation_js("playground-x", true);
+        assert!(js.contains("blockHumanScroll"));
+        assert!(js.contains("blockHumanScrollKey"));
+        assert!(js.contains("addEventListener('wheel'"));
+        assert!(js.contains("addEventListener('touchmove'"));
+        assert!(js.contains("isTrusted === false"));
+        assert!(js.contains("PageDown"));
     }
 }

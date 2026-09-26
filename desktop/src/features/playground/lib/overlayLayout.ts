@@ -56,7 +56,7 @@ export const PLAYGROUND_DOCK_RESIZE_HANDLE_TEST_ID = "playground-dock-resize";
 
 /**
  * Same 40px strip as `AppTopChrome`. Fixed px via the chrome CSS variable so
- * Cmd +/- zoom cannot pull Dispose into the macOS traffic-light hit region.
+ * Cmd +/- zoom cannot pull chrome controls into the macOS traffic-light hit region.
  * Painted opaque so fullscreen does not leak titlebar vibrancy. This gap is
  * the only `data-tauri-drag-region` — never put drag on the chrome row.
  */
@@ -100,7 +100,7 @@ export function playgroundOverlaySurfaceIsOpaque(className: string): boolean {
   );
 }
 
-/** Dispose / nav / URL / Inspect must not sit on a Tauri drag region. */
+/** Nav / URL / Inspect must not sit on a Tauri drag region. */
 export function playgroundFullscreenDragRegionIsGapOnly(
   gap: Element,
   chrome: Element,
@@ -152,7 +152,6 @@ export function playgroundStageLayoutKey(
 }
 
 export type PlaygroundChromeLayoutFlags = {
-  hideDispose: boolean;
   hideDock: boolean;
   hideDismiss: boolean;
   /** @deprecated Prefer Detach into an OS window; kept false. */
@@ -164,10 +163,11 @@ export type PlaygroundChromeLayoutFlags = {
 };
 
 /**
- * Locked placement (split/window) hides dispose and dock.
+ * Locked placement (split/window) hides dock.
  * OS pop-outs also hide dismiss (close the OS window instead). In-main embeds
  * keep dismiss so chrome X can park React state and the native WKWebView.
- * Fullscreen is replaced by Detach; Inspect is only available when detached.
+ * Session destroy is Browsers left-nav Remove (not chrome). Fullscreen is
+ * replaced by Detach; Inspect is only available when detached.
  */
 export function playgroundChromeLayoutFlags(
   lockPlacement?: "window" | "dock",
@@ -177,7 +177,6 @@ export function playgroundChromeLayoutFlags(
   const detached = isOsPopout || lockPlacement === "window";
   if (lockPlacement == null) {
     return {
-      hideDispose: false,
       hideDock: false,
       hideDismiss: false,
       showFullscreen: false,
@@ -186,7 +185,6 @@ export function playgroundChromeLayoutFlags(
     };
   }
   return {
-    hideDispose: true,
     hideDock: true,
     hideDismiss: isOsPopout,
     showFullscreen: false,

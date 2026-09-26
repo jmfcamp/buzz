@@ -12,11 +12,33 @@ import {
   type TerminalViewportSize,
 } from "./TerminalSubstrate";
 import {
+  openTerminalPanel,
   setTerminalPanelMode,
   setTerminalSessionChannels,
   toggleTerminalPanel,
   useTerminalPanel,
 } from "./terminalPanelStore";
+import {
+  clearTermSessionLive,
+  consumeTermSessionOpenRequest,
+  getTermSessionLiveKey,
+  noteTermSessionLive,
+  subscribeTermSessionOpenRequest,
+  type TermSessionOpenRequest,
+} from "@/features/term-session/lib/openRequestStore";
+import { homeDir } from "@tauri-apps/api/path";
+import {
+  getTermPreferences,
+  resolveTermCwdForAttach,
+} from "./termPreferences.ts";
+import {
+  herdrAttachKey,
+  herdrWorkspaceLabel,
+  openInHerdr,
+  shouldOpenInHerdr,
+  type HerdrOpenResult,
+} from "./herdrHost.ts";
+import { toast } from "sonner";
 
 type TerminalContext = {
   channelId: string;
@@ -34,6 +56,30 @@ type Session = {
   title: string;
   closing: boolean;
   context: TerminalContext;
+  /** Buzz Term handoff card sid when this tab was opened from a term-session card. */
+  termSessionSid?: string | null;
+  pendingLaunchCommand?: string | null;
+  extraEnv?: Record<string, string>;
+  /**
+   * When set, this tab is the in-app herdr-attach PTY for that session name
+   * (blank string = herdr unnamed default). Reused across plain opens.
+   */
+  herdrAttachSession?: string | null;
+};
+
+type CreateSessionOptions = {
+  termSessionSid?: string | null;
+  pendingLaunchCommand?: string | null;
+  extraEnv?: Record<string, string>;
+  /** Per-tab cwd from a Term Session handoff card; wins over Settings. */
+  cwd?: string | null;
+  contextOverride?: Partial<TerminalContext>;
+  /** Spawn herdr TUI in-app instead of a login shell. */
+  herdrAttach?: {
+    bin: string;
+    argv: string[];
+    sessionKey: string;
+  };
 };
 
 const INITIAL_SIZE: TerminalViewportSize = {
@@ -42,6 +88,10 @@ const INITIAL_SIZE: TerminalViewportSize = {
   pixelWidth: 672,
   pixelHeight: 408,
 };
+
+/** Synthetic channel for left-nav / all-scope herdr when no channel is selected. */
+const FALLBACK_TERM_CHANNEL_ID = "__buzz_term__";
+const FALLBACK_TERM_CHANNEL_NAME = "Buzz Term";
 
 function report(error: unknown) {
   console.error("terminal session failed", error);
@@ -64,7 +114,9 @@ export function TerminalBootstrap({
     channelId && npub && relayUrl
       ? {
           channelId,
-          channelName: channelName ?? channelId,
+          // Prefer display name from useTerminalContext; never stuff the raw
+          // channel id into the name slot when a title is available.
+          channelName: channelName?.trim() || "channel",
           threadId,
           npub,
           relayUrl,
@@ -72,6 +124,11 @@ export function TerminalBootstrap({
       : null;
   const contextRef = React.useRef<TerminalContext | null>(context);
   contextRef.current = context;
+  // Identity alone (no channel) — enough for all-scope herdr attach.
+  const identityRef = React.useRef<{ npub: string; relayUrl: string } | null>(
+    null,
+  );
+  identityRef.current = npub && relayUrl ? { npub, relayUrl } : null;
   const mountedRef = React.useRef(true);
   const sizeRef = React.useRef(INITIAL_SIZE);
   const resizeChainRef = React.useRef(Promise.resolve());
@@ -99,6 +156,13 @@ export function TerminalBootstrap({
   const acknowledgedSequenceRef = React.useRef(new Map<string, number>());
   const sessionsRef = React.useRef(sessions);
   sessionsRef.current = sessions;
+  /** When a term-session handoff is creating the first tab, skip blank auto-create. */
+  const skipAutoCreateRef = React.useRef(false);
+  /** Dedup concurrent herdr ensure/attach opens so the panel is not left empty. */
+  const herdrOpenInFlightRef = React.useRef(false);
+  const createInAppSessionRef = React.useRef<
+    (options?: CreateSessionOptions) => void
+  >(() => {});
 
   React.useEffect(() => {
     const previousMode = previousPanelModeRef.current;
@@ -139,14 +203,18 @@ export function TerminalBootstrap({
     };
   }, [panel.mode]);
 
-  React.useEffect(() => {
-    if (!context && panel.mode !== "closed") setTerminalPanelMode("closed");
-  }, [context, panel.mode]);
+  // Last successful GUI / tab spawn context. Lets maximized Term (and New tab)
+  // keep working after navigating away from a channel without inventing one.
+  const lastSpawnContextRef = React.useRef<TerminalContext | null>(null);
+  if (context) lastSpawnContextRef.current = context;
 
   React.useEffect(() => {
     const toggle = (event: KeyboardEvent) => {
+      const canSpawn =
+        Boolean(contextRef.current) || Boolean(lastSpawnContextRef.current);
+      const hasSessions = sessionsRef.current.length > 0;
       if (
-        !context ||
+        (!canSpawn && !hasSessions) ||
         panel.mode !== "closed" ||
         event.code !== "KeyJ" ||
         (!event.metaKey && !event.ctrlKey) ||
@@ -173,6 +241,10 @@ export function TerminalBootstrap({
   }, []);
 
   const removeSession = React.useCallback((key: string) => {
+    const closing = sessionsRef.current.find((session) => session.key === key);
+    if (closing?.termSessionSid) {
+      clearTermSessionLive(closing.termSessionSid);
+    }
     setSessions((current) => current.filter((session) => session.key !== key));
     setActiveKey((current) => {
       if (current !== key) return current;
@@ -183,96 +255,377 @@ export function TerminalBootstrap({
     });
   }, []);
 
-  const createSession = React.useCallback(() => {
-    const spawnContext = contextRef.current;
-    if (!available || !spawnContext) return;
-    const key = crypto.randomUUID();
-    const initial: Session = {
-      key,
-      connection: null,
-      delivery: null,
-      frame: undefined,
-      title: "SHELL",
-      closing: false,
-      context: spawnContext,
-    };
-    setSessions((current) => [...current, initial]);
-    setActiveKey(key);
+  const findHerdrAttachSession = React.useCallback((sessionKey: string) => {
+    return sessionsRef.current.find(
+      (session) =>
+        !session.closing && session.herdrAttachSession === sessionKey,
+    );
+  }, []);
 
-    const update = (apply: (session: Session) => Session) => {
-      if (!mountedRef.current) return;
-      setSessions((current) =>
-        current.map((session) =>
-          session.key === key ? apply(session) : session,
-        ),
-      );
+  /** Prefer live channel context; else last spawn; else synthetic for herdr all-scope. */
+  const resolveSpawnContext = React.useCallback((): TerminalContext | null => {
+    const live =
+      contextRef.current ??
+      sessionsRef.current.at(-1)?.context ??
+      lastSpawnContextRef.current;
+    if (live) return live;
+    const identity = identityRef.current;
+    if (!identity) return null;
+    return {
+      channelId: FALLBACK_TERM_CHANNEL_ID,
+      channelName: FALLBACK_TERM_CHANNEL_NAME,
+      threadId: null,
+      npub: identity.npub,
+      relayUrl: identity.relayUrl,
     };
-    const onMessage = (
-      message: Exclude<TerminalMessage, { type: "frame" }>,
+  }, []);
+
+  const openOrReuseHerdrAttach = React.useCallback(
+    (
+      result: Extract<HerdrOpenResult, { ok: true }>,
+      options?: CreateSessionOptions,
     ) => {
-      if (message.type === "exit") {
-        removeSession(key);
-      } else if (message.type === "title") {
-        update((session) => ({
-          ...session,
-          title: message.payload || "SHELL",
-        }));
-      } else if (message.type === "resetTitle") {
-        update((session) => ({ ...session, title: "SHELL" }));
+      const sessionKey = herdrAttachKey(result.sessionName);
+      const existing = findHerdrAttachSession(sessionKey);
+      const prefs = getTermPreferences();
+      const mode = panel.mode === "closed" ? prefs.openMode : panel.mode;
+      openTerminalPanel(mode, panel.tabScope);
+      if (existing) {
+        setActiveKey(existing.key);
+        return;
       }
-    };
-    const onFrame = (delivery: TerminalDelivery) => {
-      update((session) => ({ ...session, delivery, frame: delivery.frame }));
-    };
-
-    const size = sizeRef.current;
-    void TerminalConnection.attach(
-      {
-        ...spawnContext,
-        threadId: spawnContext.threadId ?? undefined,
-        ...size,
-      },
-      onMessage,
-      onFrame,
-    )
-      .then((connection) => {
-        if (!mountedRef.current) return connection.detach();
-        if (closedSessionKeysRef.current.delete(key)) return connection.close();
-        connectionSizesRef.current.set(connection, size);
-        update((session) => ({ ...session, connection }));
-        if (sizeRef.current !== size) {
-          const currentSize = sizeRef.current;
-          resizeChainRef.current = resizeChainRef.current
-            .then(async () => {
-              const viewport = await connection.resize(
-                currentSize.columns,
-                currentSize.rows,
-                currentSize.pixelWidth,
-                currentSize.pixelHeight,
-              );
-              connectionSizesRef.current.set(connection, currentSize);
-              await connection.viewportReady(viewport);
-            })
-            .catch(fail);
-        }
-      })
-      .catch((error) => {
-        if (closedSessionKeysRef.current.delete(key)) return;
-        removeSession(key);
-        fail(error);
+      createInAppSessionRef.current({
+        ...options,
+        // Handoff command runs inside the herdr workspace pane (send-text),
+        // not typed into the attach TUI PTY.
+        pendingLaunchCommand: null,
+        herdrAttach: {
+          bin: result.herdrBin,
+          argv: result.attachArgv,
+          sessionKey,
+        },
       });
-  }, [available, fail, removeSession]);
-
-  const contextChannelId = context?.channelId ?? null;
-  const channelSessions = React.useMemo(
-    () =>
-      contextChannelId
-        ? sessions.filter(
-            (session) => session.context.channelId === contextChannelId,
-          )
-        : [],
-    [contextChannelId, sessions],
+    },
+    [findHerdrAttachSession, panel.mode, panel.tabScope],
   );
+
+  const createSession = React.useCallback(
+    (options?: CreateSessionOptions) => {
+      const baseContext = resolveSpawnContext();
+      if (!available || !baseContext) return;
+
+      // Fast path: Buzz Term host — create the in-app PTY immediately (no async
+      // herdr probe) so the panel never sits empty.
+      if (getTermPreferences().sessionHost !== "herdr") {
+        createInAppSessionRef.current(options);
+        return;
+      }
+
+      // herdr host: attach in-app (never Terminal.app). Plain open does NOT
+      // create a workspace — reuse last focused / first space.
+      const prefs = getTermPreferences();
+      const sessionKey = herdrAttachKey(prefs.sessionName);
+      const existing = findHerdrAttachSession(sessionKey);
+      const reopenMode = panel.mode === "closed" ? prefs.openMode : panel.mode;
+      const scope = panel.tabScope;
+      // Open chrome immediately so left-nav / ⌘J never flash an empty panel
+      // while the herdr probe runs.
+      openTerminalPanel(reopenMode, scope);
+      if (existing) {
+        // Attach tab already live — New tab (+) opens another in-app shell
+        // (plain open never createWorkspace).
+        createInAppSessionRef.current(options);
+        return;
+      }
+      if (herdrOpenInFlightRef.current) return;
+      herdrOpenInFlightRef.current = true;
+      void (async () => {
+        try {
+          if (!(await shouldOpenInHerdr())) {
+            createInAppSessionRef.current(options);
+            return;
+          }
+          const result = await openInHerdr({ createWorkspace: false });
+          if (result.ok) {
+            // Re-check reuse: a parallel open may have created the attach tab.
+            const again = findHerdrAttachSession(
+              herdrAttachKey(result.sessionName),
+            );
+            if (again) {
+              setActiveKey(again.key);
+              return;
+            }
+            openOrReuseHerdrAttach(result, options);
+            return;
+          }
+          toast.message("herdr unavailable — using Buzz Term", {
+            description: result.reason,
+          });
+          createInAppSessionRef.current(options);
+        } catch (error) {
+          toast.message("herdr unavailable — using Buzz Term", {
+            description: error instanceof Error ? error.message : String(error),
+          });
+          createInAppSessionRef.current(options);
+        } finally {
+          herdrOpenInFlightRef.current = false;
+        }
+      })();
+    },
+    [
+      available,
+      findHerdrAttachSession,
+      openOrReuseHerdrAttach,
+      panel.mode,
+      panel.tabScope,
+      resolveSpawnContext,
+    ],
+  );
+
+  const createInAppSession = React.useCallback(
+    (options?: CreateSessionOptions) => {
+      const baseContext = resolveSpawnContext();
+      if (!available || !baseContext) return;
+      const spawnContext: TerminalContext = {
+        ...baseContext,
+        ...options?.contextOverride,
+        channelId: options?.contextOverride?.channelId ?? baseContext.channelId,
+        channelName:
+          options?.contextOverride?.channelName ?? baseContext.channelName,
+        threadId:
+          options?.contextOverride?.threadId !== undefined
+            ? options.contextOverride.threadId
+            : baseContext.threadId,
+        npub: options?.contextOverride?.npub ?? baseContext.npub,
+        relayUrl: options?.contextOverride?.relayUrl ?? baseContext.relayUrl,
+      };
+      lastSpawnContextRef.current = spawnContext;
+      const key = crypto.randomUUID();
+      const herdrAttach = options?.herdrAttach;
+      const initial: Session = {
+        key,
+        connection: null,
+        delivery: null,
+        frame: undefined,
+        title: herdrAttach ? "herdr" : "SHELL",
+        closing: false,
+        context: spawnContext,
+        termSessionSid: options?.termSessionSid ?? null,
+        pendingLaunchCommand: options?.pendingLaunchCommand ?? null,
+        extraEnv: options?.extraEnv,
+        herdrAttachSession: herdrAttach?.sessionKey ?? null,
+      };
+      setSessions((current) => [...current, initial]);
+      setActiveKey(key);
+      if (options?.termSessionSid) {
+        noteTermSessionLive(options.termSessionSid, key);
+      }
+
+      const update = (apply: (session: Session) => Session) => {
+        if (!mountedRef.current) return;
+        setSessions((current) =>
+          current.map((session) =>
+            session.key === key ? apply(session) : session,
+          ),
+        );
+      };
+      const onMessage = (
+        message: Exclude<TerminalMessage, { type: "frame" }>,
+      ) => {
+        if (message.type === "exit") {
+          removeSession(key);
+        } else if (message.type === "title") {
+          update((session) => ({
+            ...session,
+            title: message.payload || "SHELL",
+          }));
+        } else if (message.type === "resetTitle") {
+          update((session) => ({ ...session, title: "SHELL" }));
+        }
+      };
+      const onFrame = (delivery: TerminalDelivery) => {
+        update((session) => ({ ...session, delivery, frame: delivery.frame }));
+      };
+
+      const size = sizeRef.current;
+      void (async () => {
+        const prefs = getTermPreferences();
+        const cwd = await resolveTermCwdForAttach({
+          preference: prefs.cwd,
+          handoffCwd: options?.cwd,
+          homeDir,
+        });
+        return TerminalConnection.attach(
+          {
+            ...spawnContext,
+            threadId: spawnContext.threadId ?? undefined,
+            ...size,
+            ...(options?.extraEnv ? { extraEnv: options.extraEnv } : {}),
+            ...(cwd ? { cwd } : {}),
+            ...(prefs.shell ? { shell: prefs.shell } : {}),
+            ...(herdrAttach
+              ? { program: herdrAttach.bin, args: herdrAttach.argv }
+              : {}),
+            scrollback: prefs.scrollback,
+          },
+          onMessage,
+          onFrame,
+        );
+      })()
+        .then((connection) => {
+          if (!mountedRef.current) return connection.detach();
+          if (closedSessionKeysRef.current.delete(key))
+            return connection.close();
+          connectionSizesRef.current.set(connection, size);
+          update((session) => ({ ...session, connection }));
+          // Never type handoff into the herdr-attach TUI; card Open uses
+          // herdr pane send-text instead.
+          const launch = herdrAttach
+            ? null
+            : options?.pendingLaunchCommand?.trim();
+          if (launch) {
+            // Give the shell a moment to paint the prompt before typing.
+            window.setTimeout(() => {
+              void connection.input(`${launch}\n`).catch(fail);
+              update((session) => ({
+                ...session,
+                pendingLaunchCommand: null,
+              }));
+            }, 350);
+          }
+          if (sizeRef.current !== size) {
+            const currentSize = sizeRef.current;
+            resizeChainRef.current = resizeChainRef.current
+              .then(async () => {
+                const viewport = await connection.resize(
+                  currentSize.columns,
+                  currentSize.rows,
+                  currentSize.pixelWidth,
+                  currentSize.pixelHeight,
+                );
+                connectionSizesRef.current.set(connection, currentSize);
+                await connection.viewportReady(viewport);
+              })
+              .catch(fail);
+          }
+        })
+        .catch((error) => {
+          if (closedSessionKeysRef.current.delete(key)) return;
+          removeSession(key);
+          // herdr program spawn failed — fall back to a login shell instead of
+          // permanently disabling Term (available=false) and leaving chrome blank.
+          if (herdrAttach) {
+            toast.message("herdr attach failed — using Buzz Term", {
+              description:
+                error instanceof Error ? error.message : String(error),
+            });
+            createInAppSessionRef.current({
+              ...options,
+              herdrAttach: undefined,
+              pendingLaunchCommand: options?.pendingLaunchCommand ?? null,
+            });
+            return;
+          }
+          fail(error);
+        });
+    },
+    [available, fail, removeSession, resolveSpawnContext],
+  );
+  createInAppSessionRef.current = createInAppSession;
+
+  const fulfillTermSessionOpen = React.useCallback(
+    (request: TermSessionOpenRequest) => {
+      const liveKey = getTermSessionLiveKey(request.sid);
+      const live = liveKey
+        ? sessionsRef.current.find((session) => session.key === liveKey)
+        : null;
+      if (live && !live.closing) {
+        openTerminalPanel(getTermPreferences().openMode, "channel");
+        setActiveKey(live.key);
+        return;
+      }
+
+      void (async () => {
+        // Card Open + herdr host: create ONE focused workspace, send handoff
+        // command into its root pane, then show/reuse the in-app herdr attach.
+        if (request.launchCommand.trim() && (await shouldOpenInHerdr())) {
+          const result = await openInHerdr({
+            createWorkspace: true,
+            cwd: request.cwd,
+            command: request.launchCommand,
+            label: herdrWorkspaceLabel(
+              request.channelName,
+              request.threadId,
+            ),
+            env: request.extraEnv,
+          });
+          if (result.ok) {
+            skipAutoCreateRef.current = true;
+            openOrReuseHerdrAttach(result, {
+              termSessionSid: request.sid,
+              extraEnv: request.extraEnv,
+              cwd: request.cwd,
+              contextOverride: {
+                channelId: request.channelId,
+                channelName: request.channelName,
+                threadId: request.threadId,
+              },
+            });
+            toast.success("Opened term session in herdr");
+            window.setTimeout(() => {
+              skipAutoCreateRef.current = false;
+            }, 0);
+            return;
+          }
+          toast.message("herdr unavailable — using Buzz Term", {
+            description: result.reason,
+          });
+        }
+
+        if (
+          !contextRef.current &&
+          !sessionsRef.current.at(-1)?.context &&
+          !lastSpawnContextRef.current
+        ) {
+          openTerminalPanel(getTermPreferences().openMode, "channel");
+          return;
+        }
+        if (!request.launchCommand.trim()) {
+          openTerminalPanel(getTermPreferences().openMode, "channel");
+          return;
+        }
+        if (!available) {
+          openTerminalPanel(getTermPreferences().openMode, "channel");
+          return;
+        }
+        skipAutoCreateRef.current = true;
+        openTerminalPanel(getTermPreferences().openMode, "channel");
+        createInAppSession({
+          termSessionSid: request.sid,
+          pendingLaunchCommand: request.launchCommand,
+          extraEnv: request.extraEnv,
+          cwd: request.cwd,
+          contextOverride: {
+            channelId: request.channelId,
+            channelName: request.channelName,
+            threadId: request.threadId,
+          },
+        });
+        window.setTimeout(() => {
+          skipAutoCreateRef.current = false;
+        }, 0);
+      })();
+    },
+    [available, createInAppSession, openOrReuseHerdrAttach],
+  );
+
+  React.useEffect(() => {
+    const onRequest = () => {
+      const request = consumeTermSessionOpenRequest();
+      if (request) fulfillTermSessionOpen(request);
+    };
+    return subscribeTermSessionOpenRequest(onRequest);
+  }, [fulfillTermSessionOpen]);
 
   React.useEffect(() => {
     setTerminalSessionChannels(
@@ -280,18 +633,96 @@ export function TerminalBootstrap({
     );
   }, [sessions]);
 
+  const contextChannelId = context?.channelId ?? null;
+  const tabScope = panel.tabScope;
+
+  // Visible tabs depend on how Term was opened:
+  // - channel: only sessions for the active channel (in-channel / ⌘J).
+  // - all: every live session (left-nav Buzz Term), with channel provenance.
+  // Herdr-attach tabs are session-wide (not per-channel) and always visible
+  // so plain reopen reuses the same in-app PTY instead of spawning another.
+  const visibleSessions = React.useMemo(() => {
+    if (tabScope === "all") return sessions;
+    if (!contextChannelId) {
+      return sessions.filter((session) => session.herdrAttachSession != null);
+    }
+    return sessions.filter(
+      (session) =>
+        session.context.channelId === contextChannelId ||
+        session.herdrAttachSession != null,
+    );
+  }, [contextChannelId, sessions, tabScope]);
+
+  // Hard guarantee: whenever the panel is open and the visible strip for the
+  // current tabScope is empty, create an in-app session within one tick —
+  // unless an explicit term-session handoff is in flight (skipAutoCreateRef).
+  // herdr host goes through createSession (ensure server + in-app attach).
   React.useEffect(() => {
-    if (panel.mode === "closed" || !available || !context) return;
-    if (channelSessions.length === 0) createSession();
-    else if (!channelSessions.some((session) => session.key === activeKey))
-      setActiveKey(channelSessions.at(-1)?.key ?? null);
+    if (panel.mode === "closed" || !available) return;
+
+    if (visibleSessions.length > 0) {
+      if (!visibleSessions.some((session) => session.key === activeKey)) {
+        setActiveKey(visibleSessions.at(-1)?.key ?? null);
+      }
+      return;
+    }
+
+    // channel scope needs an active channel.
+    // all scope: reuse last spawn, or (herdr host) identity-only synthetic
+    // context so cold left-nav still attaches instead of sitting blank.
+    // buzz-term host never invents a channel when none was selected.
+    if (tabScope === "channel") {
+      if (!context) return;
+    } else {
+      const canSpawn =
+        Boolean(contextRef.current) ||
+        Boolean(lastSpawnContextRef.current) ||
+        (getTermPreferences().sessionHost === "herdr" &&
+          Boolean(identityRef.current));
+      if (!canSpawn) return;
+    }
+
+    const spawnEmpty = () => {
+      if (getTermPreferences().sessionHost === "herdr") {
+        createSession();
+      } else {
+        // Buzz Term: attach immediately — no async host probe.
+        createInAppSessionRef.current();
+      }
+    };
+
+    // Handoff sets skip then createInAppSession before the effect; do not race.
+    // If skip is still true with an empty strip (stuck after herdr/handoff),
+    // clear on the next tick and create so chrome is never left blank.
+    if (skipAutoCreateRef.current) {
+      const timer = window.setTimeout(() => {
+        skipAutoCreateRef.current = false;
+        const live = sessionsRef.current;
+        // Herdr-attach tabs are visible across channel scope — count them so
+        // we do not spawn a duplicate when the strip is already covered.
+        const stillEmpty =
+          tabScope === "all"
+            ? live.length === 0
+            : !live.some(
+                (session) =>
+                  session.herdrAttachSession != null ||
+                  session.context.channelId === contextRef.current?.channelId,
+              );
+        if (!stillEmpty) return;
+        spawnEmpty();
+      }, 0);
+      return () => window.clearTimeout(timer);
+    }
+
+    spawnEmpty();
   }, [
     activeKey,
     available,
-    channelSessions,
     context,
     createSession,
     panel.mode,
+    tabScope,
+    visibleSessions,
   ]);
 
   React.useEffect(() => {
@@ -305,8 +736,8 @@ export function TerminalBootstrap({
   }, []);
 
   const active =
-    channelSessions.find((session) => session.key === activeKey) ??
-    channelSessions.at(-1) ??
+    visibleSessions.find((session) => session.key === activeKey) ??
+    visibleSessions.at(-1) ??
     null;
 
   React.useEffect(() => {
@@ -362,18 +793,29 @@ export function TerminalBootstrap({
     <TerminalSubstrate
       bracketedPaste={active?.frame?.bracketedPaste ?? false}
       channelName={active?.context.channelName ?? channelName}
-      enabled={available && Boolean(context)}
+      enabled={
+        available &&
+        (tabScope === "all"
+          ? sessions.length > 0 ||
+            Boolean(context) ||
+            Boolean(lastSpawnContextRef.current) ||
+            (getTermPreferences().sessionHost === "herdr" &&
+              Boolean(identityRef.current))
+          : Boolean(context))
+      }
+      tabScope={tabScope}
       mode={renderedMode}
       visible={panelVisible}
       onHide={() => setTerminalPanelMode("closed")}
       onModeChange={setTerminalPanelMode}
       onToggle={toggleTerminalPanel}
       focusReportingEnabled={active?.frame?.focusReporting ?? false}
+      mouseReportingEnabled={active?.frame?.mouseReporting ?? false}
       frame={active?.frame}
       viewportReportingEnabled={viewportReportingEnabled}
       showSplash={splashPending && Boolean(active?.frame)}
       onSplashStarted={handleSplashStarted}
-      sessionFrames={channelSessions.flatMap((session) =>
+      sessionFrames={visibleSessions.flatMap((session) =>
         session.frame ? [{ sessionId: session.key, frame: session.frame }] : [],
       )}
       onCloseSession={(key) => {
@@ -420,15 +862,17 @@ export function TerminalBootstrap({
       onInput={(text) => send(active?.connection?.input(text))}
       onNewSession={createSession}
       onScroll={(lines) => send(active?.connection?.scroll(lines))}
+      onMouse={(event) => send(active?.connection?.mouse(event))}
       onSelectSession={setActiveKey}
       onTerminalFocusChange={(focused) =>
         send(active?.connection?.focus(focused))
       }
       onViewportSize={handleSize}
-      sessions={channelSessions
+      sessions={visibleSessions
         .filter((session) => !session.closing)
         .map((session) => ({
           active: session.key === activeKey,
+          channelName: session.context.channelName,
           closing: session.closing,
           id: session.key,
           title: session.title,

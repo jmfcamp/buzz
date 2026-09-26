@@ -959,7 +959,6 @@ fn openclaw_prospective_system_prompt_matches_standing_only_stamp() {
         "wss://ws.example",
         &Default::default(),
         false,
-        AcpSessionPolicy::Channel,
     );
 
     let standing_stamp =

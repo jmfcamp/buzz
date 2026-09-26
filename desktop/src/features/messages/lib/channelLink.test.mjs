@@ -73,3 +73,21 @@ test("isChannelLink recognizes only a valid canonical link", () => {
     false,
   );
 });
+
+test("parseChannelLink accepts Hula hulabuzz://channel deep links", () => {
+  assert.deepEqual(parseChannelLink(`hulabuzz://channel/${CHANNEL_ID}`), {
+    ok: true,
+    value: { channelId: CHANNEL_ID },
+  });
+  assert.deepEqual(
+    parseChannelLink(`hulabuzz://channel/${CHANNEL_ID}/${MESSAGE_ID}`),
+    {
+      ok: true,
+      value: { channelId: CHANNEL_ID, messageId: MESSAGE_ID },
+    },
+  );
+});
+
+test("isChannelLink recognizes hulabuzz channel links", () => {
+  assert.equal(isChannelLink(`hulabuzz://channel/${CHANNEL_ID}`), true);
+});

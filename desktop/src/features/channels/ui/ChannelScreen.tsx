@@ -92,6 +92,7 @@ import { useChannelOpenReadState } from "./useChannelOpenReadState";
 import { useChannelUnreadState } from "./useChannelUnreadState";
 import type { ChannelScreenProps } from "./ChannelScreen.types";
 import { useChannelLinkSidePanel } from "@/features/link-panel/ui/useChannelLinkSidePanel";
+import { useChannelPlaygroundSidePanel } from "@/features/playground/ui/useChannelPlaygroundSidePanel";
 import { GuardedChannelPane } from "./GuardedChannelPane"; import { useNavigationGuard } from "./useNavigationGuard"; import * as searchForwarding from "./searchTargetForwarding";
 const EMPTY_RELAY_EVENTS: RelayEvent[] = [];
 export function ChannelScreen({
@@ -109,22 +110,36 @@ export function ChannelScreen({
   ...searchTarget
 }: ChannelScreenProps) {
   const queryClient = useQueryClient();
+  const playgroundSidePanel = useChannelPlaygroundSidePanel();
   const linkSidePanel = useChannelLinkSidePanel();
-  const resolvedIdleAuxiliaryPanel = linkSidePanel?.idleAuxiliaryPanel ?? idleAuxiliaryPanel;
-  const resolvedIdleAuxiliaryHeaderActions =
-    linkSidePanel?.idleAuxiliaryHeaderActions ?? idleAuxiliaryHeaderActions;
-  const resolvedIdleAuxiliaryOverridesThread =
-    linkSidePanel?.idleAuxiliaryOverridesThread ?? idleAuxiliaryOverridesThread ?? false;
-  const resolvedIdleAuxiliaryExpanded =
-    linkSidePanel?.idleAuxiliaryExpanded ?? idleAuxiliaryExpanded;
-  const resolvedIdleAuxiliaryCoverAppChrome =
-    linkSidePanel?.idleAuxiliaryCoverAppChrome ?? idleAuxiliaryCoverAppChrome;
-  const resolvedIdleAuxiliaryBodyClassName =
-    linkSidePanel?.idleAuxiliaryBodyClassName ?? idleAuxiliaryBodyClassName;
-  const resolvedIdleAuxiliaryTitle =
-    linkSidePanel?.idleAuxiliaryTitle ?? idleAuxiliaryTitle ?? "";
-  const resolvedOnCloseIdleAuxiliaryPanel =
-    linkSidePanel?.onCloseIdleAuxiliaryPanel ?? onCloseIdleAuxiliaryPanel;
+  // Playground RHS host wins over the URL link panel so Agent chrome stays.
+  // When a side panel is active, take its fields wholesale (do not ??-fall
+  // through — playground intentionally omits headerActions).
+  const activeSidePanel = playgroundSidePanel ?? linkSidePanel;
+  const resolvedIdleAuxiliaryPanel = activeSidePanel
+    ? activeSidePanel.idleAuxiliaryPanel
+    : idleAuxiliaryPanel;
+  const resolvedIdleAuxiliaryHeaderActions = activeSidePanel
+    ? activeSidePanel.idleAuxiliaryHeaderActions
+    : idleAuxiliaryHeaderActions;
+  const resolvedIdleAuxiliaryOverridesThread = activeSidePanel
+    ? activeSidePanel.idleAuxiliaryOverridesThread
+    : (idleAuxiliaryOverridesThread ?? false);
+  const resolvedIdleAuxiliaryExpanded = activeSidePanel
+    ? activeSidePanel.idleAuxiliaryExpanded
+    : idleAuxiliaryExpanded;
+  const resolvedIdleAuxiliaryCoverAppChrome = activeSidePanel
+    ? activeSidePanel.idleAuxiliaryCoverAppChrome
+    : idleAuxiliaryCoverAppChrome;
+  const resolvedIdleAuxiliaryBodyClassName = activeSidePanel
+    ? activeSidePanel.idleAuxiliaryBodyClassName
+    : idleAuxiliaryBodyClassName;
+  const resolvedIdleAuxiliaryTitle = activeSidePanel
+    ? activeSidePanel.idleAuxiliaryTitle
+    : (idleAuxiliaryTitle ?? "");
+  const resolvedOnCloseIdleAuxiliaryPanel = activeSidePanel
+    ? activeSidePanel.onCloseIdleAuxiliaryPanel
+    : onCloseIdleAuxiliaryPanel;
   const { goHome } = useAppNavigation();
   const { activeCommunity } = useCommunities();
   const {

@@ -1,10 +1,20 @@
 /**
- * `buzz://message` link encoding for "Copy link" / deep-link-to-message.
+ * `buzz://message` / `hulabuzz://message` link encoding for "Copy link" /
+ * deep-link-to-message.
  *
- * Format: `buzz://message?channel=<uuid>&id=<eventId>[&thread=<rootId>]`
+ * Format: `{buzz|hulabuzz}://message?channel=<uuid>&id=<eventId>[&thread=<rootId>]`
+ *
+ * Builders emit canonical `buzz://…`; Hula Copy link rewrites to `hulabuzz://…`
+ * via `toAppDeepLink`. Parsers accept both schemes.
  */
 
-const MESSAGE_LINK_SCHEME = "buzz:";
+import {
+  CANONICAL_DEEP_LINK_SCHEME,
+  isAcceptedDeepLinkHref,
+  isAcceptedDeepLinkProtocol,
+} from "@/shared/lib/appDeepLink";
+
+const MESSAGE_LINK_SCHEME = `${CANONICAL_DEEP_LINK_SCHEME}:`;
 const MESSAGE_LINK_HOST = "message";
 
 export type MessageLinkInput = {
@@ -67,7 +77,7 @@ export function parseMessageLink(url: string): MessageLinkParseResult {
     return { ok: false, reason: "invalid-url" };
   }
 
-  if (parsed.protocol !== MESSAGE_LINK_SCHEME) {
+  if (!isAcceptedDeepLinkProtocol(parsed.protocol)) {
     return { ok: false, reason: "wrong-scheme" };
   }
   // `new URL("buzz://message?…")` puts "message" in `hostname`.
@@ -99,8 +109,7 @@ export function parseMessageLink(url: string): MessageLinkParseResult {
  * Cheap pre-check used by the markdown renderer before parsing.
  */
 export function isMessageLink(href: string | undefined | null): boolean {
-  if (!href) return false;
-  return href.startsWith("buzz://message?") || href === "buzz://message";
+  return isAcceptedDeepLinkHref(href, MESSAGE_LINK_HOST);
 }
 
 type MessageLinkRenderInput = {

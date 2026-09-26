@@ -83,6 +83,17 @@ export function useAppNavigation() {
     [commitNavigation],
   );
 
+  const goBrowsers = React.useCallback(
+    (behavior?: NavigationBehavior) =>
+      commitNavigation(
+        {
+          to: "/browsers",
+        },
+        behavior,
+      ),
+    [commitNavigation],
+  );
+
   const goAgents = React.useCallback(
     (behavior?: NavigationBehavior) =>
       commitNavigation(
@@ -95,16 +106,28 @@ export function useAppNavigation() {
   );
 
   const goPinnedSite = React.useCallback(
-    (pinId: string, behavior?: NavigationBehavior) =>
-      commitNavigation(
+    (
+      pinId: string,
+      behavior?: NavigationBehavior,
+      options?: { openUrl?: string },
+    ) => {
+      const openUrl = options?.openUrl?.trim() ?? "";
+      return commitNavigation(
         {
           to: "/pins/$pinId",
           params: {
             pinId,
           },
+          // Always write state so a prior deep-link openUrl cannot stick on
+          // plain sidebar pin opens (home URL).
+          state: {
+            pinnedSiteOpenUrl: openUrl || null,
+          },
         },
-        behavior,
-      ),
+        // Same-route deep link / clear must force so state updates in place.
+        { ...behavior, force: true },
+      );
+    },
     [commitNavigation],
   );
 
@@ -498,6 +521,7 @@ export function useAppNavigation() {
     closeSettings,
     closeWorkflowDetail,
     goAgents,
+    goBrowsers,
     goBot,
     goBots,
     goPinnedSite,

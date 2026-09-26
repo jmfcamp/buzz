@@ -9,8 +9,42 @@ import {
   playgroundConversationFromRoute,
 } from "../lib/conversation";
 import { usePlaygroundRuntime } from "../lib/runtime";
+import {
+  dismissPlayground,
+  isPlaygroundSidePanelHost,
+} from "../lib/sessions";
 import { usePopoutLayoutPayload } from "@/features/popout/lib/popoutLayout";
+import { FocusThreadDrawer } from "@/features/channels/ui/FocusThreadDrawer";
+import { IdleAuxiliaryPanel } from "@/features/channels/ui/IdleAuxiliaryPanel";
+import { THREAD_FOCUS_SLIVER_WIDTH_PX } from "@/features/channels/lib/threadFocusLayout";
 import { PlaygroundOverlay } from "./PlaygroundOverlay";
+import { PlaygroundSidePanelBody } from "./PlaygroundSidePanelBody";
+
+/** Accessible back-target name for off-channel FocusThreadDrawer scrim. */
+function offChannelDrawerBackLabel(
+  selectedView: ReturnType<typeof deriveShellRoute>["selectedView"],
+): string {
+  switch (selectedView) {
+    case "browsers":
+      return "Browsers";
+    case "agents":
+      return "Agents";
+    case "bots":
+      return "Bots";
+    case "home":
+      return "Home";
+    case "messages":
+      return "Messages";
+    case "projects":
+      return "Projects";
+    case "workflows":
+      return "Workflows";
+    case "pulse":
+      return "Pulse";
+    default:
+      return "Buzz";
+  }
+}
 
 export function PlaygroundHost() {
   const { sessions, overlaySid } = usePlaygroundSessions();
@@ -59,6 +93,50 @@ export function PlaygroundHost() {
       ? (sessions.get(overlaySid) ?? null)
       : null;
   if (!session) return null;
+  const route = deriveShellRoute(location.pathname);
+  // Pen / Watch / Drive host in ChannelScreen idle-auxiliary on channel routes.
+  if (
+    !popout &&
+    isPlaygroundSidePanelHost() &&
+    route.selectedView === "channel"
+  ) {
+    return null;
+  }
+  // Off-channel (Browsers, etc.): same FocusThreadDrawer slide-out as channel
+  // pin Open / card Open — not a narrow docked RHS AuxiliaryPanel column.
+  if (!popout && isPlaygroundSidePanelHost()) {
+    return (
+      <div
+        className="absolute inset-0 z-40"
+        data-testid="playground-offchannel-side-panel-host"
+      >
+        <FocusThreadDrawer
+          channelName={offChannelDrawerBackLabel(route.selectedView)}
+          label={session.name}
+          leftPx={THREAD_FOCUS_SLIVER_WIDTH_PX}
+          onClose={dismissPlayground}
+        >
+          <IdleAuxiliaryPanel
+            bodyClassName="overflow-hidden px-0 pb-0 flex min-h-0 flex-col"
+            canResetWidth={false}
+            isFocusDrawer
+            isSinglePanelView
+            onClose={dismissPlayground}
+            onResetWidth={() => {}}
+            onResizeStart={() => {}}
+            title={session.name}
+            useSplitAuxiliaryPane={false}
+            widthPx={THREAD_FOCUS_SLIVER_WIDTH_PX}
+          >
+            <PlaygroundSidePanelBody
+              conversation={conversation}
+              session={session}
+            />
+          </IdleAuxiliaryPanel>
+        </FocusThreadDrawer>
+      </div>
+    );
+  }
   const lockPlacement =
     popout?.kind === "split"
       ? "dock"

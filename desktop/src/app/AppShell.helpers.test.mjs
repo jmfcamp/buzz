@@ -15,6 +15,7 @@ test("deriveShellRoute maps pinned site paths", () => {
     selectedPinId: "wayfinder",
     selectedView: "pin",
   });
+  assert.equal(deriveShellRoute("/browsers").selectedView, "browsers");
   assert.equal(deriveShellRoute("/agents").selectedView, "agents");
   assert.equal(deriveShellRoute("/bots").selectedView, "bots");
   assert.equal(deriveShellRoute("/bots/mo").selectedView, "bots");

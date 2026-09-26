@@ -1,7 +1,11 @@
 import * as React from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
+import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { openLinkSidePanel } from "@/features/link-panel/lib/linkSidePanelStore";
+import { usePinnedSites } from "@/features/pinned-sites/hooks";
+import { matchPinnedSiteForUrl } from "@/features/pinned-sites/lib/matchPinnedSite";
+import { queuePinnedSiteOpenUrl } from "@/features/pinned-sites/lib/pendingPinOpen";
 import { toast } from "sonner";
 
 import { cn } from "@/shared/lib/cn";
@@ -17,11 +21,10 @@ import {
 /**
  * An external `[text](href)` link with a custom right-click menu.
  *
- * Buzz renders inside a native webview whose default context menu has no
- * useful link actions, so a plain right-click on a link is a no-op. This adds
- * an in-app menu with "Open link" (Projects-style right slide-out),
- * "Open in browser", and "Copy link" (the real href, not
- * the masked display text).
+ * Left-click: if the URL matches a Settings pinned website (domain / URL
+ * prefix), open into that pin\'s browser session; else RHS slide-out.
+ * Right-click: optional "Open in Pinned Website", then Open link (RHS),
+ * Open in browser, Copy link.
  */
 export function ExternalLinkAnchor({
   anchorProps,
@@ -39,6 +42,13 @@ export function ExternalLinkAnchor({
   const [menu, setMenu] = React.useState<MediaContextMenuPosition | null>(null);
   const closeMenu = React.useCallback(() => setMenu(null), []);
   useDismissMediaContextMenu(Boolean(menu), closeMenu);
+  const { pins } = usePinnedSites();
+  const { goPinnedSite } = useAppNavigation();
+
+  const matchedPin = React.useMemo(
+    () => (href ? matchPinnedSiteForUrl(href, pins) : null),
+    [href, pins],
+  );
 
   const openInSidePanel = React.useCallback(() => {
     if (!href) return;
@@ -48,6 +58,67 @@ export function ExternalLinkAnchor({
       });
     }
   }, [href]);
+
+  const openInPinnedWebsite = React.useCallback(() => {
+    if (!href || !matchedPin) return;
+    // Left-click and context-menu "Open in Pinned Website" share this exact path.
+    queuePinnedSiteOpenUrl(matchedPin.id, href);
+    void goPinnedSite(matchedPin.id, undefined, { openUrl: href });
+  }, [goPinnedSite, href, matchedPin]);
+
+  const openDefault = React.useCallback(() => {
+    if (matchedPin) {
+      openInPinnedWebsite();
+      return;
+    }
+    openInSidePanel();
+  }, [matchedPin, openInPinnedWebsite, openInSidePanel]);
+
+  const menuItems = React.useMemo(() => {
+    if (!href) return [];
+    const items: { label: string; onSelect: () => void }[] = [];
+    if (matchedPin) {
+      items.push({
+        label: "Open in Pinned Website",
+        onSelect: () => {
+          closeMenu();
+          openInPinnedWebsite();
+        },
+      });
+    }
+    items.push(
+      {
+        label: "Open link",
+        onSelect: () => {
+          closeMenu();
+          openInSidePanel();
+        },
+      },
+      {
+        label: "Open in browser",
+        onSelect: () => {
+          closeMenu();
+          void openUrl(href).catch(() => {
+            toast.error("Failed to open link");
+          });
+        },
+      },
+      {
+        label: "Copy link",
+        onSelect: () => {
+          closeMenu();
+          copyTextToClipboard(href, "Link copied to clipboard");
+        },
+      },
+    );
+    return items;
+  }, [
+    closeMenu,
+    href,
+    matchedPin,
+    openInPinnedWebsite,
+    openInSidePanel,
+  ]);
 
   const anchor = (
     <a
@@ -64,7 +135,7 @@ export function ExternalLinkAnchor({
           return;
         }
         event.preventDefault();
-        openInSidePanel();
+        openDefault();
       }}
       onContextMenuCapture={(event) => {
         if (!href) return;
@@ -86,31 +157,7 @@ export function ExternalLinkAnchor({
       {menu && href ? (
         <MediaContextMenu
           dataAttributes={["data-link-context-menu"]}
-          items={[
-            {
-              label: "Open link",
-              onSelect: () => {
-                closeMenu();
-                openInSidePanel();
-              },
-            },
-            {
-              label: "Open in browser",
-              onSelect: () => {
-                closeMenu();
-                void openUrl(href).catch(() => {
-                  toast.error("Failed to open link");
-                });
-              },
-            },
-            {
-              label: "Copy link",
-              onSelect: () => {
-                closeMenu();
-                copyTextToClipboard(href, "Link copied to clipboard");
-              },
-            },
-          ]}
+          items={menuItems}
           position={menu}
         />
       ) : null}

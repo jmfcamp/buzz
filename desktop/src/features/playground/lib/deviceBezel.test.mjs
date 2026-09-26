@@ -295,3 +295,28 @@ test("afterPlaygroundLayout waits for nested animation frames", () => {
     globalThis.cancelAnimationFrame = originalCancel;
   }
 });
+
+test("side-panel host resolves chrome for native y clamp (Browsers Open)", async () => {
+  const {
+    playgroundStageChromeElement,
+    playgroundStageBoundsSyncTargets,
+  } = await import("./deviceBezel.ts");
+  const chrome = { id: "chrome" };
+  const sidePanel = {
+    id: "side-panel",
+    querySelector: (selector) =>
+      selector.includes("playground-chrome") ? chrome : null,
+  };
+  const host = {
+    id: "host",
+    closest(selector) {
+      if (selector.includes("playground-overlay")) return null;
+      if (selector.includes("playground-side-panel")) return sidePanel;
+      return null;
+    },
+  };
+  assert.equal(playgroundStageChromeElement(host), chrome);
+  const targets = playgroundStageBoundsSyncTargets(host);
+  assert.ok(targets.observe.some((el) => el.id === "chrome"));
+  assert.ok(targets.observe.some((el) => el.id === "side-panel"));
+});

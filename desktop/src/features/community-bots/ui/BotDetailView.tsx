@@ -1,6 +1,8 @@
 import * as React from "react";
+import { toast } from "sonner";
 
-import { useChannelsQuery } from "@/features/channels/hooks";
+import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import { useChannelsQuery, useOpenDmMutation } from "@/features/channels/hooks";
 import {
   useCommunityBotsQuery,
   useCommunityBotsStatusQuery,
@@ -20,15 +22,31 @@ import { IdentityCardSkeleton } from "@/shared/ui/identity-card-skeleton";
 
 type BotDetailViewProps = {
   botId: string;
+  onClose: () => void;
   onOpenChannel: (channelId: string) => void;
 };
 
-export function BotDetailView({ botId, onOpenChannel }: BotDetailViewProps) {
+export function BotDetailView({
+  botId,
+  onClose,
+  onOpenChannel,
+}: BotDetailViewProps) {
   const catalogQuery = useCommunityBotsQuery();
   const statusQuery = useCommunityBotsStatusQuery();
   const channelsQuery = useChannelsQuery();
   const membersQuery = useRelayMembersQuery();
   const isArchived = useIsArchivedPredicate();
+  const { goChannel } = useAppNavigation();
+  const openDmMutation = useOpenDmMutation();
+  const [messagePending, setMessagePending] = React.useState(false);
+  const isMountedRef = React.useRef(false);
+
+  React.useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const visibleBots = React.useMemo(
     () => visibleCommunityDirectoryBots(catalogQuery.data ?? [], isArchived),
@@ -68,6 +86,33 @@ export function BotDetailView({ botId, onOpenChannel }: BotDetailViewProps) {
     statusQuery.data?.state,
   ]);
 
+  const handleMessage = React.useCallback(() => {
+    if (!bot || messagePending) return;
+
+    setMessagePending(true);
+    void (async () => {
+      try {
+        const dm = await openDmMutation.mutateAsync({
+          pubkeys: [bot.pubkey],
+        });
+        await goChannel(dm.id);
+        if (isMountedRef.current) {
+          onClose();
+        }
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Couldn't open the direct message.",
+        );
+      } finally {
+        if (isMountedRef.current) {
+          setMessagePending(false);
+        }
+      }
+    })();
+  }, [bot, goChannel, messagePending, onClose, openDmMutation]);
+
   const isLoading =
     catalogQuery.isLoading ||
     (bot !== undefined &&
@@ -93,5 +138,12 @@ export function BotDetailView({ botId, onOpenChannel }: BotDetailViewProps) {
     return null;
   }
 
-  return <BotDetailContent detail={detail} onOpenChannel={onOpenChannel} />;
+  return (
+    <BotDetailContent
+      detail={detail}
+      messagePending={messagePending}
+      onMessage={handleMessage}
+      onOpenChannel={onOpenChannel}
+    />
+  );
 }

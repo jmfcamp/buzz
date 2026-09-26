@@ -6,6 +6,7 @@ import {
   accumulateScrollLines,
   encodePaste,
   encodeTerminalKey,
+  encodeTerminalKeystroke,
   matchTabChord,
   reduceHandoff,
   stepSession,
@@ -212,4 +213,35 @@ test("tab stepping wraps and skips tabs whose select button is disabled", () => 
     null,
   );
   assert.equal(stepSession([], 1), null);
+});
+
+test("encodeTerminalKeystroke forwards printable letters the textarea path would miss", () => {
+  assert.equal(
+    encodeTerminalKeystroke({
+      key: "a",
+      ctrlKey: false,
+      altKey: false,
+      metaKey: false,
+    }),
+    "a",
+  );
+  assert.equal(
+    encodeTerminalKeystroke({
+      key: "Backspace",
+      ctrlKey: false,
+      altKey: false,
+      metaKey: false,
+    }),
+    "\u007f",
+  );
+  assert.equal(
+    encodeTerminalKey({
+      key: "a",
+      ctrlKey: false,
+      altKey: false,
+      metaKey: false,
+    }),
+    null,
+    "textarea onInput still owns printable when focused",
+  );
 });

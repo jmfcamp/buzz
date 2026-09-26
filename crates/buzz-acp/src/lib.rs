@@ -5944,6 +5944,18 @@ fn build_mcp_servers(config: &Config) -> Vec<McpServer> {
                     });
                 }
             }
+            // Observe/Drive: Desktop sets these on the ACP process; forward so
+            // buzz-dev-mcp can authorize polls and find grant files.
+            for key in ["BUZZ_AGENT_PUBKEY", "BUZZ_BROWSER_AGENT_DIR"] {
+                if let Ok(value) = std::env::var(key) {
+                    if !value.is_empty() {
+                        env.push(EnvVar {
+                            name: key.into(),
+                            value,
+                        });
+                    }
+                }
+            }
             for (name, value) in &config.persona_env_vars {
                 if git::is_managed_env(name) {
                     env.retain(|entry| entry.name != *name);

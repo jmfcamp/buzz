@@ -193,7 +193,7 @@ impl InnerWebView {
 
   fn new_ns_view(
     ns_view: &NSView,
-    attributes: WebViewAttributes,
+    mut attributes: WebViewAttributes,
     pl_attrs: super::PlatformSpecificWebViewAttributes,
     is_child: bool,
   ) -> Result<Self> {
@@ -582,6 +582,48 @@ impl InnerWebView {
         None
       };
 
+      // Share new-window URL emit between decidePolicy (nil targetFrame) and
+      // createWebView so left-click target=_blank mirrors right-click.
+      #[cfg(target_os = "macos")]
+      let (new_window_url_handler, new_window_req_handler) = {
+        use crate::{NewWindowFeatures, NewWindowResponse};
+        match attributes.new_window_req_handler.take() {
+          Some(handler) => {
+            let handler = Rc::new(handler);
+            let for_nav = {
+              let handler = handler.clone();
+              let opener_webview = webview.clone();
+              Rc::new(move |url: String| {
+                // Features unused for Deny (sibling-tab) consumers; opener is
+                // only required for Allow/Create which we do not take here.
+                let _ = handler(
+                  url,
+                  NewWindowFeatures {
+                    size: None,
+                    position: None,
+                    opener: crate::NewWindowOpener {
+                      webview: (&*opener_webview).into(),
+                      target_configuration: opener_webview.configuration(),
+                    },
+                  },
+                );
+              }) as Rc<dyn Fn(String)>
+            };
+            let for_ui = {
+              let handler = handler.clone();
+              Box::new(move |url, features| handler(url, features))
+                as Box<dyn Fn(String, NewWindowFeatures) -> NewWindowResponse>
+            };
+            (Some(for_nav), Some(for_ui))
+          }
+          None => (None, None),
+        }
+      };
+      #[cfg(not(target_os = "macos"))]
+      let new_window_url_handler: Option<Rc<dyn Fn(String)>> = None;
+      #[cfg(not(target_os = "macos"))]
+      let new_window_req_handler = attributes.new_window_req_handler;
+
       let navigation_policy_delegate = WryNavigationDelegate::new(
         webview.clone(),
         pending_scripts.clone(),
@@ -590,6 +632,7 @@ impl InnerWebView {
         download_delegate.clone(),
         attributes.on_page_load_handler,
         pl_attrs.on_web_content_process_terminate_handler,
+        new_window_url_handler,
         mtm,
       );
 
@@ -597,7 +640,7 @@ impl InnerWebView {
       webview.setNavigationDelegate(Some(proto_navigation_policy_delegate));
 
       let ui_delegate: Retained<WryWebViewUIDelegate> =
-        WryWebViewUIDelegate::new(mtm, attributes.new_window_req_handler);
+        WryWebViewUIDelegate::new(mtm, new_window_req_handler);
       let proto_ui_delegate = ProtocolObject::from_ref(&*ui_delegate);
       webview.setUIDelegate(Some(proto_ui_delegate));
 

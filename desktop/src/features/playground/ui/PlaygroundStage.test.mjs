@@ -63,7 +63,7 @@ afterEach(async () => {
 
 after(() => dom.window.close());
 
-async function renderStage(mode = "mobile") {
+async function renderStage(mode = "mobile", props = {}) {
   const { createElement } = await import("react");
   const { render, screen } = await import("@testing-library/react");
   const { PlaygroundStage } = await import("./PlaygroundStage.tsx");
@@ -72,12 +72,12 @@ async function renderStage(mode = "mobile") {
   );
   configurePlaygroundScope("pub", "wss://relay.example.com");
   const session = addPlaygroundSession(card);
-  render(createElement(PlaygroundStage, { mode, session }));
-  return screen;
+  render(createElement(PlaygroundStage, { mode, session, ...props }));
+  return { screen, session };
 }
 
 test("mobile stage paints a hardware bezel around a smaller inner screen", async () => {
-  const screen = await renderStage("mobile");
+  const { screen } = await renderStage("mobile");
   const backdrop = screen.getByTestId("playground-mobile-backdrop");
   assert.ok(backdrop.className.includes("bg-white"));
   const frame = screen.getByTestId("playground-device-frame");
@@ -100,7 +100,7 @@ test("mobile stage paints a hardware bezel around a smaller inner screen", async
 });
 
 test("native bounds follow the inner screen host, not the outer bezel", async () => {
-  const screen = await renderStage("mobile");
+  const { screen } = await renderStage("mobile");
   const host = screen.getByTestId("playground-webview-host");
   const hole = screen.getByTestId("playground-device-screen");
   const frame = screen.getByTestId("playground-device-frame");
@@ -139,7 +139,7 @@ test("native bounds follow the inner screen host, not the outer bezel", async ()
 });
 
 test("iPhone family shows island or home-button chrome; Pixel does not", async () => {
-  const screen = await renderStage("mobile");
+  const { screen } = await renderStage("mobile");
   const { fireEvent } = await import("@testing-library/react");
   assert.ok(screen.getByTestId("playground-device-island"));
 
@@ -175,7 +175,7 @@ test("iPhone family shows island or home-button chrome; Pixel does not", async (
 });
 
 test("landscape moves island chrome onto the long edge", async () => {
-  const screen = await renderStage("mobile");
+  const { screen } = await renderStage("mobile");
   const { fireEvent } = await import("@testing-library/react");
   await fireEvent.click(screen.getByTestId("playground-orientation"));
   const frame = screen.getByTestId("playground-device-frame");
@@ -190,7 +190,7 @@ test("landscape moves island chrome onto the long edge", async () => {
 });
 
 test("desktop and responsive stages stay unbezeled rectangles", async () => {
-  const desktop = await renderStage("desktop");
+  const { screen: desktop } = await renderStage("desktop");
   assert.ok(desktop.getByTestId("playground-desktop-stage"));
   assert.equal(desktop.queryByTestId("playground-device-frame"), null);
   assert.equal(desktop.queryByTestId("playground-device-island"), null);
@@ -200,7 +200,7 @@ test("desktop and responsive stages stay unbezeled rectangles", async () => {
   const { resetPlaygroundState } = await import("../lib/sessions.ts");
   resetPlaygroundState();
 
-  const responsive = await renderStage("responsive");
+  const { screen: responsive } = await renderStage("responsive");
   assert.ok(responsive.getByTestId("playground-responsive-stage"));
   assert.ok(responsive.getByTestId("playground-responsive-page"));
   assert.equal(responsive.queryByTestId("playground-device-frame"), null);
@@ -259,7 +259,7 @@ test("unmounting the stage hides the window-scoped webview", async () => {
   );
   configurePlaygroundScope("pub", "wss://relay.example.com");
   const session = addPlaygroundSession(card);
-  render(createElement(PlaygroundStage, { mode: "desktop", session }));
+  render(createElement(PlaygroundStage, { mode: "desktop", session, controlsLocked: false }));
   cleanup();
   await Promise.resolve();
   const hide = invokes.find((row) => row.cmd === "playground_webview_hide");
@@ -271,7 +271,7 @@ test("unmounting the stage hides the window-scoped webview", async () => {
 });
 
 test("mobile stage exposes orientation and 50–200% scale controls", async () => {
-  const screen = await renderStage("mobile");
+  const { screen } = await renderStage("mobile");
   const { fireEvent } = await import("@testing-library/react");
   assert.ok(screen.getByTestId("playground-orientation"));
   assert.equal(
@@ -329,4 +329,38 @@ test("mobile stage exposes orientation and 50–200% scale controls", async () =
       .getByTestId("playground-mobile-backdrop")
       .className.includes("bg-white"),
   );
+});
+
+
+test("Drive lock disables responsive W×H and resize handles", async () => {
+  const { screen } = await renderStage("responsive", {
+    controlsLocked: true,
+  });
+  assert.equal(screen.getByTestId("playground-responsive-width").disabled, true);
+  assert.equal(screen.getByTestId("playground-responsive-height").disabled, true);
+  assert.equal(screen.getByTestId("playground-stage-resize").disabled, true);
+  assert.equal(
+    screen.getByTestId("playground-responsive-stage").getAttribute("data-agent-driving"),
+    "true",
+  );
+});
+
+test("Drive lock disables mobile device/orientation/scale", async () => {
+  const { screen } = await renderStage("mobile", { controlsLocked: true });
+  assert.equal(screen.getByTestId("playground-device-select").disabled, true);
+  assert.equal(screen.getByTestId("playground-orientation").disabled, true);
+  assert.equal(screen.getByTestId("playground-device-scale-up").disabled, true);
+  assert.equal(screen.getByTestId("playground-device-scale-down").disabled, true);
+});
+
+test("responsive stage publishes viewport caption snapshot", async () => {
+  const { session } = await renderStage("responsive");
+  const { getPlaygroundViewport, playgroundViewportCaption } = await import(
+    "../lib/playgroundViewport.ts"
+  );
+  const snap = getPlaygroundViewport(session.sid);
+  assert.equal(snap.mode, "responsive");
+  assert.equal(snap.width, 390);
+  assert.equal(snap.height, 844);
+  assert.equal(playgroundViewportCaption(snap), "Responsive · 390×844");
 });

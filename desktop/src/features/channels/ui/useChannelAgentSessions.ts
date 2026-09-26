@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import type { TimelineMessage } from "@/features/messages/types";
+import type { CommunityBot } from "@/features/community-bots/lib/types";
 import type {
   Channel,
   ChannelMember,
@@ -60,10 +61,19 @@ function relayStatusToManagedStatus(
 
 export function buildChannelAgentSessionCandidates({
   channelMembers,
+  communityBots = [],
+  communityBotPubkeys = [],
   managedAgents,
   relayAgents,
 }: {
   channelMembers?: ChannelMember[];
+  /** Installed community-bots catalog (OpenClaw / buzz-acp peers). */
+  communityBots?: ReadonlyArray<Pick<CommunityBot, "name" | "pubkey">>;
+  /**
+   * Extra community-bot pubkeys to trust as session peers (reserved Hula
+   * routes). Names fall back to truncateNpub when not in the catalog.
+   */
+  communityBotPubkeys?: readonly string[];
   managedAgents: ManagedAgent[];
   relayAgents: RelayAgent[];
 }): ChannelAgentSessionAgent[] {
@@ -110,6 +120,47 @@ export function buildChannelAgentSessionCandidates({
     });
   }
 
+  // Catalog + reserved community bots: treat as member-bot peers whenever they
+  // appear on the channel roster (any role) or are explicitly allow-listed.
+  // Without this, ACP activity collapses to the human "is typing…" path.
+  const catalogByPubkey = new Map(
+    communityBots.map((bot) => [normalizePubkey(bot.pubkey), bot] as const),
+  );
+  const memberKeys = new Set(
+    (channelMembers ?? []).map((member) => normalizePubkey(member.pubkey)),
+  );
+  const allowListed = new Set(
+    communityBotPubkeys.map((pubkey) => normalizePubkey(pubkey)).filter(Boolean),
+  );
+  const extraKeys = new Set([...catalogByPubkey.keys(), ...allowListed]);
+  for (const key of extraKeys) {
+    if (!key || byPubkey.has(key)) {
+      continue;
+    }
+    // Prefer roster presence; also admit allow-listed/catalog bots that are
+    // actively participating (caller passes typing/working pubkeys in
+    // communityBotPubkeys for that case).
+    const onRoster = memberKeys.has(key);
+    const allowListedActive = allowListed.has(key);
+    if (!onRoster && !allowListedActive) {
+      continue;
+    }
+    const catalog = catalogByPubkey.get(key);
+    const member = (channelMembers ?? []).find(
+      (entry) => normalizePubkey(entry.pubkey) === key,
+    );
+    byPubkey.set(key, {
+      pubkey: member?.pubkey ?? catalog?.pubkey ?? key,
+      name:
+        catalog?.name?.trim() ||
+        member?.displayName?.trim() ||
+        truncateNpub(key),
+      status: "deployed",
+      agentSource: "member-bot",
+      canInterruptTurn: false,
+    });
+  }
+
   return [...byPubkey.values()];
 }
 
@@ -149,7 +200,16 @@ export function getChannelAgentSessionAgents({
       channels.includes(activeChannel.name);
 
     if (agent.agentSource === "member-bot") {
-      return botMemberPubkeys?.has(normalizedPubkey) ?? matchesDeclaredChannel;
+      if (botMemberPubkeys?.has(normalizedPubkey)) {
+        return true;
+      }
+      if (memberPubkeys?.has(normalizedPubkey)) {
+        return true;
+      }
+      // Catalog/reserved community bots admitted by the candidate builder for
+      // this channel (live typing / working) stay visible so ACP tool/step
+      // status can attach instead of falling through to human "is typing…".
+      return !hasDeclaredChannelScope;
     }
 
     if (agent.agentSource === "managed") {

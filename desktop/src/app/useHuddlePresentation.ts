@@ -15,6 +15,8 @@ import {
   channelWindowKey,
 } from "@/features/messages/lib/messageQueryKeys";
 
+import { leaveLeftNavBuzzTerm } from "@/features/terminal/terminalPanelStore";
+
 type HuddleTranscriptRouteState = {
   phase:
     | "idle"
@@ -312,6 +314,7 @@ export function useHuddlePresentation() {
   );
   const handleSidebarChannelSelect = React.useCallback(
     (channelId: string) => {
+      leaveLeftNavBuzzTerm();
       if (
         isHuddleDrawerOpen &&
         channelId === activeHuddleChannelIdRef.current

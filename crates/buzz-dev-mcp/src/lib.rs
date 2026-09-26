@@ -17,6 +17,8 @@ mod rg;
 mod shell;
 mod shim;
 mod str_replace;
+mod term_session_card;
+mod user_signer;
 mod todo;
 mod tree;
 mod view_image;
@@ -64,7 +66,7 @@ impl DevMcp {
 
     #[tool(
         name = "browser_observe_poll",
-        description = "Poll Observe events for a Buzz in-app browser webview you were granted (Observe or Drive). Requires BUZZ_AGENT_PUBKEY. Returns JSON {grant, events}. Not OpenClaw Chromium."
+        description = "Poll Observe events for a Buzz in-app browser you were granted (Observe or Drive). Prefer surface_id (stable across popout/detach); webview_label also works. Omit both when you have exactly one grant. Requires BUZZ_AGENT_PUBKEY. Returns JSON {grant, webviewLabel, surfaceId, events}. Not OpenClaw Chromium."
     )]
     async fn browser_observe_poll(
         &self,
@@ -75,7 +77,7 @@ impl DevMcp {
 
     #[tool(
         name = "browser_agent_grants",
-        description = "List Buzz browser Observe/Drive grants for this agent (BUZZ_AGENT_PUBKEY). Returns JSON {grants}."
+        description = "List Buzz browser Observe/Drive grants for this agent (BUZZ_AGENT_PUBKEY). Each grant includes surfaceId (preferred stable target) and webviewLabel (live host label). Browser groups may have multiple tabs — use browser_tabs / browser_switch_tab; main tab is primary focus. Returns JSON {grants}."
     )]
     async fn browser_agent_grants(
         &self,
@@ -85,15 +87,49 @@ impl DevMcp {
         browser_agent::grants(browser_agent::GrantsParams {})
     }
 
+
+    #[tool(
+        name = "browser_tabs",
+        description = "List tabs in the Buzz in-app browser group for your Observe/Drive grant. Prefer surface_id. Returns mainTabSid (primary focus, no close), activeTabSid, and tabs[{surfaceId,url,title,isMain}]. Extra tabs open from in-page window.open/target=_blank only. Use browser_switch_tab to focus; poll browser_observe_poll for kind=tab_opened|tab_switched. Requires BUZZ_AGENT_PUBKEY."
+    )]
+    async fn browser_tabs(
+        &self,
+        Parameters(p): Parameters<browser_agent::TabsParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        browser_agent::tabs(p)
+    }
+
+    #[tool(
+        name = "browser_switch_tab",
+        description = "Focus a tab (by surface_id) in a Buzz browser group you hold Observe/Drive on. Main tab is primary focus; extras come from in-page new-window. Rebinds the grant onto the focused tab. Returns queued=true; poll browser_observe_poll for tab_switched or call browser_tabs. Requires BUZZ_AGENT_PUBKEY."
+    )]
+    async fn browser_switch_tab(
+        &self,
+        Parameters(p): Parameters<browser_agent::SwitchTabParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        browser_agent::switch_tab(p)
+    }
+
     #[tool(
         name = "browser_drive",
-        description = "Queue a Drive action (navigate|click|type|scroll|hover) for a Buzz WKWebView you hold in Drive mode. Writes the Desktop drive inbox; Desktop applies it with a visible cursor. Requires BUZZ_AGENT_PUBKEY."
+        description = "Drive a Buzz WKWebView you hold in Drive mode. Prefer surface_id (stable across popout); webview_label also works. `action` is a DriveAction object (or JSON string): { kind, id?, url?, x?, y?, text?, selector?, dx?, dy?, key?, urlContains?, timeoutMs? }. Use `kind` (not `type`): navigate|click|type|scroll|hover|key|waitFor. Optional `actions` batch is validated then queued. By default waits up to ~10s for per-step drive/drive_error results (set queue_only=true to skip). Returns {ok, results, url, ids, complete, webviewLabel, surfaceId}. Requires BUZZ_AGENT_PUBKEY."
     )]
     async fn browser_drive(
         &self,
         Parameters(p): Parameters<browser_agent::DriveParams>,
     ) -> Result<CallToolResult, ErrorData> {
         browser_agent::drive(p)
+    }
+
+    #[tool(
+        name = "browser_snapshot",
+        description = "Request an accessibility/DOM snapshot for a granted Buzz browser (Observe or Drive). Prefer surface_id (stable across popout); webview_label also works. Returns grant + last known url/title immediately and writes snapshot-request.json for Desktop to fill a kind=snapshot observe event. Optional screenshot=true asks Desktop to capture via playground PNG. Poll browser_observe_poll for the snapshot event. Requires BUZZ_AGENT_PUBKEY."
+    )]
+    async fn browser_snapshot(
+        &self,
+        Parameters(p): Parameters<browser_agent::SnapshotParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        browser_agent::snapshot(p)
     }
 
     #[tool(
@@ -116,6 +152,52 @@ impl DevMcp {
         Parameters(p): Parameters<str_replace::StrReplaceParams>,
     ) -> Result<String, ErrorData> {
         str_replace::run(&self.state, p)
+    }
+
+
+
+    #[tool(
+        name = "buzz_read_thread",
+        description = "Read a Buzz thread as the signed-in Desktop user via IPC signer (no nsec in this process). Requires BUZZ_USER_SIGNER_DIR from Term launch. Returns JSON {ok, events[], asUser}."
+    )]
+    async fn buzz_read_thread(
+        &self,
+        Parameters(p): Parameters<user_signer::ReadThreadParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        user_signer::read_thread(p)
+    }
+
+    #[tool(
+        name = "buzz_read_channel",
+        description = "Read recent top-level Buzz channel messages as the signed-in Desktop user via IPC signer. Requires BUZZ_USER_SIGNER_DIR. Returns JSON {ok, events[], asUser}."
+    )]
+    async fn buzz_read_channel(
+        &self,
+        Parameters(p): Parameters<user_signer::ReadChannelParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        user_signer::read_channel(p)
+    }
+
+    #[tool(
+        name = "buzz_draft_message",
+        description = "Create a Desktop composer draft for the signed-in user (draft-only — never auto-publishes). JM must click Send in Buzz Desktop. Pass channel_id, content, optional thread_id. Requires BUZZ_USER_SIGNER_DIR."
+    )]
+    async fn buzz_draft_message(
+        &self,
+        Parameters(p): Parameters<user_signer::DraftMessageParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        user_signer::draft_message(p)
+    }
+
+    #[tool(
+        name = "term_session_card",
+        description = "Standing instructions: summarize the thread into a Buzz Term handoff. Reply in chat with ONLY a short one-line ack plus this tool’s returned fenced card. Put the full handoff prompt ONLY in JSON `prompt` (UI hides it). Never dump the prompt as plain markdown. Never put tokens/JWTs in the card. Set `openclawWorkspace` true (boolean only) when the agent uses OpenClaw; otherwise omit or false."
+    )]
+    async fn term_session_card(
+        &self,
+        Parameters(p): Parameters<term_session_card::TermSessionCardParams>,
+    ) -> Result<String, ErrorData> {
+        term_session_card::run(p)
     }
 
     #[tool(

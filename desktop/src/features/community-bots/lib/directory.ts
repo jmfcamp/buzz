@@ -10,7 +10,6 @@ export const COMMUNITY_BOT_DIRECTORY_FORBIDDEN_ACTIONS = [
   "Start",
   "Stop",
   "Restart",
-  "Message",
   "Edit",
 ] as const;
 

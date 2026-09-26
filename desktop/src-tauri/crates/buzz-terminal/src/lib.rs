@@ -274,6 +274,36 @@ impl Terminal {
         self.term.grid().display_offset()
     }
 
+    pub fn mouse_tracking(&self) -> bool {
+        self.term
+            .mode()
+            .intersects(alacritty_terminal::term::TermMode::MOUSE_MODE)
+    }
+
+    pub fn sgr_mouse(&self) -> bool {
+        self.term
+            .mode()
+            .contains(alacritty_terminal::term::TermMode::SGR_MOUSE)
+    }
+
+    pub fn alt_screen(&self) -> bool {
+        self.term
+            .mode()
+            .contains(alacritty_terminal::term::TermMode::ALT_SCREEN)
+    }
+
+    pub fn alternate_scroll(&self) -> bool {
+        self.term
+            .mode()
+            .contains(alacritty_terminal::term::TermMode::ALTERNATE_SCROLL)
+    }
+
+    pub fn app_cursor(&self) -> bool {
+        self.term
+            .mode()
+            .contains(alacritty_terminal::term::TermMode::APP_CURSOR)
+    }
+
     fn scroll_display(&mut self, scroll: alacritty_terminal::grid::Scroll) -> bool {
         let before = self.display_offset();
         self.term.scroll_display(scroll);

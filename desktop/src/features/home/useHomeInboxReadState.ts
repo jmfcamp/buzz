@@ -54,7 +54,7 @@ type UseHomeInboxReadStateOptions = {
 
 const EMPTY_ITEM_SET: ReadonlySet<string> = new Set();
 
-function getInboxThreadRootId(item: InboxItem): string | null {
+export function getInboxThreadRootId(item: InboxItem): string | null {
   if (!isThreadReply(item.item.tags)) {
     return null;
   }

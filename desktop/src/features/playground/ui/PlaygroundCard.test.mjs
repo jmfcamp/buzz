@@ -37,6 +37,16 @@ before(() => {
     addEventListener() {},
     removeEventListener() {},
   });
+  // Radix Dialog / ThemeProvider call getComputedStyle during open.
+  const computed = () => ({
+    getPropertyValue: () => "",
+    getPropertyPriority: () => "",
+    item: () => "",
+    length: 0,
+    cssText: "",
+  });
+  dom.window.getComputedStyle = computed;
+  globalThis.getComputedStyle = computed;
 });
 
 afterEach(async () => {
@@ -67,10 +77,15 @@ async function renderCard(
 ) {
   const { createElement } = await import("react");
   const { render, screen } = await import("@testing-library/react");
+  const { QueryClient, QueryClientProvider } = await import(
+    "@tanstack/react-query"
+  );
   const { PlaygroundCard } = await import("./PlaygroundCard.tsx");
   const { PopoutLayoutProvider } = await import(
     "@/features/popout/lib/popoutLayout.tsx"
   );
+  const { TooltipProvider } = await import("@/shared/ui/tooltip");
+  const { ThemeProvider } = await import("@/shared/theme/ThemeProvider");
   const {
     Outlet,
     RouterProvider,
@@ -107,11 +122,28 @@ async function renderCard(
     history: createMemoryHistory({ initialEntries: [path] }),
   });
   await router.load();
-  render(createElement(RouterProvider, { router }));
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  render(
+    createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      createElement(
+        ThemeProvider,
+        null,
+        createElement(
+          TooltipProvider,
+          null,
+          createElement(RouterProvider, { router }),
+        ),
+      ),
+    ),
+  );
   return screen;
 }
 
-test("Pin / Open / Open as Split sit below the text and right-justify", async () => {
+test("Bot left of Pin top-right; Open under cluster; title/URL wrap left", async () => {
   const screen = await renderCard();
   const cardEl = screen.getByTestId("playground-card");
   assert.equal(cardEl.getAttribute("data-orientation"), "horizontal");
@@ -120,24 +152,27 @@ test("Pin / Open / Open as Split sit below the text and right-justify", async ()
   const url = screen.getByTestId("playground-card-url");
   const pin = screen.getByTestId("playground-card-pin-action");
   const open = screen.getByTestId("playground-card-open");
-  const split = screen.getByTestId("playground-card-open-split");
+  const agent = screen.getByTestId("playground-card-agent-attach");
+  const cluster = screen.getByTestId("playground-card-top-actions");
   assert.equal(open.textContent, "Open");
-  assert.equal(pin.textContent, "Pin");
-  assert.equal(split.textContent, "Open as Split");
-  assert.equal(split.disabled, true);
+  assert.equal(pin.getAttribute("aria-label"), "Pin to conversation");
+  assert.ok(cluster.contains(agent));
+  assert.ok(cluster.contains(pin));
+  assert.ok(cluster.contains(open));
+  // Bot is left of Pin in the cluster.
+  assert.ok(agent.compareDocumentPosition(pin) & 4);
+  // Open is under the Bot/Pin cluster.
+  assert.ok(agent.compareDocumentPosition(open) & 4);
+  assert.match(cluster.className, /absolute/);
+  assert.equal(screen.queryByTestId("playground-card-open-split"), null);
+  assert.equal(screen.queryByTestId("playground-card-watch"), null);
+  assert.equal(screen.queryByTestId("playground-card-let-drive"), null);
   const body = name.closest("[data-slot='attachment-content']");
-  const actions = open.closest("[data-slot='attachment-actions']");
   assert.ok(body);
-  assert.ok(actions);
   assert.ok(body.contains(url));
-  assert.ok(actions.contains(pin));
-  assert.ok(actions.contains(open));
-  assert.ok(actions.contains(split));
-  assert.match(actions.className, /justify-end/);
-  assert.equal(body.parentElement, actions.parentElement);
-  assert.notEqual(actions.parentElement, cardEl);
-  assert.match(actions.parentElement.className, /flex-col/);
-  assert.ok(body.compareDocumentPosition(actions) & 4);
+  assert.match(name.className, /break-words|whitespace-normal/);
+  assert.match(url.className, /break-all|whitespace-normal/);
+  assert.match(url.className, /break-all|whitespace-normal|break-words/);
 });
 
 test("Open probes first: down means toast and no ghost row", async () => {
@@ -164,7 +199,7 @@ test("Open probes first: down means toast and no ghost row", async () => {
   );
 });
 
-test("Pin on a new sid probes and adds a conversation-scoped header pin", async () => {
+test("Pin icon on a new sid probes and adds a conversation-scoped header pin", async () => {
   const { fireEvent, waitFor } = await import("@testing-library/react");
   const { listConversationPlaygroundPins } = await import(
     "../lib/conversationPins.ts"
@@ -250,9 +285,13 @@ test("URL opens the Projects link slide-out and does not add a session", async (
   assert.equal(getLinkSidePanel()?.url, "https://app.example.com");
 });
 
-test("Open probes then opens the Projects link slide-out", async () => {
+test("Open probes then hosts playground RHS side-panel with Agent chrome", async () => {
   const { fireEvent, waitFor } = await import("@testing-library/react");
-  const { listPlaygroundSessions } = await import("../lib/sessions.ts");
+  const {
+    getActivePlaygroundSid,
+    getPlaygroundOverlayHost,
+    listPlaygroundSessions,
+  } = await import("../lib/sessions.ts");
   const { getLinkSidePanel } = await import(
     "@/features/link-panel/lib/linkSidePanelStore.ts"
   );
@@ -262,18 +301,13 @@ test("Open probes then opens the Projects link slide-out", async () => {
     probed += 1;
     return { up: true, status: 200 };
   };
-  const opened = [];
-  globalThis.__BUZZ_PLAYGROUND_OPEN_URL__ = (url) => {
-    opened.push(url);
-  };
 
   await fireEvent.click(screen.getByTestId("playground-card-open"));
-  await waitFor(() =>
-    assert.equal(getLinkSidePanel()?.url, "https://app.example.com"),
-  );
+  await waitFor(() => assert.equal(listPlaygroundSessions().length, 1));
+  assert.equal(getActivePlaygroundSid(), "demo-1");
+  assert.equal(getPlaygroundOverlayHost(), "side-panel");
+  assert.equal(getLinkSidePanel(), null);
   assert.equal(probed, 1);
-  assert.equal(listPlaygroundSessions().length, 0);
-  assert.deepEqual(opened, []);
 });
 
 test("PIN copy button writes the pin, not the URL", async () => {
@@ -303,9 +337,10 @@ test("PIN is hidden when omitted and Open still works", async () => {
   assert.equal(screen.queryByTestId("playground-card-pin"), null);
   assert.equal(screen.queryByTestId("playground-card-copy-pin"), null);
   assert.equal(screen.getByTestId("playground-card-open").textContent, "Open");
+  assert.ok(screen.getByTestId("playground-card-agent-attach"));
 });
 
-test("split pop-out disables Open, Pin, Open as Split, and URL clicks", async () => {
+test("split pop-out disables Open, Pin, agent attach, and URL clicks", async () => {
   const { fireEvent } = await import("@testing-library/react");
   const { listConversationPlaygroundPins } = await import(
     "../lib/conversationPins.ts"
@@ -314,6 +349,7 @@ test("split pop-out disables Open, Pin, Open as Split, and URL clicks", async ()
     "@/features/link-panel/lib/linkSidePanelStore.ts"
   );
   const screen = await renderCard(card, {
+    path: "/channels/chan-1?thread=thread-1",
     popoutPayload: {
       kind: "split",
       channelId: "chan-1",
@@ -327,10 +363,12 @@ test("split pop-out disables Open, Pin, Open as Split, and URL clicks", async ()
   const pin = screen.getByTestId("playground-card-pin-action");
   const open = screen.getByTestId("playground-card-open");
   const split = screen.getByTestId("playground-card-open-split");
+  const agent = screen.getByTestId("playground-card-agent-attach");
   const url = screen.getByTestId("playground-card-url");
   assert.equal(pin.disabled, true);
   assert.equal(open.disabled, true);
   assert.equal(split.disabled, true);
+  assert.equal(agent.disabled, true);
   assert.equal(url.getAttribute("aria-disabled"), "true");
   assert.match(url.className, /opacity-50/);
   assert.match(url.className, /pointer-events-none/);
@@ -344,13 +382,15 @@ test("split pop-out disables Open, Pin, Open as Split, and URL clicks", async ()
   await fireEvent.click(pin);
   await fireEvent.click(open);
   await fireEvent.click(split);
+  await fireEvent.click(agent);
   await fireEvent.click(url);
   assert.equal(probed, 0);
   assert.equal(listConversationPlaygroundPins("channel:chan-1").length, 0);
   assert.equal(getLinkSidePanel(), null);
+  assert.equal(screen.queryByTestId("browser-agent-grant-dialog"), null);
 });
 
-test("thread-only pop-out keeps Open / Pin / URL; disables Open as Split", async () => {
+test("thread-only pop-out keeps Open / Pin / agent; disables Open as Split", async () => {
   const { fireEvent, waitFor } = await import("@testing-library/react");
   const { getLinkSidePanel } = await import(
     "@/features/link-panel/lib/linkSidePanelStore.ts"
@@ -372,8 +412,10 @@ test("thread-only pop-out keeps Open / Pin / URL; disables Open as Split", async
   const pin = screen.getByTestId("playground-card-pin-action");
   const open = screen.getByTestId("playground-card-open");
   const split = screen.getByTestId("playground-card-open-split");
+  const agent = screen.getByTestId("playground-card-agent-attach");
   assert.equal(open.disabled, false);
   assert.equal(pin.disabled, false);
+  assert.equal(agent.disabled, false);
   // Thread is open so Split would normally be available — layout greys it.
   assert.equal(split.disabled, true);
 
@@ -383,10 +425,14 @@ test("thread-only pop-out keeps Open / Pin / URL; disables Open as Split", async
     return { up: true, status: 200 };
   };
 
+  const {
+    getActivePlaygroundSid,
+    getPlaygroundOverlayHost,
+  } = await import("../lib/sessions.ts");
   await fireEvent.click(open);
-  await waitFor(() =>
-    assert.equal(getLinkSidePanel()?.url, "https://app.example.com"),
-  );
+  await waitFor(() => assert.equal(getActivePlaygroundSid(), "demo-1"));
+  assert.equal(getPlaygroundOverlayHost(), "side-panel");
+  assert.equal(getLinkSidePanel(), null);
   assert.equal(probed, 1);
 
   await fireEvent.click(pin);
@@ -401,7 +447,7 @@ test("thread-only pop-out keeps Open / Pin / URL; disables Open as Split", async
   assert.equal(probed, probedBeforeSplit);
 });
 
-test("main window with open thread keeps Open as Split enabled", async () => {
+test("main window with open thread shows Open as Split enabled + agent", async () => {
   const screen = await renderCard(card, {
     path: "/channels/chan-1?thread=thread-1",
   });
@@ -420,4 +466,20 @@ test("main window with open thread keeps Open as Split enabled", async () => {
     screen.getByTestId("playground-card-open-split").disabled,
     false,
   );
+  assert.equal(
+    screen.getByTestId("playground-card-agent-attach").disabled,
+    false,
+  );
+});
+
+test("agent attach icon is always present on channel cards (Observe & Drive)", async () => {
+  const screen = await renderCard();
+  const agent = screen.getByTestId("playground-card-agent-attach");
+  assert.equal(agent.getAttribute("aria-label"), "Observe & Drive");
+  assert.equal(agent.disabled, false);
+  // Full grant Dialog needs browser Theme/Radix plumbing; chrome/Browsers cover that.
+  // Card wiring: Bot icon always shown next to Open (not only in threads).
+  assert.ok(screen.getByTestId("playground-card-open"));
+  assert.equal(screen.queryByTestId("playground-card-watch"), null);
+  assert.equal(screen.queryByTestId("playground-card-let-drive"), null);
 });

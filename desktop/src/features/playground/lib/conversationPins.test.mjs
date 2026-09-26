@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { afterEach, test } from "node:test";
+import { afterEach, before, test } from "node:test";
+
+import { installLocalStorage } from "./testStorage.mjs";
 
 const card = {
   hula: "playground",
@@ -11,14 +13,19 @@ const card = {
   stack: "hula-app",
 };
 
+before(() => {
+  installLocalStorage();
+});
+
 afterEach(async () => {
   const { resetConversationPlaygroundPins } = await import(
     "./conversationPins.ts"
   );
   resetConversationPlaygroundPins();
+  globalThis.localStorage?.clear();
 });
 
-test("pins are scoped to channel vs thread and stay in memory only", async () => {
+test("pins are scoped to channel vs thread", async () => {
   const {
     hasConversationPlaygroundPin,
     listConversationPlaygroundPins,
@@ -150,4 +157,87 @@ test("seedConversationPlaygroundPins hydrates a companion scope", async () => {
     )?.name,
     "Renamed",
   );
+});
+
+test("pins persist across scope reconfigure when the session sid still exists", async () => {
+  const {
+    configureConversationPlaygroundPinsScope,
+    listConversationPlaygroundPins,
+    pinPlaygroundToConversation,
+    playgroundPinsStorageKey,
+    resetConversationPlaygroundPins,
+  } = await import("./conversationPins.ts");
+
+  configureConversationPlaygroundPinsScope("pub", "wss://relay.example.com", [
+    "demo-1",
+  ]);
+  pinPlaygroundToConversation("channel:chan-a", card);
+  pinPlaygroundToConversation("thread:root-1", card, "chan-a");
+  const key = playgroundPinsStorageKey("pub", "wss://relay.example.com");
+  assert.ok(globalThis.localStorage.getItem(key));
+
+  resetConversationPlaygroundPins();
+  assert.equal(listConversationPlaygroundPins("channel:chan-a").length, 0);
+
+  configureConversationPlaygroundPinsScope("pub", "wss://relay.example.com", [
+    "demo-1",
+  ]);
+  assert.equal(listConversationPlaygroundPins("channel:chan-a").length, 1);
+  assert.equal(listConversationPlaygroundPins("thread:root-1").length, 1);
+  assert.equal(
+    listConversationPlaygroundPins("thread:root-1")[0]?.channelId,
+    "chan-a",
+  );
+});
+
+test("hydrate prunes orphan pins whose session sid is gone", async () => {
+  const {
+    configureConversationPlaygroundPinsScope,
+    listConversationPlaygroundPins,
+    pinPlaygroundToConversation,
+    resetConversationPlaygroundPins,
+  } = await import("./conversationPins.ts");
+
+  configureConversationPlaygroundPinsScope("pub", "wss://relay.example.com", [
+    "demo-1",
+    "demo-gone",
+  ]);
+  pinPlaygroundToConversation("channel:chan-a", card);
+  pinPlaygroundToConversation("channel:chan-a", {
+    ...card,
+    sid: "demo-gone",
+    name: "Gone",
+  });
+  assert.equal(listConversationPlaygroundPins("channel:chan-a").length, 2);
+
+  resetConversationPlaygroundPins();
+  configureConversationPlaygroundPinsScope("pub", "wss://relay.example.com", [
+    "demo-1",
+  ]);
+  assert.equal(listConversationPlaygroundPins("channel:chan-a").length, 1);
+  assert.equal(
+    listConversationPlaygroundPins("channel:chan-a")[0]?.sid,
+    "demo-1",
+  );
+});
+
+test("unpinPlaygroundSessionEverywhere clears every scope for that sid", async () => {
+  const {
+    listConversationPlaygroundPins,
+    pinPlaygroundToConversation,
+    unpinPlaygroundSessionEverywhere,
+  } = await import("./conversationPins.ts");
+
+  pinPlaygroundToConversation("channel:chan-a", card);
+  pinPlaygroundToConversation("thread:root-1", card, "chan-a");
+  pinPlaygroundToConversation("channel:chan-b", {
+    ...card,
+    sid: "other",
+    name: "Other",
+  });
+
+  assert.equal(unpinPlaygroundSessionEverywhere("demo-1"), 2);
+  assert.equal(listConversationPlaygroundPins("channel:chan-a").length, 0);
+  assert.equal(listConversationPlaygroundPins("thread:root-1").length, 0);
+  assert.equal(listConversationPlaygroundPins("channel:chan-b").length, 1);
 });

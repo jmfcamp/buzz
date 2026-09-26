@@ -138,20 +138,40 @@ test("thread scope badge ignores channel pins", async () => {
   );
 });
 
-test("header pin open path uses keepAlive and sanitize-safe pinId", async () => {
-  // Mirrors ConversationPlaygroundPinsMenu.openPin — the named-pin click path.
+test("header pin open path reuses playground session on RHS side panel (not left dock / link pin)", async () => {
+  // Mirrors ConversationPlaygroundPinsMenu.openPin — named-pin click reuses the
+  // playground surface (Agent chrome / grants) in the RHS idle-auxiliary host.
   const { conversationPlaygroundPinWebviewId } = await import(
     "../lib/conversationPins.ts"
   );
-  const { getLinkSidePanel, openLinkSidePanel } = await import(
-    "@/features/link-panel/lib/linkSidePanelStore.ts"
+  const {
+    addPlaygroundSession,
+    configurePlaygroundScope,
+    getActivePlaygroundSid,
+    getPlaygroundOverlayHost,
+    hasPlaygroundSession,
+    isPlaygroundSidePanelHost,
+    resetPlaygroundState,
+    showPlaygroundSession,
+  } = await import("../lib/sessions.ts");
+  const { closeLinkSidePanel, getLinkSidePanel, openLinkSidePanel } =
+    await import("@/features/link-panel/lib/linkSidePanelStore.ts");
+  const { PLAYGROUND_HULA, PLAYGROUND_VERSION } = await import(
+    "../lib/types.ts"
   );
 
+  configurePlaygroundScope("pub", "wss://relay.example.com");
   const pin = {
     sid: "alpha",
     name: "Alpha",
     url: "https://a.example.com",
   };
+  assert.match(
+    conversationPlaygroundPinWebviewId(pin.sid),
+    /^[A-Za-z0-9_-]+$/,
+  );
+
+  // Legacy URL link panel (if any) is closed first.
   assert.equal(
     openLinkSidePanel(pin.url, {
       title: pin.name,
@@ -160,13 +180,27 @@ test("header pin open path uses keepAlive and sanitize-safe pinId", async () => 
     }),
     true,
   );
-  const panel = getLinkSidePanel();
-  assert.ok(panel);
-  assert.equal(panel.url, pin.url);
-  assert.equal(panel.title, pin.name);
-  assert.equal(panel.keepAlive, true);
-  assert.equal(panel.pinId, "playground-pin-alpha");
-  assert.match(panel.pinId, /^[A-Za-z0-9_-]+$/);
+  closeLinkSidePanel();
+  assert.equal(getLinkSidePanel(), null);
+
+  if (hasPlaygroundSession(pin.sid)) {
+    showPlaygroundSession(pin.sid, { preferSidePanel: true });
+  } else {
+    addPlaygroundSession(
+      {
+        hula: PLAYGROUND_HULA,
+        v: PLAYGROUND_VERSION,
+        name: pin.name,
+        url: pin.url,
+        sid: pin.sid,
+      },
+      { preferSidePanel: true },
+    );
+  }
+  assert.equal(getActivePlaygroundSid(), "alpha");
+  assert.equal(isPlaygroundSidePanelHost(), true);
+  assert.equal(getPlaygroundOverlayHost(), "side-panel");
+  resetPlaygroundState();
 });
 
 test("menu unpin path removes the pin and destroys any open keep-alive panel", async () => {
@@ -208,32 +242,39 @@ test("menu unpin path removes the pin and destroys any open keep-alive panel", a
   assert.equal(getLinkSidePanel(), null);
 });
 
-test("opening a named pin uses keepAlive chrome path (not a bare webview)", async () => {
-  // Mirrors ConversationPlaygroundPinsMenu.openPin — row click must open the
-  // IdleAuxiliaryPanel-backed link side panel with title/close chrome.
-  const { conversationPlaygroundPinWebviewId } = await import(
-    "../lib/conversationPins.ts"
-  );
-  const { getLinkSidePanel, openLinkSidePanel } = await import(
-    "@/features/link-panel/lib/linkSidePanelStore.ts"
+test("opening a named pin uses RHS side-panel host (Agent chrome)", async () => {
+  // Mirrors ConversationPlaygroundPinsMenu.openPin — row click reuses/adds the
+  // playground session with preferSidePanel for the RHS idle-auxiliary host.
+  const {
+    addPlaygroundSession,
+    configurePlaygroundScope,
+    getActivePlaygroundSid,
+    getPlaygroundOverlayHost,
+    isPlaygroundSidePanelHost,
+    resetPlaygroundState,
+  } = await import("../lib/sessions.ts");
+  const { PLAYGROUND_HULA, PLAYGROUND_VERSION } = await import(
+    "../lib/types.ts"
   );
 
+  configurePlaygroundScope("pub", "wss://relay.example.com");
   const pin = {
     sid: "hula-home",
     name: "Hula Home",
     url: "https://hulapreview.example.com",
   };
-  assert.equal(
-    openLinkSidePanel(pin.url, {
-      title: pin.name,
-      pinId: conversationPlaygroundPinWebviewId(pin.sid),
-      keepAlive: true,
-    }),
-    true,
+  addPlaygroundSession(
+    {
+      hula: PLAYGROUND_HULA,
+      v: PLAYGROUND_VERSION,
+      name: pin.name,
+      url: pin.url,
+      sid: pin.sid,
+    },
+    { preferSidePanel: true },
   );
-  const panel = getLinkSidePanel();
-  assert.ok(panel);
-  assert.equal(panel.title, "Hula Home");
-  assert.equal(panel.keepAlive, true);
-  assert.equal(panel.pinId, "playground-pin-hula-home");
+  assert.equal(getActivePlaygroundSid(), "hula-home");
+  assert.equal(isPlaygroundSidePanelHost(), true);
+  assert.equal(getPlaygroundOverlayHost(), "side-panel");
+  resetPlaygroundState();
 });

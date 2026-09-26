@@ -1,5 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 import {
   POPOUT_WINDOW_LABEL_PREFIX,
@@ -123,6 +124,15 @@ export async function focusPopoutWindow(label: string): Promise<void> {
   if (!isTauri()) return;
   if (!label.startsWith(POPOUT_WINDOW_LABEL_PREFIX)) return;
   await invoke("focus_popout_window", { label });
+}
+
+/** Close an OS companion window. Child playground webviews tear down on Destroyed. */
+export async function closePopoutWindow(label: string): Promise<void> {
+  if (!label.startsWith(POPOUT_WINDOW_LABEL_PREFIX)) return;
+  if (!isTauri()) return;
+  const window = await WebviewWindow.getByLabel(label);
+  if (!window) return;
+  await window.close();
 }
 
 export function setPopoutWindowsForTests(

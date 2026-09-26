@@ -83,7 +83,6 @@ export function AppSidebar({
   channels,
   currentPubkey,
   fallbackDisplayName,
-  homeBadgeCount,
   onBackgroundClick,
   isAddCommunityOpen,
   isLoading,
@@ -118,6 +117,7 @@ export function AppSidebar({
   onRemoveCommunity,
   onCreateAgent,
   onSelectAgents,
+  onSelectBrowsers,
   onSelectBots,
   onSelectPinnedSite,
   onSelectProjects,
@@ -570,8 +570,8 @@ export function AppSidebar({
               data-testid="sidebar-scroll-content"
             >
               <AppSidebarPrimaryMenu
-                homeBadgeCount={homeBadgeCount}
                 onSelectAgents={onSelectAgents}
+                onSelectBrowsers={onSelectBrowsers}
                 onSelectBots={onSelectBots}
                 onSelectHome={onSelectHome}
                 onSelectPinnedSite={onSelectPinnedSite}
@@ -616,6 +616,7 @@ export function AppSidebar({
                       selectedChannelId={selectedChannelId}
                       title="Starred"
                       unreadChannelIds={unreadChannelIds}
+                      unreadChannelCounts={unreadChannelCounts}
                       mutedChannelIds={mutedChannelIds}
                       onMuteChannel={onMuteChannel}
                       onUnmuteChannel={onUnmuteChannel}
@@ -649,6 +650,7 @@ export function AppSidebar({
                         activeWorkingByChannelId={activeWorkingByChannelId}
                         selectedChannelId={selectedChannelId}
                         unreadChannelIds={unreadChannelIds}
+                        unreadChannelCounts={unreadChannelCounts}
                         sections={channelSections}
                         assignments={channelAssignments}
                         isFirst={idx === 0}
@@ -719,6 +721,7 @@ export function AppSidebar({
                       selectedChannelId={selectedChannelId}
                       title="Channels"
                       unreadChannelIds={unreadChannelIds}
+                      unreadChannelCounts={unreadChannelCounts}
                       sections={channelSections}
                       assignments={channelAssignments}
                       onAssignChannel={assignChannel}
@@ -757,6 +760,7 @@ export function AppSidebar({
                       selectedChannelId={selectedChannelId}
                       title="Forums"
                       unreadChannelIds={unreadChannelIds}
+                      unreadChannelCounts={unreadChannelCounts}
                       mutedChannelIds={mutedChannelIds}
                       onMuteChannel={onMuteChannel}
                       onUnmuteChannel={onUnmuteChannel}

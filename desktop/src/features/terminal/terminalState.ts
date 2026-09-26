@@ -93,6 +93,24 @@ export function encodeTerminalKey(event: {
   return null;
 }
 
+/**
+ * Like encodeTerminalKey, but also maps plain printable characters. Used when
+ * focus is not on the hidden textarea so `input` will not fire — capture-phase
+ * forwarding must still reach the PTY for letters as well as Backspace/Delete.
+ */
+export function encodeTerminalKeystroke(event: {
+  key: string;
+  ctrlKey: boolean;
+  altKey: boolean;
+  metaKey: boolean;
+}): string | null {
+  const encoded = encodeTerminalKey(event);
+  if (encoded) return encoded;
+  if (event.metaKey || event.ctrlKey || event.altKey) return null;
+  if (event.key.length === 1) return event.key;
+  return null;
+}
+
 export type TabChord = "close" | "new" | "next" | "previous";
 
 /**

@@ -361,23 +361,63 @@ fn profile_target_dirs(root: &Path) -> [PathBuf; 2] {
     }
 }
 
-fn command_search_dirs() -> Vec<PathBuf> {
-    let mut dirs = profile_target_dirs(&workspace_root_dir()).to_vec();
-    if let Ok(current_dir) = std::env::current_dir() {
-        dirs.extend(profile_target_dirs(&current_dir));
+/// Profile dirs under `$CARGO_TARGET_DIR` (no nested `target/` segment).
+fn cargo_target_dir_profile_dirs(cargo_target_dir: &Path) -> [PathBuf; 2] {
+    if cfg!(debug_assertions) {
+        [
+            cargo_target_dir.join("debug"),
+            cargo_target_dir.join("release"),
+        ]
+    } else {
+        [
+            cargo_target_dir.join("release"),
+            cargo_target_dir.join("debug"),
+        ]
     }
+}
 
-    dirs.extend(
-        std::env::current_exe()
-            .ok()
-            .and_then(|path| path.parent().map(Path::to_path_buf)),
-    );
+fn dedupe_dirs(dirs: impl IntoIterator<Item = PathBuf>) -> Vec<PathBuf> {
     dirs.into_iter().fold(Vec::new(), |mut unique, dir| {
         if !unique.contains(&dir) {
             unique.push(dir);
         }
         unique
     })
+}
+
+/// Ordered dirs for resolving workspace sidecars (buzz-dev-mcp, buzz-acp, …).
+/// Prefer the running app's sibling binaries, then `$CARGO_TARGET_DIR`, then
+/// workspace / cwd `target/{debug,release}` so a stale worktree target cannot
+/// shadow a fresh sidecar next to `buzz-desktop`.
+fn build_command_search_dirs(
+    exe_parent: Option<PathBuf>,
+    cargo_target_dir: Option<PathBuf>,
+    workspace_root: PathBuf,
+    current_dir: Option<PathBuf>,
+) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(parent) = exe_parent {
+        dirs.push(parent);
+    }
+    if let Some(target) = cargo_target_dir {
+        dirs.extend(cargo_target_dir_profile_dirs(&target));
+    }
+    dirs.extend(profile_target_dirs(&workspace_root));
+    if let Some(cwd) = current_dir {
+        dirs.extend(profile_target_dirs(&cwd));
+    }
+    dedupe_dirs(dirs)
+}
+
+fn command_search_dirs() -> Vec<PathBuf> {
+    build_command_search_dirs(
+        std::env::current_exe()
+            .ok()
+            .and_then(|path| path.parent().map(Path::to_path_buf)),
+        std::env::var_os("CARGO_TARGET_DIR").map(PathBuf::from),
+        workspace_root_dir(),
+        std::env::current_dir().ok(),
+    )
 }
 
 fn is_executable_file(path: &Path) -> bool {

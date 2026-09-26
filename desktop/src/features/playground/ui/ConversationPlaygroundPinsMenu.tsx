@@ -3,8 +3,8 @@ import * as React from "react";
 import { useSyncExternalStore } from "react";
 
 import {
+  closeLinkSidePanel,
   destroyLinkSidePanelIfPin,
-  openLinkSidePanel,
 } from "@/features/link-panel/lib/linkSidePanelStore";
 import {
   conversationPlaygroundPinWebviewId,
@@ -15,6 +15,15 @@ import {
   unpinPlaygroundFromConversation,
   type ConversationPlaygroundPin,
 } from "@/features/playground/lib/conversationPins";
+import {
+  addPlaygroundSession,
+  hasPlaygroundSession,
+  showPlaygroundSession,
+} from "@/features/playground/lib/sessions";
+import {
+  PLAYGROUND_HULA,
+  PLAYGROUND_VERSION,
+} from "@/features/playground/lib/types";
 import { Button } from "@/shared/ui/button";
 import {
   DropdownMenu,
@@ -66,11 +75,29 @@ export function ConversationPlaygroundPinsMenu({
   }, [menuRequest, scopeKey]);
 
   function openPin(pin: ConversationPlaygroundPin) {
-    openLinkSidePanel(pin.url, {
-      title: pin.name,
-      pinId: conversationPlaygroundPinWebviewId(pin.sid),
-      keepAlive: true,
-    });
+    // Conversation pins identify the same playground surface as the left-rail
+    // session. Close any legacy URL pin-panel first, then reuse/add the
+    // playground session in the RHS idle-auxiliary slide-out so Agent chrome
+    // + Observe/Drive grants stay on playground-{sid} (not a grant-less pin
+    // webview, not left dock, not windowed inset-0 cover).
+    closeLinkSidePanel();
+    if (hasPlaygroundSession(pin.sid)) {
+      showPlaygroundSession(pin.sid, { preferSidePanel: true });
+    } else {
+      addPlaygroundSession(
+        {
+          hula: PLAYGROUND_HULA,
+          v: PLAYGROUND_VERSION,
+          name: pin.name,
+          url: pin.url,
+          sid: pin.sid,
+          ...(pin.pin ? { pin: pin.pin } : {}),
+          ...(pin.stack ? { stack: pin.stack } : {}),
+          ...(pin.expires != null ? { expires: pin.expires } : {}),
+        },
+        { preferSidePanel: true },
+      );
+    }
     setOpen(false);
   }
 

@@ -1,12 +1,8 @@
 import * as React from "react";
 import { Loader2 } from "lucide-react";
 
+import { useAgentWorking } from "@/features/agents/agentWorkingSignal";
 import { useAgentTranscript } from "@/features/agents/ui/useObserverEvents";
-import {
-  getActivityHeadline,
-  isMeaningfulItem,
-  isSpineItem,
-} from "@/features/agents/ui/agentSessionTranscriptPresentation";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import type { ManagedAgent } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
@@ -18,6 +14,11 @@ import {
 } from "@/shared/ui/popover";
 import { Shimmer } from "@/shared/ui/Shimmer";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
+
+import {
+  deriveActivityPillLabel,
+  deriveActivityPillPresentation,
+} from "./composerLiveActivity";
 
 export type BotActivityAgent = Pick<ManagedAgent, "pubkey" | "name">;
 
@@ -32,7 +33,6 @@ type BotActivityBarProps = {
 };
 
 const HOVER_CLOSE_DELAY_MS = 180;
-const HEADLINE_ROTATION_MS = 2200;
 
 export function BotActivityComposerAction({
   agents,
@@ -61,43 +61,21 @@ export function BotActivityComposerAction({
     Boolean(singleWorkingAgent),
     singleWorkingAgent?.pubkey,
   );
-  const activityHeadlines = React.useMemo(() => {
+  const workingState = useAgentWorking(
+    singleWorkingAgent?.pubkey ?? null,
+    channelId,
+  );
+  const activityHeadline = React.useMemo(() => {
     if (!singleWorkingAgent) {
-      return [];
+      return null;
     }
-
-    const seen = new Set<string>();
-    const headlines: string[] = [];
-    const scopedTranscript = channelId
-      ? transcript.filter((item) => item.channelId === channelId)
-      : transcript;
-
-    // Two-tier scan: spine items first (reads recede when real work is present).
-    // If no spine headlines are found (session start / idle), fall back to all
-    // meaningful items so the bar isn't left empty.
-    const passFilter: (item: (typeof scopedTranscript)[number]) => boolean =
-      scopedTranscript.some(isSpineItem) ? isSpineItem : isMeaningfulItem;
-
-    for (let i = scopedTranscript.length - 1; i >= 0; i--) {
-      const item = scopedTranscript[i];
-      if (!passFilter(item)) {
-        continue;
-      }
-      const headline = getActivityHeadline(item);
-      if (!headline || seen.has(headline)) {
-        continue;
-      }
-
-      seen.add(headline);
-      headlines.unshift(headline);
-      if (headlines.length >= 5) {
-        break;
-      }
-    }
-
-    return headlines;
+    // Channel-scoped spine scan: tool/step headlines while observer frames
+    // stream; typing-only agents fall through to deriveActivityPillPresentation.
+    return deriveActivityPillLabel({
+      channelId,
+      transcript,
+    });
   }, [channelId, singleWorkingAgent, transcript]);
-  const [headlineIndex, setHeadlineIndex] = React.useState(0);
 
   const clearHoverTimer = React.useCallback(() => {
     if (hoverTimerRef.current !== null) {
@@ -128,18 +106,6 @@ export function BotActivityComposerAction({
     return () => clearHoverTimer();
   }, [clearHoverTimer]);
 
-  React.useEffect(() => {
-    if (activityHeadlines.length <= 1) {
-      return;
-    }
-
-    const interval = window.setInterval(() => {
-      setHeadlineIndex((current) => (current + 1) % activityHeadlines.length);
-    }, HEADLINE_ROTATION_MS);
-
-    return () => window.clearInterval(interval);
-  }, [activityHeadlines.length]);
-
   if (workingAgents.length === 0) {
     return null;
   }
@@ -152,12 +118,19 @@ export function BotActivityComposerAction({
       ? `${workingAgents[0]?.name ?? "Agent"} is working`
       : `${workingAgents.length} agents working`;
   const isInline = variant === "inline";
+  const singlePresentation =
+    singleWorkingAgent !== null
+      ? deriveActivityPillPresentation({
+          agentName: singleWorkingAgent.name,
+          headline: activityHeadline,
+          isTyping: workingState.source === "typing",
+          workingSource: workingState.source,
+        })
+      : null;
   const visibleStatusLabel =
     workingAgents.length === 1
-      ? `${workingAgents[0]?.name ?? "Agent"}: ${
-          activityHeadlines[headlineIndex % activityHeadlines.length] ??
-          "Working"
-        }`
+      ? (singlePresentation?.label ??
+        `${workingAgents[0]?.name ?? "Agent"} is working…`)
       : `${workingAgents[0]?.name ?? "Agent"} +${workingAgents.length - 1}`;
 
   return (

@@ -5,6 +5,7 @@ import { usePopoutThreadOnlyLayout } from "@/features/popout/lib/popoutLayout";
 import { ConversationInfoButton } from "@/features/channels/ui/ConversationInfoButton";
 import { ConversationPopoutMenu } from "@/features/popout/ui/ConversationPopoutMenu";
 import { ConversationPlaygroundPinsMenu } from "@/features/playground/ui/ConversationPlaygroundPinsMenu";
+import { TermSessionHandoffPopover } from "@/features/term-session/ui/TermSessionHandoffPopover";
 
 import { HuddleTranscriptIntro } from "@/features/huddle/components/HuddleTranscriptIntro";
 import {
@@ -633,6 +634,7 @@ export function MessageThreadPanel({
                   data-render-pending={isRepliesPending ? "true" : undefined}
                 >
                   <MessageThreadSummaryRow
+                    channelId={channelId}
                     depth={threadHead.depth}
                     message={threadHead}
                     onOpenThread={expandThreadHeadReplies}
@@ -763,6 +765,7 @@ export function MessageThreadPanel({
                         />
                         {entry.summary ? (
                           <MessageThreadSummaryRow
+                            channelId={channelId}
                             collapseDepthGuideActions={
                               collapseDepthGuideActions
                             }
@@ -932,6 +935,16 @@ export function MessageThreadPanel({
                       channelId={channelId}
                       threadId={threadHeadId}
                     />
+                    {threadHeadId ? (
+                      <TermSessionHandoffPopover
+                        channelId={channelId}
+                        channelMemberPubkeys={
+                          channel?.memberPubkeys ?? []
+                        }
+                        onSend={onSend}
+                        threadId={threadHeadId}
+                      />
+                    ) : null}
                     <ConversationPopoutMenu
                       channelId={channelId}
                       threadId={threadHeadId}

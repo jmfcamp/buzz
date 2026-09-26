@@ -21,6 +21,22 @@ pub(crate) use path::{compose_path_entries, should_skip_claude_executable, shoul
 
 /// Custom ACP harnesses do not run buzz-acp's Git bootstrap. Preserve the
 /// Desktop-provided relay credential helper for those commands.
+
+/// Prefer the agent record's mcp_command when set; otherwise the harness catalog default.
+/// Claude ACP used to catalog as None, which dropped stored `buzz-dev-mcp` and broke
+/// Observe/Drive for subscription Claude agents.
+fn resolve_effective_mcp_command(record_mcp: &str, harness_command: &str) -> String {
+    let trimmed = record_mcp.trim();
+    if !trimmed.is_empty() {
+        return trimmed.to_string();
+    }
+    known_acp_runtime(harness_command)
+        .and_then(|r| r.mcp_command)
+        .unwrap_or("")
+        .to_string()
+}
+
+
 fn apply_custom_acp_git_credentials(
     command: &mut std::process::Command,
     acp_command: &str,
@@ -323,10 +339,8 @@ pub fn build_managed_agent_summary(
             env: Default::default(),
         }
     });
-    let effective_mcp_command = known_acp_runtime(&descriptor.command)
-        .and_then(|r| r.mcp_command)
-        .unwrap_or("")
-        .to_string();
+    let effective_mcp_command =
+        resolve_effective_mcp_command(&record.mcp_command, &descriptor.command);
 
     Ok(ManagedAgentSummary {
         pubkey: record.pubkey.clone(),
@@ -557,13 +571,12 @@ pub fn spawn_agent_child(
         .map_err(|error| format!("failed to clone log handle: {error}"))?;
     let resolved_acp_command = resolve_command(&record.acp_command)
         .ok_or_else(|| missing_command_message(&record.acp_command, "ACP harness command"))?;
-    let effective_mcp_command = known_acp_runtime(effective_command)
-        .and_then(|r| r.mcp_command)
-        .unwrap_or("");
+    let effective_mcp_command =
+        resolve_effective_mcp_command(&record.mcp_command, effective_command);
     let resolved_mcp_command: Option<std::path::PathBuf> = if effective_mcp_command.is_empty() {
         None
     } else {
-        match resolve_command(effective_mcp_command) {
+        match resolve_command(&effective_mcp_command) {
             Some(path) => Some(path),
             None => {
                 eprintln!(
@@ -611,6 +624,12 @@ pub fn spawn_agent_child(
     command.env("RUST_LOG", child_rust_log_filter());
     command.env("BUZZ_PRIVATE_KEY", &record.private_key_nsec);
     command.env("BUZZ_AGENT_PUBKEY", &record.pubkey);
+    if let Ok(app_data) = app.path().app_data_dir() {
+        command.env(
+            "BUZZ_BROWSER_AGENT_DIR",
+            app_data.join("browser-agent").display().to_string(),
+        );
+    }
     command.env("BUZZ_RELAY_URL", &effective_relay_url);
     command.env("BUZZ_ACP_LAZY_POOL", if lazy { "true" } else { "false" });
     command.env("BUZZ_ACP_IDLE_POOL_SLEEP", idle_pool_sleep_env(lazy));

@@ -45,7 +45,7 @@ export function ContentSurface({
       data-buzz-content-surface
       data-buzz-content-unframed={unframed ? true : undefined}
     >
-      <div className="buzz-content-primary flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="buzz-content-primary relative flex min-h-0 flex-1 flex-col overflow-hidden">
         {children}
       </div>
       <div className="buzz-terminal-dock-host" data-terminal-dock>

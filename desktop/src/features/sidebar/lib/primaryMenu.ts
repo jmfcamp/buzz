@@ -2,6 +2,7 @@ export type PrimaryMenuItemId =
   | "inbox"
   | "pulse"
   | "projects"
+  | "browsers"
   | "agents"
   | "bots"
   | "workflows";
@@ -20,6 +21,7 @@ export const PRIMARY_MENU_ITEMS: readonly PrimaryMenuItem[] = [
   { id: "inbox", label: "Inbox", testId: "open-inbox-view" },
   { id: "pulse", label: "Pulse", testId: "open-pulse-view" },
   { id: "projects", label: "Projects", testId: "open-projects-view" },
+  { id: "browsers", label: "Browsers", testId: "open-browsers-view" },
   { id: "agents", label: "Agents", testId: "open-agents-view" },
   { id: "bots", label: "Bots", testId: "open-bots-view" },
   { id: "workflows", label: "Workflows", testId: "open-workflows-view" },

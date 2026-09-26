@@ -23,7 +23,7 @@ function isNativePlaygroundRuntime(): boolean {
   return isTauri() || import.meta.env.MODE === "e2e";
 }
 
-function currentWindowLabel(): string {
+export function currentWindowLabel(): string {
   if (!isTauri()) return "main";
   try {
     return getCurrentWindow().label || "main";
@@ -305,6 +305,27 @@ export async function playgroundWebviewDomHash(
   return invokePlayground("playground_webview_dom_hash", { sid, startUrl }, "");
 }
 
+
+/**
+ * True when the native playground WKWebView for this sid+window exists.
+ * False after app restart (sessions may still be in localStorage), before
+ * first Open/show, or after close/dispose. Hide/park keeps the webview → true.
+ */
+export async function isPlaygroundWebviewOpen(
+  sid: string,
+  windowLabel = "main",
+): Promise<boolean> {
+  if (!isNativePlaygroundRuntime()) return false;
+  try {
+    return await invoke<boolean>("playground_webview_is_open", {
+      sid,
+      windowLabel: windowLabel.trim() || "main",
+    });
+  } catch {
+    return false;
+  }
+}
+
 export async function screenshotPlaygroundWebview(
   sid: string,
 ): Promise<PlaygroundScreenshotPayload> {
@@ -327,5 +348,21 @@ export function subscribePlaygroundWebviewNav(
   }
   return listen<PlaygroundNavState>("playground-webview-nav", (event) => {
     onNav(event.payload);
+  });
+}
+
+export type PlaygroundNewTabRequest = {
+  openerSid: string;
+  openerLabel: string;
+  url: string;
+};
+
+/** window.open / target=_blank from a playground WKWebView (Rust MVP B Deny path). */
+export function subscribePlaygroundNewTab(
+  onRequest: (payload: PlaygroundNewTabRequest) => void,
+): Promise<() => void> {
+  if (!isNativePlaygroundRuntime()) return Promise.resolve(() => undefined);
+  return listen<PlaygroundNewTabRequest>("playground-webview-new-tab", (event) => {
+    onRequest(event.payload);
   });
 }

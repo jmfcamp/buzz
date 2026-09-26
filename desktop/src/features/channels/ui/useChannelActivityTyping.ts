@@ -1,6 +1,8 @@
 import * as React from "react";
 
 import { reportChannelBotTyping } from "@/features/agents/agentWorkingSignal";
+import { HULA_RESERVED_COMMUNITY_BOT_PUBKEYS } from "@/features/agents/lib/reservedCommunityMentionRouting";
+import { useCommunityBotsQuery } from "@/features/community-bots/hooks";
 import type { TypingIndicatorEntry } from "@/features/messages/useChannelTyping";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import type {
@@ -49,14 +51,38 @@ export function useChannelActivityTyping({
   relayAgents: RelayAgent[];
   typingEntries: TypingIndicatorEntry[];
 }) {
+  const communityBotsQuery = useCommunityBotsQuery(Boolean(activeChannelId));
+  const communityBots = communityBotsQuery.data ?? [];
+  const typingCommunityBotPubkeys = React.useMemo(() => {
+    const catalog = new Set(
+      communityBots.map((bot) => normalizePubkey(bot.pubkey)),
+    );
+    for (const pubkey of Object.values(HULA_RESERVED_COMMUNITY_BOT_PUBKEYS)) {
+      catalog.add(normalizePubkey(pubkey));
+    }
+    return typingEntries
+      .map((entry) => normalizePubkey(entry.pubkey))
+      .filter((pubkey) => catalog.has(pubkey));
+  }, [communityBots, typingEntries]);
   const agentCandidates = React.useMemo(
     () =>
       buildChannelAgentSessionCandidates({
         channelMembers,
+        communityBots,
+        communityBotPubkeys: [
+          ...Object.values(HULA_RESERVED_COMMUNITY_BOT_PUBKEYS),
+          ...typingCommunityBotPubkeys,
+        ],
         managedAgents,
         relayAgents,
       }),
-    [channelMembers, managedAgents, relayAgents],
+    [
+      channelMembers,
+      communityBots,
+      managedAgents,
+      relayAgents,
+      typingCommunityBotPubkeys,
+    ],
   );
   const channelAgentSessionAgents = React.useMemo(
     () =>

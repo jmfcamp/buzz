@@ -13,6 +13,18 @@ export type TerminalAttachRequest = {
   rows: number;
   pixelWidth: number;
   pixelHeight: number;
+  /** Optional env injected at PTY spawn (well-formed keys only). */
+  extraEnv?: Record<string, string>;
+  /** Optional PTY working directory. Omit for login-shell default (usually home). */
+  cwd?: string;
+  /** Optional shell path. Omit for system $SHELL resolution. */
+  shell?: string;
+  /** Optional program to spawn instead of the login shell (e.g. herdr). */
+  program?: string;
+  /** Arguments for `program` when set. */
+  args?: string[];
+  /** Optional scrollback depth. Omit for 10_000. */
+  scrollback?: number;
 };
 
 export type TerminalViewport = TerminalFrame["viewport"];
@@ -22,6 +34,7 @@ export type TerminalFrameMessage = TerminalFrame & {
   sequence: number;
   bracketedPaste: boolean;
   focusReporting: boolean;
+  mouseReporting?: boolean;
 };
 
 export type TerminalMessage =
@@ -126,6 +139,20 @@ export class TerminalConnection {
    */
   scroll(lines: number): Promise<void> {
     return invoke("terminal_scroll", { sessionId: this.sessionId, lines });
+  }
+
+  mouse(event: {
+    button: "left" | "middle" | "right" | "wheelUp" | "wheelDown";
+    action: "press" | "release" | "move";
+    column: number;
+    row: number;
+    shift?: boolean;
+    meta?: boolean;
+    ctrl?: boolean;
+  }): Promise<boolean> {
+    return invoke("terminal_mouse", {
+      request: { sessionId: this.sessionId, ...event },
+    });
   }
 
   focus(focused: boolean): Promise<void> {

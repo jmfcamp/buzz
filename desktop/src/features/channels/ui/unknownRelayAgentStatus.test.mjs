@@ -33,3 +33,38 @@ test("active-agent lookup requires positive relay liveness evidence", () => {
   renderToStaticMarkup(React.createElement(Probe));
   assert.deepEqual([...active], ["online", "away"]);
 });
+
+test("community bots on the roster join session candidates as member-bots", () => {
+  const botPubkey = "aa".repeat(32);
+  const candidates = buildChannelAgentSessionCandidates({
+    channelMembers: [
+      {
+        pubkey: botPubkey,
+        role: "member",
+        isAgent: false,
+        displayName: "Mo Desk",
+      },
+    ],
+    communityBots: [{ name: "Mo Desk", pubkey: botPubkey }],
+    managedAgents: [],
+    relayAgents: [],
+  });
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0]?.agentSource, "member-bot");
+  assert.equal(candidates[0]?.name, "Mo Desk");
+  assert.equal(candidates[0]?.status, "deployed");
+});
+
+test("typing-allow-listed community bots join even without roster rows", () => {
+  const botPubkey = "bb".repeat(32);
+  const candidates = buildChannelAgentSessionCandidates({
+    channelMembers: [],
+    communityBots: [{ name: "Korg", pubkey: botPubkey }],
+    communityBotPubkeys: [botPubkey],
+    managedAgents: [],
+    relayAgents: [],
+  });
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0]?.agentSource, "member-bot");
+  assert.equal(candidates[0]?.name, "Korg");
+});

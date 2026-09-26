@@ -18,6 +18,10 @@ import {
 } from "@/features/messages/lib/threadTreeLayout";
 import { cn } from "@/shared/lib/cn";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
+import { Pencil } from "lucide-react";
+import { useLocation } from "@tanstack/react-router";
+import { useDraftsSnapshot } from "@/features/messages/lib/useDrafts";
+import { threadShowsDraftIndicator } from "@/features/sidebar/lib/channelDraftIndicator";
 
 const THREAD_SUMMARY_CONTENT_OFFSET_REM =
   THREAD_REPLY_BODY_OFFSET_REM - THREAD_REPLY_ROW_MARGIN_INLINE_REM;
@@ -80,6 +84,7 @@ function ParticipantAvatar({
 }
 
 export function MessageThreadSummaryRow({
+  channelId = null,
   collapseDepthGuideActions,
   depth = 0,
   depthGuideDepths,
@@ -93,6 +98,7 @@ export function MessageThreadSummaryRow({
   summaryIndentOffsetRem = 0,
   unreadCount,
 }: {
+  channelId?: string | null;
   collapseDepthGuideActions?: ReadonlyArray<ThreadDepthGuideAction>;
   depth?: number;
   depthGuideDepths?: ReadonlyArray<number>;
@@ -133,6 +139,24 @@ export function MessageThreadSummaryRow({
   const collapseDepthGuideActionsByDepth = new Map(
     collapseDepthGuideActions?.map((action) => [action.depth, action]) ?? [],
   );
+
+  useDraftsSnapshot();
+  const location = useLocation();
+  const selectedThreadId = React.useMemo(() => {
+    const search = location.search as {
+      thread?: unknown;
+      threadRootId?: unknown;
+    };
+    const thread = search.threadRootId ?? search.thread;
+    return typeof thread === "string" && thread.trim() ? thread.trim() : null;
+  }, [location.search]);
+  const showDraftIndicator = threadShowsDraftIndicator(message.id, {
+    channelId,
+    // Rows render in the channel timeline/panel for `channelId`, so that is the
+    // viewing surface together with the open thread search param.
+    selectedChannelId: channelId ?? null,
+    selectedThreadId,
+  });
 
   return (
     <div className="relative pb-1 pt-0.5">
@@ -299,6 +323,13 @@ export function MessageThreadSummaryRow({
                   </span>
                 </span>
               </>
+            ) : null}
+            {showDraftIndicator ? (
+              <Pencil
+                aria-label="Draft"
+                className="ml-1 inline-block h-3 w-3 shrink-0 align-[-0.125rem] text-muted-foreground/70"
+                data-testid={`thread-draft-${message.id}`}
+              />
             ) : null}
           </div>
         </div>

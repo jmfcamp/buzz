@@ -36,6 +36,7 @@ import {
   AUTO_PROVIDER_DROPDOWN_VALUE,
   BLOCK_BUILD_HIDDEN_PROVIDER_IDS,
   buildPersonaRuntimeDropdownOptions,
+  inAppBrowserToolsHarnessHint,
   CUSTOM_PROVIDER_DROPDOWN_VALUE,
   computeLocalModeGate,
   formatRuntimeOptionLabel,
@@ -829,6 +830,7 @@ export function AgentDefinitionDialog({
               <AgentHarnessField
                 catalogStatus={runtimeCatalogStatus}
                 disabled={isPending || runtimesLoading}
+                hint={inAppBrowserToolsHarnessHint(selectedRuntime)}
                 onValueChange={handleRuntimeDropdownChange}
                 options={runtimeDropdownOptions}
                 placeholder={blankRuntimeOptionLabel}

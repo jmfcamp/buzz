@@ -17,6 +17,7 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import { buildMessageLink } from "@/features/messages/lib/messageLink";
+import { toAppDeepLink } from "@/shared/lib/appDeepLink";
 import { EmojiPicker } from "@/features/custom-emoji/ui/EmojiPicker";
 import { useCustomEmoji } from "@/features/custom-emoji/hooks";
 import { buildMentionClipboardHtml } from "@/features/messages/lib/mentionClipboard";
@@ -61,11 +62,13 @@ const ACTION_ICON_CLASS = "!h-4 !w-4";
  *  More menu; both paths share this exact link-building + toast behavior. */
 function copyMessageLink(channelId: string, message: TimelineMessage) {
   const { rootId } = getThreadReference(message.tags ?? []);
-  const link = buildMessageLink({
-    channelId,
-    messageId: message.id,
-    threadRootId: rootId,
-  });
+  const link = toAppDeepLink(
+    buildMessageLink({
+      channelId,
+      messageId: message.id,
+      threadRootId: rootId,
+    }),
+  );
   copyTextToClipboard(link, "Link copied to clipboard");
 }
 

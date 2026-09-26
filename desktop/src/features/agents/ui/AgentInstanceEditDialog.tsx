@@ -48,6 +48,7 @@ import {
   BLOCK_BUILD_HIDDEN_PROVIDER_IDS,
   CUSTOM_PROVIDER_DROPDOWN_VALUE,
   formatRuntimeOptionLabel,
+  inAppBrowserToolsHarnessHint,
   getDefaultLlmModelLabel,
   getDefaultPersonaRuntime,
   getPersonaProviderOptions,
@@ -1059,6 +1060,18 @@ export function AgentInstanceEditDialog({
                   </span>
                 </p>
               ) : null}
+              {(() => {
+                const browserToolsHint =
+                  inAppBrowserToolsHarnessHint(selectedRuntime);
+                return browserToolsHint ? (
+                  <p
+                    className="text-xs text-muted-foreground"
+                    data-testid="agent-harness-browser-tools-hint"
+                  >
+                    {browserToolsHint}
+                  </p>
+                ) : null;
+              })()}
               <AddCustomHarnessDialog
                 onOpenChange={setIsAddHarnessOpen}
                 onSaved={selectSavedHarness}

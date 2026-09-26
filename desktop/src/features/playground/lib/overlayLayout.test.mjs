@@ -176,9 +176,8 @@ test("stage layout key changes when fullscreen or dock toggles", () => {
   );
 });
 
-test("locked chrome hides dispose/dock; Detach in-main; Inspect only when detached", () => {
+test("locked chrome hides dock; Detach in-main; Inspect only when detached", () => {
   assert.deepEqual(playgroundChromeLayoutFlags(), {
-    hideDispose: false,
     hideDock: false,
     hideDismiss: false,
     showFullscreen: false,
@@ -186,7 +185,6 @@ test("locked chrome hides dispose/dock; Detach in-main; Inspect only when detach
     showInspect: false,
   });
   assert.deepEqual(playgroundChromeLayoutFlags("window"), {
-    hideDispose: true,
     hideDock: true,
     hideDismiss: false,
     showFullscreen: false,
@@ -196,7 +194,6 @@ test("locked chrome hides dispose/dock; Detach in-main; Inspect only when detach
   assert.deepEqual(
     playgroundChromeLayoutFlags("window", { isOsPopout: true }),
     {
-      hideDispose: true,
       hideDock: true,
       hideDismiss: true,
       showFullscreen: false,
@@ -205,7 +202,6 @@ test("locked chrome hides dispose/dock; Detach in-main; Inspect only when detach
     },
   );
   assert.deepEqual(playgroundChromeLayoutFlags("dock"), {
-    hideDispose: true,
     hideDock: true,
     hideDismiss: false,
     showFullscreen: false,
@@ -213,7 +209,6 @@ test("locked chrome hides dispose/dock; Detach in-main; Inspect only when detach
     showInspect: true,
   });
   assert.deepEqual(playgroundChromeLayoutFlags("dock", { isOsPopout: true }), {
-    hideDispose: true,
     hideDock: true,
     hideDismiss: true,
     showFullscreen: false,

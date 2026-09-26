@@ -52,6 +52,7 @@ mod shutdown;
 mod team_catalog;
 mod templates;
 mod terminal_runtime;
+mod user_signer;
 #[cfg_attr(not(test), allow(dead_code))]
 mod terminal_transport;
 #[cfg(target_os = "macos")]
@@ -227,6 +228,8 @@ pub fn run() {
         .manage(browser_agent::BrowserAgentState::default())
         .setup(move |app| {
             let app_handle = app.handle().clone();
+            browser_agent::spawn_drive_inbox_watcher(app_handle.clone());
+            user_signer::spawn_user_signer_watcher(app_handle.clone());
             #[cfg(target_os = "macos")]
             {
                 tray_menu::init(&app_handle)?;
@@ -518,9 +521,13 @@ pub fn run() {
             terminal_runtime::terminal_input,
             terminal_runtime::terminal_resize,
             terminal_runtime::terminal_scroll,
+            terminal_runtime::terminal_mouse,
             terminal_runtime::terminal_ack,
             terminal_runtime::terminal_viewport_ready,
             terminal_runtime::terminal_focus,
+            prepare_term_session_launch,
+            term_herdr_available,
+            term_open_in_herdr,
             take_pending_community_deep_link,
             acknowledge_pending_community_deep_link,
             take_pending_navigation_deep_link,
@@ -839,12 +846,17 @@ pub fn run() {
             playground_webview::playground_webview_eval,
             playground_webview::playground_webview_dom_hash,
             playground_webview::playground_webview_poll,
+            playground_webview::playground_webview_is_open,
             playground_webview::playground_webview_screenshot,
             browser_agent::browser_agent_grant_set,
+            browser_agent::browser_agent_rebind_surface,
+            browser_agent::browser_agent_sync_tabs,
             browser_agent::browser_agent_grant_clear,
             browser_agent::browser_agent_grant_get,
             browser_agent::browser_agent_grants_for_agent,
+            browser_agent::browser_agent_grants_list,
             browser_agent::browser_agent_take_control,
+            browser_agent::browser_agent_release_control,
             browser_agent::browser_observe_poll,
             browser_agent::browser_drive,
             browser_agent::browser_agent_process_drive_inbox,

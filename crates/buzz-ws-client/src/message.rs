@@ -44,6 +44,15 @@ pub enum RelayMessage {
         /// The number of matching events.
         count: u64,
     },
+    /// Hula-only capability frame: `["HULA", <capability>]`.
+    ///
+    /// Relays may push OpenClaw grants after NIP-42 AUTH. Callers that do not
+    /// consume the capability should ignore this variant (no-op). Prefer this
+    /// known skip over treating `HULA` as an unknown message type.
+    Hula {
+        /// Capability object from the second array element (may be null).
+        capability: Value,
+    },
 }
 
 /// The relay's response to a published event (NIP-01 `OK` message).
@@ -160,9 +169,57 @@ pub fn parse_relay_message(text: &str) -> Result<RelayMessage, WsClientError> {
                 count,
             })
         }
+        "HULA" => {
+            let capability = arr.get(1).cloned().unwrap_or(Value::Null);
+            Ok(RelayMessage::Hula { capability })
+        }
         other => Err(WsClientError::UnexpectedMessage(format!(
             "unknown message type: {other}"
         ))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_hula_frame_is_known_ignore() {
+        let capability = serde_json::json!({
+            "v": 1,
+            "type": "hula.capability",
+            "name": "openclaw.workspace_mcp",
+            "hulaBuzzOnly": true
+        });
+        let text = serde_json::json!(["HULA", capability.clone()]).to_string();
+        let msg = parse_relay_message(&text).expect("HULA must parse");
+        match msg {
+            RelayMessage::Hula { capability: cap } => {
+                assert_eq!(cap["type"], "hula.capability");
+                assert_eq!(cap["name"], "openclaw.workspace_mcp");
+            }
+            other => panic!("expected Hula, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_hula_missing_capability_defaults_null() {
+        let msg = parse_relay_message(r#"["HULA"]"#).expect("HULA alone ok");
+        match msg {
+            RelayMessage::Hula { capability } => assert!(capability.is_null()),
+            other => panic!("expected Hula, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_truly_unknown_type_still_errors() {
+        let result = parse_relay_message(r#"["UNKNOWN","data"]"#);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("unknown message type: UNKNOWN"),
+            "unexpected err: {err}"
+        );
     }
 }
 

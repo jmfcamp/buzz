@@ -11,6 +11,8 @@ export type BrowserAgentGrant = {
   channelId: string;
   threadRoot?: string | null;
   mode: BrowserAgentMode;
+  /** Drive only: human temporarily unlocked the page; grant stays Drive. */
+  userHasControl?: boolean;
   createdAtMs: number;
 };
 
@@ -28,7 +30,9 @@ export type ObservePollResult = {
 };
 
 export type DriveAction = {
+  /** Use `kind` (not `type`): navigate|click|type|scroll|hover|key|waitFor */
   kind: string;
+  id?: string;
   url?: string;
   x?: number;
   y?: number;
@@ -36,6 +40,25 @@ export type DriveAction = {
   selector?: string;
   dx?: number;
   dy?: number;
+  key?: string;
+  urlContains?: string;
+  timeoutMs?: number;
+};
+
+export type DriveHit = {
+  tag: string;
+  role?: string;
+  name?: string;
+};
+
+export type DriveActionResult = {
+  id: string;
+  ok: boolean;
+  kind: string;
+  hit?: DriveHit;
+  url?: string;
+  error?: string;
+  message?: string;
 };
 
 export type GrantSetInput = {

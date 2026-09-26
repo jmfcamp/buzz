@@ -22,6 +22,8 @@ export function DeviceMuseumToolbar({
   scalePercent,
   onScalePercentChange,
   testIdPrefix,
+  disabled = false,
+  disabledTitle,
 }: {
   deviceId: PlaygroundDeviceId;
   onDeviceIdChange: (id: PlaygroundDeviceId) => void;
@@ -31,16 +33,25 @@ export function DeviceMuseumToolbar({
   onScalePercentChange: (percent: PlaygroundDeviceScalePercent) => void;
   /** e.g. "playground" or "link-side-panel" */
   testIdPrefix: string;
+  /** Drive chrome lock — device / orientation / scale frozen. */
+  disabled?: boolean;
+  disabledTitle?: string;
 }) {
   const scale = scalePercent || PLAYGROUND_DEVICE_SCALE_DEFAULT;
+  const title = disabled ? disabledTitle : undefined;
   return (
-    <div className="flex flex-wrap items-center gap-2 px-3">
+    <div
+      className="flex flex-wrap items-center gap-2 px-3"
+      data-agent-driving={disabled ? "true" : undefined}
+    >
       <select
-        className="rounded-md border border-border bg-background px-2 py-1 text-xs"
+        className="rounded-md border border-border bg-background px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50"
         data-testid={`${testIdPrefix}-device-select`}
+        disabled={disabled}
         onChange={(event) =>
           onDeviceIdChange(event.target.value as PlaygroundDeviceId)
         }
+        title={title}
         value={deviceId}
       >
         {PLAYGROUND_DEVICES.map((item) => (
@@ -54,9 +65,11 @@ export function DeviceMuseumToolbar({
         ))}
       </select>
       <button
-        className="rounded-md border border-border px-2 py-1 text-xs"
+        className="rounded-md border border-border px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50"
         data-testid={`${testIdPrefix}-orientation`}
+        disabled={disabled}
         onClick={onOrientationToggle}
+        title={title}
         type="button"
       >
         {orientation === "portrait" ? "Portrait" : "Landscape"}
@@ -69,10 +82,11 @@ export function DeviceMuseumToolbar({
           aria-label="Decrease device scale"
           className="rounded-md border border-border px-2 py-1 text-xs disabled:opacity-40"
           data-testid={`${testIdPrefix}-device-scale-down`}
-          disabled={scale <= PLAYGROUND_DEVICE_SCALE_MIN}
+          disabled={disabled || scale <= PLAYGROUND_DEVICE_SCALE_MIN}
           onClick={() =>
             onScalePercentChange(stepPlaygroundDeviceScale(scale, -1))
           }
+          title={title}
           type="button"
         >
           −
@@ -87,10 +101,11 @@ export function DeviceMuseumToolbar({
           aria-label="Increase device scale"
           className="rounded-md border border-border px-2 py-1 text-xs disabled:opacity-40"
           data-testid={`${testIdPrefix}-device-scale-up`}
-          disabled={scale >= PLAYGROUND_DEVICE_SCALE_MAX}
+          disabled={disabled || scale >= PLAYGROUND_DEVICE_SCALE_MAX}
           onClick={() =>
             onScalePercentChange(stepPlaygroundDeviceScale(scale, 1))
           }
+          title={title}
           type="button"
         >
           +

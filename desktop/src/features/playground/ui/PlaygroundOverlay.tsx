@@ -36,9 +36,27 @@ import {
   PLAYGROUND_VERSION,
 } from "@/features/playground/lib/types";
 import type { PlaygroundSession } from "../lib/sessions";
+import { isMainBrowserTab } from "../lib/browserGroups";
 import { usePlaygroundDockWidth } from "../lib/usePlaygroundDockWidth";
+import {
+  getPlaygroundViewport,
+  setPlaygroundViewport,
+  type PlaygroundChromeMode,
+} from "../lib/playgroundViewport";
 import { PlaygroundChrome } from "./PlaygroundChrome";
-import { PlaygroundStage, type PlaygroundChromeMode } from "./PlaygroundStage";
+import { PlaygroundStage } from "./PlaygroundStage";
+import { PlaygroundTabStrip } from "./PlaygroundTabStrip";
+import {
+  closePlaygroundTab,
+  getBrowserForSid,
+  getPlaygroundStore,
+  subscribePlayground,
+  switchPlaygroundTab,
+} from "../lib/sessions";
+import { rebindBrowserAgentGrantToTab } from "@/features/browser-agent/lib/api";
+import { syncAndAnnounceBrowserTabs } from "../lib/runtime";
+import { browserWebviewLabel } from "@/features/browser-agent/lib/labels";
+import { currentWindowLabel } from "../lib/webview";
 
 export function PlaygroundOverlay({
   conversation = null,
@@ -50,7 +68,73 @@ export function PlaygroundOverlay({
   session: PlaygroundSession;
 }) {
   const overlayRef = React.useRef<HTMLDivElement | null>(null);
-  const [mode, setMode] = React.useState<PlaygroundChromeMode>("desktop");
+  const [mode, setMode] = React.useState<PlaygroundChromeMode>(
+    () => getPlaygroundViewport(session.sid).mode,
+  );
+  const playgroundStore = React.useSyncExternalStore(
+    subscribePlayground,
+    getPlaygroundStore,
+    getPlaygroundStore,
+  );
+  const browser = React.useMemo(
+    () => getBrowserForSid(session.sid),
+    [playgroundStore.browsers, session.sid],
+  );
+
+  async function rebindGrantOnTabSwitch(fromSid: string, toSid: string) {
+    if (fromSid === toSid) return;
+    const windowLabel = currentWindowLabel();
+    const fromLabel = browserWebviewLabel({
+      surface: "playground",
+      surfaceId: fromSid,
+      windowLabel,
+    });
+    const toLabel = browserWebviewLabel({
+      surface: "playground",
+      surfaceId: toSid,
+      windowLabel,
+    });
+    try {
+      await rebindBrowserAgentGrantToTab({
+        fromSurfaceId: fromSid,
+        toSurfaceId: toSid,
+        toWebviewLabel: toLabel,
+        fromWebviewLabel: fromLabel,
+      });
+    } catch {
+      // Best-effort — Observe/Drive stay usable if rebind fails.
+    }
+  }
+
+  function handleSelectTab(sid: string) {
+    const fromSid = session.sid;
+    switchPlaygroundTab(sid);
+    void rebindGrantOnTabSwitch(fromSid, sid);
+    const group = getBrowserForSid(sid);
+    if (group) {
+      void syncAndAnnounceBrowserTabs(group.browserId, {
+        kind: "tab_switched",
+        surfaceId: sid,
+      }).catch(() => undefined);
+    }
+  }
+
+  function handleCloseTab(sid: string) {
+    const group = getBrowserForSid(sid);
+    const browserId = group?.browserId;
+    closePlaygroundTab(sid);
+    if (browserId) {
+      void syncAndAnnounceBrowserTabs(browserId).catch(() => undefined);
+    }
+  }
+
+  const handleModeChange = React.useCallback(
+    (next: PlaygroundChromeMode) => {
+      setMode(next);
+      setPlaygroundViewport(session.sid, { mode: next });
+    },
+    [session.sid],
+  );
   const [fullscreen, setFullscreen] = React.useState(false);
   const [docked, setDocked] = React.useState(lockPlacement === "dock");
   const [layoutEpoch, setLayoutEpoch] = React.useState(0);
@@ -78,6 +162,14 @@ export function PlaygroundOverlay({
 
   const { onResetWidth, onResizeStart, prepareDockWidth, widthPx } =
     usePlaygroundDockWidth(getMainWidth, getThreadEdge);
+
+  // Locked split pop-outs start docked via lockPlacement. Pen / Watch / Drive
+  // use the RHS idle-auxiliary host (preferSidePanel), not left dock.
+  React.useLayoutEffect(() => {
+    if (lockPlacement === "dock") {
+      setDocked(true);
+    }
+  }, [lockPlacement]);
 
   const bumpStageLayout = React.useCallback(() => {
     setLayoutEpoch((value) => value + 1);
@@ -185,11 +277,10 @@ export function PlaygroundOverlay({
         docked={docked}
         fullscreen={fullscreen}
         hideDismiss={chromeLayout.hideDismiss}
-        hideDispose={chromeLayout.hideDispose}
         hideDock={chromeLayout.hideDock}
         lockPlacement={lockPlacement}
         mode={mode}
-        onModeChange={setMode}
+        onModeChange={handleModeChange}
         onStageResync={bumpStageLayout}
         onToggleDock={toggleDock}
         onToggleFullscreen={() => setOverlayFullscreen(!fullscreen)}
@@ -198,6 +289,19 @@ export function PlaygroundOverlay({
         showDetach={chromeLayout.showDetach}
         showFullscreen={chromeLayout.showFullscreen}
         showInspect={chromeLayout.showInspect}
+        tabs={
+          browser ? (
+            <PlaygroundTabStrip
+              browser={browser}
+              onClose={handleCloseTab}
+              onSelect={handleSelectTab}
+              sessions={playgroundStore.sessions}
+            />
+          ) : null
+        }
+        urlBarReadOnly={
+          browser != null && !isMainBrowserTab(browser, session.sid)
+        }
       />
       <PlaygroundStage
         layoutKey={playgroundStageLayoutKey(fullscreen, layoutEpoch, docked)}

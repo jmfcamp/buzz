@@ -94,7 +94,7 @@ test("parseMessageLink rejects malformed URL strings", () => {
   assert.equal(r.ok === false && r.reason, "invalid-url");
 });
 
-test("parseMessageLink accepts legacy buzz://message links", () => {
+test("parseMessageLink accepts canonical buzz://message links", () => {
   const r = parseMessageLink(`buzz://message?channel=${CHANNEL}&id=${MESSAGE}`);
   assert.equal(r.ok, true);
   assert.deepEqual(r.ok && r.value, {
@@ -104,17 +104,42 @@ test("parseMessageLink accepts legacy buzz://message links", () => {
   });
 });
 
-test("isMessageLink matches buzz://message and legacy buzz://message", () => {
+test("parseMessageLink accepts Hula hulabuzz://message deep links", () => {
+  const r = parseMessageLink(
+    `hulabuzz://message?channel=${CHANNEL}&id=${MESSAGE}`,
+  );
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.ok && r.value, {
+    channelId: CHANNEL,
+    messageId: MESSAGE,
+    threadRootId: null,
+  });
+});
+
+test("parseMessageLink accepts hulabuzz://message with optional thread", () => {
+  const r = parseMessageLink(
+    `hulabuzz://message?channel=${CHANNEL}&id=${MESSAGE}&thread=${THREAD}`,
+  );
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.ok && r.value, {
+    channelId: CHANNEL,
+    messageId: MESSAGE,
+    threadRootId: THREAD,
+  });
+});
+
+test("isMessageLink matches buzz://message and hulabuzz://message", () => {
   assert.equal(
     isMessageLink(`buzz://message?channel=${CHANNEL}&id=${MESSAGE}`),
     true,
   );
   assert.equal(
-    isMessageLink(`buzz://message?channel=${CHANNEL}&id=${MESSAGE}`),
+    isMessageLink(`hulabuzz://message?channel=${CHANNEL}&id=${MESSAGE}`),
     true,
   );
+  assert.equal(isMessageLink("hulabuzz://message"), true);
   assert.equal(isMessageLink("buzz://connect?relay=wss://x"), false);
-  assert.equal(isMessageLink("buzz://connect?relay=wss://x"), false);
+  assert.equal(isMessageLink("hulabuzz://connect?relay=wss://x"), false);
   assert.equal(isMessageLink("https://example.com"), false);
   assert.equal(isMessageLink(undefined), false);
   assert.equal(isMessageLink(""), false);
@@ -122,6 +147,7 @@ test("isMessageLink matches buzz://message and legacy buzz://message", () => {
 
 test("resolveMessageLinkRenderTarget distinguishes autolinks from labeled links", () => {
   const href = `buzz://message?channel=${CHANNEL}&id=${MESSAGE}`;
+  const hulaHref = `hulabuzz://message?channel=${CHANNEL}&id=${MESSAGE}`;
 
   assert.deepEqual(resolveMessageLinkRenderTarget({ href, label: href }), {
     kind: "pill",
@@ -139,6 +165,17 @@ test("resolveMessageLinkRenderTarget distinguishes autolinks from labeled links"
       threadRootId: null,
     },
   });
+  assert.deepEqual(
+    resolveMessageLinkRenderTarget({ href: hulaHref, label: hulaHref }),
+    {
+      kind: "pill",
+      link: {
+        channelId: CHANNEL,
+        messageId: MESSAGE,
+        threadRootId: null,
+      },
+    },
+  );
   assert.deepEqual(
     resolveMessageLinkRenderTarget({
       href: "https://example.com",
