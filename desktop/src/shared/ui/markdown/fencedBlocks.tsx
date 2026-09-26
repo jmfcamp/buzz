@@ -2,6 +2,8 @@ import * as React from "react";
 
 import { PlaygroundCard } from "@/features/playground/ui/PlaygroundCard";
 import { parsePlaygroundCard } from "@/features/playground/lib/card";
+import { TermSessionCard } from "@/features/term-session/ui/TermSessionCard";
+import { parseTermSessionCard } from "@/features/term-session/lib/card";
 import { cn } from "@/shared/lib/cn";
 import { INLINE_CODE_CHIP_CLASS } from "@/shared/ui/mentionChip";
 
@@ -24,6 +26,15 @@ function playgroundFromCode(_language: string, code: string) {
   return card ? <PlaygroundCard card={card} /> : undefined;
 }
 
+function termSessionFromCode(_language: string, code: string) {
+  const card = parseTermSessionCard(code);
+  return card ? <TermSessionCard card={card} /> : undefined;
+}
+
+function cardFromCode(language: string, code: string) {
+  return playgroundFromCode(language, code) ?? termSessionFromCode(language, code);
+}
+
 export function MarkdownFencedCode({
   children,
   className,
@@ -39,13 +50,13 @@ export function MarkdownFencedCode({
 
   if (isFencedCodeBlock || rawCode.endsWith("\n") || code.includes("\n")) {
     const language = extractLanguage(className);
-    const playground = playgroundFromCode(language, code);
-    if (playground !== undefined) {
-      return playground;
+    const card = cardFromCode(language, code);
+    if (card !== undefined) {
+      return card;
     }
 
-    // `playground` is not a highlight language — show the source as-is.
-    if (language && language !== "playground") {
+    // Card fence languages are not highlight languages — show the source as-is.
+    if (language && language !== "playground" && language !== "term-session") {
       return (
         <SyntaxHighlightedCode code={code} language={language} {...props} />
       );
@@ -91,9 +102,9 @@ export function MarkdownFencedPre({
   });
   // `pre` receives the `code` element, not the rendered card. Re-parse the
   // joined fence text so a valid card is unwrapped from code-block chrome.
-  const playground = playgroundFromCode(language, fenceText(children));
-  if (playground !== undefined) {
-    return playground;
+  const card = cardFromCode(language, fenceText(children));
+  if (card !== undefined) {
+    return card;
   }
   if (!interactive && !blockCode) {
     return <span>{children}</span>;

@@ -63,7 +63,26 @@ pub(crate) fn navigation_policy(
       false
     };
     let request = action.request();
-    let url = request.URL().unwrap().absoluteString().unwrap();
+    let url = request
+      .URL()
+      .and_then(|u| u.absoluteString())
+      .map(|s| s.to_string())
+      .unwrap_or_default();
+
+    // target=_blank / window.open: targetFrame is nil. Handle here (emit URL +
+    // Cancel) so Deny in createWebView cannot leave left-click as a no-op or
+    // same-frame fallback. Right-click "Open Link in New Window" uses the same
+    // path. createWebView remains a safety net when decidePolicy is skipped.
+    #[cfg(target_os = "macos")]
+    if action.targetFrame().is_none() {
+      if let Some(ref on_new_window) = this.ivars().new_window_url_handler {
+        if !url.is_empty() {
+          on_new_window(url.clone());
+        }
+      }
+      (*handler).call((WKNavigationActionPolicy::Cancel,));
+      return;
+    }
 
     if should_download {
       let has_download_handler = this.ivars().has_download_handler;
@@ -74,7 +93,7 @@ pub(crate) fn navigation_policy(
       }
     } else {
       let function = &this.ivars().navigation_policy_function;
-      match function(url.to_string()) {
+      match function(url) {
         true => (*handler).call((WKNavigationActionPolicy::Allow,)),
         false => (*handler).call((WKNavigationActionPolicy::Cancel,)),
       };

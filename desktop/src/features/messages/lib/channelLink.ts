@@ -1,6 +1,15 @@
-/** `buzz://channel/<uuid>[/<event-id>]` link encoding and parsing. */
+/**
+ * `buzz://channel/<uuid>[/<event-id>]` / `hulabuzz://channel/…` encoding and
+ * parsing. Builders emit canonical `buzz://…`; parsers accept both schemes
+ * (see `toAppDeepLink` / `build_identity::deep_link_scheme`).
+ */
 
-const CHANNEL_LINK_SCHEME = "buzz:";
+import {
+  CANONICAL_DEEP_LINK_SCHEME,
+  isAcceptedDeepLinkProtocol,
+} from "@/shared/lib/appDeepLink";
+
+const CHANNEL_LINK_SCHEME = `${CANONICAL_DEEP_LINK_SCHEME}:`;
 const CHANNEL_LINK_HOST = "channel";
 const CHANNEL_UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -29,7 +38,7 @@ export function parseChannelLink(url: string): ChannelLinkParseResult {
   } catch {
     return { ok: false, reason: "invalid-url" };
   }
-  if (parsed.protocol !== CHANNEL_LINK_SCHEME) {
+  if (!isAcceptedDeepLinkProtocol(parsed.protocol)) {
     return { ok: false, reason: "wrong-scheme" };
   }
   if (parsed.hostname !== CHANNEL_LINK_HOST) {

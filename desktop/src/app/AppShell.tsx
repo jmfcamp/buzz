@@ -28,6 +28,7 @@ import { useChannelActivityProjection } from "@/app/useChannelActivityProjection
 import { useTauriWindowDrag } from "@/app/useTauriWindowDrag";
 import { useWebviewZoomShortcuts } from "@/app/useWebviewZoomShortcuts";
 import { useHuddlePresentation } from "@/app/useHuddlePresentation";
+import { useUserSignerDraftListener } from "@/features/term-session/lib/useUserSignerDraftListener";
 import { shouldShowSidebarChannel } from "@/app/huddleChannelVisibility";
 import {
   channelsQueryKey,
@@ -79,7 +80,6 @@ import {
   type SettingsSection,
   isSettingsSection,
 } from "@/features/settings/ui/SettingsPanels";
-import { useDueReminderBadgeCount } from "@/features/reminders/hooks";
 import { useReminderNotifications } from "@/features/reminders/useReminderNotifications";
 import { AppSidebar } from "@/features/sidebar/ui/AppSidebar";
 import { requestFocusedThreadClose } from "@/features/channels/focusedThreadCloseRequest";
@@ -132,6 +132,8 @@ export function AppShell() {
     showHuddleInMainApp,
     viewHuddleChannel,
   } = useHuddlePresentation();
+
+  useUserSignerDraftListener(true);
   const popout = usePopoutBootstrap();
   const hideAppChrome = isHuddleRoom || popout != null;
   const hasCommunityRail = communitiesHook.communities.length > 1;
@@ -152,6 +154,7 @@ export function AppShell() {
   useManagedAgentRuntimeReconciliation(communitiesHook.communities); // sync storage snapshot
   const {
     goAgents,
+    goBrowsers,
     goBots,
     goPinnedSite,
     goChannel,
@@ -465,7 +468,7 @@ export function AppShell() {
     unreadThreadFeedItems,
   ]);
 
-  const { homeBadgeCount, homeBadgeCountExcludingHighPriority } =
+  const { homeBadgeCountExcludingHighPriority } =
     useHomeFeedNotificationState(
       homeFeedQuery.data,
       identityQuery.data?.pubkey,
@@ -485,10 +488,6 @@ export function AppShell() {
       channels,
       huddleBackingChannelIds,
     );
-  const dueReminderBadge = useDueReminderBadgeCount(
-    identityQuery.data?.pubkey,
-    notificationSettings.settings.homeBadgeEnabled,
-  );
   const isNotifiedForThread = React.useCallback(
     (rootId: string) =>
       !mutedRootIds.has(rootId) &&
@@ -850,7 +849,6 @@ export function AppShell() {
                           currentPubkey={identityQuery.data?.pubkey}
                           errorMessage={channelsErrorMessage}
                           fallbackDisplayName={identityQuery.data?.displayName}
-                          homeBadgeCount={homeBadgeCount + dueReminderBadge}
                           addCommunityPrefill={addCommunityDialog.prefill}
                           isAddCommunityOpen={addCommunityDialog.open}
                           relayConnectionCard={relayConnectionCard}
@@ -898,6 +896,7 @@ export function AppShell() {
                             await goChannel(directMessage.id);
                           }}
                           onSelectAgents={() => void goAgents()}
+                          onSelectBrowsers={() => void goBrowsers()}
                           onSelectBots={() => void goBots()}
                           onSelectPinnedSite={(pinId) =>
                             void goPinnedSite(pinId)

@@ -35,7 +35,7 @@ export type PlaygroundDockRect = {
  * - `dock` — left split; chat/thread stay real on the right
  * - `fullscreen` — in-app cover with a 40px titlebar gap
  *
- * Dismiss parks; Dispose destroys. Dock is a third mode: overlay stays
+ * Dismiss parks; Browsers Remove destroys the session. Dock is a third mode: overlay stays
  * open. Fullscreen from dock keeps `docked` so Escape returns to dock.
  */
 export type PlaygroundOverlayPlacement = "window" | "dock" | "fullscreen";

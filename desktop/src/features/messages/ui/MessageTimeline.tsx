@@ -127,6 +127,8 @@ type MessageTimelineProps = {
   unreadCount?: number;
   /** Per-thread unread counts keyed by thread root id. */
   threadUnreadCounts?: ReadonlyMap<string, number>;
+  /** Open reply-thread root in the main timeline (hover-style highlight). */
+  activeThreadHeadId?: string | null;
 };
 
 /** Stable empty reference used as the `useDeferredValue` initial value so the
@@ -215,6 +217,7 @@ const MessageTimelineBase = React.forwardRef<
     firstUnreadMessageId = null,
     unreadCount = 0,
     threadUnreadCounts,
+    activeThreadHeadId = null,
   }: MessageTimelineProps,
   ref,
 ) {
@@ -659,6 +662,7 @@ const MessageTimelineBase = React.forwardRef<
       currentPubkey={currentPubkey}
       firstUnreadMessageId={firstUnreadMessageId}
       followThreadById={followThreadById}
+      activeThreadHeadId={activeThreadHeadId}
       highlightedMessageId={highlightedMessageId}
       huddleMemberPubkeys={huddleMemberPubkeys}
       huddleMemberPubkeysPending={huddleMemberPubkeysPending}

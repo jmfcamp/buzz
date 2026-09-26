@@ -65,6 +65,7 @@ type MessageRowItemProps = {
   entry: MainTimelineEntry;
   followThreadById?: (rootId: string) => void;
   footer: React.ReactNode;
+  activeThreadHeadId?: string | null;
   highlightedMessageId?: string | null;
   huddleMemberPubkeys?: readonly string[];
   huddleMemberPubkeysPending?: boolean;
@@ -92,6 +93,7 @@ type MessageRowItemProps = {
 };
 
 export function MessageRowItem({
+  activeThreadHeadId = null,
   channelId,
   currentPubkey,
   entry,
@@ -133,13 +135,16 @@ export function MessageRowItem({
 
   if (summary && onOpenThread) {
     const isHighlighted = message.id === highlightedMessageId;
+    const isActiveThreadRoot = message.id === activeThreadHeadId;
     return (
       <div
         className={cn(
           "group/message relative mx-1 mb-1 flex flex-col gap-0 rounded-2xl px-0 py-1 transition-colors hover:bg-muted/50 focus-within:bg-muted/50",
+          isActiveThreadRoot && "bg-muted/50",
           isHighlighted &&
             "-mx-4 px-4 before:absolute before:-inset-y-1.5 before:inset-x-0 before:animate-[route-target-highlight-fade_2s_ease-out_forwards] before:bg-primary/10 before:content-[''] motion-reduce:before:animate-none sm:-mx-6 sm:px-6",
         )}
+        data-thread-root-active={isActiveThreadRoot ? "true" : undefined}
       >
         <MessageRow
           channelId={channelId}
@@ -177,6 +182,7 @@ export function MessageRowItem({
           videoReviewContext={videoReviewContext}
         />
         <MessageThreadSummaryRow
+          channelId={channelId}
           depth={message.depth}
           message={message}
           onOpenThread={onOpenThread}
@@ -202,6 +208,7 @@ export function MessageRowItem({
     >
       <MessageRow
         channelId={channelId}
+        forceHoverBackground={message.id === activeThreadHeadId}
         highlighted={message.id === highlightedMessageId || isSearchActive}
         huddleMemberPubkeys={huddleMemberPubkeys}
         huddleMemberPubkeysPending={huddleMemberPubkeysPending}

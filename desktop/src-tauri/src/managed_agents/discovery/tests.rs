@@ -121,6 +121,44 @@ fn explicit_path_resolution_ignores_non_executable_files() {
 }
 
 #[test]
+fn command_search_dirs_prefer_exe_parent_then_cargo_target_dir() {
+    let exe_parent = PathBuf::from("/app/Contents/MacOS");
+    let cargo_target = PathBuf::from("/cache/buzz-desktop-target");
+    let workspace = PathBuf::from("/worktree");
+    let cwd = PathBuf::from("/worktree/desktop/src-tauri");
+
+    let dirs = super::build_command_search_dirs(
+        Some(exe_parent.clone()),
+        Some(cargo_target.clone()),
+        workspace.clone(),
+        Some(cwd.clone()),
+    );
+
+    let expected = if cfg!(debug_assertions) {
+        vec![
+            exe_parent,
+            cargo_target.join("debug"),
+            cargo_target.join("release"),
+            workspace.join("target/debug"),
+            workspace.join("target/release"),
+            cwd.join("target/debug"),
+            cwd.join("target/release"),
+        ]
+    } else {
+        vec![
+            exe_parent,
+            cargo_target.join("release"),
+            cargo_target.join("debug"),
+            workspace.join("target/release"),
+            workspace.join("target/debug"),
+            cwd.join("target/release"),
+            cwd.join("target/debug"),
+        ]
+    };
+    assert_eq!(dirs, expected);
+}
+
+#[test]
 fn classifies_available_when_adapter_found() {
     let (status, cmd, path) = classify_runtime(
         Some(("goose", PathBuf::from("/usr/local/bin/goose"))),

@@ -82,8 +82,10 @@ export function AppShellChannelSurface({
             unframed={contentUnframed}
           >
             {isHuddleRoomStarting ? <HuddleStartingView /> : children}
+            {/* Inside content card so Browsers Open RHS matches channel idle-aux
+                bounds (not SidebarInset outside the rounded frame). */}
+            {isSplit ? null : <PlaygroundHost />}
           </BuzzTheme.ContentSurface>
-          {isSplit ? null : <PlaygroundHost />}
         </>
       )}
     </PopoutLayoutProvider>

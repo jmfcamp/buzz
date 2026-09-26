@@ -362,7 +362,9 @@ fn hash_response_body(body: &[u8]) -> String {
 }
 
 fn emit_nav(app: &AppHandle, state: PinNavState) {
-    if let Err(error) = app.emit("pin-webview-nav", state) {
+    let label = pin_label(&state.pin_id);
+    crate::browser_agent::record_nav_event(app, &label, &state.current_url, None);
+    if let Err(error) = app.emit("pin-webview-nav", &state) {
         eprintln!("buzz-desktop: pin-webview-nav emit failed: {error}");
     }
 }
@@ -841,10 +843,13 @@ pub async fn pin_webview_close(
 ) -> Result<(), String> {
     let pin_id = sanitize_pin_id(&pin_id)?;
     let window_label = normalize_window_label(window_label.as_deref());
-    if let Some(webview) = app.get_webview(&pin_webview_label(&pin_id, &window_label)) {
+    let label = pin_webview_label(&pin_id, &window_label);
+    if let Some(webview) = app.get_webview(&label) {
         webview.close().map_err(|error| error.to_string())?;
     }
+    crate::browser_agent::clear_grant_for_label(&app, &label);
     if !pin_still_open_anywhere(&app, &pin_id) {
+        crate::browser_agent::clear_grants_for_surface(&app, &pin_id);
         if let Ok(mut sessions) = manager.sessions.lock() {
             sessions.remove(&pin_id);
         }

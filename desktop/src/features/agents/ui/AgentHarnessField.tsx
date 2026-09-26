@@ -7,6 +7,7 @@ import { HarnessCatalogRetryNotice } from "./HarnessCatalogRetryNotice";
 export function AgentHarnessField({
   catalogStatus,
   disabled,
+  hint,
   onValueChange,
   options,
   placeholder,
@@ -15,6 +16,8 @@ export function AgentHarnessField({
 }: {
   catalogStatus?: "loading" | "ready" | "error";
   disabled: boolean;
+  /** Observe/Drive (or other) capability note for the selected harness. */
+  hint?: ReactNode;
   onValueChange: (value: string) => void;
   options: PersonaDropdownOption[];
   placeholder: string;
@@ -37,6 +40,14 @@ export function AgentHarnessField({
         placeholder={placeholder}
         value={value}
       />
+      {hint ? (
+        <p
+          className="text-xs text-muted-foreground"
+          data-testid="agent-harness-browser-tools-hint"
+        >
+          {hint}
+        </p>
+      ) : null}
       {catalogStatus === "error" ? <HarnessCatalogRetryNotice /> : warning}
     </div>
   );

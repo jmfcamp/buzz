@@ -16,6 +16,8 @@ import {
 import { renderAudioMessageAttachment } from "@/features/messages/ui/AudioMessageAttachment";
 import { parsePlaygroundCard } from "@/features/playground/lib/card";
 import { PlaygroundCard } from "@/features/playground/ui/PlaygroundCard";
+import { parseTermSessionCard } from "@/features/term-session/lib/card";
+import { TermSessionCard } from "@/features/term-session/ui/TermSessionCard";
 import { useChannelNavigation } from "@/shared/context/ChannelNavigationContext";
 import { cn } from "@/shared/lib/cn";
 import { parseEntityLink } from "@/shared/lib/entityLink";
@@ -1736,6 +1738,11 @@ function MarkdownInner({
     () => parsePlaygroundCard(content),
     [content],
   );
+  const bareTermSessionCard = React.useMemo(
+    () => (barePlaygroundCard ? null : parseTermSessionCard(content)),
+    [barePlaygroundCard, content],
+  );
+  const bareSpecialCard = barePlaygroundCard ?? bareTermSessionCard;
 
   let processedContent = content;
 
@@ -1762,7 +1769,7 @@ function MarkdownInner({
     blockCode,
   );
   const markdownNode =
-    barePlaygroundCard == null && configNudge === null
+    bareSpecialCard == null && configNudge === null
       ? renderCachedMarkdown({
           channelNames,
           components: componentSet.components,
@@ -1801,10 +1808,12 @@ function MarkdownInner({
         <VideoReviewMarkdownContext.Provider value={videoReviewContext}>
           {barePlaygroundCard ? (
             <PlaygroundCard card={barePlaygroundCard} />
+          ) : bareTermSessionCard ? (
+            <TermSessionCard card={bareTermSessionCard} />
           ) : (
             selectProseOrNudge(configNudge, markdownNode)
           )}
-          {barePlaygroundCard == null && configNudge !== null ? (
+          {bareSpecialCard == null && configNudge !== null ? (
             <AttachmentGroup
               className="max-w-full flex-wrap overflow-visible pb-0"
               data-config-nudge=""
@@ -1818,7 +1827,7 @@ function MarkdownInner({
             key={messageId}
             onOpenByHref={linkPreviewOpenByHref}
             onRemoveForEveryone={onRemoveLinkPreviewsForEveryone}
-            previews={barePlaygroundCard ? [] : resolvedLinkPreviews}
+            previews={bareSpecialCard ? [] : resolvedLinkPreviews}
           />
         </VideoReviewMarkdownContext.Provider>
       </MarkdownRuntimeContext.Provider>

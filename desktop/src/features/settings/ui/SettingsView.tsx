@@ -61,6 +61,7 @@ const settingsNavGroups: Array<{
       "notifications",
       "voice",
       "shortcuts",
+      "buzz-term",
       "pinned-sites",
       "custom-emoji",
       "local-archive",

@@ -1,5 +1,15 @@
 import * as React from "react";
 
+import {
+  AGENT_DRIVING_CHROME_TOOLTIP,
+  isAgentDrivingChromeLocked,
+} from "@/features/browser-agent/lib/chromeLock";
+import {
+  getBrowserAgentGrant,
+  subscribeBrowserAgentGrant,
+} from "@/features/browser-agent/lib/api";
+import { browserWebviewLabel } from "@/features/browser-agent/lib/labels";
+import type { BrowserAgentGrant } from "@/features/browser-agent/lib/types";
 import { cn } from "@/shared/lib/cn";
 import { isNativeWebviewModalParked } from "@/shared/lib/nativeWebviewModalPark";
 
@@ -23,6 +33,11 @@ import {
   PLAYGROUND_RESIZE_HANDLE_CLASS,
   PLAYGROUND_RESIZE_HANDLE_GUTTER_CLASS,
 } from "../lib/overlayLayout";
+import {
+  getPlaygroundViewport,
+  setPlaygroundViewport,
+  type PlaygroundChromeMode,
+} from "../lib/playgroundViewport";
 import { DEFAULT_RESPONSIVE_VIEWPORT } from "../lib/types";
 import { PLAYGROUND_DOM_PROBE_SCRIPT } from "../lib/updates";
 import {
@@ -31,39 +46,126 @@ import {
   PLAYGROUND_WEBVIEW_RESTORE_EVENT,
   playgroundWebviewBoundsAreUsable,
   showPlaygroundWebview,
+  currentWindowLabel,
 } from "../lib/webview";
 import type { PlaygroundSession } from "../lib/sessions";
 import { DeviceBezel } from "./DeviceBezel";
 import { DeviceMuseumToolbar } from "./DeviceMuseumToolbar";
 
-export type PlaygroundChromeMode = "desktop" | "responsive" | "mobile";
+export type { PlaygroundChromeMode };
+
+function useViewportControlsLocked(
+  sessionSid: string,
+  override?: boolean,
+): boolean {
+  const webviewLabel = browserWebviewLabel({
+    surface: "playground",
+    surfaceId: sessionSid,
+    windowLabel: currentWindowLabel(),
+  });
+  const [grant, setGrant] = React.useState<BrowserAgentGrant | null>(null);
+  React.useEffect(() => {
+    if (override !== undefined) return;
+    let cancelled = false;
+    void getBrowserAgentGrant(webviewLabel)
+      .then((next) => {
+        if (!cancelled) setGrant(next);
+      })
+      .catch(() => {
+        if (!cancelled) setGrant(null);
+      });
+    let unlisten: Promise<() => void> | null = null;
+    try {
+      unlisten = subscribeBrowserAgentGrant((payload) => {
+        if (payload.webviewLabel !== webviewLabel) return;
+        setGrant(payload.grant);
+      });
+      void unlisten.catch(() => undefined);
+    } catch {
+      unlisten = null;
+    }
+    return () => {
+      cancelled = true;
+      if (unlisten) void unlisten.then((stop) => stop()).catch(() => undefined);
+    };
+  }, [override, webviewLabel]);
+  if (override !== undefined) return override;
+  return isAgentDrivingChromeLocked(grant);
+}
 
 export function PlaygroundStage({
   layoutKey = "window:0",
   mode,
   session,
+  controlsLocked,
 }: {
   layoutKey?: string;
   mode: PlaygroundChromeMode;
   session: PlaygroundSession;
+  /** When set, forces viewport control lock (layout/unit tests). */
+  controlsLocked?: boolean;
 }) {
+  const locked = useViewportControlsLocked(session.sid, controlsLocked);
   if (mode === "mobile") {
-    return <MobileDeviceMuseum layoutKey={layoutKey} session={session} />;
+    return (
+      <MobileDeviceMuseum
+        controlsLocked={locked}
+        layoutKey={layoutKey}
+        session={session}
+      />
+    );
   }
   if (mode === "responsive") {
-    return <ResponsiveStage layoutKey={layoutKey} session={session} />;
+    return (
+      <ResponsiveStage
+        controlsLocked={locked}
+        layoutKey={layoutKey}
+        session={session}
+      />
+    );
   }
-  return <DesktopStage layoutKey={layoutKey} session={session} />;
+  return (
+    <DesktopStage
+      controlsLocked={locked}
+      layoutKey={layoutKey}
+      session={session}
+    />
+  );
 }
 
 function DesktopStage({
   layoutKey,
   session,
+  controlsLocked,
 }: {
   layoutKey: string;
   session: PlaygroundSession;
+  controlsLocked: boolean;
 }) {
   const hostRef = React.useRef<HTMLDivElement | null>(null);
+  React.useEffect(() => {
+    setPlaygroundViewport(session.sid, { mode: "desktop" });
+  }, [session.sid]);
+  React.useEffect(() => {
+    const host = hostRef.current;
+    if (!host || typeof ResizeObserver !== "function") return;
+    const publish = () => {
+      const rect = host.getBoundingClientRect();
+      const width = Math.round(rect.width);
+      const height = Math.round(rect.height);
+      if (width < 1 || height < 1) return;
+      setPlaygroundViewport(session.sid, {
+        mode: "desktop",
+        width,
+        height,
+      });
+    };
+    publish();
+    const ro = new ResizeObserver(publish);
+    ro.observe(host);
+    return () => ro.disconnect();
+  }, [session.sid, layoutKey]);
+  void controlsLocked;
   return (
     <div
       className="flex min-h-0 min-w-0 flex-1 flex-col"
@@ -82,31 +184,54 @@ function DesktopStage({
 function ResponsiveStage({
   layoutKey,
   session,
+  controlsLocked,
 }: {
   layoutKey: string;
   session: PlaygroundSession;
+  controlsLocked: boolean;
 }) {
-  const [width, setWidth] = React.useState(DEFAULT_RESPONSIVE_VIEWPORT.width);
-  const [height, setHeight] = React.useState(
-    DEFAULT_RESPONSIVE_VIEWPORT.height,
+  const stored = getPlaygroundViewport(session.sid);
+  const [width, setWidth] = React.useState(() =>
+    stored.mode === "responsive" && stored.width > 0
+      ? stored.width
+      : DEFAULT_RESPONSIVE_VIEWPORT.width,
+  );
+  const [height, setHeight] = React.useState(() =>
+    stored.mode === "responsive" && stored.height > 0
+      ? stored.height
+      : DEFAULT_RESPONSIVE_VIEWPORT.height,
   );
   const hostRef = React.useRef<HTMLDivElement | null>(null);
+  const lockTitle = controlsLocked
+    ? AGENT_DRIVING_CHROME_TOOLTIP
+    : undefined;
+
+  React.useEffect(() => {
+    setPlaygroundViewport(session.sid, {
+      mode: "responsive",
+      width,
+      height,
+    });
+  }, [session.sid, width, height]);
 
   return (
     <div
       className="flex min-h-0 min-w-0 flex-1 flex-col gap-2"
+      data-agent-driving={controlsLocked ? "true" : undefined}
       data-testid="playground-responsive-stage"
     >
       <div className="flex flex-wrap items-center gap-2 px-3">
         <label className="flex items-center gap-1 text-2xs text-muted-foreground">
           W
           <input
-            className="w-16 rounded-md border border-border bg-background px-1 py-0.5 text-2xs text-foreground"
+            className="w-16 rounded-md border border-border bg-background px-1 py-0.5 text-2xs text-foreground disabled:cursor-not-allowed disabled:opacity-50"
             data-testid="playground-responsive-width"
+            disabled={controlsLocked}
             min={320}
             onChange={(event) =>
               setWidth(Math.max(320, Number(event.target.value) || 320))
             }
+            title={lockTitle}
             type="number"
             value={width}
           />
@@ -115,12 +240,14 @@ function ResponsiveStage({
         <label className="flex items-center gap-1 text-2xs text-muted-foreground">
           H
           <input
-            className="w-16 rounded-md border border-border bg-background px-1 py-0.5 text-2xs text-foreground"
+            className="w-16 rounded-md border border-border bg-background px-1 py-0.5 text-2xs text-foreground disabled:cursor-not-allowed disabled:opacity-50"
             data-testid="playground-responsive-height"
+            disabled={controlsLocked}
             min={320}
             onChange={(event) =>
               setHeight(Math.max(320, Number(event.target.value) || 320))
             }
+            title={lockTitle}
             type="number"
             value={height}
           />
@@ -149,18 +276,21 @@ function ResponsiveStage({
           </div>
           <StageResizeHandle
             axis="x"
+            disabled={controlsLocked}
             onResize={(next) => setWidth(Math.max(320, next.width))}
             size={{ width, height }}
             testId="playground-stage-resize"
           />
           <StageResizeHandle
             axis="y"
+            disabled={controlsLocked}
             onResize={(next) => setHeight(Math.max(320, next.height))}
             size={{ width, height }}
             testId="playground-stage-resize-y"
           />
           <StageResizeHandle
             axis="xy"
+            disabled={controlsLocked}
             onResize={(next) => {
               setWidth(Math.max(320, next.width));
               setHeight(Math.max(320, next.height));
@@ -176,11 +306,13 @@ function ResponsiveStage({
 
 function StageResizeHandle({
   axis,
+  disabled = false,
   onResize,
   size,
   testId,
 }: {
   axis: "x" | "y" | "xy";
+  disabled?: boolean;
   onResize: (next: { width: number; height: number }) => void;
   size: { width: number; height: number };
   testId: string;
@@ -227,9 +359,15 @@ function StageResizeHandle({
   return (
     <button
       aria-label={label}
-      className={PLAYGROUND_RESIZE_HANDLE_CLASS[axis]}
+      className={
+        disabled
+          ? `${PLAYGROUND_RESIZE_HANDLE_CLASS[axis]} pointer-events-none opacity-40`
+          : PLAYGROUND_RESIZE_HANDLE_CLASS[axis]
+      }
       data-testid={testId}
+      disabled={disabled}
       onPointerDown={(event) => {
+        if (disabled) return;
         event.preventDefault();
         event.stopPropagation();
         event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -241,6 +379,7 @@ function StageResizeHandle({
         };
         dragging.current = true;
       }}
+      title={disabled ? AGENT_DRIVING_CHROME_TOOLTIP : undefined}
       type="button"
     />
   );
@@ -249,18 +388,23 @@ function StageResizeHandle({
 function MobileDeviceMuseum({
   layoutKey,
   session,
+  controlsLocked,
 }: {
   layoutKey: string;
   session: PlaygroundSession;
+  controlsLocked: boolean;
 }) {
+  const stored = getPlaygroundViewport(session.sid);
   const [deviceId, setDeviceId] =
     React.useState<PlaygroundDeviceId>("iphone-16");
   const [orientation, setOrientation] = React.useState<
     "portrait" | "landscape"
   >("portrait");
   const [scalePercent, setScalePercent] =
-    React.useState<PlaygroundDeviceScalePercent>(
-      PLAYGROUND_DEVICE_SCALE_DEFAULT,
+    React.useState<PlaygroundDeviceScalePercent>(() =>
+      stored.mode === "mobile" && stored.scalePercent
+        ? (stored.scalePercent as PlaygroundDeviceScalePercent)
+        : PLAYGROUND_DEVICE_SCALE_DEFAULT,
     );
   const hostRef = React.useRef<HTMLDivElement | null>(null);
   const device = PLAYGROUND_DEVICES.find((item) => item.id === deviceId);
@@ -271,13 +415,25 @@ function MobileDeviceMuseum({
     scalePercent,
   );
 
+  React.useEffect(() => {
+    setPlaygroundViewport(session.sid, {
+      mode: "mobile",
+      width: viewport.width,
+      height: viewport.height,
+      scalePercent,
+    });
+  }, [session.sid, viewport.width, viewport.height, scalePercent]);
+
   return (
     <div
       className="flex min-h-0 min-w-0 flex-1 flex-col gap-2"
+      data-agent-driving={controlsLocked ? "true" : undefined}
       data-testid="playground-mobile-stage"
     >
       <DeviceMuseumToolbar
         deviceId={deviceId}
+        disabled={controlsLocked}
+        disabledTitle={AGENT_DRIVING_CHROME_TOOLTIP}
         onDeviceIdChange={setDeviceId}
         onOrientationToggle={() =>
           setOrientation((value) =>

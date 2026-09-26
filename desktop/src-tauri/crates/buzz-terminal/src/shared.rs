@@ -259,12 +259,15 @@ impl SharedTerminal {
     }
 
     /// Modes the renderer/input boundary needs to report alongside frames.
-    pub fn input_modes(&self) -> (bool, bool) {
+    ///
+    /// Returns `(bracketed_paste, focus_reporting, mouse_reporting)`.
+    pub fn input_modes(&self) -> (bool, bool, bool) {
         let term = self.acquire(&self.renderer);
         let mode = term.term().mode();
         (
             mode.contains(alacritty_terminal::term::TermMode::BRACKETED_PASTE),
             mode.contains(alacritty_terminal::term::TermMode::FOCUS_IN_OUT),
+            mode.intersects(alacritty_terminal::term::TermMode::MOUSE_MODE),
         )
     }
 

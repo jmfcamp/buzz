@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-License-Identifier: MIT
 
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use objc2::{define_class, msg_send, rc::Retained, runtime::NSObject, MainThreadOnly};
@@ -37,6 +38,8 @@ pub struct WryNavigationDelegateIvars {
   pub download_delegate: Option<Retained<WryDownloadDelegate>>,
   pub on_page_load_handler: Option<Box<dyn Fn(PageLoadEvent)>>,
   pub on_web_content_process_terminate_handler: Option<Box<dyn Fn()>>,
+  /// target=_blank / window.open (nil targetFrame) — URL-only emit for Deny apps.
+  pub new_window_url_handler: Option<Rc<dyn Fn(String)>>,
 }
 
 define_class!(
@@ -115,6 +118,7 @@ impl WryNavigationDelegate {
     download_delegate: Option<Retained<WryDownloadDelegate>>,
     on_page_load_handler: Option<Box<dyn Fn(PageLoadEvent, String)>>,
     on_web_content_process_terminate_handler: Option<Box<dyn Fn()>>,
+    new_window_url_handler: Option<Rc<dyn Fn(String)>>,
     mtm: MainThreadMarker,
   ) -> Retained<Self> {
     let navigation_policy_function = Box::new(move |url: String| -> bool {
@@ -151,6 +155,7 @@ impl WryNavigationDelegate {
         download_delegate,
         on_page_load_handler,
         on_web_content_process_terminate_handler,
+        new_window_url_handler,
       });
 
     unsafe { msg_send![super(delegate), init] }

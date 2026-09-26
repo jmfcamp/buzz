@@ -1,7 +1,12 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { ArrowLeft, ArrowRight, Compass, RefreshCw } from "lucide-react";
 import * as React from "react";
+import { useLocation } from "@tanstack/react-router";
 
+import {
+  isLeftNavBuzzTermActive,
+  useTerminalPanel,
+} from "@/features/terminal/terminalPanelStore";
 import { isNativeWebviewModalParked } from "@/shared/lib/nativeWebviewModalPark";
 import { TopChromeInsetHeader } from "@/shared/layout/TopChromeInsetHeader";
 import { Button } from "@/shared/ui/button";
@@ -23,11 +28,84 @@ import {
   type PinWebviewBounds,
   type PinWebviewNavState,
 } from "../lib/pinWebview";
+import {
+  clearPinnedSiteOpenUrl,
+  consumePinnedSiteOpenUrl,
+  queuePinnedSiteOpenUrl,
+  subscribePinnedSiteOpenUrl,
+} from "../lib/pendingPinOpen";
 import { PINNED_SITES_POLL_INTERVAL_MS } from "../lib/types";
 
 export function PinnedSiteScreen({ pinId }: { pinId: string }) {
   const pin = usePinnedSite(pinId);
+  const location = useLocation();
+  const { navOpenUrl, navClearsDeepLink } = React.useMemo(() => {
+    const state = location.state as { pinnedSiteOpenUrl?: unknown } | null;
+    const hasKey =
+      state != null &&
+      typeof state === "object" &&
+      "pinnedSiteOpenUrl" in state;
+    const raw = state?.pinnedSiteOpenUrl;
+    const openUrl =
+      typeof raw === "string" && raw.trim() ? raw.trim() : "";
+    return {
+      navOpenUrl: openUrl,
+      // Explicit null/empty from goPinnedSite(pinId) — open pin home, drop queue.
+      navClearsDeepLink: hasKey && !openUrl,
+    };
+  }, [location.state]);
   const Icon = pin ? getPinnedSiteIcon(pin.icon) : Compass;
+  // Deep-link / markdown open into this pin: navigate webview to clicked URL.
+  // consume peeks only (Strict Mode remount-safe). Clear after the surface
+  // applies startUrl via showPinWebview. Subscribe for already-mounted re-opens.
+  // Never fall back to pin.url on every layout pass — after clear, that would
+  // clobber the deep href back to home (left-click bug vs context-menu).
+  const [startUrl, setStartUrl] = React.useState(() => {
+    if (!pin) return "";
+    return consumePinnedSiteOpenUrl(pin.id, "") || navOpenUrl || pin.url;
+  });
+  const appliedPinIdRef = React.useRef<string | null>(pin?.id ?? null);
+
+  React.useLayoutEffect(() => {
+    if (!pin) {
+      appliedPinIdRef.current = null;
+      setStartUrl("");
+      return;
+    }
+    if (navClearsDeepLink) {
+      clearPinnedSiteOpenUrl(pin.id);
+      appliedPinIdRef.current = pin.id;
+      setStartUrl(pin.url);
+      return;
+    }
+    const pending =
+      consumePinnedSiteOpenUrl(pin.id, "") || navOpenUrl || "";
+    const pinChanged = appliedPinIdRef.current !== pin.id;
+    appliedPinIdRef.current = pin.id;
+    if (pending) {
+      // Keep module queue aligned with router state for subscribe / remount.
+      if (navOpenUrl) {
+        queuePinnedSiteOpenUrl(pin.id, navOpenUrl);
+      }
+      setStartUrl(pending);
+      return;
+    }
+    if (pinChanged) {
+      setStartUrl(pin.url);
+      return;
+    }
+    // Same pin, no pending: keep current startUrl (deep or home).
+    setStartUrl((prev) => prev || pin.url);
+  }, [pinId, pin?.id, pin?.url, navOpenUrl, navClearsDeepLink]);
+
+  React.useEffect(() => {
+    if (!pin) return;
+    const id = pin.id;
+    return subscribePinnedSiteOpenUrl((queuedPinId, url) => {
+      if (queuedPinId !== id) return;
+      setStartUrl(url);
+    });
+  }, [pin?.id]);
 
   if (!pin) {
     return (
@@ -54,13 +132,13 @@ export function PinnedSiteScreen({ pinId }: { pinId: string }) {
       <PinnedSiteChrome
         icon={<Icon className="h-4 w-4" />}
         pinId={pin.id}
-        startUrl={pin.url}
+        startUrl={startUrl}
         title={pin.name}
       />
       <PinnedSiteSurface
         pinId={pin.id}
         pollForChanges={pin.pollForChanges}
-        startUrl={pin.url}
+        startUrl={startUrl}
       />
     </div>
   );
@@ -151,7 +229,7 @@ function PinnedSiteChrome({
             <RefreshCw className="h-4 w-4" />
           </Button>
         </div>
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           {icon}
           <h1 className="truncate text-sm font-medium">{title}</h1>
           {loadError ? (
@@ -191,9 +269,20 @@ function PinnedSiteSurface({
   const hostRef = React.useRef<HTMLDivElement | null>(null);
   const native = isTauri() || import.meta.env.MODE === "e2e";
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  // Left-nav Buzz Term parks playground then notifies pin restore while the
+  // pin route stays mounted. Gate show/restore so Term is not covered by the
+  // pin WKWebView. Read live snapshot inside openOrResize for sync restore.
+  const terminalPanel = useTerminalPanel();
+  const leftNavTermActive = isLeftNavBuzzTermActive(terminalPanel);
 
   React.useEffect(() => {
     if (!native) return;
+    // Left-nav Buzz Term is exclusive while the pin route stays mounted.
+    // Hide and skip show/restore so parkPlaygroundHost cannot re-paint on top.
+    if (leftNavTermActive) {
+      void hidePinWebview(pinId);
+      return;
+    }
     const host = hostRef.current;
     if (!host) return;
     let cancelled = false;
@@ -202,6 +291,11 @@ function PinnedSiteSurface({
       if (cancelled || !hostRef.current) return;
       // Blocking Buzz modals park native children — do not re-show under them.
       if (isNativeWebviewModalParked()) return;
+      // Live check: Term may open mid-effect before React re-renders deps.
+      if (isLeftNavBuzzTermActive()) {
+        void hidePinWebview(pinId);
+        return;
+      }
       const bounds = readBounds(hostRef.current);
       if (!pinWebviewBoundsAreUsable(bounds)) return;
       // Always show (not setBounds-only). After a hide/park, setBounds left the
@@ -209,20 +303,27 @@ function PinnedSiteSurface({
       // the child and calls show(); hide-epoch + generation still cancel late
       // dismiss races (#53/#54/#59).
       const id = pinId;
+      const appliedUrl = startUrl;
       void showPinWebview({
         pinId: id,
-        startUrl,
+        startUrl: appliedUrl,
         bounds,
-      }).catch((error) => {
-        console.error("Failed to open pinned site", error);
-        if (!cancelled) {
-          setLoadError(
-            error instanceof Error
-              ? error.message
-              : "Failed to open pinned site.",
-          );
-        }
-      });
+      })
+        .then(() => {
+          if (cancelled || !appliedUrl) return;
+          // Consume deep link once applied; mismatched clear leaves a newer queue.
+          clearPinnedSiteOpenUrl(id, appliedUrl);
+        })
+        .catch((error) => {
+          console.error("Failed to open pinned site", error);
+          if (!cancelled) {
+            setLoadError(
+              error instanceof Error
+                ? error.message
+                : "Failed to open pinned site.",
+            );
+          }
+        });
     };
 
     openOrResize();
@@ -247,7 +348,7 @@ function PinnedSiteSurface({
       void unlistenLoad.then((stop) => stop());
       void hidePinWebview(pinId);
     };
-  }, [native, pinId, startUrl]);
+  }, [native, pinId, startUrl, leftNavTermActive]);
 
   React.useEffect(() => {
     if (!native || !pollForChanges) return;

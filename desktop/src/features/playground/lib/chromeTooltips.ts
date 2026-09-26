@@ -1,6 +1,5 @@
 /** Hover labels for icon-only playground overlay chrome. */
 export const PLAYGROUND_CHROME_TOOLTIPS = {
-  dispose: "Dispose",
   back: "Back",
   forward: "Forward",
   refresh: "Refresh",
@@ -12,6 +11,8 @@ export const PLAYGROUND_CHROME_TOOLTIPS = {
   dismiss: "Dismiss",
   dock: "Dock left",
   expand: "Expand overlay",
+  collapseChrome: "Collapse browser chrome",
+  expandChrome: "Expand browser chrome",
 } as const;
 
 export type PlaygroundChromeTooltipId = keyof typeof PLAYGROUND_CHROME_TOOLTIPS;
@@ -29,9 +30,12 @@ export function playgroundDockTooltip(docked: boolean): string {
   return playgroundChromeTooltip(docked ? "expand" : "dock");
 }
 
+export function playgroundChromeCollapseTooltip(collapsed: boolean): string {
+  return playgroundChromeTooltip(collapsed ? "expandChrome" : "collapseChrome");
+}
+
 /** Icon-only chrome controls that must expose a delayed tooltip. */
 export const PLAYGROUND_ICON_ONLY_CHROME_TOOLTIP_IDS = [
-  "dispose",
   "back",
   "forward",
   "refresh",
@@ -41,6 +45,8 @@ export const PLAYGROUND_ICON_ONLY_CHROME_TOOLTIP_IDS = [
   "fullscreen",
   "exitFullscreen",
   "dismiss",
+  "collapseChrome",
+  "expandChrome",
   "dock",
   "expand",
 ] as const satisfies readonly PlaygroundChromeTooltipId[];

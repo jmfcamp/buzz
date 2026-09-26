@@ -8,7 +8,7 @@ import {
   INITIAL_HANDOFF_STATE,
   accumulateScrollLines,
   encodePaste,
-  encodeTerminalKey,
+  encodeTerminalKeystroke,
   matchTabChord,
   reduceHandoff,
   stepSession,
@@ -17,11 +17,15 @@ import { buildTerminalBanner } from "./terminalBanner";
 import { paintTerminalBanner } from "./terminalBannerPainter";
 import { buildBannerColorTable, phaseAt } from "./terminalBannerWave";
 import {
-  TERMINAL_CELL_METRICS,
+  type CellMetrics,
   type TerminalFrame,
   type TerminalSelectionRow,
   TerminalGrid,
 } from "./terminalRenderer";
+import {
+  terminalCellMetricsForFontSize,
+  useTermPreferences,
+} from "./termPreferences.ts";
 
 export type TerminalViewportSize = {
   columns: number;
@@ -35,6 +39,8 @@ export type TerminalSessionTab = {
   title: string;
   closing: boolean;
   active: boolean;
+  /** Channel display name for global (all-tabs) provenance labels. */
+  channelName?: string | null;
 };
 
 type TerminalSubstrateProps = {
@@ -42,8 +48,11 @@ type TerminalSubstrateProps = {
   frame?: TerminalFrame;
   sessionFrames?: readonly { sessionId: string; frame: TerminalFrame }[];
   sessions: readonly TerminalSessionTab[];
+  /** When `all`, show channel provenance on each tab. */
+  tabScope?: "channel" | "all";
   bracketedPaste: boolean;
   focusReportingEnabled: boolean;
+  mouseReportingEnabled?: boolean;
   enabled?: boolean;
   mode?: "docked" | "maximized";
   visible?: boolean;
@@ -58,6 +67,15 @@ type TerminalSubstrateProps = {
   onInput: (text: string) => void;
   /** Whole cells scrolled, keeping the DOM's sign: negative goes back. */
   onScroll: (lines: number) => void;
+  onMouse?: (event: {
+    button: "left" | "middle" | "right" | "wheelUp" | "wheelDown";
+    action: "press" | "release" | "move";
+    column: number;
+    row: number;
+    shift?: boolean;
+    meta?: boolean;
+    ctrl?: boolean;
+  }) => void;
   onTerminalFocusChange: (focused: boolean) => void;
   onSelectSession: (id: string) => void;
   onCloseSession: (id: string) => void;
@@ -73,7 +91,6 @@ function isToggleChord(event: KeyboardEvent): boolean {
   );
 }
 
-const { width: CELL_WIDTH, height: CELL_HEIGHT } = TERMINAL_CELL_METRICS;
 const NOOP = () => {};
 const SPLASH_DURATION_MS = 2_500;
 
@@ -81,8 +98,10 @@ export function TerminalSubstrate({
   frame,
   sessionFrames,
   sessions,
+  tabScope = "channel",
   bracketedPaste,
   focusReportingEnabled,
+  mouseReportingEnabled = false,
   enabled = true,
   mode = "docked",
   visible = true,
@@ -96,12 +115,21 @@ export function TerminalSubstrate({
   onSplashStarted,
   onInput,
   onScroll,
+  onMouse,
   onTerminalFocusChange,
   onSelectSession,
   onCloseSession,
   onNewSession,
 }: TerminalSubstrateProps) {
   const { terminalPalette } = useTheme();
+  const termPrefs = useTermPreferences();
+  const cellMetrics: CellMetrics = React.useMemo(
+    () => terminalCellMetricsForFontSize(termPrefs.fontSize),
+    [termPrefs.fontSize],
+  );
+  const CELL_WIDTH = cellMetrics.width;
+  const CELL_HEIGHT = cellMetrics.height;
+
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const bannerCanvasRef = React.useRef<HTMLCanvasElement>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
@@ -119,8 +147,28 @@ export function TerminalSubstrate({
   const resizeReportFrameRef = React.useRef(0);
   const resizingRef = React.useRef(false);
   const scrollBySessionRef = React.useRef(new Map<string, number>());
+  const substrateRef = React.useRef<HTMLElement | null>(null);
+  const onScrollRef = React.useRef(onScroll);
+  onScrollRef.current = onScroll;
+  const cellMetricsRef = React.useRef(cellMetrics);
+  cellMetricsRef.current = cellMetrics;
+  const mouseReportingRef = React.useRef(mouseReportingEnabled);
+  mouseReportingRef.current = mouseReportingEnabled;
+  const onMouseRef = React.useRef(onMouse);
+  onMouseRef.current = onMouse;
+  const viewportRef = React.useRef({ columns: 1, rows: 1 });
+  const pointerScrollRef = React.useRef({ id: -1, y: 0, remainderPx: 0 });
   const activeSession = sessions.find((session) => session.active);
   const activeSessionId = activeSession?.id ?? null;
+  const activeSessionIdForWheelRef = React.useRef<string | null>(null);
+  activeSessionIdForWheelRef.current = activeSessionId;
+  const ownerRef = React.useRef<"buzz" | "terminal">("buzz");
+  /** Set by keydown encode path so onInput does not double-send the same char. */
+  const printableKeyHandledRef = React.useRef<string | null>(null);
+  const visibleRef = React.useRef(visible);
+  visibleRef.current = visible;
+  const enabledRef = React.useRef(enabled);
+  enabledRef.current = enabled;
   const frames = React.useMemo(
     () =>
       sessionFrames ??
@@ -128,7 +176,9 @@ export function TerminalSubstrate({
     [activeSessionId, frame, sessionFrames],
   );
   const [owner, setOwner] = React.useState<"buzz" | "terminal">("buzz");
+  ownerRef.current = owner;
   const [viewport, setViewport] = React.useState({ columns: 1, rows: 1 });
+  viewportRef.current = viewport;
   const [selectionRows, setSelectionRows] = React.useState<
     readonly TerminalSelectionRow[]
   >([]);
@@ -173,6 +223,28 @@ export function TerminalSubstrate({
     setCursorReset((current) => current + 1);
     onInput(text);
   });
+  /**
+   * Reclaim the hidden textarea so printables keep reaching the PTY.
+   * `hard` schedules rAF + rAF + setTimeout(0) after an immediate focus —
+   * needed after contextmenu / right-click where the browser steals focus
+   * asynchronously after our synchronous preventDefault.
+   */
+  const reclaimTerminalInputFocus = React.useEffectEvent(
+    (opts?: { hard?: boolean; claimOwner?: boolean }) => {
+      if (opts?.claimOwner) setOwner("terminal");
+      else if (ownerRef.current !== "terminal") return;
+      const focus = () => textareaRef.current?.focus({ preventScroll: true });
+      focus();
+      if (!opts?.hard) return;
+      window.requestAnimationFrame(() => {
+        focus();
+        window.requestAnimationFrame(() => {
+          focus();
+          window.setTimeout(focus, 0);
+        });
+      });
+    },
+  );
   const consumeFrame = React.useEffectEvent((nextFrame: TerminalFrame) => {
     onFrameConsumed?.(nextFrame);
   });
@@ -278,6 +350,10 @@ export function TerminalSubstrate({
     return () => observer.disconnect();
   }, []);
 
+  React.useEffect(() => {
+    reportViewportSize();
+  }, [cellMetrics.width, cellMetrics.height]);
+
   React.useLayoutEffect(() => {
     if (viewportReportingEnabled) reportViewportSize();
   }, [viewportReportingEnabled]);
@@ -343,6 +419,40 @@ export function TerminalSubstrate({
       window.removeEventListener("keyup", handleKeyUp, true);
     };
   }, [enabled, onToggle]);
+
+  // Opening from closed paints two frames with data-terminal-visible=false
+  // (pointer-events: none). Re-focus once the substrate is interactive so
+  // keys reach the PTY instead of the channel composer.
+  React.useLayoutEffect(() => {
+    if (!enabled || !visible || !onToggle) return;
+    setOwner("terminal");
+    textareaRef.current?.focus({ preventScroll: true });
+  }, [enabled, onToggle, visible]);
+
+  // Reclaim textarea focus after tab switches and mouse-mode CSI toggles while
+  // Term still owns input. herdr tracking preventDefault can leave the
+  // textarea blurred; do not steal focus after a deliberate outside click.
+  React.useLayoutEffect(() => {
+    if (!enabled || !visible || owner !== "terminal") return;
+    const active = document.activeElement;
+    const substrate = substrateRef.current;
+    const textarea = textareaRef.current;
+    if (!textarea || !substrate) return;
+    const insideSubstrate =
+      active != null &&
+      typeof active === "object" &&
+      "nodeType" in active &&
+      substrate.contains(active as unknown as globalThis.Node);
+    if (
+      active === textarea ||
+      active === document.body ||
+      active === document.documentElement ||
+      active == null ||
+      insideSubstrate
+    ) {
+      textarea.focus({ preventScroll: true });
+    }
+  }, [activeSessionId, enabled, mouseReportingEnabled, owner, visible]);
 
   React.useEffect(() => {
     if (!visible) {
@@ -434,7 +544,7 @@ export function TerminalSubstrate({
       context.fillRect(0, 0, bounds.width, bounds.height);
     }
     gridRef.current?.setCursorPainted(cursorPainted);
-    gridRef.current?.paint(context, TERMINAL_CELL_METRICS, terminalPalette);
+    gridRef.current?.paint(context, cellMetrics, terminalPalette);
   });
 
   // Palette and blink changes must trigger a repaint; paintTerminal is an
@@ -464,7 +574,7 @@ export function TerminalSubstrate({
     setSelectionRows(gridRef.current?.selectionRows() ?? []);
 
     paintTerminal();
-  }, [activeSessionId, cursorPainted, frames, terminalPalette]);
+  }, [activeSessionId, cursorPainted, frames, terminalPalette, cellMetrics]);
 
   const runTabAction = (action: () => void) => {
     action();
@@ -473,8 +583,152 @@ export function TerminalSubstrate({
     }
   };
 
+  // Native non-passive wheel: React's delegated onWheel is passive in the
+  // browsers we ship, so preventDefault there cannot stop the outer UI from
+  // stealing the gesture. Match AppTopChrome / useScrollBoundaryLock.
+  // Mouse tracking on (herdr / xterm CSI) → wheel to PTY; off → scrollback.
+  // Never gate on textarea focus — a wrong focus must not drop the gesture.
+  React.useEffect(() => {
+    const node = substrateRef.current;
+    if (!node) return;
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const sessionId = activeSessionIdForWheelRef.current;
+      if (!sessionId) {
+        reclaimTerminalInputFocus();
+        return;
+      }
+      const cellHeight = cellMetricsRef.current.height;
+      const cellWidth = cellMetricsRef.current.width;
+      const deltaPx =
+        event.deltaMode === 1
+          ? event.deltaY * cellHeight
+          : event.deltaMode === 2
+            ? event.deltaY * node.clientHeight
+            : event.deltaY;
+      const result = accumulateScrollLines(
+        { remainderPx: scrollBySessionRef.current.get(sessionId) ?? 0 },
+        deltaPx,
+        cellHeight,
+      );
+      scrollBySessionRef.current.set(sessionId, result.state.remainderPx);
+      if (result.lines !== 0) {
+        if (mouseReportingRef.current && onMouseRef.current) {
+          const canvas = canvasRef.current;
+          const vp = viewportRef.current;
+          let column = 1;
+          let row = 1;
+          if (canvas) {
+            const bounds = canvas.getBoundingClientRect();
+            column = Math.max(
+              1,
+              Math.min(
+                vp.columns,
+                Math.floor((event.clientX - bounds.left) / cellWidth) + 1,
+              ),
+            );
+            row = Math.max(
+              1,
+              Math.min(
+                vp.rows,
+                Math.floor((event.clientY - bounds.top) / cellHeight) + 1,
+              ),
+            );
+          }
+          const button = result.lines < 0 ? "wheelUp" : "wheelDown";
+          const count = Math.abs(result.lines);
+          for (let i = 0; i < count; i += 1) {
+            onMouseRef.current({
+              button,
+              action: "press",
+              column,
+              row,
+              shift: event.shiftKey,
+              meta: event.metaKey,
+              ctrl: event.ctrlKey,
+            });
+          }
+        } else {
+          onScrollRef.current(result.lines);
+        }
+      }
+      // herdr mouse-mode CSI / prior preventDefault presses often leave
+      // activeElement on body. Letters only reach the PTY via textarea `input`
+      // (Backspace uses keydown encode) — reclaim after every wheel gesture.
+      reclaimTerminalInputFocus();
+    };
+    const options: AddEventListenerOptions = { capture: true, passive: false };
+    node.addEventListener("wheel", onWheel, options);
+    return () => node.removeEventListener("wheel", onWheel, options);
+  }, []);
+
+  // Belt-and-suspenders: while Term owns input, window capture-phase keydown
+  // forwards printables + specials to the PTY whenever focus is the hidden
+  // textarea, body/html, or anything inside the substrate. Do not rely on
+  // textarea `input` alone — after right-click / herdr CSI, activeElement is
+  // often body and letters never insert. Skip real INPUT/TEXTAREA outside Term
+  // (channel composer). Must be on window — body-focused keys never traverse
+  // the substrate.
+  React.useEffect(() => {
+    const onKeyDownCapture = (event: KeyboardEvent) => {
+      if (
+        !enabledRef.current ||
+        !visibleRef.current ||
+        ownerRef.current !== "terminal" ||
+        event.isComposing ||
+        event.defaultPrevented
+      ) {
+        return;
+      }
+      if (isToggleChord(event)) return;
+      if (matchTabChord(event, isMacPlatform())) return;
+
+      const textarea = textareaRef.current;
+      const substrate = substrateRef.current;
+      if (!textarea || !substrate) return;
+      const active = document.activeElement;
+      const onTerminalTextarea = active === textarea;
+      const insideSubstrate =
+        active != null &&
+        typeof active === "object" &&
+        "nodeType" in active &&
+        substrate.contains(active as unknown as globalThis.Node);
+      const focusLost =
+        active == null ||
+        active === document.body ||
+        active === document.documentElement;
+      // Composer / other app fields outside Term keep their keys.
+      if (
+        !onTerminalTextarea &&
+        !focusLost &&
+        !insideSubstrate &&
+        active instanceof HTMLElement &&
+        (active.tagName === "INPUT" ||
+          active.tagName === "TEXTAREA" ||
+          active.isContentEditable)
+      ) {
+        return;
+      }
+      if (!onTerminalTextarea && !focusLost && !insideSubstrate) {
+        return;
+      }
+
+      const encoded = encodeTerminalKeystroke(event);
+      if (!encoded) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      printableKeyHandledRef.current = encoded;
+      textarea.focus({ preventScroll: true });
+      sendInput(encoded);
+    };
+    window.addEventListener("keydown", onKeyDownCapture, true);
+    return () => window.removeEventListener("keydown", onKeyDownCapture, true);
+  }, []);
+
   return (
     <section
+      ref={substrateRef}
       aria-label="Buzz Term"
       className="buzz-terminal-substrate"
       data-terminal-mode={mode}
@@ -483,24 +737,6 @@ export function TerminalSubstrate({
       style={{
         ...terminalStyle,
         ...(mode === "docked" ? { height: dockHeight } : undefined),
-      }}
-      onWheel={(event) => {
-        event.preventDefault();
-        const sessionId = activeSession?.id;
-        if (!sessionId) return;
-        const deltaPx =
-          event.deltaMode === 1
-            ? event.deltaY * CELL_HEIGHT
-            : event.deltaMode === 2
-              ? event.deltaY * event.currentTarget.clientHeight
-              : event.deltaY;
-        const result = accumulateScrollLines(
-          { remainderPx: scrollBySessionRef.current.get(sessionId) ?? 0 },
-          deltaPx,
-          CELL_HEIGHT,
-        );
-        scrollBySessionRef.current.set(sessionId, result.state.remainderPx);
-        if (result.lines !== 0) onScroll(result.lines);
       }}
     >
       {mode === "docked" ? (
@@ -621,7 +857,11 @@ export function TerminalSubstrate({
                 <X />
               </button>
               <button
-                aria-label={`Terminal ${index + 1}${session.closing ? ", closing" : session.title !== "SHELL" ? `, ${session.title}` : ""}`}
+                aria-label={`Terminal ${index + 1}${
+                  tabScope === "all" && session.channelName
+                    ? `, ${session.channelName}`
+                    : ""
+                }${session.closing ? ", closing" : session.title !== "SHELL" ? `, ${session.title}` : ""}`}
                 aria-selected={session.active}
                 className="buzz-terminal-tab-select"
                 disabled={session.closing}
@@ -630,6 +870,14 @@ export function TerminalSubstrate({
                 type="button"
               >
                 <span className="buzz-terminal-designator buzz-terminal-tab-title">
+                  {tabScope === "all" && session.channelName ? (
+                    <span className="buzz-terminal-tab-channel">
+                      {session.channelName}
+                    </span>
+                  ) : null}
+                  {tabScope === "all" && session.channelName ? (
+                    <span className="buzz-terminal-tab-sep"> — </span>
+                  ) : null}
                   {session.title === "SHELL" ? (
                     <>
                       <ChevronRight />
@@ -677,7 +925,199 @@ export function TerminalSubstrate({
           </button>
         </div>
       </div>
-      <div className="buzz-terminal-viewport px-5 pt-2">
+      <div
+        className="buzz-terminal-viewport px-5 pt-2"
+        data-testid="buzz-terminal-viewport"
+        onPointerDown={(event) => {
+          if (event.button > 2) return;
+          // Always claim keyboard focus on viewport interaction — even before
+          // the canvas exists. herdr (and other mouse-mode TUIs) call
+          // preventDefault below, which would otherwise leave keys going to
+          // the channel composer.
+          setOwner("terminal");
+          textareaRef.current?.focus({ preventScroll: true });
+          const canvas = canvasRef.current;
+          if (!canvas) return;
+          const bounds = canvas.getBoundingClientRect();
+          const metrics = cellMetricsRef.current;
+          const column = Math.max(
+            1,
+            Math.min(
+              viewport.columns,
+              Math.floor((event.clientX - bounds.left) / metrics.width) + 1,
+            ),
+          );
+          const row = Math.max(
+            1,
+            Math.min(
+              viewport.rows,
+              Math.floor((event.clientY - bounds.top) / metrics.height) + 1,
+            ),
+          );
+          if (mouseReportingRef.current && onMouseRef.current) {
+            const button =
+              event.button === 1
+                ? "middle"
+                : event.button === 2
+                  ? "right"
+                  : "left";
+            // Forward all buttons (incl. right) so herdr / xterm mouse-mode
+            // CSI context menus work. Browser native contextmenu stays
+            // suppressed in onContextMenu; hard focus reclaim on release
+            // keeps printables working after the herdr menu closes.
+            event.preventDefault();
+            try {
+              canvas.setPointerCapture(event.pointerId);
+            } catch {
+              // ignore
+            }
+            onMouseRef.current({
+              button,
+              action: "press",
+              column,
+              row,
+              shift: event.shiftKey,
+              meta: event.metaKey,
+              ctrl: event.ctrlKey,
+            });
+            return;
+          }
+          // Touch / pen pan → scrollback when mouse mode is off.
+          if (event.pointerType === "touch" || event.pointerType === "pen") {
+            event.preventDefault();
+            pointerScrollRef.current = {
+              id: event.pointerId,
+              y: event.clientY,
+              remainderPx: 0,
+            };
+            try {
+              canvas.setPointerCapture(event.pointerId);
+            } catch {
+              // ignore
+            }
+          }
+        }}
+        onPointerMove={(event) => {
+          const canvas = canvasRef.current;
+          if (!canvas) return;
+          const bounds = canvas.getBoundingClientRect();
+          const metrics = cellMetricsRef.current;
+          const column = Math.max(
+            1,
+            Math.min(
+              viewport.columns,
+              Math.floor((event.clientX - bounds.left) / metrics.width) + 1,
+            ),
+          );
+          const row = Math.max(
+            1,
+            Math.min(
+              viewport.rows,
+              Math.floor((event.clientY - bounds.top) / metrics.height) + 1,
+            ),
+          );
+          if (
+            mouseReportingRef.current &&
+            onMouseRef.current &&
+            event.buttons !== 0
+          ) {
+            event.preventDefault();
+            const button =
+              event.buttons === 4
+                ? "middle"
+                : event.buttons === 2
+                  ? "right"
+                  : "left";
+            onMouseRef.current({
+              button,
+              action: "move",
+              column,
+              row,
+              shift: event.shiftKey,
+              meta: event.metaKey,
+              ctrl: event.ctrlKey,
+            });
+            return;
+          }
+          const tracked = pointerScrollRef.current;
+          if (tracked.id !== event.pointerId) return;
+          event.preventDefault();
+          const deltaY = tracked.y - event.clientY;
+          tracked.y = event.clientY;
+          const result = accumulateScrollLines(
+            { remainderPx: tracked.remainderPx },
+            deltaY,
+            metrics.height,
+          );
+          tracked.remainderPx = result.state.remainderPx;
+          if (result.lines !== 0) onScrollRef.current(result.lines);
+        }}
+        onPointerUp={(event) => {
+          const canvas = canvasRef.current;
+          const metrics = cellMetricsRef.current;
+          if (mouseReportingRef.current && onMouseRef.current && canvas) {
+            const button =
+              event.button === 1
+                ? "middle"
+                : event.button === 2
+                  ? "right"
+                  : "left";
+            const bounds = canvas.getBoundingClientRect();
+            const column = Math.max(
+              1,
+              Math.min(
+                viewport.columns,
+                Math.floor((event.clientX - bounds.left) / metrics.width) + 1,
+              ),
+            );
+            const row = Math.max(
+              1,
+              Math.min(
+                viewport.rows,
+                Math.floor((event.clientY - bounds.top) / metrics.height) + 1,
+              ),
+            );
+            onMouseRef.current({
+              button,
+              action: "release",
+              column,
+              row,
+              shift: event.shiftKey,
+              meta: event.metaKey,
+              ctrl: event.ctrlKey,
+            });
+          }
+          if (pointerScrollRef.current.id === event.pointerId) {
+            pointerScrollRef.current.id = -1;
+          }
+          // Mouse-mode CSI / right-click preventDefault often leave the
+          // hidden textarea blurred; reclaim so printable keys keep working.
+          reclaimTerminalInputFocus(
+            event.button === 2 ? { hard: true, claimOwner: true } : undefined,
+          );
+        }}
+        onPointerCancel={(event) => {
+          if (pointerScrollRef.current.id === event.pointerId) {
+            pointerScrollRef.current.id = -1;
+          }
+          reclaimTerminalInputFocus();
+        }}
+        onAuxClick={(event) => {
+          // Non-primary buttons (esp. right) fire auxclick; reclaim before
+          // contextmenu can leave focus on body / chrome.
+          if (event.button !== 2) return;
+          event.preventDefault();
+          reclaimTerminalInputFocus({ hard: true, claimOwner: true });
+        }}
+        onContextMenu={(event) => {
+          // No custom Term menu — always suppress the browser menu. Native
+          // contextmenu after right-click steals focus from the hidden
+          // textarea asynchronously; hard reclaim races that steal.
+          event.preventDefault();
+          reclaimTerminalInputFocus({ hard: true, claimOwner: true });
+        }}
+        style={{ touchAction: "none" }}
+      >
         <canvas ref={canvasRef} />
         <div
           aria-hidden="true"
@@ -777,6 +1217,12 @@ export function TerminalSubstrate({
             if (handoffRef.current.composing) return;
             const committed = event.currentTarget.value;
             event.currentTarget.value = "";
+            if (!committed) return;
+            // Capture/textarea keydown already forwarded this printable.
+            if (printableKeyHandledRef.current === committed) {
+              printableKeyHandledRef.current = null;
+              return;
+            }
             sendInput(committed);
           }}
           onKeyDown={(event) => {
@@ -785,9 +1231,13 @@ export function TerminalSubstrate({
               return;
             }
             if (isToggleChord(event.nativeEvent)) return;
-            const encoded = encodeTerminalKey(event);
+            // Prefer encodeTerminalKeystroke so letters still reach the PTY if
+            // window capture missed (focus quirks). preventDefault stops the
+            // subsequent `input` insertion; the handled-ref guards any race.
+            const encoded = encodeTerminalKeystroke(event);
             if (encoded) {
               event.preventDefault();
+              printableKeyHandledRef.current = encoded;
               sendInput(encoded);
             }
           }}

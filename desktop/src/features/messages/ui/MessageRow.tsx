@@ -79,6 +79,7 @@ export const MessageRow = React.memo(
     highlightDescendantRail = false,
     highlightReplyConnector = false,
     highlightThreadLineDepths,
+    forceHoverBackground = false,
     hoverBackground = true,
     huddleMemberPubkeys,
     huddleMemberPubkeysPending = false,
@@ -120,6 +121,7 @@ export const MessageRow = React.memo(
     highlightDescendantRail?: boolean;
     highlightReplyConnector?: boolean;
     highlightThreadLineDepths?: ReadonlyArray<number>;
+    forceHoverBackground?: boolean;
     hoverBackground?: boolean;
     huddleMemberPubkeys?: readonly string[];
     huddleMemberPubkeysPending?: boolean;
@@ -896,7 +898,10 @@ export const MessageRow = React.memo(
             playEntrance && "motion-enter-conversation",
             "py-conversation-row",
             hoverBackground
-              ? "mx-1 px-2 hover:bg-muted/50 focus-within:bg-muted/50"
+              ? cn(
+                  "mx-1 px-2 hover:bg-muted/50 focus-within:bg-muted/50",
+                  forceHoverBackground && "bg-muted/50",
+                )
               : isThreadReplyLayout
                 ? "mx-1 px-2"
                 : "px-2",
@@ -980,6 +985,7 @@ export const MessageRow = React.memo(
       prev.highlightThreadLineDepths,
       next.highlightThreadLineDepths,
     ) &&
+    prev.forceHoverBackground === next.forceHoverBackground &&
     prev.hoverBackground === next.hoverBackground &&
     prev.huddleMemberPubkeys === next.huddleMemberPubkeys &&
     prev.huddleMemberPubkeysPending === next.huddleMemberPubkeysPending &&

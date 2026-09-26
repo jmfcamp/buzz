@@ -134,6 +134,7 @@ function fixture(overrides = {}) {
     bracketedPaste: false,
     channelName: "terminal-test",
     focusReportingEnabled: false,
+    mouseReportingEnabled: false,
     onCloseSession() {},
     onInput(value) {
       calls.input.push(value);
@@ -1034,4 +1035,465 @@ test("copy normalizes grapheme and empty-row DOM endpoints", async () => {
     },
   });
   assert.equal(reverseCopied.get("text/plain"), "😀é\n\n界");
+});
+
+test("mouse-reporting click focuses terminal input for typing", async () => {
+  const mouse = [];
+  const { view } = fixture({
+    mouseReportingEnabled: true,
+    onMouse(event) {
+      mouse.push(event);
+    },
+    onToggle() {},
+  });
+  await ready(view);
+  const input = view.getByLabelText("Terminal input");
+  // Steal focus to simulate the channel composer holding it.
+  const decoy = document.createElement("textarea");
+  document.body.appendChild(decoy);
+  decoy.focus();
+  assert.equal(document.activeElement, decoy);
+
+  const viewport = view.getByTestId("buzz-terminal-viewport");
+  fireEvent.pointerDown(viewport, {
+    button: 0,
+    clientX: 40,
+    clientY: 40,
+    pointerId: 1,
+  });
+  assert.equal(
+    document.activeElement,
+    input,
+    "viewport press must focus the hidden textarea even in mouse mode",
+  );
+  assert.equal(mouse.length, 1);
+  assert.equal(mouse[0].action, "press");
+
+  fireEvent.pointerUp(viewport, {
+    button: 0,
+    clientX: 40,
+    clientY: 40,
+    pointerId: 1,
+  });
+  assert.equal(
+    document.activeElement,
+    input,
+    "viewport release must keep terminal input focused",
+  );
+  decoy.remove();
+});
+
+test("becoming visible re-focuses terminal input", async () => {
+  const { view, rerender } = fixture({
+    onToggle() {},
+    visible: false,
+  });
+  await ready(view);
+  const input = view.getByLabelText("Terminal input");
+  const decoy = document.createElement("textarea");
+  document.body.appendChild(decoy);
+  decoy.focus();
+  assert.notEqual(document.activeElement, input);
+
+  rerender({ visible: true });
+  await waitFor(() => assert.equal(document.activeElement, input));
+  decoy.remove();
+});
+
+test("mouse-reporting wheel routes to PTY not scrollback", async () => {
+  const mouse = [];
+  const { calls, view } = fixture({
+    mouseReportingEnabled: true,
+    onMouse(event) {
+      mouse.push(event);
+    },
+    onToggle() {},
+  });
+  await ready(view);
+  const canvas = view.container.querySelector(
+    ".buzz-terminal-viewport > canvas:not(.buzz-terminal-welcome)",
+  );
+  assert.ok(canvas);
+  canvas.getBoundingClientRect = () => ({
+    bottom: 240,
+    height: 240,
+    left: 0,
+    right: 800,
+    top: 0,
+    width: 800,
+    x: 0,
+    y: 0,
+    toJSON() {},
+  });
+  // cell height is typically ~17–20px; 40px deltaY yields 2 lines.
+  const substrate = view.container.querySelector(".buzz-terminal-substrate");
+  fireEvent.wheel(substrate, {
+    deltaMode: 0,
+    deltaY: 40,
+    clientX: 40,
+    clientY: 40,
+  });
+  assert.deepEqual(calls.scroll, [], "mouse mode must not scroll scrollback");
+  assert.ok(mouse.length >= 1, "mouse mode wheel must reach PTY");
+  assert.equal(mouse.every((event) => event.button === "wheelDown"), true);
+  assert.equal(mouse.every((event) => event.action === "press"), true);
+
+  mouse.length = 0;
+  fireEvent.wheel(substrate, {
+    deltaMode: 0,
+    deltaY: -40,
+    clientX: 40,
+    clientY: 40,
+  });
+  assert.deepEqual(calls.scroll, []);
+  assert.ok(mouse.length >= 1);
+  assert.equal(mouse.every((event) => event.button === "wheelUp"), true);
+});
+
+test("mouse-mode CSI toggle keeps terminal input focused while owned", async () => {
+  const { view, rerender } = fixture({
+    mouseReportingEnabled: false,
+    onToggle() {},
+  });
+  await ready(view);
+  const input = view.getByLabelText("Terminal input");
+  const viewport = view.getByTestId("buzz-terminal-viewport");
+  fireEvent.pointerDown(viewport, {
+    button: 0,
+    clientX: 20,
+    clientY: 20,
+    pointerId: 1,
+  });
+  assert.equal(document.activeElement, input);
+
+  // Simulate focus drifting to a chrome control inside the substrate (tab),
+  // then a mouse-mode CSI toggle — focus must return to the textarea.
+  const tab = view.getByRole("tab");
+  tab.focus();
+  assert.equal(document.activeElement, tab);
+  rerender({ mouseReportingEnabled: true });
+  await waitFor(() => assert.equal(document.activeElement, input));
+
+  // Deliberate outside click must not be stolen back on the next CSI toggle.
+  const decoy = document.createElement("textarea");
+  document.body.appendChild(decoy);
+  decoy.focus();
+  assert.equal(document.activeElement, decoy);
+  rerender({ mouseReportingEnabled: false });
+  // Give layout effects a turn; focus must stay on the decoy.
+  await Promise.resolve();
+  assert.equal(document.activeElement, decoy);
+  decoy.remove();
+});
+
+test("mouse-reporting wheel keeps printable keys reaching PTY", async () => {
+  const { calls, view } = fixture({
+    mouseReportingEnabled: true,
+    onMouse() {},
+    onToggle() {},
+  });
+  await ready(view);
+  const input = view.getByLabelText("Terminal input");
+  const canvas = view.container.querySelector(
+    ".buzz-terminal-viewport > canvas:not(.buzz-terminal-welcome)",
+  );
+  assert.ok(canvas);
+  canvas.getBoundingClientRect = () => ({
+    bottom: 240,
+    height: 240,
+    left: 0,
+    right: 800,
+    top: 0,
+    width: 800,
+    x: 0,
+    y: 0,
+    toJSON() {},
+  });
+
+  // Simulate the post-mouse blur: focus drifts to body (herdr CSI /
+  // preventDefault path). Wheel must reclaim the textarea so letters work.
+  const decoy = document.createElement("button");
+  document.body.appendChild(decoy);
+  decoy.focus();
+  decoy.blur();
+  assert.ok(
+    document.activeElement === document.body ||
+      document.activeElement == null ||
+      document.activeElement === document.documentElement,
+    "precondition: textarea is not focused after blur-to-body",
+  );
+
+  const substrate = view.container.querySelector(".buzz-terminal-substrate");
+  act(() => {
+    fireEvent.wheel(substrate, {
+      deltaMode: 0,
+      deltaY: 40,
+      clientX: 40,
+      clientY: 40,
+    });
+  });
+  assert.equal(
+    document.activeElement,
+    input,
+    "wheel must focus the hidden textarea even in mouse mode",
+  );
+
+  // Printable chars reach the PTY via textarea `input` (encodeTerminalKey
+  // returns null for letters). With focus restored, onInput must fire.
+  act(() => {
+    fireEvent.input(input, { target: { value: "x" } });
+  });
+  assert.deepEqual(calls.input, ["x"]);
+
+  // Capture-phase forwarder: if focus drifts again to body, a letter keydown
+  // must still write — Backspace already worked via encode; letters did not.
+  decoy.focus();
+  decoy.blur();
+  act(() => {
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "y",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+  assert.ok(
+    calls.input.includes("y"),
+    "body-focused letter keydown must forward to PTY while Term owns input",
+  );
+  decoy.remove();
+});
+
+test("contextmenu → blur → keydown a still reaches PTY", async () => {
+  const { calls, view } = fixture({
+    onToggle() {},
+  });
+  await ready(view);
+  const input = view.getByLabelText("Terminal input");
+  const viewport = view.getByTestId("buzz-terminal-viewport");
+
+  // Claim Term ownership first (same as a prior click into the viewport).
+  fireEvent.pointerDown(viewport, {
+    button: 0,
+    clientX: 20,
+    clientY: 20,
+    pointerId: 1,
+  });
+  assert.equal(document.activeElement, input);
+
+  act(() => {
+    fireEvent.pointerDown(viewport, {
+      button: 2,
+      clientX: 40,
+      clientY: 40,
+      pointerId: 2,
+    });
+    fireEvent.pointerUp(viewport, {
+      button: 2,
+      clientX: 40,
+      clientY: 40,
+      pointerId: 2,
+    });
+    fireEvent.contextMenu(viewport, {
+      button: 2,
+      clientX: 40,
+      clientY: 40,
+    });
+  });
+
+  // Browser / webview often steals focus after contextmenu even when we
+  // preventDefault + focus synchronously. Mimic that steal, then type.
+  const decoy = document.createElement("button");
+  document.body.appendChild(decoy);
+  decoy.focus();
+  decoy.blur();
+  assert.ok(
+    document.activeElement === document.body ||
+      document.activeElement == null ||
+      document.activeElement === document.documentElement,
+    "precondition: textarea blurred to body after contextmenu",
+  );
+
+  act(() => {
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "a",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+  assert.deepEqual(
+    calls.input,
+    ["a"],
+    "body-focused keydown a after contextmenu must call sendInput",
+  );
+  decoy.remove();
+});
+
+test("mouse-mode right-click forwards right CSI and keeps typing alive", async () => {
+  const mouse = [];
+  const { calls, view } = fixture({
+    mouseReportingEnabled: true,
+    onMouse(event) {
+      mouse.push(event);
+    },
+    onToggle() {},
+  });
+  await ready(view);
+  const input = view.getByLabelText("Terminal input");
+  const viewport = view.getByTestId("buzz-terminal-viewport");
+  const canvas = view.container.querySelector(
+    ".buzz-terminal-viewport > canvas:not(.buzz-terminal-welcome)",
+  );
+  assert.ok(canvas);
+  canvas.getBoundingClientRect = () => ({
+    bottom: 240,
+    height: 240,
+    left: 0,
+    right: 800,
+    top: 0,
+    width: 800,
+    x: 0,
+    y: 0,
+    toJSON() {},
+  });
+
+  // Left click still reports (control: mouse path is live).
+  act(() => {
+    fireEvent.pointerDown(viewport, {
+      button: 0,
+      clientX: 20,
+      clientY: 20,
+      pointerId: 1,
+    });
+    fireEvent.pointerUp(viewport, {
+      button: 0,
+      clientX: 20,
+      clientY: 20,
+      pointerId: 1,
+    });
+  });
+  assert.ok(
+    mouse.some((event) => event.button === "left" && event.action === "press"),
+    "left press must still reach PTY in mouse mode",
+  );
+  assert.ok(
+    mouse.some(
+      (event) => event.button === "left" && event.action === "release",
+    ),
+    "left release must still reach PTY in mouse mode",
+  );
+
+  let contextMenuDefaultPrevented = false;
+  act(() => {
+    fireEvent.pointerDown(viewport, {
+      button: 2,
+      buttons: 2,
+      clientX: 40,
+      clientY: 40,
+      pointerId: 3,
+    });
+    fireEvent.pointerMove(viewport, {
+      button: 2,
+      buttons: 2,
+      clientX: 48,
+      clientY: 44,
+      pointerId: 3,
+    });
+    fireEvent.pointerUp(viewport, {
+      button: 2,
+      buttons: 0,
+      clientX: 48,
+      clientY: 44,
+      pointerId: 3,
+    });
+    const evt = new window.MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      button: 2,
+      clientX: 48,
+      clientY: 44,
+    });
+    viewport.dispatchEvent(evt);
+    contextMenuDefaultPrevented = evt.defaultPrevented;
+  });
+
+  assert.ok(
+    mouse.some((event) => event.button === "right" && event.action === "press"),
+    "right press CSI must reach PTY for herdr context menus",
+  );
+  assert.ok(
+    mouse.some((event) => event.button === "right" && event.action === "move"),
+    "right move CSI must reach PTY while button is held",
+  );
+  assert.ok(
+    mouse.some(
+      (event) => event.button === "right" && event.action === "release",
+    ),
+    "right release CSI must reach PTY",
+  );
+  assert.ok(
+    contextMenuDefaultPrevented,
+    "browser native contextmenu must stay suppressed",
+  );
+  assert.equal(
+    document.activeElement,
+    input,
+    "right-click must leave terminal input focused (hard reclaim)",
+  );
+
+  // After right-click blur steal, printable keydown must still reach PTY.
+  const decoy = document.createElement("button");
+  document.body.appendChild(decoy);
+  decoy.focus();
+  decoy.blur();
+  act(() => {
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "z",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+  assert.ok(
+    calls.input.includes("z"),
+    "printable after mouse-mode right-click must reach PTY",
+  );
+  decoy.remove();
+});
+
+test("textarea-focused printable keydown does not double-send via onInput", async () => {
+  const { calls, view } = fixture({
+    onToggle() {},
+  });
+  await ready(view);
+  const input = view.getByLabelText("Terminal input");
+  const viewport = view.getByTestId("buzz-terminal-viewport");
+  fireEvent.pointerDown(viewport, {
+    button: 0,
+    clientX: 20,
+    clientY: 20,
+    pointerId: 1,
+  });
+  assert.equal(document.activeElement, input);
+
+  act(() => {
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "q",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    // If preventDefault failed, a synthetic input would otherwise double-send.
+    fireEvent.input(input, { target: { value: "q" } });
+  });
+  assert.deepEqual(
+    calls.input,
+    ["q"],
+    "keydown encode + onInput guard must send printable once",
+  );
 });

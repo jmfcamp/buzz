@@ -465,6 +465,27 @@ export function shouldClearKnownModelForSelectionScope({
   );
 }
 
+
+/** True when Desktop attaches buzz-dev-mcp for this harness (Observe/Drive). */
+export function runtimeSupportsInAppBrowserTools(
+  runtime: Pick<AcpRuntimeCatalogEntry, "mcpCommand"> | null | undefined,
+): boolean {
+  return Boolean(runtime?.mcpCommand?.trim());
+}
+
+/** Short create/edit hint under the harness picker. */
+export function inAppBrowserToolsHarnessHint(
+  runtime: AcpRuntimeCatalogEntry | null | undefined,
+): string | null {
+  if (!runtime) {
+    return null;
+  }
+  if (runtimeSupportsInAppBrowserTools(runtime)) {
+    return "Includes Buzz in-app browser Observe/Drive (console, network, drive).";
+  }
+  return null;
+}
+
 export function formatRuntimeOptionLabel(runtime: AcpRuntimeCatalogEntry) {
   const suffix =
     runtime.availability === "adapter_missing"

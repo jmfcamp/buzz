@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { after, afterEach, before, beforeEach, test } from "node:test";
 
 import { JSDOM } from "jsdom";
-import { setTerminalPanelMode } from "./terminalPanelStore.ts";
+import {
+  openTerminalPanel,
+  setTerminalPanelMode,
+} from "./terminalPanelStore.ts";
 
 // `pretendToBeVisual` is what gives jsdom requestAnimationFrame. The banner's
 // animation loop needs it; without it the loop silently never runs and every
@@ -115,6 +118,17 @@ before(async () => {
           closeResolver = resolve;
         });
       }
+      if (command === "term_herdr_available") {
+        return Promise.resolve(true);
+      }
+      if (command === "term_open_in_herdr") {
+        return Promise.resolve({
+          ok: true,
+          herdrBin: "/mock/herdr",
+          sessionName: "buzz",
+          attachArgv: ["session", "attach", "buzz"],
+        });
+      }
       return Promise.resolve();
     },
     transformCallback(callback) {
@@ -189,6 +203,7 @@ test("mounted bootstrap passes GUI context and ACKs only after consuming a frame
     pixelWidth: 840,
     relayUrl: "wss://relay.example",
     rows: 24,
+    scrollback: 10000,
     threadId: "thread-1",
   });
 
@@ -391,12 +406,100 @@ test("opening a tab keeps terminal ownership while its attachment is pending", a
   view.unmount();
 });
 
-test("restoring a channel resizes its PTY to the current dock viewport", async () => {
+test("channel scope shows only that channel and auto-creates on switch", async () => {
   const { createElement } = await import("react");
   const { act, render, waitFor } = await import("@testing-library/react");
   const { ThemeProvider } = await import("@/shared/theme/ThemeProvider");
   const { TerminalBootstrap } = await import("./TerminalBootstrap.tsx");
+  const { openTerminalPanel, getTerminalPanelSnapshotForTests } = await import(
+    "./terminalPanelStore.ts"
+  );
 
+  // In-channel open → channel scope.
+  openTerminalPanel("docked", "channel");
+  assert.equal(getTerminalPanelSnapshotForTests().tabScope, "channel");
+
+  const props = (channelId, channelName) => ({
+    channelId,
+    channelName,
+    npub: "npub1owner",
+    relayUrl: "wss://relay.example",
+    threadId: null,
+  });
+  const tree = (channelId, channelName) =>
+    createElement(
+      ThemeProvider,
+      null,
+      createElement(TerminalBootstrap, props(channelId, channelName)),
+    );
+  const view = render(tree("channel-a", "alpha"));
+  await waitFor(() =>
+    assert.ok(
+      calls.some(
+        ({ command, args }) =>
+          command === "terminal_attach" &&
+          args.request.channelId === "channel-a",
+      ),
+    ),
+  );
+  await waitFor(() =>
+    assert.ok(view.queryByRole("tab", { name: /Terminal 1/ })),
+  );
+
+  view.rerender(tree("channel-b", "beta"));
+  await waitFor(() =>
+    assert.ok(
+      calls.some(
+        ({ command, args }) =>
+          command === "terminal_attach" &&
+          args.request.channelId === "channel-b",
+      ),
+    ),
+  );
+  // Channel-scoped strip: only beta's tab is listed (alpha stays live off-strip).
+  await waitFor(() =>
+    assert.ok(view.queryByRole("tab", { name: /Terminal 1/ })),
+  );
+  assert.equal(view.queryAllByRole("tab").length, 1);
+
+  canvasWidth = 1_680;
+  await act(async () => resizeCallback());
+  await waitFor(() =>
+    assert.ok(
+      calls.some(
+        ({ command, args }) =>
+          command === "terminal_resize" &&
+          args.sessionId === "session-2" &&
+          args.columns === 200,
+      ),
+    ),
+  );
+
+  view.rerender(tree("channel-a", "alpha"));
+  await waitFor(() =>
+    assert.ok(
+      calls.some(
+        ({ command, args }) =>
+          command === "terminal_resize" &&
+          args.sessionId === "session-1" &&
+          args.columns === 200,
+      ),
+    ),
+  );
+  assert.equal(view.queryAllByRole("tab").length, 1);
+  view.unmount();
+});
+
+test("left-nav all scope shows every channel tab with provenance", async () => {
+  const { createElement } = await import("react");
+  const { act, render, waitFor } = await import("@testing-library/react");
+  const { ThemeProvider } = await import("@/shared/theme/ThemeProvider");
+  const { TerminalBootstrap } = await import("./TerminalBootstrap.tsx");
+  const { openTerminalPanel, getTerminalPanelSnapshotForTests } = await import(
+    "./terminalPanelStore.ts"
+  );
+
+  openTerminalPanel("docked", "channel");
   const props = (channelId, channelName) => ({
     channelId,
     channelName,
@@ -431,30 +534,37 @@ test("restoring a channel resizes its PTY to the current dock viewport", async (
       ),
     ),
   );
-  canvasWidth = 1_680;
-  await act(async () => resizeCallback());
+  const attachesBeforeGlobal = calls.filter(
+    ({ command }) => command === "terminal_attach",
+  ).length;
+
+  // Left-nav Buzz Term → global all tabs; must not spawn empty.
+  act(() => openTerminalPanel("maximized", "all"));
   await waitFor(() =>
-    assert.ok(
-      calls.some(
-        ({ command, args }) =>
-          command === "terminal_resize" &&
-          args.sessionId === "session-2" &&
-          args.columns === 200,
-      ),
-    ),
+    assert.equal(getTerminalPanelSnapshotForTests().tabScope, "all"),
+  );
+  await waitFor(() => assert.equal(view.queryAllByRole("tab").length, 2));
+  assert.ok(
+    view.queryByRole("tab", { name: /alpha/ }),
+    "global strip labels channel-a tab with channel name",
+  );
+  assert.ok(
+    view.queryByRole("tab", { name: /beta/ }),
+    "global strip labels channel-b tab with channel name",
+  );
+  assert.equal(
+    calls.filter(({ command }) => command === "terminal_attach").length,
+    attachesBeforeGlobal,
+    "opening global view must not create a blank tab",
   );
 
-  view.rerender(tree("channel-a", "alpha"));
-  await waitFor(() =>
-    assert.ok(
-      calls.some(
-        ({ command, args }) =>
-          command === "terminal_resize" &&
-          args.sessionId === "session-1" &&
-          args.columns === 200,
-      ),
-    ),
-  );
+  // Navigate away (null channel): global view keeps tabs.
+  view.rerender(tree(null, null));
+  await act(async () => {
+    await Promise.resolve();
+  });
+  assert.equal(getTerminalPanelSnapshotForTests().mode, "maximized");
+  assert.equal(view.queryAllByRole("tab").length, 2);
   view.unmount();
 });
 
@@ -614,7 +724,52 @@ test("wheel deltas reach terminal_scroll with the DOM sign intact", async () => 
   view.unmount();
 });
 
-test("a non-channel route closes the panel and ignores the terminal shortcut", async () => {
+test("channel scope with null context does not list foreign tabs", async () => {
+  const { createElement } = await import("react");
+  const { act, render, waitFor } = await import("@testing-library/react");
+  const { ThemeProvider } = await import("@/shared/theme/ThemeProvider");
+  const { TerminalBootstrap } = await import("./TerminalBootstrap.tsx");
+  const { openTerminalPanel, getTerminalPanelSnapshotForTests } = await import(
+    "./terminalPanelStore.ts"
+  );
+
+  openTerminalPanel("docked", "channel");
+  const props = (channelId) => ({
+    channelId,
+    channelName: channelId ? "alpha" : null,
+    npub: "npub1owner",
+    relayUrl: "wss://relay.example",
+    threadId: null,
+  });
+  const tree = (channelId) =>
+    createElement(
+      ThemeProvider,
+      null,
+      createElement(TerminalBootstrap, props(channelId)),
+    );
+  const view = render(tree("channel-a"));
+  await waitFor(() =>
+    assert.ok(calls.some(({ command }) => command === "terminal_attach")),
+  );
+  await waitFor(() =>
+    assert.ok(view.queryByRole("tab", { name: /Terminal 1/ })),
+  );
+
+  view.rerender(tree(null));
+  await act(async () => {
+    await Promise.resolve();
+  });
+  // Channel scope + no active channel → empty strip; PTYs stay alive in state.
+  assert.equal(getTerminalPanelSnapshotForTests().mode, "docked");
+  assert.equal(view.queryByRole("tab"), null);
+  assert.equal(
+    calls.filter(({ command }) => command === "terminal_attach").length,
+    1,
+  );
+  view.unmount();
+});
+
+test("left-nav maximize with no sessions opens empty global panel", async () => {
   const { createElement } = await import("react");
   const { act, render, waitFor } = await import("@testing-library/react");
   const { ThemeProvider } = await import("@/shared/theme/ThemeProvider");
@@ -623,7 +778,7 @@ test("a non-channel route closes the panel and ignores the terminal shortcut", a
     "./terminalPanelStore.ts"
   );
 
-  setTerminalPanelMode("docked");
+  setTerminalPanelMode("closed");
   const view = render(
     createElement(
       ThemeProvider,
@@ -637,19 +792,186 @@ test("a non-channel route closes the panel and ignores the terminal shortcut", a
       }),
     ),
   );
+  act(() => openTerminalPanel("maximized", "all"));
   await waitFor(() =>
-    assert.equal(getTerminalPanelSnapshotForTests().mode, "closed"),
+    assert.equal(getTerminalPanelSnapshotForTests().mode, "maximized"),
+  );
+  assert.equal(getTerminalPanelSnapshotForTests().tabScope, "all");
+  assert.equal(
+    calls.filter(({ command }) => command === "terminal_attach").length,
+    0,
+    "must not invent a channel to spawn a blank PTY",
+  );
+  assert.equal(view.queryByRole("tab"), null);
+  view.unmount();
+});
+
+test("left-nav maximized+all with channel context creates in-app session when host is buzz-term", async () => {
+  const { createElement } = await import("react");
+  const { act, render, waitFor } = await import("@testing-library/react");
+  const { ThemeProvider } = await import("@/shared/theme/ThemeProvider");
+  const { TerminalBootstrap } = await import("./TerminalBootstrap.tsx");
+  const { getTerminalPanelSnapshotForTests } = await import(
+    "./terminalPanelStore.ts"
+  );
+  const { setTermSessionHost } = await import("./termPreferences.ts");
+
+  setTermSessionHost("buzz-term");
+  setTerminalPanelMode("closed");
+  const view = render(
+    createElement(
+      ThemeProvider,
+      null,
+      createElement(TerminalBootstrap, {
+        channelId: "channel-1",
+        channelName: "general",
+        npub: "npub1owner",
+        relayUrl: "wss://relay.example",
+        threadId: null,
+      }),
+    ),
   );
 
-  const chord = {
-    bubbles: true,
-    code: "KeyJ",
-    metaKey: true,
-  };
-  act(() => {
-    window.dispatchEvent(new KeyboardEvent("keydown", chord));
-    window.dispatchEvent(new KeyboardEvent("keyup", chord));
-  });
-  assert.equal(getTerminalPanelSnapshotForTests().mode, "closed");
+  // Panel starts closed — no auto-create yet.
+  assert.equal(
+    calls.filter(({ command }) => command === "terminal_attach").length,
+    0,
+  );
+
+  act(() => openTerminalPanel("maximized", "all"));
+  await waitFor(() =>
+    assert.equal(getTerminalPanelSnapshotForTests().mode, "maximized"),
+  );
+  assert.equal(getTerminalPanelSnapshotForTests().tabScope, "all");
+
+  await waitFor(() =>
+    assert.ok(
+      calls.some(({ command }) => command === "terminal_attach"),
+      "must create an in-app PTY — never leave empty maximized chrome",
+    ),
+  );
+  await waitFor(() =>
+    assert.ok(view.queryByRole("tab", { name: /Terminal 1|general/ })),
+  );
+  assert.equal(
+    calls.filter(({ command }) => command === "terminal_attach").length,
+    1,
+  );
   view.unmount();
+});
+
+test("herdr host left-nav maximized+all with channel context creates herdr attach", async () => {
+  const { createElement } = await import("react");
+  const { act, render, waitFor } = await import("@testing-library/react");
+  const { ThemeProvider } = await import("@/shared/theme/ThemeProvider");
+  const { TerminalBootstrap } = await import("./TerminalBootstrap.tsx");
+  const { getTerminalPanelSnapshotForTests } = await import(
+    "./terminalPanelStore.ts"
+  );
+  const { setTermSessionHost, resetTermPreferencesForTests } = await import(
+    "./termPreferences.ts"
+  );
+
+  resetTermPreferencesForTests();
+  setTermSessionHost("herdr");
+  setTerminalPanelMode("closed");
+  const view = render(
+    createElement(
+      ThemeProvider,
+      null,
+      createElement(TerminalBootstrap, {
+        channelId: "channel-1",
+        channelName: "general",
+        npub: "npub1owner",
+        relayUrl: "wss://relay.example",
+        threadId: null,
+      }),
+    ),
+  );
+
+  act(() => openTerminalPanel("maximized", "all"));
+  await waitFor(() =>
+    assert.equal(getTerminalPanelSnapshotForTests().mode, "maximized"),
+  );
+
+  await waitFor(() =>
+    assert.ok(
+      calls.some(
+        ({ command, args }) =>
+          command === "terminal_attach" &&
+          args.request.program === "/mock/herdr" &&
+          Array.isArray(args.request.args) &&
+          args.request.args.join(" ") === "session attach buzz",
+      ),
+      "must spawn in-app herdr session attach — not leave maximized chrome blank",
+    ),
+  );
+  assert.ok(
+    calls.some(({ command }) => command === "term_open_in_herdr"),
+    "plain open probes herdr (no workspace create required by mock)",
+  );
+  const openCall = calls.find(
+    ({ command }) => command === "term_open_in_herdr",
+  );
+  assert.equal(openCall.args.request.createWorkspace, false);
+  await waitFor(() =>
+    assert.ok(view.queryByRole("tab", { name: /herdr|general/i })),
+  );
+  view.unmount();
+  resetTermPreferencesForTests();
+});
+
+test("herdr host cold left-nav without channel still creates herdr attach", async () => {
+  const { createElement } = await import("react");
+  const { act, render, waitFor } = await import("@testing-library/react");
+  const { ThemeProvider } = await import("@/shared/theme/ThemeProvider");
+  const { TerminalBootstrap } = await import("./TerminalBootstrap.tsx");
+  const { getTerminalPanelSnapshotForTests } = await import(
+    "./terminalPanelStore.ts"
+  );
+  const { setTermSessionHost, resetTermPreferencesForTests } = await import(
+    "./termPreferences.ts"
+  );
+
+  resetTermPreferencesForTests();
+  setTermSessionHost("herdr");
+  setTerminalPanelMode("closed");
+  const view = render(
+    createElement(
+      ThemeProvider,
+      null,
+      createElement(TerminalBootstrap, {
+        channelId: null,
+        channelName: null,
+        npub: "npub1owner",
+        relayUrl: "wss://relay.example",
+        threadId: null,
+      }),
+    ),
+  );
+
+  act(() => openTerminalPanel("maximized", "all"));
+  await waitFor(() =>
+    assert.equal(getTerminalPanelSnapshotForTests().tabScope, "all"),
+  );
+
+  await waitFor(() =>
+    assert.ok(
+      calls.some(
+        ({ command, args }) =>
+          command === "terminal_attach" &&
+          args.request.program === "/mock/herdr",
+      ),
+      "cold left-nav with identity must still spawn herdr attach",
+    ),
+  );
+  assert.ok(
+    calls.some(
+      ({ command, args }) =>
+        command === "terminal_attach" &&
+        args.request.channelId === "__buzz_term__",
+    ),
+  );
+  view.unmount();
+  resetTermPreferencesForTests();
 });

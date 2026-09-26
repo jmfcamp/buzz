@@ -27,7 +27,7 @@ export type AppSidebarProps = {
   channels: Channel[];
   currentPubkey?: string;
   fallbackDisplayName?: string;
-  homeBadgeCount: number;
+
   isAddCommunityOpen?: boolean;
   isLoading: boolean;
   isCreatingChannel: boolean;
@@ -42,6 +42,7 @@ export type AppSidebarProps = {
     | "home"
     | "channel"
     | "messages"
+    | "browsers"
     | "agents"
     | "bots"
     | "workflows"
@@ -88,6 +89,7 @@ export type AppSidebarProps = {
   onRemoveCommunity: (id: string) => Promise<LeaveCommunityResult | undefined>;
   onCreateAgent: () => void;
   onSelectAgents: () => void;
+  onSelectBrowsers: () => void;
   onSelectBots: () => void;
   onSelectPinnedSite: (pinId: string) => void;
   onSelectProjects: () => void;

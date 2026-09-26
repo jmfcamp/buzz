@@ -354,8 +354,24 @@ export const ChannelPane = React.memo(function ChannelPane({
       selectThreadComposerBotTypingPubkeys(botTypingEntries, openThreadHeadId),
     [botTypingEntries, openThreadHeadId],
   );
+  // Observer-sourced working bots (community bots included) should keep tool /
+  // step status in the thread composer, not typing-only.
+  const threadComposerWorkingBotPubkeys = React.useMemo(() => {
+    const seen = new Set<string>();
+    const merged: string[] = [];
+    for (const pubkey of [
+      ...threadComposerBotTypingPubkeys,
+      ...composerWorkingBotPubkeys,
+    ]) {
+      const key = pubkey.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(pubkey);
+    }
+    return merged;
+  }, [composerWorkingBotPubkeys, threadComposerBotTypingPubkeys]);
   const hasThreadComposerBotActivity =
-    threadComposerBotTypingPubkeys.length > 0;
+    threadComposerWorkingBotPubkeys.length > 0;
   const directMessageIntro = React.useMemo(
     () =>
       buildDirectMessageIntro({
@@ -676,7 +692,7 @@ export const ChannelPane = React.memo(function ChannelPane({
               onOpenAgentSession={onOpenAgentSession}
               openAgentSessionPubkey={openAgentSessionPubkey}
               profiles={profiles}
-              workingBotPubkeys={threadComposerBotTypingPubkeys}
+              workingBotPubkeys={threadComposerWorkingBotPubkeys}
               variant="inline"
             />
           ) : null
@@ -815,6 +831,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                   targetMessageId={targetMessageId}
                   splitThreadPanelOpen={settleTimelineForSplitAuxiliary}
                   threadUnreadCounts={threadUnreadCounts}
+                  activeThreadHeadId={threadHeadMessage?.id ?? null}
                 />
                 {isNonMemberView ? (
                   <div

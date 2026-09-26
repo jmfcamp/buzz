@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tauri::webview::{PageLoadEvent, WebviewBuilder};
+use tauri::webview::{NewWindowResponse, PageLoadEvent, WebviewBuilder};
 use tauri::{
     AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, Url, Webview, WebviewUrl,
 };
@@ -47,6 +47,14 @@ pub struct PlaygroundInspectResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PlaygroundNewTabRequest {
+    pub opener_sid: String,
+    pub opener_label: String,
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PlaygroundNavState {
     sid: String,
     can_go_back: bool,
@@ -63,9 +71,9 @@ pub struct PlaygroundPollResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaygroundScreenshotResult {
-    bytes: Vec<u8>,
-    mime: String,
-    filename: String,
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) mime: String,
+    pub(crate) filename: String,
 }
 
 struct PlaygroundSession {
@@ -422,17 +430,53 @@ fn hide_other_playgrounds(app: &AppHandle, keep_label: &str, window_label: &str)
     }
 }
 
+fn playground_sid_from_webview_label(label: &str) -> Option<String> {
+    let rest = label.strip_prefix(PLAYGROUND_LABEL_PREFIX)?;
+    let sid = rest.split("--").next()?.trim();
+    if sid.is_empty() {
+        None
+    } else {
+        Some(sid.to_string())
+    }
+}
+
 /// Close playground child webviews parented to `window_label` (pop-out teardown).
+/// Clears Observe/Drive grants for those labels so Drive locks do not orphan.
 pub fn close_playgrounds_for_window(app: &AppHandle, window_label: &str) {
     let window_label = normalize_window_label(Some(window_label));
+    let mut closed_labels: Vec<String> = Vec::new();
+    let mut closed_sids: Vec<String> = Vec::new();
     for webview in app.webviews().into_values() {
-        if !webview.label().starts_with(PLAYGROUND_LABEL_PREFIX) {
+        let label = webview.label().to_string();
+        if !label.starts_with(PLAYGROUND_LABEL_PREFIX) {
             continue;
         }
         if playground_parent_window_label(&webview) != window_label {
             continue;
         }
+        if let Some(sid) = playground_sid_from_webview_label(&label) {
+            closed_sids.push(sid);
+        }
+        closed_labels.push(label);
         let _ = webview.close();
+    }
+    for label in &closed_labels {
+        crate::browser_agent::clear_grant_for_label(app, label);
+    }
+    for sid in closed_sids {
+        let still_open = app.webviews().into_values().any(|webview| {
+            let label = webview.label();
+            label == playground_label(&sid)
+                || label.starts_with(&format!("{}{}--", PLAYGROUND_LABEL_PREFIX, sid))
+        });
+        if !still_open {
+            if let Some(manager) = app.try_state::<PlaygroundWebviewManager>() {
+                if let Ok(mut sessions) = manager.sessions.lock() {
+                    sessions.remove(&sid);
+                }
+            }
+            crate::browser_agent::clear_grants_for_surface(app, &sid);
+        }
     }
 }
 
@@ -444,13 +488,20 @@ fn data_store_identifier(sid: &str) -> [u8; 16] {
     .as_bytes()
 }
 
-fn emit_nav(app: &AppHandle, state: PlaygroundNavState) {
-    if let Err(error) = app.emit("playground-webview-nav", state) {
+fn emit_nav(app: &AppHandle, state: PlaygroundNavState, webview_label: &str) {
+    crate::browser_agent::record_nav_event(app, webview_label, &state.current_url, None);
+    if let Err(error) = app.emit("playground-webview-nav", &state) {
         eprintln!("buzz-desktop: playground-webview-nav emit failed: {error}");
     }
 }
 
-fn record_navigation(app: &AppHandle, manager: &PlaygroundWebviewManager, sid: &str, url: &Url) {
+fn record_navigation(
+    app: &AppHandle,
+    manager: &PlaygroundWebviewManager,
+    sid: &str,
+    window_label: &str,
+    url: &Url,
+) {
     let mut sessions = match manager.sessions.lock() {
         Ok(guard) => guard,
         Err(_) => return,
@@ -458,13 +509,14 @@ fn record_navigation(app: &AppHandle, manager: &PlaygroundWebviewManager, sid: &
     let Some(session) = sessions.get_mut(sid) else {
         return;
     };
+    let webview_label = playground_webview_label(sid, window_label);
     if session.programmatic {
         session.programmatic = false;
-        emit_nav(app, session.nav_state(sid));
+        emit_nav(app, session.nav_state(sid), &webview_label);
         return;
     }
     session.push(url.clone());
-    emit_nav(app, session.nav_state(sid));
+    emit_nav(app, session.nav_state(sid), &webview_label);
 }
 
 fn remember_bounds(manager: &PlaygroundWebviewManager, sid: &str, bounds: &PlaygroundBounds) {
@@ -592,7 +644,8 @@ pub async fn playground_webview_show(
         } else {
             webview.hide().map_err(|error| error.to_string())?;
         }
-        emit_nav(&app, nav.clone());
+        crate::browser_agent::ensure_instrumentation_for_label(&app, &label);
+        emit_nav(&app, nav.clone(), &label);
         return Ok(nav);
     }
 
@@ -612,22 +665,47 @@ pub async fn playground_webview_show(
     std::fs::create_dir_all(&profile_dir).map_err(|error| error.to_string())?;
     let nav_app = app.clone();
     let nav_sid = sid.clone();
-    let mut builder = WebviewBuilder::new(label, WebviewUrl::External(url))
+    let nav_window = window_label.clone();
+    let load_app = app.clone();
+    let load_label = label.clone();
+    let mut builder = WebviewBuilder::new(label.clone(), WebviewUrl::External(url))
         .data_directory(profile_dir)
         .data_store_identifier(data_store_identifier(&sid))
         .devtools(true);
     if let Some(user_agent) = user_agent.as_deref().filter(|value| !value.is_empty()) {
         builder = builder.user_agent(user_agent);
     }
+    let new_tab_app = app.clone();
+    let new_tab_sid = sid.clone();
+    let new_tab_label = label.clone();
     let builder = builder
         .on_navigation(move |next| {
             if let Some(manager) = nav_app.try_state::<PlaygroundWebviewManager>() {
-                record_navigation(&nav_app, &manager, &nav_sid, next);
+                record_navigation(&nav_app, &manager, &nav_sid, &nav_window, next);
             }
             true
         })
-        .on_page_load(|_webview, payload| {
-            let _ = payload.event() == PageLoadEvent::Finished;
+        .on_page_load(move |_webview, payload| {
+            if payload.event() == PageLoadEvent::Finished {
+                crate::browser_agent::ensure_instrumentation_for_label(&load_app, &load_label);
+                // Main-frame nav + title (deduped). Prefer over raw on_navigation spam.
+                crate::browser_agent::record_nav_from_page(&load_app, &load_label);
+            }
+        })
+        // MVP B: window.open / target=_blank → frontend sibling tab; deny native popup.
+        // Opener may break (window.opener / return value) — documented intentionally.
+        .on_new_window(move |url, _features| {
+            let payload = PlaygroundNewTabRequest {
+                opener_sid: new_tab_sid.clone(),
+                opener_label: new_tab_label.clone(),
+                url: url.to_string(),
+            };
+            if let Err(error) = new_tab_app.emit("playground-webview-new-tab", &payload) {
+                eprintln!(
+                    "buzz-desktop: playground-webview-new-tab emit failed: {error}"
+                );
+            }
+            NewWindowResponse::Deny
         });
 
     let origin = window_content_origin(&window);
@@ -649,7 +727,8 @@ pub async fn playground_webview_show(
         user_agent.as_deref(),
         false,
     )?;
-    emit_nav(&app, nav.clone());
+    crate::browser_agent::ensure_instrumentation_for_label(&app, &label);
+    emit_nav(&app, nav.clone(), &label);
     Ok(nav)
 }
 
@@ -729,6 +808,30 @@ pub async fn playground_webview_close(
         if let Ok(mut sessions) = manager.sessions.lock() {
             sessions.remove(&sid);
         }
+        crate::browser_agent::clear_grants_for_surface(&app, &sid);
+    } else {
+        // Prefer rebinding the grant onto a remaining host for this sid so
+        // detach/close of one window does not drop Drive/Observe.
+        let closed = playground_webview_label(&sid, &window_label);
+        let survivor = app.webviews().into_values().find_map(|webview| {
+            let label = webview.label().to_string();
+            if label == playground_label(&sid)
+                || label.starts_with(&format!("{}{}--", PLAYGROUND_LABEL_PREFIX, sid))
+            {
+                if label != closed {
+                    Some(label)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        });
+        if let Some(next_label) = survivor {
+            crate::browser_agent::ensure_instrumentation_for_label(&app, &next_label);
+        } else {
+            crate::browser_agent::clear_grant_for_label(&app, &closed);
+        }
     }
     Ok(())
 }
@@ -755,7 +858,11 @@ pub async fn playground_webview_close_all(
         .any(|webview| webview.label().starts_with(PLAYGROUND_LABEL_PREFIX));
     if !any_playground_left {
         if let Ok(mut sessions) = manager.sessions.lock() {
+            let sids: Vec<String> = sessions.keys().cloned().collect();
             sessions.clear();
+            for sid in sids {
+                crate::browser_agent::clear_grants_for_surface(&app, &sid);
+            }
         }
     }
     Ok(())
@@ -893,7 +1000,8 @@ fn navigate_history(
             navigate_playground(&webview, url)?;
         }
     }
-    emit_nav(app, target.1.clone());
+    let label = playground_webview_label(&sid, &window_label);
+    emit_nav(app, target.1.clone(), &label);
     Ok(target.1)
 }
 
@@ -934,10 +1042,11 @@ pub async fn playground_webview_navigate(
         session.push(url.clone());
         session.nav_state(&sid)
     };
-    if let Some(webview) = app.get_webview(&playground_webview_label(&sid, &window_label)) {
+    let label = playground_webview_label(&sid, &window_label);
+    if let Some(webview) = app.get_webview(&label) {
         navigate_playground(&webview, url)?;
     }
-    emit_nav(&app, nav.clone());
+    emit_nav(&app, nav.clone(), &label);
     Ok(nav)
 }
 
@@ -1080,11 +1189,28 @@ pub async fn playground_webview_poll(
 }
 
 #[tauri::command]
+pub async fn playground_webview_is_open(
+    app: AppHandle,
+    sid: String,
+    window_label: Option<String>,
+) -> Result<bool, String> {
+    let sid = sanitize_sid(&sid)?;
+    let window_label = normalize_window_label(window_label.as_deref());
+    Ok(app
+        .get_webview(&playground_webview_label(&sid, &window_label))
+        .is_some())
+}
+
+/// `full_page: true` captures the capped full scrollable document (optional API).
+/// Default / false = visible WKWebView bounds at native pixel size (Browsers
+/// list thumbs and agent/chrome PNG). Do not force snapshotWidth for thumbs.
+#[tauri::command]
 pub async fn playground_webview_screenshot(
     app: AppHandle,
     manager: State<'_, PlaygroundWebviewManager>,
     sid: String,
     window_label: Option<String>,
+    full_page: Option<bool>,
 ) -> Result<PlaygroundScreenshotResult, String> {
     let sid = sanitize_sid(&sid)?;
     let window_label = normalize_window_label(window_label.as_deref());
@@ -1096,7 +1222,7 @@ pub async fn playground_webview_screenshot(
         .get_webview(&webview_id)
         .ok_or_else(|| "playground webview is not open".to_string())?;
     let _ = manager;
-    capture::capture_playground_png(&webview, &webview_id)
+    capture::capture_playground_png(&webview, &webview_id, full_page.unwrap_or(false))
 }
 
 #[cfg(test)]

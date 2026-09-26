@@ -121,6 +121,15 @@
     width: 16px;
   }
 
+  .buzz-terminal-tab-channel {
+    opacity: 0.72;
+    font-weight: 500;
+  }
+
+  .buzz-terminal-tab-sep {
+    opacity: 0.45;
+  }
+
   .buzz-terminal-tab-title {
     overflow: hidden;
     text-overflow: ellipsis;
@@ -175,6 +184,7 @@
   }
 
   .buzz-terminal-viewport {
+    touch-action: none;
     overflow: hidden;
     position: relative;
   }

@@ -1,5 +1,5 @@
-import type * as React from "react";
-import { BellOff, ChevronDown, CircleDot, X } from "lucide-react";
+import * as React from "react";
+import { BellOff, ChevronDown, CircleDot, X, Pencil } from "lucide-react";
 
 import {
   ContextMenu,
@@ -21,6 +21,9 @@ import {
 } from "@/features/profile/ui/ProfileAvatarWithStatus";
 import type { Channel, PresenceStatus } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
+import { useDraftsSnapshot } from "@/features/messages/lib/useDrafts";
+import { channelShowsDraftIndicator } from "@/features/sidebar/lib/channelDraftIndicator";
+import { useLocation } from "@tanstack/react-router";
 import { useNow } from "@/shared/lib/useNow";
 import {
   SidebarGroup,
@@ -82,22 +85,6 @@ function UnreadCountBadge({
   );
 }
 
-function UnreadDotBadge({
-  channelName,
-  className,
-}: {
-  channelName: string;
-  className?: string;
-}) {
-  return (
-    <span
-      className={cn("h-2 w-2 shrink-0 rounded-full bg-primary", className)}
-      data-testid={`channel-unread-dot-${channelName}`}
-    >
-      <span className="sr-only">unread</span>
-    </span>
-  );
-}
 
 function formatAgentCount(count: number) {
   return `${count} ${count === 1 ? "agent" : "agents"}`;
@@ -249,6 +236,7 @@ export function ChannelMenuButton({
   label,
   isActive,
   hasUnread,
+  unreadCount = 0,
   activeWorking,
   isMuted,
   dmParticipants,
@@ -259,6 +247,8 @@ export function ChannelMenuButton({
   label?: string;
   isActive: boolean;
   hasUnread: boolean;
+  /** Channel + thread unreads for this channel (observed unread count). */
+  unreadCount?: number;
   activeWorking?: ActiveChannelTurnSummary;
   isMuted?: boolean;
   dmParticipants?: SidebarDmParticipant[];
@@ -266,21 +256,56 @@ export function ChannelMenuButton({
   onSelectChannel: (channelId: string) => void;
 }) {
   const resolvedLabel = label ?? channel.name;
+  useDraftsSnapshot();
+  const location = useLocation();
+  const selectedThreadId = React.useMemo(() => {
+    const search = location.search as {
+      thread?: unknown;
+      threadRootId?: unknown;
+    };
+    const thread = search.threadRootId ?? search.thread;
+    return typeof thread === "string" && thread.trim() ? thread.trim() : null;
+  }, [location.search]);
+  const showDraftIndicator = channelShowsDraftIndicator(channel.id, {
+    selectedChannelId: isActive ? channel.id : null,
+    selectedThreadId: isActive ? selectedThreadId : null,
+  });
   const ephemeralDisplay = getEphemeralChannelDisplay(channel);
-  const { hasSidebarUnreadProjections, unreadThreadChannelIds } = useAppShell();
+  const {
+    hasSidebarUnreadProjections,
+    unreadThreadChannelIds,
+    unreadThreadFeedItems,
+  } = useAppShell();
   const hasThreadUnread =
     channel.channelType !== "dm" &&
     (hasSidebarUnreadProjections
       ? unreadThreadChannelIds.has(channel.id)
       : hasUnread);
+  // Slack-style: bold when the channel itself or any of its threads is unread.
+  const emphasizeUnread = hasUnread || hasThreadUnread;
+  const threadFeedUnreadCount = React.useMemo(() => {
+    if (channel.channelType === "dm") return 0;
+    let count = 0;
+    for (const item of unreadThreadFeedItems) {
+      if (item.channelId === channel.id) count += 1;
+    }
+    return count;
+  }, [channel.channelType, channel.id, unreadThreadFeedItems]);
+  const sidebarUnreadBadgeCount = Math.max(
+    unreadCount,
+    threadFeedUnreadCount,
+    hasThreadUnread ? 1 : 0,
+  );
   const showsEphemeralBadge =
-    Boolean(ephemeralDisplay) && !activeWorking && !isMuted && !hasThreadUnread;
+    Boolean(ephemeralDisplay) &&
+    !activeWorking &&
+    !isMuted &&
+    sidebarUnreadBadgeCount === 0;
   const inactiveContentOpacity = cn(
-    !isActive && !hasUnread && !isMuted && "opacity-80",
+    !isActive && !emphasizeUnread && !isMuted && "opacity-80",
     !isActive &&
       isMuted &&
-      !hasUnread &&
-      !hasThreadUnread &&
+      !emphasizeUnread &&
       "sidebar-muted-content opacity-50 dark:opacity-45",
   );
 
@@ -291,7 +316,7 @@ export function ChannelMenuButton({
         isActive
           ? "group-hover/menu-item:bg-sidebar-active group-hover/menu-item:text-sidebar-active-foreground"
           : "group-hover/menu-item:bg-sidebar-accent group-hover/menu-item:text-sidebar-foreground",
-        hasUnread &&
+        emphasizeUnread &&
           "font-bold text-sidebar-foreground hover:text-sidebar-foreground data-[active=true]:font-bold",
       )}
       data-channel-id={channel.id}
@@ -326,6 +351,13 @@ export function ChannelMenuButton({
             size="dm"
           />
         ) : null}
+        {showDraftIndicator ? (
+          <Pencil
+            aria-label="Draft"
+            className="h-3.5 w-3.5 shrink-0 text-sidebar-foreground/55"
+            data-testid={`channel-draft-${channel.id}`}
+          />
+        ) : null}
       </span>
       {showsEphemeralBadge && ephemeralDisplay ? (
         <EphemeralChannelBadge
@@ -357,12 +389,27 @@ export function ChannelMenuButton({
           )}
         />
       ) : null}
-      {hasThreadUnread ? (
-        <UnreadDotBadge channelName={channel.name} className="ml-auto" />
+      {channel.channelType !== "dm" && sidebarUnreadBadgeCount > 0 ? (
+        <span
+          className={cn(
+            "ml-auto shrink-0 rounded-full px-1.5 text-2xs tabular-nums",
+            isActive
+              ? "bg-sidebar-active-foreground/20 text-sidebar-active-foreground"
+              : "bg-primary/15 text-primary",
+          )}
+          data-testid={`channel-unread-${channel.name}`}
+        >
+          {formatUnreadCount(sidebarUnreadBadgeCount)}
+          <span className="sr-only">
+            {" "}
+            unread{sidebarUnreadBadgeCount === 1 ? "" : "s"}
+          </span>
+        </span>
       ) : null}
     </SidebarMenuButton>
   );
 
+  // Hover card is for thread activity / working agents — not plain channel counts.
   if (!activeWorking && !hasThreadUnread) {
     return button;
   }
@@ -480,6 +527,7 @@ export function SidebarSection({
                       activeWorking={activeWorkingByChannelId?.get(channel.id)}
                       dmParticipants={dmParticipantsByChannelId?.[channel.id]}
                       hasUnread={unreadChannelIds.has(channel.id)}
+                      unreadCount={unreadChannelCounts.get(channel.id) ?? 0}
                       isMuted={mutedChannelIds?.has(channel.id)}
                       isActive={
                         isActiveChannel && selectedChannelId === channel.id

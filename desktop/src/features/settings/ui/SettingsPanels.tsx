@@ -17,6 +17,7 @@ import {
   ShieldAlert,
   Smartphone,
   Smile,
+  SquareTerminal,
   Sun,
   SunMoon,
   Ticket,
@@ -63,6 +64,8 @@ import {
   LinkPreviewStyleSetting,
   ProminentActiveTabSetting,
 } from "./AppearanceSettingsControls";
+import { BuzzTermSettingsPanel } from "./BuzzTermSettingsPanel";
+import { SidebarMenuCountsSetting } from "./SidebarMenuCountsSetting";
 import { ChannelTemplatesSettingsCard } from "./ChannelTemplatesSettingsCard";
 import { ExperimentalFeaturesCard } from "./ExperimentalFeaturesCard";
 import { KeyboardShortcutsCard } from "./KeyboardShortcutsCard";
@@ -102,7 +105,8 @@ export type SettingsSection =
   | "local-archive"
   | "mobile"
   | "updates"
-  | "pinned-sites";
+  | "pinned-sites"
+  | "buzz-term";
 
 export const DEFAULT_SETTINGS_SECTION: SettingsSection = "profile";
 
@@ -125,6 +129,7 @@ const SETTINGS_SECTION_VALUES: readonly SettingsSection[] = [
   "mobile",
   "updates",
   "pinned-sites",
+  "buzz-term",
 ];
 
 export function isSettingsSection(value: unknown): value is SettingsSection {
@@ -204,6 +209,11 @@ export const settingsSections: SettingsSectionDescriptor[] = [
     value: "shortcuts",
     label: "Shortcuts",
     icon: Keyboard,
+  },
+  {
+    value: "buzz-term",
+    label: "Buzz Term",
+    icon: SquareTerminal,
   },
   {
     value: "pinned-sites",
@@ -809,6 +819,7 @@ function ThemeSettingsCard() {
         >
           <ConversationDisplaySettings />
           <LinkPreviewStyleSetting />
+          <SidebarMenuCountsSetting />
         </SettingsOptionGroup>
       </SettingsOptionGroupList>
     </section>
@@ -858,6 +869,8 @@ export function renderSettingsSection(
       return <ThemeSettingsCard />;
     case "shortcuts":
       return <KeyboardShortcutsCard />;
+    case "buzz-term":
+      return <BuzzTermSettingsPanel />;
     case "pinned-sites":
       return <PinnedSitesSettingsCard />;
     case "hosted-communities":

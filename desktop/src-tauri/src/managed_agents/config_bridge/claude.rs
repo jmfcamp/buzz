@@ -176,6 +176,92 @@ pub(crate) fn upsert_http_mcp_server(
     Ok(path)
 }
 
+
+/// Upsert a stdio MCP server into `.claude.json` (creates parents/file).
+/// `env` is merged into the server entry (e.g. `BUZZ_USER_SIGNER_DIR`).
+pub(crate) fn upsert_stdio_mcp_server(
+    config_dir: Option<&std::path::Path>,
+    name: &str,
+    command: &str,
+    args: &[String],
+    env: Option<&std::collections::HashMap<String, String>>,
+) -> Result<std::path::PathBuf, String> {
+    let path =
+        mcp_config_path(config_dir).ok_or_else(|| "home directory unavailable".to_string())?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("failed to create Claude config dir: {e}"))?;
+    }
+    let mut root: serde_json::Value = if path.exists() {
+        let raw = std::fs::read_to_string(&path)
+            .map_err(|e| format!("failed to read {}: {e}", path.display()))?;
+        if raw.trim().is_empty() {
+            serde_json::json!({})
+        } else {
+            serde_json::from_str(&raw)
+                .map_err(|e| format!("failed to parse {}: {e}", path.display()))?
+        }
+    } else {
+        serde_json::json!({})
+    };
+    if !root.is_object() {
+        root = serde_json::json!({});
+    }
+    let servers = root
+        .as_object_mut()
+        .ok_or_else(|| "Claude MCP config root must be an object".to_string())?
+        .entry("mcpServers")
+        .or_insert_with(|| serde_json::json!({}));
+    if !servers.is_object() {
+        *servers = serde_json::json!({});
+    }
+    let mut entry = serde_json::json!({
+        "type": "stdio",
+        "command": command,
+        "args": args,
+    });
+    if let Some(env_map) = env {
+        let mut obj = serde_json::Map::new();
+        for (k, v) in env_map {
+            if k.trim().is_empty() {
+                continue;
+            }
+            obj.insert(k.clone(), serde_json::Value::String(v.clone()));
+        }
+        if !obj.is_empty() {
+            entry
+                .as_object_mut()
+                .unwrap()
+                .insert("env".to_string(), serde_json::Value::Object(obj));
+        }
+    }
+    servers
+        .as_object_mut()
+        .unwrap()
+        .insert(name.to_string(), entry);
+    let pretty = serde_json::to_string_pretty(&root)
+        .map_err(|e| format!("failed to serialize Claude MCP config: {e}"))?;
+    {
+        use atomic_write_file::AtomicWriteFile;
+        use std::io::Write;
+        match AtomicWriteFile::open(&path) {
+            Ok(mut file) => {
+                file.write_all(pretty.as_bytes())
+                    .map_err(|e| format!("failed to write {}: {e}", path.display()))?;
+                file.write_all(b"\n")
+                    .map_err(|e| format!("failed to write {}: {e}", path.display()))?;
+                file.commit()
+                    .map_err(|e| format!("failed to write {}: {e}", path.display()))?;
+            }
+            Err(_) => {
+                std::fs::write(&path, pretty + "\n")
+                    .map_err(|e| format!("failed to write {}: {e}", path.display()))?;
+            }
+        }
+    }
+    Ok(path)
+}
+
 /// Remove an MCP server entry by name. No-op if missing.
 pub(crate) fn remove_mcp_server(
     config_dir: Option<&std::path::Path>,
@@ -414,5 +500,26 @@ mod tests {
         assert_eq!(hdrs["Authorization"], "Bearer wins");
         assert_eq!(hdrs["CF-Access-Client-Id"], "cf-id");
         assert_eq!(hdrs["CF-Access-Client-Secret"], "cf-secret");
+    }
+
+    #[test]
+    fn upsert_stdio_mcp_server_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut env = std::collections::HashMap::new();
+        env.insert("BUZZ_USER_SIGNER_DIR".into(), "/tmp/user-signer".into());
+        let path = upsert_stdio_mcp_server(
+            Some(dir.path()),
+            "buzz-dev-mcp",
+            "/usr/bin/buzz-dev-mcp",
+            &[],
+            Some(&env),
+        )
+        .unwrap();
+        let raw = std::fs::read_to_string(&path).unwrap();
+        let val: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        let server = &val["mcpServers"]["buzz-dev-mcp"];
+        assert_eq!(server["type"], "stdio");
+        assert_eq!(server["command"], "/usr/bin/buzz-dev-mcp");
+        assert_eq!(server["env"]["BUZZ_USER_SIGNER_DIR"], "/tmp/user-signer");
     }
 }

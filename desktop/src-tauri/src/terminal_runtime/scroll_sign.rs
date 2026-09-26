@@ -19,8 +19,8 @@ use serde::Deserialize;
 /// Serde already reads a one-field tuple struct as its inner value, so no
 /// `transparent` attribute is needed -- verified by the wire test below, which
 /// deserializes from a bare number.
-#[derive(Debug, Clone, Copy, Deserialize)]
-pub(crate) struct DomLines(i32);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub(crate) struct DomLines(pub(crate) i32);
 
 /// Scroll `terminal` by a DOM wheel delta in cells.
 ///

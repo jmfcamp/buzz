@@ -53,6 +53,7 @@ type TimelineMessageListProps = {
   huddleMemberPubkeysPending?: boolean;
   /** Event id of the oldest unread top-level message; renders a "New" divider above it. */
   firstUnreadMessageId?: string | null;
+  activeThreadHeadId?: string | null;
   followThreadById?: (rootId: string) => void;
   highlightedMessageId?: string | null;
   isFollowingThreadById?: (rootId: string) => boolean;
@@ -131,6 +132,7 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
   currentPubkey,
   firstUnreadMessageId = null,
   followThreadById,
+  activeThreadHeadId = null,
   highlightedMessageId = null,
   huddleMemberPubkeys,
   huddleMemberPubkeysPending = false,
@@ -246,6 +248,7 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
         case "message":
           return (
             <MessageRowItem
+              activeThreadHeadId={activeThreadHeadId}
               channelId={channelId}
               currentPubkey={currentPubkey}
               entry={item.entry}
@@ -291,6 +294,7 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
       channelId,
       alwaysShowMessageIdentity,
       currentPubkey,
+      activeThreadHeadId,
       followThreadById,
       highlightedMessageId,
       huddleMemberPubkeys,

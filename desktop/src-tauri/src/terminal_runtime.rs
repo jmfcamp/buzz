@@ -16,8 +16,12 @@ use uuid::Uuid;
 use crate::terminal_transport::{FramePublisher, OfferError, Publication, SubscriptionId};
 
 mod scroll_sign;
+mod wheel_dispatch;
+mod mouse_report;
 
 use scroll_sign::{scroll_by_dom_lines, DomLines};
+use wheel_dispatch::{plan as plan_wheel, WheelAction};
+use mouse_report::{encode_mouse_event, MouseAction, MouseButton};
 
 const MAX_LIVE_SESSIONS: usize = 20;
 const MAX_INPUT_BYTES: usize = 1024 * 1024;
@@ -38,6 +42,27 @@ pub(crate) struct AttachRequest {
     rows: u16,
     pixel_width: u16,
     pixel_height: u16,
+    /// Optional extra env injected at PTY spawn (e.g. CLAUDE_CONFIG_DIR).
+    #[serde(default)]
+    extra_env: Option<std::collections::HashMap<String, String>>,
+    /// Optional working directory for the PTY. When absent/invalid, portable-pty
+    /// falls back to the user home directory (today's default).
+    #[serde(default)]
+    cwd: Option<String>,
+    /// Optional shell path. Blank/absent → `$SHELL` / passwd / `/bin/sh`.
+    #[serde(default)]
+    shell: Option<String>,
+    /// Optional program to spawn instead of the login shell (e.g. herdr).
+    /// When set, `args` are passed as argv[1..]; login-shell argv0 rewriting
+    /// is skipped.
+    #[serde(default)]
+    program: Option<String>,
+    /// Arguments for `program` when set.
+    #[serde(default)]
+    args: Option<Vec<String>>,
+    /// Optional scrollback depth. Absent → 10_000 (Size::default).
+    #[serde(default)]
+    scrollback: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -136,6 +161,7 @@ pub(crate) struct FrameMessage {
     viewport: WireViewport,
     bracketed_paste: bool,
     focus_reporting: bool,
+    mouse_reporting: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -206,6 +232,7 @@ fn wire_publication(publication: Publication) -> Result<FrameMessage> {
         viewport: frame.viewport.into(),
         bracketed_paste: false,
         focus_reporting: false,
+        mouse_reporting: false,
     })
 }
 
@@ -256,10 +283,11 @@ impl Session {
     fn publish(&self, publication: Publication) {
         let subscription = publication.subscription_id;
         let sent = wire_publication(publication).and_then(|message| {
-            let (bracketed_paste, focus_reporting) = self.terminal.input_modes();
+            let (bracketed_paste, focus_reporting, mouse_reporting) = self.terminal.input_modes();
             let mut message = message;
             message.bracketed_paste = bracketed_paste;
             message.focus_reporting = focus_reporting;
+            message.mouse_reporting = mouse_reporting;
             self.channel
                 .lock()
                 .map_err(|e| e.to_string())?
@@ -333,14 +361,17 @@ impl TerminalSessions {
     }
 }
 
-fn size(columns: u16, rows: u16) -> Result<Size> {
+fn size(columns: u16, rows: u16, scrollback: Option<u32>) -> Result<Size> {
     if columns == 0 || rows == 0 {
         return Err("terminal dimensions must be non-zero".to_string());
     }
+    let scrollback = scrollback
+        .map(|n| (n as usize).clamp(100, 100_000))
+        .unwrap_or(Size::default().scrollback);
     Ok(Size {
         columns: usize::from(columns),
         screen_lines: usize::from(rows),
-        ..Size::default()
+        scrollback,
     })
 }
 
@@ -373,7 +404,7 @@ pub(crate) fn terminal_attach(
     on_frame: Channel<TerminalMessage>,
     state: tauri::State<'_, TerminalSessions>,
 ) -> Result<AttachResponse> {
-    let terminal_size = size(request.columns, request.rows)?;
+    let terminal_size = size(request.columns, request.rows, request.scrollback)?;
     let mut sessions = state.0.lock().map_err(|e| e.to_string())?;
 
     if let Some(existing_id) = request.session_id.as_deref() {
@@ -415,17 +446,43 @@ pub(crate) fn terminal_attach(
             request.pixel_height,
         ))
         .map_err(|e| e.to_string())?;
+    let shell_override = request
+        .shell
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
     let shell = {
         #[cfg(unix)]
         {
-            buzz_terminal::shell::resolve_shell(std::env::var("SHELL").ok().as_deref())
+            let from_env = std::env::var("SHELL").ok();
+            let candidate = shell_override.as_deref().or(from_env.as_deref());
+            buzz_terminal::shell::resolve_shell(candidate)
         }
         #[cfg(windows)]
         {
-            buzz_terminal::shell::resolve_shell(std::env::var("ComSpec").ok().as_deref())
+            let from_env = std::env::var("ComSpec").ok();
+            let candidate = shell_override.as_deref().or(from_env.as_deref());
+            buzz_terminal::shell::resolve_shell(candidate)
         }
     };
-    let mut command = CommandBuilder::new_default_prog();
+    let program_override = request
+        .program
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+    let mut command = if let Some(program) = program_override.as_deref() {
+        let mut cmd = CommandBuilder::new(program);
+        if let Some(args) = request.args.as_ref() {
+            for arg in args {
+                cmd.arg(arg);
+            }
+        }
+        cmd
+    } else {
+        CommandBuilder::new_default_prog()
+    };
     buzz_terminal::env_fence::fence_env(
         &mut command,
         &buzz_terminal::path::user_shell_path(),
@@ -441,6 +498,19 @@ pub(crate) fn terminal_attach(
     };
     for (key, value) in context_vars(&context) {
         command.env(key, value);
+    }
+    if let Some(extra) = request.extra_env.as_ref() {
+        for (key, value) in extra {
+            if buzz_terminal::context::is_well_formed_env_key(key) && !key.is_empty() {
+                command.env(key, value);
+            }
+        }
+    }
+    if let Some(cwd) = request.cwd.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let path = std::path::Path::new(cwd);
+        if path.is_dir() {
+            command.cwd(cwd);
+        }
     }
     let child = pair
         .slave
@@ -541,9 +611,10 @@ pub(crate) fn terminal_attach(
             if let Some(publication) = publication {
                 let subscription = publication.subscription_id;
                 let result = wire_publication(publication).and_then(|mut message| {
-                    let (bracketed_paste, focus_reporting) = reader_terminal.input_modes();
+                    let (bracketed_paste, focus_reporting, mouse_reporting) = reader_terminal.input_modes();
                     message.bracketed_paste = bracketed_paste;
                     message.focus_reporting = focus_reporting;
+                    message.mouse_reporting = mouse_reporting;
                     reader_channel
                         .lock()
                         .map_err(|e| e.to_string())?
@@ -673,7 +744,7 @@ pub(crate) fn terminal_resize(
     pixel_height: u16,
     state: tauri::State<'_, TerminalSessions>,
 ) -> Result<WireViewport> {
-    let terminal_size = size(columns, rows)?;
+    let terminal_size = size(columns, rows, None)?;
     state.with_session(&session_id, |session| {
         let new_pty_size = pty_size(columns, rows, pixel_width, pixel_height);
         session
@@ -727,10 +798,9 @@ fn publish_viewport(session: &Session) -> Result<()> {
     Ok(())
 }
 
-/// Scroll the viewport through scrollback.
-///
-/// `lines` is a DOM wheel delta in cells; see [`scroll_by_dom_lines`] for the
-/// sign convention and why it is written against `deltaY`.
+/// Handle a DOM wheel delta: scrollback, or PTY mouse / alt-scroll when the
+/// app has enabled those modes. See [`scroll_by_dom_lines`] and
+/// [`wheel_dispatch::plan`].
 #[tauri::command]
 pub(crate) fn terminal_scroll(
     session_id: String,
@@ -738,14 +808,112 @@ pub(crate) fn terminal_scroll(
     state: tauri::State<'_, TerminalSessions>,
 ) -> Result<()> {
     state.with_session(&session_id, |session| {
-        // Momentum keeps delivering events for a second or so after the
-        // fingers lift. Once history runs out the engine clamps and reports
-        // that nothing moved, so the tail costs a lock and a compare rather
-        // than a full-grid copy and a frame each.
-        if !scroll_by_dom_lines(&session.terminal, lines) {
-            return Ok(());
+        let action = {
+            let terminal = session.terminal.lock();
+            plan_wheel(&terminal, lines)
+        };
+        match action {
+            WheelAction::Pty(bytes) => {
+                if bytes.is_empty() {
+                    return Ok(());
+                }
+                session
+                    .writer
+                    .lock()
+                    .map_err(|e| e.to_string())?
+                    .write_all(&bytes)
+                    .map_err(|e| e.to_string())?;
+                Ok(())
+            }
+            WheelAction::Scrollback(dom_lines) => {
+                // Momentum keeps delivering events for a second or so after the
+                // fingers lift. Once history runs out the engine clamps and reports
+                // that nothing moved, so the tail costs a lock and a compare rather
+                // than a full-grid copy and a frame each.
+                if !scroll_by_dom_lines(&session.terminal, dom_lines) {
+                    return Ok(());
+                }
+                publish_viewport(session)
+            }
         }
-        publish_viewport(session)
+    })
+}
+
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MouseEventRequest {
+    session_id: String,
+    /// "left" | "middle" | "right" | "wheelUp" | "wheelDown"
+    button: String,
+    /// "press" | "release" | "move"
+    action: String,
+    /// 1-based cell column
+    column: u32,
+    /// 1-based cell row
+    row: u32,
+    #[serde(default)]
+    shift: bool,
+    #[serde(default)]
+    meta: bool,
+    #[serde(default)]
+    ctrl: bool,
+}
+
+/// Forward a pointer/touch mouse event to the PTY when the app enabled mouse mode.
+/// Returns whether the event was written (false = mouse mode off / ignored).
+#[tauri::command]
+pub(crate) fn terminal_mouse(
+    request: MouseEventRequest,
+    state: tauri::State<'_, TerminalSessions>,
+) -> Result<bool> {
+    let button = match request.button.as_str() {
+        "left" => MouseButton::Left,
+        "middle" => MouseButton::Middle,
+        "right" => MouseButton::Right,
+        "wheelUp" => MouseButton::WheelUp,
+        "wheelDown" => MouseButton::WheelDown,
+        _ => return Err("invalid mouse button".into()),
+    };
+    let action = match request.action.as_str() {
+        "press" => MouseAction::Press,
+        "release" => MouseAction::Release,
+        "move" => MouseAction::Move,
+        _ => return Err("invalid mouse action".into()),
+    };
+    let mut mods = 0u8;
+    if request.shift {
+        mods |= 4;
+    }
+    if request.meta {
+        mods |= 8;
+    }
+    if request.ctrl {
+        mods |= 16;
+    }
+    state.with_session(&request.session_id, |session| {
+        let bytes = {
+            let terminal = session.terminal.lock();
+            match encode_mouse_event(
+                &terminal,
+                button,
+                action,
+                request.column as usize,
+                request.row as usize,
+                mods,
+            ) {
+                None => return Ok(false),
+                Some(b) if b.is_empty() => return Ok(true),
+                Some(b) => b,
+            }
+        };
+        session
+            .writer
+            .lock()
+            .map_err(|e| e.to_string())?
+            .write_all(&bytes)
+            .map_err(|e| e.to_string())?;
+        Ok(true)
     })
 }
 
@@ -798,7 +966,7 @@ pub(crate) fn terminal_focus(
     state: tauri::State<'_, TerminalSessions>,
 ) -> Result<()> {
     state.with_session(&session_id, |session| {
-        let (_, enabled) = session.terminal.input_modes();
+        let (_, enabled, _) = session.terminal.input_modes();
         if enabled {
             session
                 .writer
@@ -986,9 +1154,9 @@ mod tests {
 
     #[test]
     fn dimensions_reject_zero_and_preserve_scrollback_default() {
-        assert!(size(0, 24).is_err());
-        assert!(size(80, 0).is_err());
-        let size = size(100, 40).unwrap();
+        assert!(size(0, 24, None).is_err());
+        assert!(size(80, 0, None).is_err());
+        let size = size(100, 40, None).unwrap();
         assert_eq!(
             (size.columns, size.screen_lines, size.scrollback),
             (100, 40, 10_000)

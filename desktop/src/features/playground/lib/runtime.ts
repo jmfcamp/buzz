@@ -10,12 +10,25 @@ import {
 
 import { extractPlaygroundCards } from "./card.ts";
 import {
+  addPlaygroundTab,
+  ensureBrowserForSid,
+  getLiveBrowserForSid,
+  getPlaygroundBrowser,
   getPlaygroundStore,
   listPlaygroundSessions,
   markPlaygroundUpdate,
   notePlaygroundCard,
   subscribePlayground,
+  switchPlaygroundTab,
 } from "./sessions.ts";
+import { isAllowedPlaygroundUrl } from "./url.ts";
+import {
+  rebindBrowserAgentGrantToTab,
+  subscribeBrowserAgentSwitchTab,
+  syncBrowserAgentTabs,
+} from "@/features/browser-agent/lib/api";
+import { mainTabSid } from "./browserGroups.ts";
+import { browserWebviewLabel } from "@/features/browser-agent/lib/labels";
 import {
   PLAYGROUND_DOM_POLL_INTERVAL_MS,
   PLAYGROUND_DOM_PROBE_SCRIPT,
@@ -34,11 +47,13 @@ import {
   subscribePopoutWindows,
 } from "@/features/popout/lib/popoutWindows";
 import {
+  currentWindowLabel,
   evalPlaygroundWebview,
   hidePlaygroundWebview,
   playgroundWebviewDomHash,
   pollPlaygroundWebview,
   showPlaygroundWebview,
+  subscribePlaygroundNewTab,
 } from "./webview.ts";
 
 const KEEPER_BOUNDS = { x: -64, y: -64, width: 64, height: 64 };
@@ -48,6 +63,196 @@ export function usePlaygroundRuntime() {
   usePlaygroundFenceWatcher();
   usePlaygroundWebviewKeeper();
   usePlaygroundUpdatePolling();
+  usePlaygroundNewTabListener();
+  usePlaygroundTabSwitchListener();
+}
+
+
+/** Last new-tab emit key — decidePolicy + createWebView can both fire once. */
+let lastNewTabDedupeKey = "";
+let lastNewTabDedupeAt = 0;
+const NEW_TAB_DEDUPE_MS = 400;
+
+/**
+ * Apply a playground-webview-new-tab payload: sibling tab in opener group.
+ * Returns the new session sid, or null when ignored (bad url / no group / dedupe).
+ */
+export function handlePlaygroundNewTabRequest(payload: {
+  openerSid?: string;
+  openerLabel?: string;
+  url?: string;
+}): string | null {
+  const openerSid = payload.openerSid?.trim() ?? "";
+  const url = payload.url?.trim() ?? "";
+  if (!openerSid || !url) return null;
+  // Secondary playground tabs require https (same as main sessions).
+  // about:blank / empty window.open() cannot carry a later location with
+  // NewWindowResponse::Deny — skip rather than create a dead tab.
+  if (!isAllowedPlaygroundUrl(url)) {
+    console.warn(
+      "buzz-playground: ignoring new-tab request (https required)",
+      url,
+    );
+    return null;
+  }
+  const dedupeKey = `${openerSid}|${url}`;
+  const now = Date.now();
+  if (
+    dedupeKey === lastNewTabDedupeKey &&
+    now - lastNewTabDedupeAt < NEW_TAB_DEDUPE_MS
+  ) {
+    return null;
+  }
+  lastNewTabDedupeKey = dedupeKey;
+  lastNewTabDedupeAt = now;
+
+  const browser =
+    getLiveBrowserForSid(openerSid) ?? ensureBrowserForSid(openerSid);
+  if (!browser) {
+    console.warn(
+      "buzz-playground: new-tab opener has no browser group",
+      openerSid,
+    );
+    return null;
+  }
+  // Preserve overlay host (side-panel slide-out) — do not pass preferSidePanel.
+  const session = addPlaygroundTab({
+    browserId: browser.browserId,
+    url,
+  });
+  if (!session) return null;
+  const windowLabel = currentWindowLabel();
+  void rebindBrowserAgentGrantToTab({
+    fromSurfaceId: openerSid,
+    toSurfaceId: session.sid,
+    toWebviewLabel: browserWebviewLabel({
+      surface: "playground",
+      surfaceId: session.sid,
+      windowLabel,
+    }),
+    fromWebviewLabel:
+      payload.openerLabel ||
+      browserWebviewLabel({
+        surface: "playground",
+        surfaceId: openerSid,
+        windowLabel,
+      }),
+  }).catch(() => undefined);
+  void syncAndAnnounceBrowserTabs(browser.browserId, {
+    kind: "tab_opened",
+    surfaceId: session.sid,
+    openerSurfaceId: openerSid,
+    url,
+  }).catch(() => undefined);
+  return session.sid;
+}
+
+/**
+ * MVP B: Rust denies the native popup and emits playground-webview-new-tab.
+ * Create a sibling tab in the opener's browser group, focus it, rebind grant.
+ */
+function usePlaygroundNewTabListener() {
+  React.useEffect(() => {
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    void subscribePlaygroundNewTab((payload) => {
+      if (disposed) return;
+      handlePlaygroundNewTabRequest(payload);
+    }).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+        return;
+      }
+      stop = unlisten;
+    });
+    return () => {
+      disposed = true;
+      stop?.();
+    };
+  }, []);
+}
+
+
+/**
+ * Agent MCP browser_switch_tab → Desktop emits browser-agent-switch-tab.
+ * Focus that surfaceId in its group and rebind the grant.
+ */
+function usePlaygroundTabSwitchListener() {
+  React.useEffect(() => {
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    void subscribeBrowserAgentSwitchTab((payload) => {
+      if (disposed) return;
+      const target = payload.surfaceId?.trim();
+      if (!target) return;
+      const browser = getLiveBrowserForSid(target);
+      if (!browser) return;
+      const fromSid = browser.activeTabSid;
+      switchPlaygroundTab(target);
+      if (fromSid !== target) {
+        const windowLabel = currentWindowLabel();
+        void rebindBrowserAgentGrantToTab({
+          fromSurfaceId: fromSid,
+          toSurfaceId: target,
+          toWebviewLabel: browserWebviewLabel({
+            surface: "playground",
+            surfaceId: target,
+            windowLabel,
+          }),
+          fromWebviewLabel: browserWebviewLabel({
+            surface: "playground",
+            surfaceId: fromSid,
+            windowLabel,
+          }),
+        }).catch(() => undefined);
+      }
+      void syncAndAnnounceBrowserTabs(browser.browserId, {
+        kind: "tab_switched",
+        surfaceId: target,
+      }).catch(() => undefined);
+    }).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+        return;
+      }
+      stop = unlisten;
+    });
+    return () => {
+      disposed = true;
+      stop?.();
+    };
+  }, []);
+}
+
+/** Mirror browser-group tabs for MCP + optional observe announce. */
+export async function syncAndAnnounceBrowserTabs(
+  browserId: string,
+  event?: {
+    kind: "tab_opened" | "tab_switched";
+    surfaceId: string;
+    openerSurfaceId?: string;
+    url?: string;
+  },
+) {
+  const store = getPlaygroundStore();
+  const browser = getPlaygroundBrowser(browserId);
+  if (!browser) return;
+  const tabs = browser.tabSids.map((sid) => {
+    const session = store.sessions.get(sid);
+    return {
+      surfaceId: sid,
+      url: session?.url ?? "",
+      title: session?.name ?? "",
+      isMain: sid === mainTabSid(browser),
+    };
+  });
+  await syncBrowserAgentTabs({
+    browserId: browser.browserId,
+    mainTabSid: mainTabSid(browser),
+    activeTabSid: browser.activeTabSid,
+    tabs,
+    event: event ?? null,
+  });
 }
 
 function usePlaygroundFenceWatcher() {

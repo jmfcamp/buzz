@@ -7,23 +7,29 @@ import {
   primaryMenuLabels,
 } from "./primaryMenu.ts";
 
-test("primary menu places Bots immediately after Agents", () => {
+test("primary menu places Browsers immediately before Agents", () => {
   assert.deepEqual(primaryMenuLabels(), [
     "Inbox",
     "Pulse",
     "Projects",
+    "Browsers",
     "Agents",
     "Bots",
     "Workflows",
   ]);
+  assert.equal(primaryMenuItemAfter("browsers").id, "agents");
+  assert.equal(primaryMenuItemAfter("browsers").label, "Agents");
+  assert.equal(primaryMenuItemAfter("browsers").testId, "open-agents-view");
   assert.equal(primaryMenuItemAfter("agents").id, "bots");
-  assert.equal(primaryMenuItemAfter("agents").label, "Bots");
-  assert.equal(primaryMenuItemAfter("agents").testId, "open-bots-view");
 
+  const browsersIndex = PRIMARY_MENU_ITEMS.findIndex(
+    (item) => item.id === "browsers",
+  );
   const agentsIndex = PRIMARY_MENU_ITEMS.findIndex(
     (item) => item.id === "agents",
   );
   const botsIndex = PRIMARY_MENU_ITEMS.findIndex((item) => item.id === "bots");
+  assert.equal(agentsIndex, browsersIndex + 1);
   assert.equal(botsIndex, agentsIndex + 1);
   assert.ok(
     botsIndex < PRIMARY_MENU_ITEMS.findIndex((item) => item.id === "workflows"),

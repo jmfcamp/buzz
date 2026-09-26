@@ -228,3 +228,170 @@ test("dismissPlayground is an alias of parkPlaygroundHost for chrome X", async (
   assert.equal(embedded.getActiveEmbeddedWindow(), null);
   assert.equal(getActivePlaygroundSid(), null);
 });
+
+test("preferSidePanel hosts in RHS and clears on park / reset", async () => {
+  const {
+    addPlaygroundSession,
+    configurePlaygroundScope,
+    getPlaygroundOverlayHost,
+    isPlaygroundSidePanelHost,
+    parkPlaygroundHost,
+    resetPlaygroundState,
+    showPlaygroundSession,
+  } = await import("./sessions.ts");
+
+  configurePlaygroundScope("pub", "wss://relay.example.com");
+  assert.equal(isPlaygroundSidePanelHost(), false);
+  assert.equal(getPlaygroundOverlayHost(), "window");
+
+  addPlaygroundSession(card, { preferSidePanel: true });
+  assert.equal(isPlaygroundSidePanelHost(), true);
+  assert.equal(getPlaygroundOverlayHost(), "side-panel");
+
+  showPlaygroundSession("demo-1"); // default window host
+  assert.equal(isPlaygroundSidePanelHost(), false);
+  assert.equal(getPlaygroundOverlayHost(), "window");
+
+  showPlaygroundSession("demo-1", { preferSidePanel: true });
+  parkPlaygroundHost();
+  assert.equal(isPlaygroundSidePanelHost(), false);
+  assert.equal(getPlaygroundOverlayHost(), "window");
+
+  showPlaygroundSession("demo-1", { preferSidePanel: true });
+  resetPlaygroundState();
+  assert.equal(isPlaygroundSidePanelHost(), false);
+});
+
+
+test("tab switch and addPlaygroundTab preserve side-panel host (no fullscreen promote)", async () => {
+  const {
+    addPlaygroundSession,
+    addPlaygroundTab,
+    configurePlaygroundScope,
+    getPlaygroundOverlayHost,
+    isPlaygroundSidePanelHost,
+    switchPlaygroundTab,
+  } = await import("./sessions.ts");
+
+  configurePlaygroundScope("pub", "wss://relay.example.com");
+  addPlaygroundSession(card, { preferSidePanel: true });
+  assert.equal(isPlaygroundSidePanelHost(), true);
+
+  const browserId = "demo-1";
+  const tab = addPlaygroundTab({
+    browserId,
+    url: "https://sibling.example.com",
+    name: "Sibling",
+  });
+  assert.ok(tab);
+  assert.equal(isPlaygroundSidePanelHost(), true);
+  assert.equal(getPlaygroundOverlayHost(), "side-panel");
+
+  switchPlaygroundTab("demo-1");
+  assert.equal(isPlaygroundSidePanelHost(), true);
+  assert.equal(getPlaygroundOverlayHost(), "side-panel");
+
+  switchPlaygroundTab(tab.sid);
+  assert.equal(isPlaygroundSidePanelHost(), true);
+  assert.equal(getPlaygroundOverlayHost(), "side-panel");
+
+  // Explicit false still forces window host.
+  switchPlaygroundTab("demo-1", { preferSidePanel: false });
+  assert.equal(isPlaygroundSidePanelHost(), false);
+  assert.equal(getPlaygroundOverlayHost(), "window");
+});
+
+test("add creates a one-tab browser group; tab add/switch/close works", async () => {
+  const {
+    addPlaygroundSession,
+    addPlaygroundTab,
+    closePlaygroundTab,
+    configurePlaygroundScope,
+    getActivePlaygroundSid,
+    getBrowserForSid,
+    listPlaygroundBrowsers,
+    listPlaygroundSessions,
+    switchPlaygroundTab,
+  } = await import("./sessions.ts");
+
+  configurePlaygroundScope("pub", "wss://relay.example.com");
+  addPlaygroundSession(card);
+  const browser = getBrowserForSid("demo-1");
+  assert.ok(browser);
+  assert.equal(browser.browserId, "demo-1");
+  assert.deepEqual(browser.tabSids, ["demo-1"]);
+  assert.equal(listPlaygroundBrowsers().length, 1);
+
+  const tab = addPlaygroundTab({
+    browserId: browser.browserId,
+    url: "https://other.example.com",
+    name: "Other",
+  });
+  assert.ok(tab);
+  assert.equal(getActivePlaygroundSid(), tab.sid);
+  assert.equal(getBrowserForSid(tab.sid)?.tabSids.length, 2);
+  assert.equal(listPlaygroundSessions().length, 2);
+
+  switchPlaygroundTab("demo-1");
+  assert.equal(getActivePlaygroundSid(), "demo-1");
+  assert.equal(getBrowserForSid("demo-1")?.activeTabSid, "demo-1");
+
+  closePlaygroundTab(tab.sid);
+  assert.equal(listPlaygroundSessions().length, 1);
+  assert.equal(getBrowserForSid("demo-1")?.tabSids.length, 1);
+
+  // Main/primary tab cannot be dismissed via closePlaygroundTab — use Browsers Remove.
+  closePlaygroundTab("demo-1");
+  assert.equal(listPlaygroundSessions().length, 1);
+  assert.equal(listPlaygroundBrowsers().length, 1);
+});
+
+test("disposePlaygroundBrowser removes conversation pins for every tab sid", async () => {
+  const {
+    addPlaygroundSession,
+    configurePlaygroundScope,
+    disposePlaygroundBrowser,
+    getBrowserForSid,
+  } = await import("./sessions.ts");
+  const {
+    listConversationPlaygroundPins,
+    pinPlaygroundToConversation,
+  } = await import("./conversationPins.ts");
+
+  configurePlaygroundScope("pub", "wss://relay.example.com");
+  addPlaygroundSession(card);
+  pinPlaygroundToConversation("channel:chan-a", card);
+  pinPlaygroundToConversation("thread:root-1", card, "chan-a");
+  assert.equal(listConversationPlaygroundPins("channel:chan-a").length, 1);
+  assert.equal(listConversationPlaygroundPins("thread:root-1").length, 1);
+
+  const browser = getBrowserForSid("demo-1");
+  assert.ok(browser);
+  disposePlaygroundBrowser(browser.browserId);
+  assert.equal(listConversationPlaygroundPins("channel:chan-a").length, 0);
+  assert.equal(listConversationPlaygroundPins("thread:root-1").length, 0);
+});
+
+test("pins for a live session survive configurePlaygroundScope restart hydrate", async () => {
+  const {
+    addPlaygroundSession,
+    configurePlaygroundScope,
+    listPlaygroundSessions,
+    resetPlaygroundState,
+  } = await import("./sessions.ts");
+  const { listConversationPlaygroundPins, pinPlaygroundToConversation } =
+    await import("./conversationPins.ts");
+
+  configurePlaygroundScope("pub", "wss://relay.example.com");
+  addPlaygroundSession(card);
+  pinPlaygroundToConversation("channel:chan-a", card);
+  assert.equal(listConversationPlaygroundPins("channel:chan-a").length, 1);
+
+  resetPlaygroundState();
+  assert.equal(listPlaygroundSessions().length, 0);
+  assert.equal(listConversationPlaygroundPins("channel:chan-a").length, 0);
+
+  configurePlaygroundScope("pub", "wss://relay.example.com");
+  assert.equal(listPlaygroundSessions().length, 1);
+  assert.equal(listConversationPlaygroundPins("channel:chan-a").length, 1);
+});

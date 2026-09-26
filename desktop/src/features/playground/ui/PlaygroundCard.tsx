@@ -1,11 +1,19 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { useLocation } from "@tanstack/react-router";
-import { AppWindow, Copy } from "lucide-react";
+import { AppWindow, Bot, Copy, Pin } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
 import { deriveShellRoute } from "@/app/AppShell.helpers";
-import { openLinkSidePanel } from "@/features/link-panel/lib/linkSidePanelStore";
+import { setBrowserAgentGrant } from "@/features/browser-agent/lib/api";
+import {
+  BrowserAgentGrantDialog,
+  type BrowserAgentGrantPick,
+} from "@/features/browser-agent/ui/BrowserAgentGrantDialog";
+import {
+  closeLinkSidePanel,
+  openLinkSidePanel,
+} from "@/features/link-panel/lib/linkSidePanelStore";
 import {
   usePopoutSplitLayout,
   usePopoutThreadOnlyLayout,
@@ -20,26 +28,38 @@ import {
   playgroundPinScopeKey,
 } from "@/features/playground/lib/conversation";
 import {
+  getConversationPlaygroundPinsRevision,
   hasConversationPlaygroundPin,
   pinPlaygroundToConversation,
   requestOpenConversationPlaygroundPinsMenu,
+  subscribeConversationPlaygroundPins,
 } from "@/features/playground/lib/conversationPins";
 import { copyTextToClipboard } from "@/shared/lib/clipboard";
 import { Button } from "@/shared/ui/button";
 import {
   Attachment,
-  AttachmentActions,
   AttachmentContent,
   AttachmentMedia,
   AttachmentTitle,
 } from "@/shared/ui/attachment";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/shared/ui/tooltip";
 
 import { probePlaygroundUrl } from "../lib/probe";
-import { notePlaygroundCard } from "../lib/sessions";
+import {
+  addPlaygroundSession,
+  notePlaygroundCard,
+  showPlaygroundSession,
+} from "../lib/sessions";
 import {
   playgroundPin,
   type PlaygroundCard as PlaygroundCardData,
 } from "../lib/types";
+
+const AGENT_ATTACH_TOOLTIP = "Observe & Drive";
 
 function canHostPlayground(): boolean {
   return (
@@ -68,8 +88,16 @@ async function openPlaygroundInBrowser(url: string) {
   }
 }
 
+function threadIdFromConversation(
+  conversation: ReturnType<typeof playgroundConversationFromRoute>,
+): string | undefined {
+  if (!conversation?.draftKey.startsWith("thread:")) return undefined;
+  return conversation.draftKey.slice("thread:".length);
+}
+
 export function PlaygroundCard({ card }: { card: PlaygroundCardData }) {
   const [busy, setBusy] = React.useState(false);
+  const [grantOpen, setGrantOpen] = React.useState(false);
   const host = canHostPlayground();
   // Split pop-out already shows the playground pane; card actions are inert.
   const actionsDisabled = usePopoutSplitLayout();
@@ -92,6 +120,20 @@ export function PlaygroundCard({ card }: { card: PlaygroundCardData }) {
     });
   }, [location.pathname, location.search]);
 
+  const isThreadConversation =
+    playgroundConversationHasOpenThread(conversation);
+  const threadId = threadIdFromConversation(conversation);
+  const scopeKey = conversation ? playgroundPinScopeKey(conversation) : null;
+  const pinsRevision = React.useSyncExternalStore(
+    subscribeConversationPlaygroundPins,
+    getConversationPlaygroundPinsRevision,
+    getConversationPlaygroundPinsRevision,
+  );
+  const isPinned = React.useMemo(
+    () => Boolean(scopeKey && hasConversationPlaygroundPin(scopeKey, card.sid)),
+    [scopeKey, card.sid, pinsRevision],
+  );
+
   React.useEffect(() => {
     notePlaygroundCard(card);
   }, [card]);
@@ -111,11 +153,10 @@ export function PlaygroundCard({ card }: { card: PlaygroundCardData }) {
       void openPlaygroundInBrowser(card.url);
       return;
     }
-    if (!conversation) {
+    if (!conversation || !scopeKey) {
       toast.error("Open a channel or thread to pin a playground.");
       return;
     }
-    const scopeKey = playgroundPinScopeKey(conversation);
     if (hasConversationPlaygroundPin(scopeKey, card.sid)) {
       requestOpenConversationPlaygroundPinsMenu(scopeKey);
       return;
@@ -126,7 +167,7 @@ export function PlaygroundCard({ card }: { card: PlaygroundCardData }) {
         if (!(await ensureUp())) return;
         // Pin only adds to this conversation's header list and opens the
         // dropdown — it does not open the slide-out by itself.
-        pinPlaygroundToConversation(scopeKey, card);
+        pinPlaygroundToConversation(scopeKey, card, conversation.channelId);
         requestOpenConversationPlaygroundPinsMenu(scopeKey);
       } catch (error) {
         toast.error(popoutErrorMessage(error, "Playground is down."));
@@ -146,11 +187,11 @@ export function PlaygroundCard({ card }: { card: PlaygroundCardData }) {
     void (async () => {
       try {
         if (!(await ensureUp())) return;
-        // Prefer the Projects-style right slide-out over a separate pop-out
-        // window so the channel stays visible beside the playground URL.
-        if (!openLinkSidePanel(card.url)) {
-          void openPlaygroundInBrowser(card.url);
-        }
+        // RHS idle-auxiliary with PlaygroundChrome / Agent Observe&Drive —
+        // same host as pin Open (not grant-less link panel, not window overlay).
+        closeLinkSidePanel();
+        addPlaygroundSession(card, { preferSidePanel: true });
+        showPlaygroundSession(card.sid, { preferSidePanel: true });
       } catch (error) {
         toast.error(popoutErrorMessage(error, "Could not open playground."));
       } finally {
@@ -159,14 +200,8 @@ export function PlaygroundCard({ card }: { card: PlaygroundCardData }) {
     })();
   }
 
-  const isThreadConversation =
-    playgroundConversationHasOpenThread(conversation);
-
   function handleOpenAsSplit() {
     if (openAsSplitDisabled) return;
-    const threadId = conversation?.draftKey.startsWith("thread:")
-      ? conversation.draftKey.slice("thread:".length)
-      : undefined;
     if (!conversation || !threadId) {
       toast.error("Open a thread first.");
       return;
@@ -203,6 +238,75 @@ export function PlaygroundCard({ card }: { card: PlaygroundCardData }) {
     void openPlaygroundInBrowser(card.url);
   }
 
+  function handleAgentAttach() {
+    if (actionsDisabled) return;
+    if (!host) {
+      void openPlaygroundInBrowser(card.url);
+      return;
+    }
+    setGrantOpen(true);
+  }
+
+  async function handleGrantPick(pick: BrowserAgentGrantPick) {
+    setBusy(true);
+    try {
+      if (!(await ensureUp())) return;
+      closeLinkSidePanel();
+      addPlaygroundSession(card, { preferSidePanel: true });
+      showPlaygroundSession(card.sid, { preferSidePanel: true });
+      await setBrowserAgentGrant({
+        surface: "playground",
+        surfaceId: card.sid,
+        agentId: pick.agentId,
+        agentPubkey: pick.agentPubkey,
+        channelId: pick.channelId,
+        threadRoot: pick.threadRoot,
+        mode: pick.mode,
+      });
+      const base =
+        pick.mode === "drive"
+          ? `Drive granted to ${pick.agentName}`
+          : `Observe granted to ${pick.agentName}`;
+      toast.success(
+        pick.pinnedToConversation ? `${base} · pinned to conversation` : base,
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Could not set grant.";
+      if (message.includes("confirm replace")) {
+        if (window.confirm("Replace the current agent grant on this browser?")) {
+          try {
+            await setBrowserAgentGrant({
+              surface: "playground",
+              surfaceId: card.sid,
+              agentId: pick.agentId,
+              agentPubkey: pick.agentPubkey,
+              channelId: pick.channelId,
+              threadRoot: pick.threadRoot,
+              mode: pick.mode,
+              allowReplace: true,
+            });
+            toast.success(
+              pick.mode === "drive"
+                ? `Drive granted to ${pick.agentName}`
+                : `Observe granted to ${pick.agentName}`,
+            );
+          } catch (retryError) {
+            toast.error(
+              retryError instanceof Error
+                ? retryError.message
+                : "Could not set grant.",
+            );
+          }
+        }
+      } else {
+        toast.error(message);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function handleCopyPin(event: React.MouseEvent<HTMLButtonElement>) {
     event.preventDefault();
     event.stopPropagation();
@@ -210,26 +314,110 @@ export function PlaygroundCard({ card }: { card: PlaygroundCardData }) {
     copyTextToClipboard(pin, "PIN copied");
   }
 
+  const pinButton = (
+    <Button
+      aria-label={isPinned ? "Pinned — open pins menu" : "Pin to conversation"}
+      aria-pressed={isPinned || undefined}
+      className="text-muted-foreground hover:text-foreground"
+      data-testid="playground-card-pin-action"
+      disabled={busy || actionsDisabled}
+      onClick={(event) => {
+        event.stopPropagation();
+        handlePin();
+      }}
+      size="icon-xs"
+      type="button"
+      variant="ghost"
+    >
+      <Pin className={isPinned ? "fill-current" : undefined} />
+    </Button>
+  );
+
+  const agentButton = (
+    <Button
+      aria-label={AGENT_ATTACH_TOOLTIP}
+      data-testid="playground-card-agent-attach"
+      disabled={busy || actionsDisabled}
+      onClick={(event) => {
+        event.stopPropagation();
+        handleAgentAttach();
+      }}
+      size="icon-xs"
+      type="button"
+      variant="outline"
+    >
+      <Bot />
+    </Button>
+  );
+
   return (
     <Attachment
-      className="my-2 max-w-md items-start overflow-visible"
+      className="relative my-2 max-w-md items-start overflow-visible pr-14"
+      data-grant-open={grantOpen ? "true" : undefined}
       data-playground-card-actions={actionsDisabled ? "disabled" : "enabled"}
       data-testid="playground-card"
     >
+      <div
+        className="absolute right-1.5 top-1.5 z-30 flex flex-col items-end gap-1"
+        data-testid="playground-card-top-actions"
+      >
+        <div className="flex items-center gap-0.5">
+          <Tooltip>
+            <TooltipTrigger asChild>{agentButton}</TooltipTrigger>
+            <TooltipContent side="top">{AGENT_ATTACH_TOOLTIP}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>{pinButton}</TooltipTrigger>
+            <TooltipContent side="top">
+              {isPinned ? "Pinned — open pins menu" : "Pin to conversation"}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+        <Button
+          data-testid="playground-card-open"
+          disabled={busy || actionsDisabled}
+          onClick={(event) => {
+            event.stopPropagation();
+            handleOpen();
+          }}
+          size="sm"
+          type="button"
+        >
+          Open
+        </Button>
+        {isThreadConversation ? (
+          <Button
+            data-testid="playground-card-open-split"
+            disabled={busy || openAsSplitDisabled}
+            onClick={(event) => {
+              event.stopPropagation();
+              handleOpenAsSplit();
+            }}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            Open as Split
+          </Button>
+        ) : null}
+      </div>
       <AttachmentMedia>
         <AppWindow />
       </AttachmentMedia>
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <AttachmentContent>
-          <AttachmentTitle data-testid="playground-card-name">
+          <AttachmentTitle
+            className="whitespace-normal break-words"
+            data-testid="playground-card-name"
+          >
             {card.name}
           </AttachmentTitle>
           <a
             aria-disabled={actionsDisabled || undefined}
             className={
               actionsDisabled
-                ? "block truncate text-xs leading-4 text-muted-foreground opacity-50 pointer-events-none"
-                : "block truncate text-xs leading-4 text-muted-foreground hover:text-foreground hover:underline"
+                ? "block whitespace-normal break-all text-xs leading-4 text-muted-foreground opacity-50 pointer-events-none"
+                : "block whitespace-normal break-all text-xs leading-4 text-muted-foreground hover:text-foreground hover:underline"
             }
             data-testid="playground-card-url"
             href={card.url}
@@ -270,47 +458,20 @@ export function PlaygroundCard({ card }: { card: PlaygroundCardData }) {
             </p>
           ) : null}
         </AttachmentContent>
-        <AttachmentActions className="relative z-20 w-full flex-wrap justify-end">
-          <Button
-            data-testid="playground-card-pin-action"
-            disabled={busy || actionsDisabled}
-            onClick={(event) => {
-              event.stopPropagation();
-              handlePin();
-            }}
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            Pin
-          </Button>
-          <Button
-            data-testid="playground-card-open"
-            disabled={busy || actionsDisabled}
-            onClick={(event) => {
-              event.stopPropagation();
-              handleOpen();
-            }}
-            size="sm"
-            type="button"
-          >
-            Open
-          </Button>
-          <Button
-            data-testid="playground-card-open-split"
-            disabled={busy || openAsSplitDisabled || !isThreadConversation}
-            onClick={(event) => {
-              event.stopPropagation();
-              handleOpenAsSplit();
-            }}
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            Open as Split
-          </Button>
-        </AttachmentActions>
       </div>
+      {grantOpen ? (
+        <BrowserAgentGrantDialog
+          channelId={conversation?.channelId ?? ""}
+          mode="observe"
+          onOpenChange={setGrantOpen}
+          onPick={(pick) => {
+            void handleGrantPick(pick);
+          }}
+          open
+          playgroundCard={card}
+          threadRoot={threadId ?? null}
+        />
+      ) : null}
     </Attachment>
   );
 }

@@ -1,0 +1,1328 @@
+//! File-backed Buzz browser Observe/Drive tools (grant-gated).
+//! Desktop mirrors grants/events under `{BUZZ_BROWSER_AGENT_DIR|/app-data/browser-agent}`.
+
+use rmcp::model::{CallToolResult, Content};
+use rmcp::ErrorData;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use std::fs;
+use std::io::{BufRead, BufReader, Write};
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+#[cfg(test)]
+thread_local! {
+    static TEST_AGENT_DIR: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+    static TEST_PUBKEY: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+fn agent_dir() -> PathBuf {
+    #[cfg(test)]
+    {
+        if let Some(dir) = TEST_AGENT_DIR.with(|c| c.borrow().clone()) {
+            return dir;
+        }
+    }
+    if let Ok(dir) = std::env::var("BUZZ_BROWSER_AGENT_DIR") {
+        let trimmed = dir.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+    // macOS Hula default app support path when Desktop is running as this user.
+    let home = std::env::var("HOME").unwrap_or_default();
+    PathBuf::from(home)
+        .join("Library/Application Support/com.huladesk.buzz/browser-agent")
+}
+
+fn caller_pubkey() -> Option<String> {
+    #[cfg(test)]
+    {
+        if let Some(pk) = TEST_PUBKEY.with(|c| c.borrow().clone()) {
+            return Some(pk);
+        }
+    }
+    // buzz-acp injects the agent secret; derive is heavy — prefer explicit pubkey env.
+    for key in ["BUZZ_AGENT_PUBKEY", "BUZZ_ACP_PUBKEY"] {
+        if let Ok(v) = std::env::var(key) {
+            let t = v.trim().to_lowercase();
+            if t.len() == 64 && t.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Some(t);
+            }
+        }
+    }
+    None
+}
+
+fn read_json(path: &Path) -> Option<Value> {
+    let raw = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+fn grant_matches(grant: &Value, pubkey: &str) -> bool {
+    grant
+        .get("agentPubkey")
+        .and_then(|v| v.as_str())
+        .map(|p| p.eq_ignore_ascii_case(pubkey))
+        .unwrap_or(false)
+}
+
+
+fn grant_surface_id(grant: &Value) -> Option<&str> {
+    grant.get("surfaceId").and_then(|v| v.as_str()).map(str::trim).filter(|s| !s.is_empty())
+}
+
+fn grant_label(grant: &Value) -> Option<&str> {
+    grant
+        .get("webviewLabel")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+}
+
+/// Resolve a stable agent target to the live grant mirror dir + grant JSON.
+/// Prefer `surface_id` (survives popout/detach). Fall back to `webview_label`,
+/// then the sole current grant for this agent when neither is set.
+fn resolve_grant_target(
+    pubkey: &str,
+    webview_label: &str,
+    surface_id: Option<&str>,
+) -> Result<(PathBuf, Value, String), ErrorData> {
+    let root = agent_dir();
+    let surface = surface_id.map(str::trim).filter(|s| !s.is_empty());
+    let label = webview_label.trim();
+
+    if let Some(sid) = surface {
+        let mut matches = Vec::new();
+        if let Ok(entries) = fs::read_dir(&root) {
+            for entry in entries.flatten() {
+                let grant_path = entry.path().join("grant.json");
+                if let Some(grant) = read_json(&grant_path) {
+                    if grant_matches(&grant, pubkey) && grant_surface_id(&grant) == Some(sid) {
+                        let entry_name = entry.file_name().to_string_lossy().into_owned();
+                        let live = grant_label(&grant)
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| entry_name.clone());
+                        let dir = {
+                            let preferred = root.join(&live);
+                            if preferred.join("grant.json").exists() {
+                                preferred
+                            } else {
+                                entry.path()
+                            }
+                        };
+                        let canonical = grant_label(&grant) == Some(entry_name.as_str());
+                        matches.push((canonical, dir, grant, live));
+                    }
+                }
+            }
+        }
+        // Prefer mirror dir whose name matches grant.webviewLabel (post-rebind).
+        matches.sort_by_key(|(canonical, _, _, _)| std::cmp::Reverse(*canonical));
+        if let Some((_, dir, grant, live)) = matches.into_iter().next() {
+            return Ok((dir, grant, live));
+        }
+        return Err(ErrorData::invalid_params(
+            format!("no grant for surfaceId={sid}"),
+            None,
+        ));
+    }
+
+    if !label.is_empty() {
+        let dir = root.join(label);
+        let grant = read_json(&dir.join("grant.json")).ok_or_else(|| {
+            ErrorData::invalid_params(format!("no grant for {label}"), None)
+        })?;
+        if !grant_matches(&grant, pubkey) {
+            return Err(ErrorData::invalid_params(
+                "caller is not the granted agent for this webview",
+                None,
+            ));
+        }
+        // If mirror shows a newer label for same surface, prefer that.
+        if let Some(sid) = grant_surface_id(&grant) {
+            if let Ok(entries) = fs::read_dir(&root) {
+                for entry in entries.flatten() {
+                    let gpath = entry.path().join("grant.json");
+                    if let Some(other) = read_json(&gpath) {
+                        if grant_matches(&other, pubkey)
+                            && grant_surface_id(&other) == Some(sid)
+                        {
+                            if let Some(live) = grant_label(&other).map(|s| s.to_string()) {
+                                if live != label {
+                                    let live_dir = root.join(&live);
+                                    if live_dir.join("grant.json").exists() {
+                                        return Ok((live_dir, other, live));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return Ok((dir, grant, label.to_string()));
+    }
+
+    // No target: sole grant for this agent.
+    let mut matches = Vec::new();
+    if let Ok(entries) = fs::read_dir(&root) {
+        for entry in entries.flatten() {
+            let grant_path = entry.path().join("grant.json");
+            if let Some(grant) = read_json(&grant_path) {
+                if grant_matches(&grant, pubkey) {
+                    let live = grant_label(&grant)
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| {
+                            entry
+                                .file_name()
+                                .to_string_lossy()
+                                .into_owned()
+                        });
+                    matches.push((root.join(&live), grant, live));
+                }
+            }
+        }
+    }
+    match matches.len() {
+        0 => Err(ErrorData::invalid_params(
+            "no browser grant for this agent; pass surface_id or webview_label",
+            None,
+        )),
+        1 => {
+            let (dir, grant, live) = matches.remove(0);
+            Ok((dir, grant, live))
+        }
+        _ => Err(ErrorData::invalid_params(
+            "multiple browser grants; pass surface_id (preferred) or webview_label",
+            None,
+        )),
+    }
+}
+
+fn require_drive_grant_resolved(
+    pubkey: &str,
+    webview_label: &str,
+    surface_id: Option<&str>,
+) -> Result<(PathBuf, Value, String), ErrorData> {
+    let (dir, grant, label) = resolve_grant_target(pubkey, webview_label, surface_id)?;
+    let mode = grant
+        .get("mode")
+        .and_then(|v| v.as_str())
+        .unwrap_or("observe");
+    if mode != "drive" {
+        return Err(ErrorData::invalid_params(
+            "drive requires Drive mode grant",
+            None,
+        ));
+    }
+    Ok((dir, grant, label))
+}
+
+fn event_action_id(ev: &Value) -> Option<&str> {
+    ev.get("payload")
+        .and_then(|p| p.get("id"))
+        .and_then(|v| v.as_str())
+}
+
+fn collect_drive_results_from_events(
+    events_path: &Path,
+    wanted: &[String],
+) -> (Vec<Value>, Option<String>) {
+    let mut found: std::collections::HashMap<String, Value> = std::collections::HashMap::new();
+    let mut last_url: Option<String> = None;
+    if let Ok(file) = fs::File::open(events_path) {
+        for line in BufReader::new(file).lines().flatten() {
+            let Ok(ev) = serde_json::from_str::<Value>(&line) else {
+                continue;
+            };
+            let kind = ev.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+            if kind == "drive" || kind == "drive_error" {
+                if let Some(id) = event_action_id(&ev) {
+                    if wanted.iter().any(|w| w == id) {
+                        found.insert(id.to_string(), ev.clone());
+                    }
+                }
+                if let Some(url) = ev
+                    .get("payload")
+                    .and_then(|p| p.get("url"))
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                {
+                    last_url = Some(url.to_string());
+                }
+            } else if kind == "nav" {
+                if let Some(url) = ev
+                    .get("payload")
+                    .and_then(|p| p.get("url"))
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                {
+                    last_url = Some(url.to_string());
+                }
+            }
+        }
+    }
+    let results: Vec<Value> = wanted
+        .iter()
+        .filter_map(|id| found.get(id).cloned())
+        .collect();
+    (results, last_url)
+}
+
+/// Poll events.jsonl until all action ids have drive/drive_error results or timeout.
+fn wait_for_drive_results(
+    dir: &Path,
+    ids: &[String],
+    timeout_ms: u64,
+    poll_ms: u64,
+) -> (Vec<Value>, Option<String>, bool) {
+    let path = dir.join("events.jsonl");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+    loop {
+        let (results, last_url) = collect_drive_results_from_events(&path, ids);
+        if results.len() >= ids.len() {
+            return (results, last_url, true);
+        }
+        if std::time::Instant::now() >= deadline {
+            return (results, last_url, false);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(poll_ms.max(5)));
+    }
+}
+
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn new_action_id() -> String {
+    format!(
+        "d{}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    )
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ObservePollParams {
+    /// Live webview label (fragile across popout). Prefer `surface_id`.
+    #[serde(default)]
+    pub webview_label: String,
+    /// Stable playground surface id — preferred target across detach/popout.
+    #[serde(default)]
+    pub surface_id: Option<String>,
+    #[serde(default)]
+    pub after_id: Option<u64>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+pub fn observe_poll(p: ObservePollParams) -> Result<CallToolResult, ErrorData> {
+    let Some(pubkey) = caller_pubkey() else {
+        return Err(ErrorData::invalid_params(
+            "BUZZ_AGENT_PUBKEY (64-hex) required for browser_observe_poll",
+            None,
+        ));
+    };
+    let (dir, grant, label) = resolve_grant_target(
+        &pubkey,
+        &p.webview_label,
+        p.surface_id.as_deref(),
+    )?;
+    let after = p.after_id.unwrap_or(0);
+    let limit = p.limit.unwrap_or(50).clamp(1, 200);
+    let path = dir.join("events.jsonl");
+    let mut events = Vec::new();
+    if let Ok(file) = fs::File::open(path) {
+        for line in BufReader::new(file).lines().flatten() {
+            if let Ok(ev) = serde_json::from_str::<Value>(&line) {
+                let id = ev.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
+                if id > after {
+                    events.push(ev);
+                    if events.len() >= limit {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    let body = json!({
+        "grant": grant,
+        "webviewLabel": label,
+        "surfaceId": grant_surface_id(&grant),
+        "events": events,
+    });
+    Ok(CallToolResult::success(vec![Content::text(
+        body.to_string(),
+    )]))
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct GrantsParams {}
+
+pub fn grants(_p: GrantsParams) -> Result<CallToolResult, ErrorData> {
+    let Some(pubkey) = caller_pubkey() else {
+        return Err(ErrorData::invalid_params(
+            "BUZZ_AGENT_PUBKEY required for browser_agent_grants",
+            None,
+        ));
+    };
+    let root = agent_dir();
+    let mut out = Vec::new();
+    if let Ok(entries) = fs::read_dir(root) {
+        for entry in entries.flatten() {
+            let grant_path = entry.path().join("grant.json");
+            if let Some(grant) = read_json(&grant_path) {
+                if grant_matches(&grant, &pubkey) {
+                    out.push(grant);
+                }
+            }
+        }
+    }
+    Ok(CallToolResult::success(vec![Content::text(
+        json!({ "grants": out }).to_string(),
+    )]))
+}
+
+
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct TabsParams {
+    /// Live webview label (fragile across popout). Prefer `surface_id`.
+    #[serde(default)]
+    pub webview_label: Option<String>,
+    /// Preferred stable playground session / tab id.
+    #[serde(default)]
+    pub surface_id: Option<String>,
+}
+
+/// List tabs in the browser group for a grant. Main tab is primary focus
+/// (`isMain` / `mainTabSid`); drive/observe target the active tab.
+pub fn tabs(p: TabsParams) -> Result<CallToolResult, ErrorData> {
+    let Some(pubkey) = caller_pubkey() else {
+        return Err(ErrorData::invalid_params(
+            "BUZZ_AGENT_PUBKEY required for browser_tabs",
+            None,
+        ));
+    };
+    let (_dir, grant, label) = resolve_grant_target(
+        &pubkey,
+        p.webview_label.as_deref().unwrap_or(""),
+        p.surface_id.as_deref(),
+    )?;
+    let root = agent_dir();
+    let mut tabs_val = read_json(&root.join(&label).join("tabs.json"));
+    if tabs_val.is_none() {
+        if let Some(sid) = grant_surface_id(&grant) {
+            // Fall back to browsers/{browserId} or any sibling grant tabs.json.
+            if let Ok(entries) = fs::read_dir(root.join("browsers")) {
+                for entry in entries.flatten() {
+                    if let Some(v) = read_json(&entry.path().join("tabs.json")) {
+                        let active = v.get("activeTabSid").and_then(|x| x.as_str());
+                        let main = v.get("mainTabSid").and_then(|x| x.as_str());
+                        let list = v.get("tabs").and_then(|x| x.as_array());
+                        let mentions = list
+                            .map(|arr| {
+                                arr.iter().any(|tab| {
+                                    tab.get("surfaceId").and_then(|s| s.as_str()) == Some(sid)
+                                })
+                            })
+                            .unwrap_or(false);
+                        if mentions || active == Some(sid) || main == Some(sid) {
+                            tabs_val = Some(v);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let body = json!({
+        "ok": true,
+        "grant": grant,
+        "webviewLabel": label,
+        "surfaceId": grant_surface_id(&grant),
+        "tabs": tabs_val.clone().unwrap_or(json!({
+            "browserId": grant_surface_id(&grant),
+            "mainTabSid": grant_surface_id(&grant),
+            "activeTabSid": grant_surface_id(&grant),
+            "tabs": [{
+                "surfaceId": grant_surface_id(&grant),
+                "url": "",
+                "title": "",
+                "isMain": true,
+            }],
+        })),
+        "note": "Main tab (isMain/mainTabSid) is primary focus. Extra tabs come from in-page window.open / target=_blank. Use browser_switch_tab to focus a tab (rebinds Observe/Drive). Poll browser_observe_poll for kind=tab_opened / tab_switched."
+    });
+    Ok(CallToolResult::success(vec![Content::text(body.to_string())]))
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SwitchTabParams {
+    /// Target tab surfaceId (playground session id).
+    pub surface_id: String,
+    /// Optional: current grant label or any tab in the same group.
+    #[serde(default)]
+    pub webview_label: Option<String>,
+    /// Optional: any surface in the group to resolve the grant (defaults to surface_id).
+    #[serde(default)]
+    pub from_surface_id: Option<String>,
+}
+
+/// Ask Desktop to focus a tab in the granted browser group (main or extra).
+/// Writes tab-switch-request.json; Desktop emits browser-agent-switch-tab and rebinds the grant.
+pub fn switch_tab(p: SwitchTabParams) -> Result<CallToolResult, ErrorData> {
+    let Some(pubkey) = caller_pubkey() else {
+        return Err(ErrorData::invalid_params(
+            "BUZZ_AGENT_PUBKEY required for browser_switch_tab",
+            None,
+        ));
+    };
+    let target = p.surface_id.trim();
+    if target.is_empty() {
+        return Err(ErrorData::invalid_params("surface_id is required", None));
+    }
+    let resolve_sid = p
+        .from_surface_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(target);
+    let (dir, grant, label) = resolve_grant_target(
+        &pubkey,
+        p.webview_label.as_deref().unwrap_or(""),
+        Some(resolve_sid),
+    )?;
+    let req = json!({
+        "surfaceId": target,
+        "browserId": read_json(&dir.join("tabs.json"))
+            .and_then(|v| v.get("browserId").and_then(|b| b.as_str()).map(|s| s.to_string())),
+        "requestedAtMs": SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0),
+    });
+    let path = dir.join("tab-switch-request.json");
+    let mut f = fs::File::create(&path).map_err(|e| {
+        ErrorData::internal_error(format!("write tab-switch-request: {e}"), None)
+    })?;
+    f.write_all(req.to_string().as_bytes()).map_err(|e| {
+        ErrorData::internal_error(format!("write tab-switch-request: {e}"), None)
+    })?;
+    Ok(CallToolResult::success(vec![Content::text(
+        json!({
+            "ok": true,
+            "queued": true,
+            "surfaceId": target,
+            "webviewLabel": label,
+            "grantSurfaceId": grant_surface_id(&grant),
+            "note": "Desktop will focus the tab and rebind Observe/Drive onto it. Poll browser_observe_poll for kind=tab_switched, or call browser_tabs."
+        })
+        .to_string(),
+    )]))
+}
+
+/// Drive action shape. Field is `kind` (not `type`).
+/// Kinds: navigate | click | type | scroll | hover | key | waitFor.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DriveActionParam {
+    /// Action kind: navigate | click | type | scroll | hover | key | waitFor
+    pub kind: String,
+    #[serde(default)]
+    #[schemars(description = "Optional id echoed in drive/drive_error events")]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub x: Option<f64>,
+    #[serde(default)]
+    pub y: Option<f64>,
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub selector: Option<String>,
+    #[serde(default)]
+    pub dx: Option<f64>,
+    #[serde(default)]
+    pub dy: Option<f64>,
+    /// For kind=key: Enter, Tab, Escape, Backspace, ArrowLeft/Right/Up/Down
+    #[serde(default)]
+    pub key: Option<String>,
+    #[serde(default)]
+    pub url_contains: Option<String>,
+    #[serde(default)]
+    pub timeout_ms: Option<u64>,
+}
+
+const SUPPORTED_KEYS: &[&str] = &[
+    "Enter",
+    "Tab",
+    "Escape",
+    "Backspace",
+    "ArrowLeft",
+    "ArrowRight",
+    "ArrowUp",
+    "ArrowDown",
+];
+
+fn validate_drive_action(action: &DriveActionParam) -> Result<String, String> {
+    let kind = action.kind.trim().to_ascii_lowercase();
+    match kind.as_str() {
+        "click" | "hover" => {
+            if action.x.is_none() || action.y.is_none() {
+                return Err(format!("{kind} requires x and y"));
+            }
+        }
+        "type" => {
+            if action.text.is_none() {
+                return Err("type requires text".into());
+            }
+        }
+        "scroll" => {}
+        "navigate" => {
+            if action.url.as_deref().map(str::trim).unwrap_or("").is_empty() {
+                return Err("navigate requires url".into());
+            }
+        }
+        "key" => {
+            let key = action.key.as_deref().map(str::trim).unwrap_or("");
+            if key.is_empty() {
+                return Err("key requires key".into());
+            }
+            if !SUPPORTED_KEYS
+                .iter()
+                .any(|k| k.eq_ignore_ascii_case(key))
+            {
+                return Err(format!(
+                    "unsupported key {key:?}; supported: {}",
+                    SUPPORTED_KEYS.join(", ")
+                ));
+            }
+        }
+        "waitfor" => {
+            let has = action
+                .url_contains
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .is_some()
+                || action
+                    .selector
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .is_some()
+                || action
+                    .text
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .is_some();
+            if !has {
+                return Err("waitFor requires urlContains, selector, or text".into());
+            }
+        }
+        "" => return Err("action.kind is required (use kind, not type)".into()),
+        other => {
+            return Err(format!(
+                "unknown drive action kind: {other} (use kind, not type)"
+            ))
+        }
+    }
+    Ok(kind)
+}
+
+/// Parse `action` from object or JSON string. Rejects unknown kinds / missing fields.
+pub fn parse_drive_action(raw: &Value) -> Result<DriveActionParam, String> {
+    let value = match raw {
+        Value::String(s) => {
+            let trimmed = s.trim();
+            if trimmed.is_empty() {
+                return Err("action string is empty".into());
+            }
+            serde_json::from_str::<Value>(trimmed)
+                .map_err(|e| format!("action string is not valid JSON: {e}"))?
+        }
+        other => other.clone(),
+    };
+    if let Some(obj) = value.as_object() {
+        if obj.contains_key("type") && !obj.contains_key("kind") {
+            return Err("action uses `type`; Drive actions require `kind`".into());
+        }
+    }
+    let action: DriveActionParam = serde_json::from_value(value)
+        .map_err(|e| format!("invalid Drive action shape: {e}"))?;
+    validate_drive_action(&action)?;
+    Ok(action)
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct DriveParams {
+    /// Live webview label (fragile across popout). Prefer `surface_id`.
+    #[serde(default)]
+    pub webview_label: String,
+    /// Stable playground surface id — preferred target across detach/popout.
+    #[serde(default)]
+    pub surface_id: Option<String>,
+    /// Single Drive action object, or a JSON string of that object.
+    /// Shape: { kind, id?, url?, x?, y?, text?, selector?, dx?, dy?, key?, urlContains?, timeoutMs? }.
+    /// Use `kind` (not `type`): navigate | click | type | scroll | hover | key | waitFor.
+    #[schemars(description = "DriveAction object or JSON string. Field is kind (not type).")]
+    pub action: Value,
+    /// Optional batch of actions. Validated then queued; by default waits for per-step results.
+    #[serde(default)]
+    pub actions: Option<Vec<Value>>,
+    /// When true, return after queueing without waiting for Desktop results.
+    #[serde(default)]
+    pub queue_only: Option<bool>,
+    /// Max ms to wait for drive/drive_error results (default 10000). Ignored if queue_only.
+    #[serde(default)]
+    pub wait_timeout_ms: Option<u64>,
+}
+
+fn queue_action(dir: &Path, pubkey: &str, mut action: DriveActionParam) -> Result<String, ErrorData> {
+    let id = action
+        .id
+        .as_ref()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(new_action_id);
+    action.id = Some(id.clone());
+    fs::create_dir_all(dir).map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+    let path = dir.join("drive-inbox.jsonl");
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+    let line = json!({
+        "id": id,
+        "agentPubkey": pubkey,
+        "action": action,
+        "atMs": now_ms(),
+    });
+    writeln!(file, "{line}").map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+    Ok(id)
+}
+
+fn drive_wait_response(
+    dir: &Path,
+    label: &str,
+    grant: &Value,
+    ids: &[String],
+    batch: bool,
+    queue_only: bool,
+    wait_timeout_ms: u64,
+    poll_ms: u64,
+) -> Result<CallToolResult, ErrorData> {
+    if queue_only {
+        let body = if batch {
+            json!({
+                "ok": true,
+                "queued": true,
+                "batch": true,
+                "ids": ids,
+                "count": ids.len(),
+                "webviewLabel": label,
+                "surfaceId": grant_surface_id(grant),
+            })
+        } else {
+            json!({
+                "ok": true,
+                "queued": true,
+                "id": ids.first(),
+                "webviewLabel": label,
+                "surfaceId": grant_surface_id(grant),
+            })
+        };
+        return Ok(CallToolResult::success(vec![Content::text(body.to_string())]));
+    }
+
+    let (results, last_url, complete) =
+        wait_for_drive_results(dir, ids, wait_timeout_ms, poll_ms);
+    let steps: Vec<Value> = ids
+        .iter()
+        .map(|id| {
+            results
+                .iter()
+                .find(|ev| event_action_id(ev) == Some(id.as_str()))
+                .cloned()
+                .unwrap_or_else(|| {
+                    json!({
+                        "kind": "pending",
+                        "payload": { "id": id, "ok": false, "error": "no result yet" }
+                    })
+                })
+        })
+        .collect();
+    let all_ok = complete
+        && steps.iter().all(|ev| {
+            ev.get("kind").and_then(|v| v.as_str()) == Some("drive")
+                && ev
+                    .get("payload")
+                    .and_then(|p| p.get("ok"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+        });
+    let body = json!({
+        "ok": all_ok,
+        "queued": true,
+        "batch": batch,
+        "ids": ids,
+        "count": ids.len(),
+        "complete": complete,
+        "results": steps,
+        "url": last_url,
+        "webviewLabel": label,
+        "surfaceId": grant_surface_id(grant),
+    });
+    Ok(CallToolResult::success(vec![Content::text(body.to_string())]))
+}
+
+pub fn drive(p: DriveParams) -> Result<CallToolResult, ErrorData> {
+    drive_with_poll(p, 50)
+}
+
+fn drive_with_poll(p: DriveParams, poll_ms: u64) -> Result<CallToolResult, ErrorData> {
+    let _ = poll_ms;
+    let Some(pubkey) = caller_pubkey() else {
+        return Err(ErrorData::invalid_params(
+            "BUZZ_AGENT_PUBKEY required for browser_drive",
+            None,
+        ));
+    };
+    let (dir, grant, label) = require_drive_grant_resolved(
+        &pubkey,
+        &p.webview_label,
+        p.surface_id.as_deref(),
+    )?;
+    let queue_only = p.queue_only.unwrap_or(false);
+    let wait_timeout_ms = p.wait_timeout_ms.unwrap_or(10_000).min(60_000);
+
+    if let Some(batch) = p.actions.as_ref() {
+        if batch.is_empty() {
+            return Err(ErrorData::invalid_params(
+                "actions array is empty",
+                None,
+            ));
+        }
+        let mut ids = Vec::new();
+        let mut parsed = Vec::new();
+        for (i, raw) in batch.iter().enumerate() {
+            match parse_drive_action(raw) {
+                Ok(a) => parsed.push(a),
+                Err(e) => {
+                    return Err(ErrorData::invalid_params(
+                        format!("actions[{i}]: {e}"),
+                        None,
+                    ));
+                }
+            }
+        }
+        for action in parsed {
+            ids.push(queue_action(&dir, &pubkey, action)?);
+        }
+        return drive_wait_response(
+            &dir,
+            &label,
+            &grant,
+            &ids,
+            true,
+            queue_only,
+            wait_timeout_ms,
+            poll_ms,
+        );
+    }
+
+    let action = parse_drive_action(&p.action).map_err(|e| {
+        ErrorData::invalid_params(e, None)
+    })?;
+    let id = queue_action(&dir, &pubkey, action)?;
+    drive_wait_response(
+        &dir,
+        &label,
+        &grant,
+        &[id],
+        false,
+        queue_only,
+        wait_timeout_ms,
+        poll_ms,
+    )
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SnapshotParams {
+    /// Live webview label (fragile across popout). Prefer `surface_id`.
+    #[serde(default)]
+    pub webview_label: String,
+    /// Stable playground surface id — preferred target across detach/popout.
+    #[serde(default)]
+    pub surface_id: Option<String>,
+    /// When true, ask Desktop to attach a PNG via existing capture (best-effort; may be omitted).
+    #[serde(default)]
+    pub screenshot: Option<bool>,
+}
+
+/// Queue a snapshot request into the observe stream request file; Desktop chrome / host
+/// fills `events.jsonl` with a `snapshot` event when processed. Also returns grant + last
+/// known nav from events when available (file-plane; no live WKWebView from MCP).
+pub fn snapshot(p: SnapshotParams) -> Result<CallToolResult, ErrorData> {
+    let Some(pubkey) = caller_pubkey() else {
+        return Err(ErrorData::invalid_params(
+            "BUZZ_AGENT_PUBKEY required for browser_snapshot",
+            None,
+        ));
+    };
+    let (dir, grant, label) = resolve_grant_target(
+        &pubkey,
+        &p.webview_label,
+        p.surface_id.as_deref(),
+    )?;
+
+    // Request file Desktop can honor (optional host path). Always return best-effort
+    // last nav from events.jsonl so the tool is useful without a live eval bridge.
+    let want_shot = p.screenshot.unwrap_or(false);
+    let req_path = dir.join("snapshot-request.json");
+    let _ = fs::write(
+        &req_path,
+        json!({
+            "agentPubkey": pubkey,
+            "screenshot": want_shot,
+            "atMs": now_ms(),
+        })
+        .to_string(),
+    );
+
+    let mut last_url = Value::Null;
+    let mut last_title = Value::Null;
+    if let Ok(file) = fs::File::open(dir.join("events.jsonl")) {
+        for line in BufReader::new(file).lines().flatten() {
+            if let Ok(ev) = serde_json::from_str::<Value>(&line) {
+                if ev.get("kind").and_then(|v| v.as_str()) == Some("nav") {
+                    if let Some(payload) = ev.get("payload") {
+                        if let Some(u) = payload.get("url") {
+                            last_url = u.clone();
+                        }
+                        if let Some(t) = payload.get("title") {
+                            last_title = t.clone();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(CallToolResult::success(vec![Content::text(
+        json!({
+            "ok": true,
+            "webviewLabel": label,
+            "surfaceId": grant_surface_id(&grant),
+            "grant": grant,
+            "url": last_url,
+            "title": last_title,
+            "screenshotRequested": want_shot,
+            "note": "Live DOM snapshot (viewport/focused/interactives) is applied by Desktop when it processes snapshot-request.json; poll browser_observe_poll for kind=snapshot."
+        })
+        .to_string(),
+    )]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::tempdir;
+
+    fn with_env<T>(dir: &Path, pubkey: &str, f: impl FnOnce() -> T) -> T {
+        TEST_AGENT_DIR.with(|c| *c.borrow_mut() = Some(dir.to_path_buf()));
+        TEST_PUBKEY.with(|c| *c.borrow_mut() = Some(pubkey.to_string()));
+        let out = f();
+        TEST_AGENT_DIR.with(|c| *c.borrow_mut() = None);
+        TEST_PUBKEY.with(|c| *c.borrow_mut() = None);
+        out
+    }
+
+    #[test]
+    fn observe_poll_respects_grant() {
+        let dir = tempdir().unwrap();
+        let pubkey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let label = "playground-demo";
+        let gdir = dir.path().join(label);
+        fs::create_dir_all(&gdir).unwrap();
+        fs::write(
+            gdir.join("grant.json"),
+            format!(
+                r#"{{"agentPubkey":"{pubkey}","mode":"observe","webviewLabel":"{label}"}}"#
+            ),
+        )
+        .unwrap();
+        let mut events = fs::File::create(gdir.join("events.jsonl")).unwrap();
+        writeln!(
+            events,
+            r#"{{"id":1,"webviewLabel":"{label}","kind":"console","atMs":1}}"#
+        )
+        .unwrap();
+        let result = with_env(dir.path(), pubkey, || {
+            observe_poll(ObservePollParams {
+                webview_label: label.into(),
+                surface_id: None,
+                after_id: Some(0),
+                limit: Some(10),
+            })
+            .unwrap()
+        });
+        let text = format!("{result:?}");
+        assert!(text.contains("console"), "{text}");
+    }
+
+    #[test]
+    fn parse_action_object_and_string() {
+        let obj = json!({"kind":"key","key":"Enter"});
+        let a = parse_drive_action(&obj).unwrap();
+        assert_eq!(a.kind, "key");
+
+        let s = Value::String(r#"{"kind":"click","x":1,"y":2}"#.into());
+        let b = parse_drive_action(&s).unwrap();
+        assert_eq!(b.kind, "click");
+    }
+
+    #[test]
+    fn parse_rejects_type_field_and_unknown_kind() {
+        let bad = json!({"type":"click","x":1,"y":2});
+        let err = parse_drive_action(&bad).unwrap_err();
+        assert!(err.contains("kind"), "{err}");
+
+        let unk = json!({"kind":"teleport"});
+        assert!(parse_drive_action(&unk).unwrap_err().contains("unknown"));
+    }
+
+    #[test]
+    fn drive_rejects_invalid_action_without_queueing() {
+        let dir = tempdir().unwrap();
+        let pubkey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let label = "playground-reject";
+        let gdir = dir.path().join(label);
+        fs::create_dir_all(&gdir).unwrap();
+        fs::write(
+            gdir.join("grant.json"),
+            format!(
+                r#"{{"agentPubkey":"{pubkey}","mode":"drive","webviewLabel":"{label}"}}"#
+            ),
+        )
+        .unwrap();
+        let err = with_env(dir.path(), pubkey, || {
+            drive(DriveParams {
+                webview_label: label.into(),
+                surface_id: None,
+                action: json!({"kind":"nope"}),
+                actions: None,
+                queue_only: Some(true),
+                wait_timeout_ms: None,
+            })
+            .unwrap_err()
+        });
+        let msg = format!("{err:?}");
+        assert!(msg.contains("unknown") || msg.contains("invalid"), "{msg}");
+        assert!(
+            !gdir.join("drive-inbox.jsonl").exists(),
+            "invalid action must not create inbox"
+        );
+    }
+
+    #[test]
+    fn drive_queues_valid_key_action() {
+        let dir = tempdir().unwrap();
+        let pubkey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let label = "playground-key";
+        let gdir = dir.path().join(label);
+        fs::create_dir_all(&gdir).unwrap();
+        fs::write(
+            gdir.join("grant.json"),
+            format!(
+                r#"{{"agentPubkey":"{pubkey}","mode":"drive","webviewLabel":"{label}"}}"#
+            ),
+        )
+        .unwrap();
+        let result = with_env(dir.path(), pubkey, || {
+            drive(DriveParams {
+                webview_label: label.into(),
+                surface_id: None,
+                action: json!({"kind":"key","key":"Enter"}),
+                actions: None,
+                queue_only: Some(true),
+                wait_timeout_ms: None,
+            })
+            .unwrap()
+        });
+        let text = format!("{result:?}");
+        assert!(text.contains("queued"), "{text}");
+        let inbox = fs::read_to_string(gdir.join("drive-inbox.jsonl")).unwrap();
+        assert!(inbox.contains("Enter"), "{inbox}");
+        assert!(inbox.contains("key"), "{inbox}");
+    }
+
+    #[test]
+    fn drive_string_action_parsed() {
+        let dir = tempdir().unwrap();
+        let pubkey = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        let label = "playground-s";
+        let gdir = dir.path().join(label);
+        fs::create_dir_all(&gdir).unwrap();
+        fs::write(
+            gdir.join("grant.json"),
+            format!(
+                r#"{{"agentPubkey":"{pubkey}","mode":"drive","webviewLabel":"{label}"}}"#
+            ),
+        )
+        .unwrap();
+        with_env(dir.path(), pubkey, || {
+            drive(DriveParams {
+                webview_label: label.into(),
+                surface_id: None,
+                action: Value::String(r#"{"kind":"scroll","dy":100}"#.into()),
+                actions: None,
+                queue_only: Some(true),
+                wait_timeout_ms: None,
+            })
+            .unwrap()
+        });
+        let inbox = fs::read_to_string(gdir.join("drive-inbox.jsonl")).unwrap();
+        assert!(inbox.contains("scroll"), "{inbox}");
+    }
+
+    #[test]
+    fn drive_batch_queues_all_or_rejects() {
+        let dir = tempdir().unwrap();
+        let pubkey = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+        let label = "playground-batch";
+        let gdir = dir.path().join(label);
+        fs::create_dir_all(&gdir).unwrap();
+        fs::write(
+            gdir.join("grant.json"),
+            format!(
+                r#"{{"agentPubkey":"{pubkey}","mode":"drive","webviewLabel":"{label}"}}"#
+            ),
+        )
+        .unwrap();
+        with_env(dir.path(), pubkey, || {
+            let err = drive(DriveParams {
+                webview_label: label.into(),
+                surface_id: None,
+                action: json!({}),
+                actions: Some(vec![
+                    json!({"kind":"scroll","dy":1}),
+                    json!({"kind":"nope"}),
+                ]),
+                queue_only: Some(true),
+                wait_timeout_ms: None,
+            })
+            .unwrap_err();
+            assert!(format!("{err:?}").contains("actions[1]"));
+            // First action must not have been queued when batch validation fails early.
+            assert!(!gdir.join("drive-inbox.jsonl").exists());
+
+            drive(DriveParams {
+                webview_label: label.into(),
+                surface_id: None,
+                action: json!({}),
+                actions: Some(vec![
+                    json!({"kind":"key","key":"Tab"}),
+                    json!({"kind":"scroll","dy":10}),
+                ]),
+                queue_only: Some(true),
+                wait_timeout_ms: None,
+            })
+            .unwrap();
+        });
+        let inbox = fs::read_to_string(gdir.join("drive-inbox.jsonl")).unwrap();
+        assert!(inbox.contains("Tab") && inbox.contains("scroll"), "{inbox}");
+    }
+
+    #[test]
+    fn resolve_prefers_surface_id_over_stale_label() {
+        let dir = tempdir().unwrap();
+        let pubkey = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+        let stale = "playground-demo";
+        let live = "playground-demo--pop";
+        // Only the live mirror remains after Desktop rebind (old grant.json removed).
+        let gdir = dir.path().join(live);
+        fs::create_dir_all(&gdir).unwrap();
+        fs::write(
+            gdir.join("grant.json"),
+            format!(
+                r#"{{"agentPubkey":"{pubkey}","mode":"drive","webviewLabel":"{live}","surfaceId":"demo"}}"#
+            ),
+        )
+        .unwrap();
+        with_env(dir.path(), pubkey, || {
+            let (resolved_dir, grant, label) =
+                resolve_grant_target(pubkey, stale, Some("demo")).unwrap();
+            assert_eq!(label, live);
+            assert_eq!(grant_surface_id(&grant), Some("demo"));
+            assert!(resolved_dir.ends_with(live));
+        });
+    }
+
+    #[test]
+    fn drive_wait_returns_results_from_events_fixture() {
+        let dir = tempdir().unwrap();
+        let pubkey = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+        let label = "playground-wait";
+        let gdir = dir.path().join(label);
+        fs::create_dir_all(&gdir).unwrap();
+        fs::write(
+            gdir.join("grant.json"),
+            format!(
+                r#"{{"agentPubkey":"{pubkey}","mode":"drive","webviewLabel":"{label}","surfaceId":"wait1"}}"#
+            ),
+        )
+        .unwrap();
+
+        // Background: after a short delay, write drive results for queued ids.
+        let events_path = gdir.join("events.jsonl");
+        let events_path2 = events_path.clone();
+        let handle = std::thread::spawn(move || {
+            // Wait until inbox exists with an id.
+            for _ in 0..200 {
+                if let Ok(inbox) = fs::read_to_string(gdir.join("drive-inbox.jsonl")) {
+                    if let Some(line) = inbox.lines().next() {
+                        if let Ok(v) = serde_json::from_str::<Value>(line) {
+                            if let Some(id) = v.get("id").and_then(|x| x.as_str()) {
+                                let mut f = fs::OpenOptions::new()
+                                    .create(true)
+                                    .append(true)
+                                    .open(&events_path2)
+                                    .unwrap();
+                                writeln!(
+                                    f,
+                                    r#"{{"id":1,"webviewLabel":"playground-wait","kind":"drive","atMs":1,"payload":{{"id":"{id}","ok":true,"kind":"scroll","url":"https://example.com/done"}}}}"#
+                                )
+                                .unwrap();
+                                return;
+                            }
+                        }
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            panic!("inbox never appeared");
+        });
+
+        let result = with_env(dir.path(), pubkey, || {
+            drive_with_poll(
+                DriveParams {
+                    webview_label: label.into(),
+                    surface_id: None,
+                    action: json!({"kind":"scroll","dy":1}),
+                    actions: None,
+                    queue_only: Some(false),
+                    wait_timeout_ms: Some(500),
+                },
+                5,
+            )
+            .unwrap()
+        });
+        handle.join().unwrap();
+        let text = format!("{result:?}");
+        assert!(text.contains("complete"), "{text}");
+        assert!(text.contains("example.com/done") || text.contains("scroll"), "{text}");
+        assert!(text.contains("\"ok\":true") || text.contains("ok: true") || text.contains("results"), "{text}");
+    }
+
+    #[test]
+    fn collect_drive_results_reads_fixture_without_wall_clock() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        let mut f = fs::File::create(&path).unwrap();
+        writeln!(
+            f,
+            r#"{{"id":1,"kind":"drive","payload":{{"id":"a1","ok":true,"kind":"click","url":"https://x.test"}}}}"#
+        )
+        .unwrap();
+        writeln!(
+            f,
+            r#"{{"id":2,"kind":"drive_error","payload":{{"id":"a2","ok":false,"kind":"type","error":"boom"}}}}"#
+        )
+        .unwrap();
+        let wanted = vec!["a1".into(), "a2".into()];
+        let (results, url) = collect_drive_results_from_events(&path, &wanted);
+        assert_eq!(results.len(), 2);
+        assert_eq!(url.as_deref(), Some("https://x.test"));
+        let (partial, _) = collect_drive_results_from_events(&path, &["a1".into(), "missing".into()]);
+        assert_eq!(partial.len(), 1);
+    }
+
+    #[test]
+    fn drive_queue_only_skips_wait() {
+        let dir = tempdir().unwrap();
+        let pubkey = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+        let label = "playground-qo";
+        let gdir = dir.path().join(label);
+        fs::create_dir_all(&gdir).unwrap();
+        fs::write(
+            gdir.join("grant.json"),
+            format!(
+                r#"{{"agentPubkey":"{pubkey}","mode":"drive","webviewLabel":"{label}"}}"#
+            ),
+        )
+        .unwrap();
+        let result = with_env(dir.path(), pubkey, || {
+            drive(DriveParams {
+                webview_label: label.into(),
+                surface_id: None,
+                action: json!({"kind":"key","key":"Tab"}),
+                actions: None,
+                queue_only: Some(true),
+                wait_timeout_ms: Some(10),
+            })
+            .unwrap()
+        });
+        let text = format!("{result:?}");
+        assert!(text.contains("queued"), "{text}");
+        assert!(!text.contains("complete"), "{text}");
+    }
+    #[test]
+    fn tabs_reads_mirrored_tabs_json() {
+        let dir = tempdir().unwrap();
+        let pubkey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let label = "playground-demo";
+        let gdir = dir.path().join(label);
+        fs::create_dir_all(&gdir).unwrap();
+        fs::write(
+            gdir.join("grant.json"),
+            format!(
+                r#"{{"agentPubkey":"{pubkey}","mode":"observe","webviewLabel":"{label}","surfaceId":"demo","surface":"playground"}}"#
+            ),
+        )
+        .unwrap();
+        fs::write(
+            gdir.join("tabs.json"),
+            r#"{"browserId":"demo","mainTabSid":"demo","activeTabSid":"extra","tabs":[{"surfaceId":"demo","url":"https://a.example","title":"Main","isMain":true},{"surfaceId":"extra","url":"https://b.example","title":"Extra","isMain":false}]}"# ,
+        )
+        .unwrap();
+        let result = with_env(dir.path(), pubkey, || {
+            tabs(TabsParams {
+                webview_label: Some(label.into()),
+                surface_id: None,
+            })
+            .unwrap()
+        });
+        let text = format!("{result:?}");
+        assert!(text.contains("mainTabSid"), "{text}");
+        assert!(text.contains("extra"), "{text}");
+        assert!(text.contains("isMain"), "{text}");
+    }
+
+}
+

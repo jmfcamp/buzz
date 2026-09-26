@@ -54,6 +54,11 @@ before(() => {
 afterEach(async () => {
   const { cleanup } = await import("@testing-library/react");
   cleanup();
+  while (overlayQueryClients.length > 0) {
+    const client = overlayQueryClients.pop();
+    await client?.cancelQueries();
+    client?.clear();
+  }
   const { resetPlaygroundState } = await import("../lib/sessions.ts");
   resetPlaygroundState();
   const { PLAYGROUND_DOCK_WIDTH_SESSION_KEY } = await import("../lib/dock.ts");
@@ -62,16 +67,44 @@ afterEach(async () => {
 
 after(() => dom.window.close());
 
-async function renderOverlay() {
+/** @type {import("@tanstack/react-query").QueryClient[]} */
+const overlayQueryClients = [];
+
+
+async function renderWithProviders(tree) {
   const { createElement } = await import("react");
-  const { render, screen } = await import("@testing-library/react");
+  const { render } = await import("@testing-library/react");
+  const { QueryClient, QueryClientProvider } = await import(
+    "@tanstack/react-query"
+  );
+  const { managedAgentsQueryKey } = await import(
+    "@/features/agents/hooks.ts"
+  );
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, gcTime: 0, staleTime: Infinity },
+    },
+  });
+  client.setQueryData(managedAgentsQueryKey, []);
+  overlayQueryClients.push(client);
+  return render(
+    createElement(QueryClientProvider, { client }, tree),
+  );
+}
+
+
+async function renderOverlay(extraProps = {}) {
+  const { createElement } = await import("react");
+  const { screen } = await import("@testing-library/react");
   const { PlaygroundOverlay } = await import("./PlaygroundOverlay.tsx");
   const { addPlaygroundSession, configurePlaygroundScope } = await import(
     "../lib/sessions.ts"
   );
   configurePlaygroundScope("pub", "wss://relay.example.com");
   const session = addPlaygroundSession(card);
-  render(createElement(PlaygroundOverlay, { session }));
+  await renderWithProviders(
+    createElement(PlaygroundOverlay, { session, ...extraProps }),
+  );
   return screen;
 }
 
@@ -86,23 +119,22 @@ test("overlay shows chrome PIN and parks on Dismiss", async () => {
   assert.equal(screen.queryByTestId("playground-chrome-stack"), null);
   assert.ok(screen.getByTestId("playground-desktop-stage"));
   const chrome = screen.getByTestId("playground-chrome");
-  const dispose = screen.getByTestId("playground-dispose");
   const back = screen.getByTestId("playground-back");
-  assert.ok(chrome.contains(dispose));
-  assert.ok(dispose.compareDocumentPosition(back) & 4);
+  assert.equal(screen.queryByTestId("playground-dispose"), null);
+  assert.ok(chrome.contains(back));
   const dismiss = screen.getByTestId("playground-dismiss");
   assert.equal(dismiss.getAttribute("aria-label"), "Dismiss");
   assert.ok(dismiss.querySelector("svg"));
-  assert.equal(screen.getByTestId("playground-inspect").textContent, "");
+  assert.ok(screen.getByTestId("browser-agent-toggle"));
   assert.equal(
-    screen.getByTestId("playground-inspect").getAttribute("aria-label"),
-    "Inspect",
+    screen.getByTestId("playground-detach").getAttribute("aria-label"),
+    "Detach",
   );
   const dock = screen.getByTestId("playground-dock");
   assert.equal(dock.getAttribute("aria-label"), "Dock left");
   assert.ok(dock.querySelector("svg"));
-  const fullscreen = screen.getByTestId("playground-fullscreen");
-  assert.ok(fullscreen.compareDocumentPosition(dock) & 4);
+  assert.equal(screen.queryByTestId("playground-fullscreen"), null);
+  assert.equal(screen.queryByTestId("playground-inspect"), null);
   assert.ok(dock.compareDocumentPosition(dismiss) & 4);
   assert.equal(
     screen.getByTestId("playground-overlay").getAttribute("data-docked"),
@@ -128,7 +160,7 @@ test("overlay shows chrome PIN and parks on Dismiss", async () => {
   assert.equal(getActivePlaygroundSid(), "demo-1");
 });
 
-test("Dispose is confirmed and removes the session; device museum is a dropdown", async () => {
+test("device museum is a dropdown; chrome has no Dispose (Browsers Remove destroys)", async () => {
   const screen = await renderOverlay();
   const { fireEvent } = await import("@testing-library/react");
   await fireEvent.click(screen.getByTestId("playground-mode-mobile"));
@@ -144,14 +176,8 @@ test("Dispose is confirmed and removes the session; device museum is a dropdown"
   const host = screen.getByTestId("playground-webview-host");
   assert.equal(host.getAttribute("data-viewport-width"), "393");
   assert.match(host.getAttribute("data-user-agent") ?? "", /iPhone|Mobile/);
-
-  await fireEvent.click(screen.getByTestId("playground-dispose"));
-  await fireEvent.click(screen.getByTestId("playground-dispose-confirm"));
-  const { listPlaygroundSessions, getActivePlaygroundSid } = await import(
-    "../lib/sessions.ts"
-  );
-  assert.equal(listPlaygroundSessions().length, 0);
-  assert.equal(getActivePlaygroundSid(), null);
+  assert.equal(screen.queryByTestId("playground-dispose"), null);
+  assert.equal(screen.queryByTestId("playground-dispose-confirm"), null);
 });
 
 test("URL prefix is locked and suffix submits a same-origin navigation", async () => {
@@ -184,11 +210,11 @@ test("Screenshot is hidden without a channel and stages a draft with one", async
   configurePlaygroundScope("pub", "wss://relay.example.com");
   initDraftStore("pub", "wss://relay.example.com");
   const session = addPlaygroundSession(card);
-  render(createElement(PlaygroundOverlay, { session }));
+  await renderWithProviders(createElement(PlaygroundOverlay, { session }));
   assert.equal(screen.queryByTestId("playground-screenshot"), null);
   cleanup();
 
-  render(
+  await renderWithProviders(
     createElement(PlaygroundOverlay, {
       conversation: { channelId: "hula-id", draftKey: "hula-id" },
       session,
@@ -235,7 +261,7 @@ test("PIN is hidden when empty and fullscreen fills the window", async () => {
     url: "https://app.example.com",
     sid: "demo-open",
   });
-  render(createElement(PlaygroundOverlay, { session }));
+  await renderWithProviders(createElement(PlaygroundOverlay, { session }));
   assert.equal(screen.queryByTestId("playground-chrome-pin"), null);
   assert.equal(
     screen.queryByTestId(PLAYGROUND_FULLSCREEN_TITLEBAR_GAP_TEST_ID),
@@ -285,7 +311,6 @@ test("PIN is hidden when empty and fullscreen fills the window", async () => {
   assert.ok(gap.compareDocumentPosition(chrome) & 4);
   assert.equal(screen.queryByTestId("playground-dock"), null);
   for (const testId of [
-    "playground-dispose",
     "playground-back",
     "playground-inspect",
     "playground-fullscreen",
@@ -298,6 +323,7 @@ test("PIN is hidden when empty and fullscreen fills the window", async () => {
     assert.ok(chrome.contains(control));
     assert.equal(gap.contains(control), false);
   }
+  assert.equal(screen.queryByTestId("playground-dispose"), null);
   assert.match(
     screen
       .getByTestId("playground-webview-host")
@@ -308,7 +334,6 @@ test("PIN is hidden when empty and fullscreen fills the window", async () => {
     screen.getByTestId("playground-fullscreen").getAttribute("aria-label"),
     "Exit fullscreen",
   );
-  assert.equal(screen.getByTestId("playground-dispose").disabled, false);
   assert.equal(screen.getByTestId("playground-inspect").disabled, false);
 });
 
@@ -331,7 +356,7 @@ test("Escape and the fullscreen control exit overlay fullscreen", async () => {
     url: "https://app.example.com",
     sid: "demo-escape",
   });
-  render(createElement(PlaygroundOverlay, { session }));
+  await renderWithProviders(createElement(PlaygroundOverlay, { session }));
   await fireEvent.click(screen.getByTestId("playground-fullscreen"));
   assert.equal(
     screen.getByTestId("playground-overlay").getAttribute("data-fullscreen"),
@@ -441,7 +466,7 @@ test("Inspect re-syncs the native stage without targeting main", async () => {
     url: "https://app.example.com",
     sid: "demo-inspect",
   });
-  render(createElement(PlaygroundOverlay, { session }));
+  await renderWithProviders(createElement(PlaygroundOverlay, { session }));
   const before = screen
     .getByTestId("playground-webview-host")
     .getAttribute("data-layout-key");
@@ -514,7 +539,7 @@ test("collapse docks to a left pane and expand restores the full overlay", async
     url: "https://app.example.com",
     sid: "demo-dock",
   });
-  render(
+  await renderWithProviders(
     createElement(
       "div",
       { "data-testid": "playground-main-standin" },
@@ -617,7 +642,7 @@ test("fullscreen from dock returns to dock; dismiss still parks", async () => {
     url: "https://app.example.com",
     sid: "demo-dock-fs",
   });
-  render(createElement(PlaygroundOverlay, { session }));
+  await renderWithProviders(createElement(PlaygroundOverlay, { session }));
   stubMainWidth(screen.getByTestId("playground-overlay"), 1000);
 
   await fireEvent.click(screen.getByTestId("playground-dock"));
@@ -703,7 +728,7 @@ test("dock button snaps flush to an open thread pane", async () => {
     url: "https://app.example.com",
     sid: "demo-dock-thread",
   });
-  render(
+  await renderWithProviders(
     createElement(
       "div",
       { "data-testid": "playground-main-standin" },
@@ -763,7 +788,7 @@ test("dock button without a thread keeps the half-inset default", async () => {
     url: "https://app.example.com",
     sid: "demo-dock-no-thread",
   });
-  render(
+  await renderWithProviders(
     createElement(
       "div",
       { "data-testid": "playground-main-standin" },
@@ -799,7 +824,7 @@ test("locked window chrome keeps the mode row and hides layout controls", async 
     url: "https://app.example.com",
     sid: "demo-lock-window",
   });
-  render(
+  await renderWithProviders(
     createElement(PlaygroundOverlay, { lockPlacement: "window", session }),
   );
 
@@ -852,7 +877,7 @@ test("locked dock is an in-flow split pane and does not snap to a thread", async
     url: "https://app.example.com",
     sid: "demo-lock-dock",
   });
-  render(
+  await renderWithProviders(
     createElement(
       "div",
       { "data-testid": "playground-main-standin", className: "flex flex-row" },
@@ -936,7 +961,7 @@ test("locked dock fullscreen covers both panes and restores the split", async ()
     url: "https://app.example.com",
     sid: "demo-lock-dock-fs",
   });
-  render(
+  await renderWithProviders(
     createElement(
       "div",
       { "data-testid": "playground-main-standin", className: "flex flex-row" },
@@ -1018,6 +1043,10 @@ test("chrome keeps URL on row 1 and right-justifies tooling on the mode row", as
   assert.ok(modeRow.contains(tools));
   assert.match(tools.className, /ml-auto/);
   assert.ok(tools.contains(screen.getByTestId("playground-back")));
-  assert.ok(tools.contains(screen.getByTestId("playground-inspect")));
+  assert.ok(tools.contains(screen.getByTestId("browser-agent-toggle")));
+  assert.ok(tools.contains(screen.getByTestId("playground-detach")));
+  assert.equal(screen.queryByTestId("browser-agent-chrome"), null);
   assert.equal(address.contains(screen.getByTestId("playground-back")), false);
 });
+
+
