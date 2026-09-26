@@ -69,15 +69,17 @@ test("summarizeProcedureSteps collapses whitespace and truncates", () => {
 test("shapeRunbookInject includes only active procedures", () => {
   let runbook = emptyRunbook(100);
   runbook = setAgentBrief(runbook, "Use the sidebar");
-  const proposed = proposeProcedure(runbook, {
-    title: "Pending tip",
-    steps: "Do not show yet",
-  });
-  runbook = proposed.runbook;
   runbook = {
     ...runbook,
     procedures: [
-      ...runbook.procedures,
+      {
+        id: "pend",
+        title: "Pending tip",
+        steps: "Do not show yet",
+        status: "pending",
+        createdAt: 1,
+        updatedAt: 1,
+      },
       {
         id: "a1",
         title: "Active tip",
