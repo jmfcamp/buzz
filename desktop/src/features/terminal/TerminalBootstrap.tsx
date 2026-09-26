@@ -759,7 +759,9 @@ export function TerminalBootstrap({
       .catch(fail);
   }, [active?.connection, fail]);
 
-  const send = (operation: Promise<void> | undefined) => operation?.catch(fail);
+  const send = (operation: Promise<unknown> | undefined) => {
+    void operation?.catch(fail);
+  };
   const handleSplashStarted = React.useCallback(() => {
     setSplashPending(false);
   }, []);

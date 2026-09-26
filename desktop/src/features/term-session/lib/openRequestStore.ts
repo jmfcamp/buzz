@@ -45,7 +45,9 @@ export function getTermSessionOpenRequest(): TermSessionOpenRequest | null {
 
 export function subscribeTermSessionOpenRequest(listener: () => void) {
   listeners.add(listener);
-  return () => listeners.delete(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
 /** sid → live TerminalBootstrap session key for re-attach / focus. */
