@@ -445,7 +445,10 @@ fn data_store_identifier(sid: &str) -> [u8; 16] {
 }
 
 fn emit_nav(app: &AppHandle, state: PlaygroundNavState) {
-    if let Err(error) = app.emit("playground-webview-nav", state) {
+    let label = playground_label(&state.sid);
+    // Window-scoped labels are handled by callers that know the window; main label is enough for grant keyed sessions.
+    crate::browser_agent::record_nav_event(app, &label, &state.current_url, None);
+    if let Err(error) = app.emit("playground-webview-nav", &state) {
         eprintln!("buzz-desktop: playground-webview-nav emit failed: {error}");
     }
 }
@@ -729,6 +732,12 @@ pub async fn playground_webview_close(
         if let Ok(mut sessions) = manager.sessions.lock() {
             sessions.remove(&sid);
         }
+        crate::browser_agent::clear_grants_for_surface(&app, &sid);
+    } else {
+        crate::browser_agent::clear_grant_for_label(
+            &app,
+            &playground_webview_label(&sid, &window_label),
+        );
     }
     Ok(())
 }
@@ -755,7 +764,11 @@ pub async fn playground_webview_close_all(
         .any(|webview| webview.label().starts_with(PLAYGROUND_LABEL_PREFIX));
     if !any_playground_left {
         if let Ok(mut sessions) = manager.sessions.lock() {
+            let sids: Vec<String> = sessions.keys().cloned().collect();
             sessions.clear();
+            for sid in sids {
+                crate::browser_agent::clear_grants_for_surface(&app, &sid);
+            }
         }
     }
     Ok(())

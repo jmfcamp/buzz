@@ -4,6 +4,7 @@ import * as React from "react";
 
 import { isNativeWebviewModalParked } from "@/shared/lib/nativeWebviewModalPark";
 import { TopChromeInsetHeader } from "@/shared/layout/TopChromeInsetHeader";
+import { BrowserAgentChrome } from "@/features/browser-agent/ui/BrowserAgentChrome";
 import { Button } from "@/shared/ui/button";
 
 import { usePinnedSite } from "../hooks";
@@ -151,9 +152,10 @@ function PinnedSiteChrome({
             <RefreshCw className="h-4 w-4" />
           </Button>
         </div>
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           {icon}
           <h1 className="truncate text-sm font-medium">{title}</h1>
+          <BrowserAgentChrome surface="pin" surfaceId={pinId} />
           {loadError ? (
             <p
               className="truncate text-2xs text-destructive"

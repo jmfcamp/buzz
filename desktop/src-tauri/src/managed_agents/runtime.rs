@@ -610,6 +610,7 @@ pub fn spawn_agent_child(
     }
     command.env("RUST_LOG", child_rust_log_filter());
     command.env("BUZZ_PRIVATE_KEY", &record.private_key_nsec);
+    command.env("BUZZ_AGENT_PUBKEY", &record.pubkey);
     command.env("BUZZ_RELAY_URL", &effective_relay_url);
     command.env("BUZZ_ACP_LAZY_POOL", if lazy { "true" } else { "false" });
     command.env("BUZZ_ACP_IDLE_POOL_SLEEP", idle_pool_sleep_env(lazy));

@@ -79,7 +79,8 @@ test("Open as Split chrome: URL row then modes left + tools right", async () => 
   assert.ok(address.compareDocumentPosition(modeRow) & 4);
   assert.ok(modeRow.contains(screen.getByTestId("playground-mode-desktop")));
   assert.ok(modeRow.contains(tools));
-  assert.match(tools.className, /ml-auto/);
+  assert.match(tools.parentElement?.className ?? "", /ml-auto/);
+  assert.ok(modeRow.contains(screen.getByTestId("browser-agent-chrome")));
   assert.ok(tools.contains(screen.getByTestId("playground-back")));
   assert.ok(screen.getByTestId("playground-url-prefix"));
 });

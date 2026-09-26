@@ -3,6 +3,7 @@ mod app_menu;
 mod app_state;
 mod archive;
 mod build_identity;
+mod browser_agent;
 mod builderlab;
 mod channel_head_cache;
 mod commands;
@@ -223,6 +224,7 @@ pub fn run() {
         .manage(channel_head_cache::ChannelHeadCacheStore::default())
         .manage(pin_webview::PinWebviewManager::default())
         .manage(playground_webview::PlaygroundWebviewManager::default())
+        .manage(browser_agent::BrowserAgentState::default())
         .setup(move |app| {
             let app_handle = app.handle().clone();
             #[cfg(target_os = "macos")]
@@ -838,6 +840,14 @@ pub fn run() {
             playground_webview::playground_webview_dom_hash,
             playground_webview::playground_webview_poll,
             playground_webview::playground_webview_screenshot,
+            browser_agent::browser_agent_grant_set,
+            browser_agent::browser_agent_grant_clear,
+            browser_agent::browser_agent_grant_get,
+            browser_agent::browser_agent_grants_for_agent,
+            browser_agent::browser_agent_take_control,
+            browser_agent::browser_observe_poll,
+            browser_agent::browser_drive,
+            browser_agent::browser_agent_process_drive_inbox,
             push_audio_pcm,
             reconnect_huddle_audio,
             start_stt_pipeline,

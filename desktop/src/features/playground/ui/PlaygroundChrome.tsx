@@ -61,6 +61,7 @@ import {
   screenshotPlaygroundWebview,
   subscribePlaygroundWebviewNav,
 } from "../lib/webview";
+import { BrowserAgentChrome } from "@/features/browser-agent/ui/BrowserAgentChrome";
 import type { PlaygroundChromeMode } from "./PlaygroundStage";
 
 export function PlaygroundChrome({
@@ -81,8 +82,10 @@ export function PlaygroundChrome({
   showDetach = false,
   showFullscreen = false,
   showInspect = false,
+  agentGrantPrefill = null,
 }: {
   conversation: PlaygroundConversation | null;
+  agentGrantPrefill?: { agentId: string; agentPubkey: string } | null;
   docked: boolean;
   fullscreen: boolean;
   hideDismiss?: boolean;
@@ -299,8 +302,20 @@ export function PlaygroundChrome({
               PIN {pin}
             </p>
           ) : null}
+          <div className="ml-auto flex min-w-0 shrink-0 items-center gap-2">
+            <BrowserAgentChrome
+              channelId={conversation?.channelId ?? null}
+              prefillAgent={agentGrantPrefill}
+              surface="playground"
+              surfaceId={session.sid}
+              threadRoot={
+                conversation?.draftKey?.startsWith("thread:")
+                  ? conversation.draftKey.slice("thread:".length)
+                  : null
+              }
+            />
           <div
-            className="ml-auto flex shrink-0 items-center gap-0.5"
+            className="flex shrink-0 items-center gap-0.5"
             data-testid="playground-tool-icons"
           >
             <ChromeTooltipButton
@@ -433,6 +448,7 @@ export function PlaygroundChrome({
                 <ChevronLeft />
               </ChromeTooltipButton>
             )}
+          </div>
           </div>
         </div>
       </header>

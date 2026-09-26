@@ -10,6 +10,7 @@ use rmcp::{
 use std::path::Path;
 use std::sync::Arc;
 
+mod browser_agent;
 mod paths;
 mod read_file;
 mod rg;
@@ -58,6 +59,41 @@ impl DevMcp {
         Parameters(p): Parameters<read_file::ReadFileParams>,
     ) -> Result<String, ErrorData> {
         read_file::run(&self.state, p)
+    }
+
+
+    #[tool(
+        name = "browser_observe_poll",
+        description = "Poll Observe events for a Buzz in-app browser webview you were granted (Observe or Drive). Requires BUZZ_AGENT_PUBKEY. Returns JSON {grant, events}. Not OpenClaw Chromium."
+    )]
+    async fn browser_observe_poll(
+        &self,
+        Parameters(p): Parameters<browser_agent::ObservePollParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        browser_agent::observe_poll(p)
+    }
+
+    #[tool(
+        name = "browser_agent_grants",
+        description = "List Buzz browser Observe/Drive grants for this agent (BUZZ_AGENT_PUBKEY). Returns JSON {grants}."
+    )]
+    async fn browser_agent_grants(
+        &self,
+        Parameters(p): Parameters<browser_agent::GrantsParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let _ = p;
+        browser_agent::grants(browser_agent::GrantsParams {})
+    }
+
+    #[tool(
+        name = "browser_drive",
+        description = "Queue a Drive action (navigate|click|type|scroll|hover) for a Buzz WKWebView you hold in Drive mode. Writes the Desktop drive inbox; Desktop applies it with a visible cursor. Requires BUZZ_AGENT_PUBKEY."
+    )]
+    async fn browser_drive(
+        &self,
+        Parameters(p): Parameters<browser_agent::DriveParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        browser_agent::drive(p)
     }
 
     #[tool(

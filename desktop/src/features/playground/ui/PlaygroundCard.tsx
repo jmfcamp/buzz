@@ -35,7 +35,7 @@ import {
 } from "@/shared/ui/attachment";
 
 import { probePlaygroundUrl } from "../lib/probe";
-import { notePlaygroundCard } from "../lib/sessions";
+import { addPlaygroundSession, notePlaygroundCard, showPlaygroundSession } from "../lib/sessions";
 import {
   playgroundPin,
   type PlaygroundCard as PlaygroundCardData,
@@ -203,6 +203,48 @@ export function PlaygroundCard({ card }: { card: PlaygroundCardData }) {
     void openPlaygroundInBrowser(card.url);
   }
 
+  function handleWatch() {
+    if (actionsDisabled) return;
+    if (!host) {
+      void openPlaygroundInBrowser(card.url);
+      return;
+    }
+    setBusy(true);
+    void (async () => {
+      try {
+        if (!(await ensureUp())) return;
+        addPlaygroundSession(card);
+        showPlaygroundSession(card.sid);
+        toast.message("Opened for Observe — grant an agent in the browser chrome.");
+      } catch (error) {
+        toast.error(popoutErrorMessage(error, "Could not open playground."));
+      } finally {
+        setBusy(false);
+      }
+    })();
+  }
+
+  function handleLetDrive() {
+    if (actionsDisabled) return;
+    if (!host) {
+      void openPlaygroundInBrowser(card.url);
+      return;
+    }
+    setBusy(true);
+    void (async () => {
+      try {
+        if (!(await ensureUp())) return;
+        addPlaygroundSession(card);
+        showPlaygroundSession(card.sid);
+        toast.message("Opened for Drive — grant an agent in the browser chrome.");
+      } catch (error) {
+        toast.error(popoutErrorMessage(error, "Could not open playground."));
+      } finally {
+        setBusy(false);
+      }
+    })();
+  }
+
   function handleCopyPin(event: React.MouseEvent<HTMLButtonElement>) {
     event.preventDefault();
     event.stopPropagation();
@@ -295,6 +337,32 @@ export function PlaygroundCard({ card }: { card: PlaygroundCardData }) {
             type="button"
           >
             Open
+          </Button>
+          <Button
+            data-testid="playground-card-watch"
+            disabled={busy || actionsDisabled}
+            onClick={(event) => {
+              event.stopPropagation();
+              handleWatch();
+            }}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            Watch
+          </Button>
+          <Button
+            data-testid="playground-card-let-drive"
+            disabled={busy || actionsDisabled}
+            onClick={(event) => {
+              event.stopPropagation();
+              handleLetDrive();
+            }}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            Let agent drive
           </Button>
           <Button
             data-testid="playground-card-open-split"
