@@ -228,7 +228,7 @@ pub fn run() {
         .manage(browser_agent::BrowserAgentState::default())
         .setup(move |app| {
             let app_handle = app.handle().clone();
-            browser_agent::spawn_drive_inbox_watcher(app_handle.clone());
+            browser_agent::spawn_grant_watcher(app_handle.clone());
             user_signer::spawn_user_signer_watcher(app_handle.clone());
             #[cfg(target_os = "macos")]
             {

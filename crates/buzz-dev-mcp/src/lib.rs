@@ -66,7 +66,7 @@ impl DevMcp {
 
     #[tool(
         name = "browser_observe_poll",
-        description = "Poll Observe events for a Buzz in-app browser you were granted (Observe or Drive). Prefer surface_id (stable across popout/detach); webview_label also works. Omit both when you have exactly one grant. Requires BUZZ_AGENT_PUBKEY. Returns JSON {grant, webviewLabel, surfaceId, events}. Not OpenClaw Chromium."
+        description = "Poll Observe events for a Buzz in-app browser you hold Observe or Drive on. Console + network (headers/status/bodies) flow under Observe alone — Drive is not required. Event kinds include: grant, nav, console, network, snapshot, tab_opened, tab_switched, drive, drive_error, drive_started. Prefer surface_id (stable across popout/detach); webview_label also works. Omit both when you have exactly one grant. Pass after_id from the last event id to advance. Requires BUZZ_AGENT_PUBKEY. Returns JSON {grant, webviewLabel, surfaceId, events}. Not OpenClaw Chromium."
     )]
     async fn browser_observe_poll(
         &self,
