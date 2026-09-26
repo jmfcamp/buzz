@@ -23,8 +23,8 @@ use grant::{
     BrowserAgentMode, BrowserAgentSurface,
 };
 use observe::{
-    drain_to_cookie_js, instrumentation_js, snapshot_to_cookie_js, BrowserObserveBuffer,
-    ObserveEvent, DRAIN_COOKIE, SNAPSHOT_COOKIE,
+    drain_page_queue_js, instrumentation_js, snapshot_to_cookie_js, BrowserObserveBuffer,
+    ObserveEvent, PageDrainEvent, SNAPSHOT_COOKIE,
 };
 
 #[derive(Default)]
@@ -112,14 +112,9 @@ fn eval_on_label(app: &AppHandle, label: &str, js: &str) -> Result<(), String> {
     webview.eval(js).map_err(|e| e.to_string())
 }
 
-fn install_instrumentation(
-    app: &AppHandle,
-    label: &str,
-    drive: bool,
-) -> Result<(), String> {
+fn install_instrumentation(app: &AppHandle, label: &str, drive: bool) -> Result<(), String> {
     eval_on_label(app, label, &instrumentation_js(label, drive))
 }
-
 
 fn drive_lock_enabled(grant: &BrowserAgentGrant) -> bool {
     matches!(grant.mode, BrowserAgentMode::Drive) && !grant.user_has_control
@@ -222,10 +217,7 @@ pub fn record_nav_event(app: &AppHandle, webview_label: &str, url: &str, title: 
     if state.grants.get(webview_label).is_none() {
         return;
     }
-    if !state
-        .observe
-        .push_nav(webview_label, url, title, now_ms())
-    {
+    if !state.observe.push_nav(webview_label, url, title, now_ms()) {
         return;
     }
     let _ = app.emit(
@@ -270,7 +262,11 @@ pub async fn browser_agent_grant_set(
     if matches!(input.surface, BrowserAgentSurface::Pin) {
         return Err("Observe/Drive is not available on pinned sites".into());
     }
-    let label = resolve_label(input.surface, &input.surface_id, input.window_label.as_deref())?;
+    let label = resolve_label(
+        input.surface,
+        &input.surface_id,
+        input.window_label.as_deref(),
+    )?;
     if app.get_webview(&label).is_none() {
         return Err(format!("webview {label} is not open"));
     }
@@ -335,7 +331,6 @@ pub async fn browser_agent_grant_clear(
     Ok(())
 }
 
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RebindSurfaceInput {
@@ -369,10 +364,7 @@ pub async fn browser_agent_rebind_surface(
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
         });
-    let Some(rebound) = state
-        .grants
-        .rebind_across_surfaces(&from, &to, &new_label)
-    else {
+    let Some(rebound) = state.grants.rebind_across_surfaces(&from, &to, &new_label) else {
         return Ok(None);
     };
     if let Ok(root) = ensure_data_root(&app, &state) {
@@ -516,53 +508,16 @@ pub async fn browser_observe_poll(
     input: ObservePollInput,
 ) -> Result<ObservePollResult, String> {
     let label = input.webview_label.trim().to_string();
-    let grant = state.grants.require_mode(
-        &label,
-        input.agent_pubkey.trim(),
-        BrowserAgentMode::Observe,
-    )?;
-    // Pull any page-queued events via cookie drain.
+    let grant =
+        state
+            .grants
+            .require_mode(&label, input.agent_pubkey.trim(), BrowserAgentMode::Observe)?;
+    // Flush page console/network into the host ring (page cursor ≠ host after_id).
+    let _ = flush_page_observe_queue(&app, &state, &label).await;
     let after = input.after_id.unwrap_or(0);
     let limit = input.limit.unwrap_or(50);
-    let _ = eval_on_label(&app, &label, &drain_to_cookie_js(after, limit));
-    if let Some(webview) = app.get_webview(&label) {
-        if let Ok(url) = webview.url() {
-            let cookie_url = url.clone();
-            if let Ok(Ok(cookies)) =
-                tokio::task::spawn_blocking(move || webview.cookies_for_url(cookie_url)).await
-            {
-                if let Some(cookie) = cookies.iter().find(|c| c.name() == DRAIN_COOKIE) {
-                    if let Ok(decoded) = urlencoding_decode(cookie.value()) {
-                        if let Ok(page_events) =
-                            serde_json::from_str::<Vec<PageDrainEvent>>(&decoded)
-                        {
-                            for pe in page_events {
-                                state.observe.push(
-                                    &label,
-                                    &pe.kind,
-                                    pe.payload,
-                                    pe.at_ms.unwrap_or_else(now_ms),
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
     let events = state.observe.poll(&label, after, limit);
     Ok(ObservePollResult { events, grant })
-}
-
-#[derive(Debug, Deserialize)]
-struct PageDrainEvent {
-    #[serde(default)]
-    id: u64,
-    kind: String,
-    #[serde(default, rename = "atMs")]
-    at_ms: Option<u64>,
-    #[serde(default)]
-    payload: Option<serde_json::Value>,
 }
 
 fn urlencoding_decode(raw: &str) -> Result<String, ()> {
@@ -636,7 +591,12 @@ fn enrich_drive_payload(
         })
     });
     if let (Some(action), Some(obj)) = (action, payload.as_object_mut()) {
-        if let Some(key) = action.key.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some(key) = action
+            .key
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             obj.entry("key").or_insert_with(|| json!(key));
         }
         if let Some(text) = action.text.as_deref() {
@@ -649,7 +609,12 @@ fn enrich_drive_payload(
         if let Some(y) = action.y {
             obj.entry("y").or_insert_with(|| json!(y));
         }
-        if let Some(url) = action.url.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some(url) = action
+            .url
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             obj.entry("url").or_insert_with(|| json!(url));
         }
     }
@@ -752,7 +717,11 @@ async fn eval_drive_action(
 fn drive_result_timeout_ms(kind: &str, action: &DriveAction) -> u64 {
     match kind {
         "type" => {
-            let n = action.text.as_deref().map(|s| s.chars().count()).unwrap_or(0) as u64;
+            let n = action
+                .text
+                .as_deref()
+                .map(|s| s.chars().count())
+                .unwrap_or(0) as u64;
             (1_200 + n * 70).min(30_000)
         }
         "click" | "hover" => 2_500,
@@ -857,11 +826,10 @@ pub async fn browser_drive(
     input: DriveInput,
 ) -> Result<DriveActionResult, String> {
     let label = input.webview_label.trim().to_string();
-    let grant = state.grants.require_mode(
-        &label,
-        input.agent_pubkey.trim(),
-        BrowserAgentMode::Drive,
-    )?;
+    let grant =
+        state
+            .grants
+            .require_mode(&label, input.agent_pubkey.trim(), BrowserAgentMode::Drive)?;
     let lock = drive_lock_enabled(&grant);
     install_instrumentation(&app, &label, lock)?;
     Ok(eval_drive_action(&app, &state, &label, &input.action).await)
@@ -990,9 +958,66 @@ pub async fn browser_agent_process_drive_inbox(
     process_drive_inbox_for_label(&app, &state, webview_label.trim()).await
 }
 
-/// Poll every live Observe/Drive grant inbox (~200ms). Keeps Drive responsive
-/// without depending on React chrome cadence. Atomic rename→read preserved.
-pub fn spawn_drive_inbox_watcher(app: AppHandle) {
+/// Flush in-page console/network queue into the observe buffer / events.jsonl
+/// via `eval_with_callback` (cookie drain cannot carry BODY_CAP bodies).
+/// Uses a page-seq cursor independent of the host ring `after_id`.
+async fn flush_page_observe_queue(
+    app: &AppHandle,
+    state: &BrowserAgentState,
+    label: &str,
+) -> usize {
+    if !state.observe.try_begin_page_flush() {
+        return 0;
+    }
+    let result = flush_page_observe_queue_inner(app, state, label).await;
+    state.observe.end_page_flush();
+    result
+}
+
+async fn flush_page_observe_queue_inner(
+    app: &AppHandle,
+    state: &BrowserAgentState,
+    label: &str,
+) -> usize {
+    let Some(webview) = app.get_webview(label) else {
+        return 0;
+    };
+    let after = state.observe.page_after_id(label);
+    let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+    // eval_with_callback takes Fn (not FnOnce); Option+Mutex lets us send once.
+    let tx = std::sync::Mutex::new(Some(tx));
+    let js = drain_page_queue_js(after, 25);
+    if webview
+        .eval_with_callback(js, move |result| {
+            if let Ok(mut slot) = tx.lock() {
+                if let Some(sender) = slot.take() {
+                    let _ = sender.send(result);
+                }
+            }
+        })
+        .is_err()
+    {
+        return 0;
+    }
+    let raw = match tokio::time::timeout(std::time::Duration::from_millis(120), rx).await {
+        Ok(Ok(s)) => s,
+        _ => return 0,
+    };
+    if raw.is_empty() || raw == "null" || raw == "[]" {
+        return 0;
+    }
+    let page_events: Vec<PageDrainEvent> = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(_) => return 0,
+    };
+    state
+        .observe
+        .ingest_page_events(label, after, &page_events, now_ms())
+}
+
+/// Poll every live Observe/Drive grant (~200ms): flush page console/network
+/// into events.jsonl for MCP, process Drive inbox, and tab-switch requests.
+pub fn spawn_grant_watcher(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -1003,17 +1028,13 @@ pub fn spawn_drive_inbox_watcher(app: AppHandle) {
                 .grants
                 .list_all()
                 .into_iter()
-                .filter(|g| {
-                    matches!(
-                        g.mode,
-                        BrowserAgentMode::Drive | BrowserAgentMode::Observe
-                    )
-                })
+                .filter(|g| matches!(g.mode, BrowserAgentMode::Drive | BrowserAgentMode::Observe))
                 .map(|g| g.webview_label)
                 .collect();
             for label in labels {
+                let _ = flush_page_observe_queue(&app, &state, &label).await;
                 if let Err(e) = process_drive_inbox_for_label(&app, &state, &label).await {
-                    eprintln!("buzz-desktop: drive inbox watcher {label}: {e}");
+                    eprintln!("buzz-desktop: grant watcher {label}: {e}");
                 }
                 if let Ok(root) = ensure_data_root(&app, &state) {
                     process_tab_switch_request(&app, &state, &label, &root);
@@ -1076,7 +1097,6 @@ async fn process_snapshot_request(
     emit_observe(app, label, "snapshot", Some(payload));
     1
 }
-
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1149,8 +1169,11 @@ pub async fn browser_agent_sync_tabs(
         let dir = root.join(&grant.webview_label);
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("tabs.json");
-        std::fs::write(&path, serde_json::to_vec_pretty(&body).map_err(|e| e.to_string())?)
-            .map_err(|e| e.to_string())?;
+        std::fs::write(
+            &path,
+            serde_json::to_vec_pretty(&body).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
         wrote = true;
         if let Some(ref ev) = input.event {
             let kind = ev.kind.trim();
@@ -1176,8 +1199,11 @@ pub async fn browser_agent_sync_tabs(
         let dir = root.join("browsers").join(browser_id);
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("tabs.json");
-        std::fs::write(&path, serde_json::to_vec_pretty(&body).map_err(|e| e.to_string())?)
-            .map_err(|e| e.to_string())?;
+        std::fs::write(
+            &path,
+            serde_json::to_vec_pretty(&body).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
     } else {
         let dir = root.join("browsers").join(browser_id);
         let _ = std::fs::create_dir_all(&dir);
@@ -1187,7 +1213,12 @@ pub async fn browser_agent_sync_tabs(
     Ok(())
 }
 
-fn process_tab_switch_request(app: &AppHandle, state: &BrowserAgentState, label: &str, root: &PathBuf) {
+fn process_tab_switch_request(
+    app: &AppHandle,
+    state: &BrowserAgentState,
+    label: &str,
+    root: &PathBuf,
+) {
     let req_path = root.join(label).join("tab-switch-request.json");
     let Ok(raw) = std::fs::read_to_string(&req_path) else {
         return;
@@ -1220,7 +1251,6 @@ fn process_tab_switch_request(app: &AppHandle, state: &BrowserAgentState, label:
     });
     let _ = app.emit("browser-agent-switch-tab", payload);
 }
-
 
 fn base64_encode(bytes: &[u8]) -> String {
     use base64::Engine;

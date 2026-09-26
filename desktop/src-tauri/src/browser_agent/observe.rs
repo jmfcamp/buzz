@@ -4,6 +4,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fs::{create_dir_all, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
@@ -23,6 +24,18 @@ pub struct ObserveEvent {
     pub payload: Option<Value>,
 }
 
+/// One event drained from the in-page instrumentation queue.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PageDrainEvent {
+    #[serde(default)]
+    pub id: u64,
+    pub kind: String,
+    #[serde(default, rename = "atMs")]
+    pub at_ms: Option<u64>,
+    #[serde(default)]
+    pub payload: Option<Value>,
+}
+
 #[derive(Debug)]
 pub struct BrowserObserveBuffer {
     next_id: Mutex<u64>,
@@ -30,6 +43,10 @@ pub struct BrowserObserveBuffer {
     root: Mutex<Option<PathBuf>>,
     /// Last emitted main-frame nav per label: (url, title) for dedupe / title fill.
     last_nav: Mutex<HashMap<String, (String, Option<String>)>>,
+    /// Last page-seq id successfully ingested per label (separate from host ring ids).
+    page_cursors: Mutex<HashMap<String, u64>>,
+    /// Serialize page→host flushes so watcher + Tauri poll do not double-ingest.
+    page_flush_busy: AtomicBool,
 }
 
 impl Default for BrowserObserveBuffer {
@@ -40,6 +57,8 @@ impl Default for BrowserObserveBuffer {
             rings: Mutex::new(HashMap::new()),
             root: Mutex::new(None),
             last_nav: Mutex::new(HashMap::new()),
+            page_cursors: Mutex::new(HashMap::new()),
+            page_flush_busy: AtomicBool::new(false),
         }
     }
 }
@@ -90,12 +109,17 @@ impl BrowserObserveBuffer {
         if url.is_empty() || url == "about:blank" {
             return false;
         }
-        let title = title.map(str::trim).filter(|s| !s.is_empty()).map(|s| s.to_string());
+        let title = title
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
         if let Ok(mut last) = self.last_nav.lock() {
             if let Some((prev_url, prev_title)) = last.get(webview_label) {
                 if prev_url == url {
                     // Same URL: only emit again when title newly available.
-                    if title.is_none() || prev_title.as_ref() == title.as_ref() || prev_title.is_some()
+                    if title.is_none()
+                        || prev_title.as_ref() == title.as_ref()
+                        || prev_title.is_some()
                     {
                         return false;
                     }
@@ -112,12 +136,7 @@ impl BrowserObserveBuffer {
         true
     }
 
-    pub fn poll(
-        &self,
-        webview_label: &str,
-        after_id: u64,
-        limit: usize,
-    ) -> Vec<ObserveEvent> {
+    pub fn poll(&self, webview_label: &str, after_id: u64, limit: usize) -> Vec<ObserveEvent> {
         let Ok(rings) = self.rings.lock() else {
             return Vec::new();
         };
@@ -138,12 +157,75 @@ impl BrowserObserveBuffer {
         if let Ok(mut last) = self.last_nav.lock() {
             last.remove(webview_label);
         }
+        if let Ok(mut cursors) = self.page_cursors.lock() {
+            cursors.remove(webview_label);
+        }
     }
 
     pub fn clear_surface_prefix(&self, prefix: &str) {
         if let Ok(mut rings) = self.rings.lock() {
             rings.retain(|k, _| !k.starts_with(prefix) && k != prefix);
         }
+        if let Ok(mut cursors) = self.page_cursors.lock() {
+            cursors.retain(|k, _| !k.starts_with(prefix) && k != prefix);
+        }
+    }
+
+    /// Page-queue cursor (in-page seq), not the host ring `after_id`.
+    pub fn page_after_id(&self, webview_label: &str) -> u64 {
+        self.page_cursors
+            .lock()
+            .ok()
+            .and_then(|c| c.get(webview_label).copied())
+            .unwrap_or(0)
+    }
+
+    /// Claim exclusive page→host flush. Pair with [`end_page_flush`].
+    pub fn try_begin_page_flush(&self) -> bool {
+        self.page_flush_busy
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+
+    pub fn end_page_flush(&self) {
+        self.page_flush_busy.store(false, Ordering::Release);
+    }
+
+    /// Push page-drained events into the host ring / events.jsonl and advance the
+    /// page cursor. `expected_after` must match the cursor used for the drain so
+    /// concurrent flushes do not double-ingest.
+    pub fn ingest_page_events(
+        &self,
+        webview_label: &str,
+        expected_after: u64,
+        events: &[PageDrainEvent],
+        fallback_at_ms: u64,
+    ) -> usize {
+        let to_push: Vec<&PageDrainEvent> =
+            events.iter().filter(|e| e.id > expected_after).collect();
+        if to_push.is_empty() {
+            return 0;
+        }
+        {
+            let Ok(mut cursors) = self.page_cursors.lock() else {
+                return 0;
+            };
+            let cursor = cursors.entry(webview_label.to_string()).or_insert(0);
+            if *cursor != expected_after {
+                return 0;
+            }
+            let max_id = to_push.iter().map(|e| e.id).max().unwrap_or(expected_after);
+            *cursor = max_id;
+        }
+        for pe in to_push {
+            self.push(
+                webview_label,
+                &pe.kind,
+                pe.payload.clone(),
+                pe.at_ms.unwrap_or(fallback_at_ms),
+            );
+        }
+        events.iter().filter(|e| e.id > expected_after).count()
     }
 
     fn mirror_jsonl(&self, event: &ObserveEvent) {
@@ -214,6 +296,26 @@ pub fn instrumentation_js(webview_label: &str, drive: bool) -> String {
       if (q[i].id > afterId) {{ out.push(q[i]); if (out.length >= limit) break; }}
     }}
     return JSON.stringify(out);
+  }}
+  // Host flush via eval_with_callback (not cookies). Size-capped so network
+  // bodies up to BODY_CAP survive. Resets afterId when page seq restarted.
+  function drainForHost(afterId, limit, maxChars) {{
+    afterId = afterId || 0;
+    if (seq > 0 && afterId > seq) afterId = 0;
+    limit = Math.min(Math.max(limit || 25, 1), 100);
+    maxChars = maxChars || 262144;
+    var out = [];
+    var size = 2;
+    for (var i = 0; i < q.length; i++) {{
+      if (q[i].id <= afterId) continue;
+      var piece;
+      try {{ piece = JSON.stringify(q[i]); }} catch (e) {{ continue; }}
+      if (out.length > 0 && size + piece.length + 1 > maxChars) break;
+      out.push(q[i]);
+      size += piece.length + 1;
+      if (out.length >= limit) break;
+    }}
+    return out;
   }}
   ['log','info','warn','error','debug'].forEach(function(level) {{
     var orig = console[level];
@@ -669,6 +771,7 @@ pub fn instrumentation_js(webview_label: &str, drive: bool) -> String {
     push: push,
     pushNavIfChanged: pushNavIfChanged,
     drain: drain,
+    drainForHost: drainForHost,
     setDrive: setDrive,
     moveCursor: moveCursor,
     clickAt: clickAt,
@@ -686,21 +789,22 @@ pub fn instrumentation_js(webview_label: &str, drive: bool) -> String {
     )
 }
 
-/// JS snippet that drains the in-page queue into a cookie for host readback.
-pub fn drain_to_cookie_js(after_id: u64, limit: usize) -> String {
+/// JS for `eval_with_callback`: returns a JSON array of page events (not a cookie).
+/// Prefer `drainForHost` (size-capped); fall back to parsing string `drain`.
+pub fn drain_page_queue_js(after_id: u64, limit: usize) -> String {
     format!(
         r#"(function(){{
   var agent = window.__buzzBrowserAgent;
-  if (!agent) return;
-  var raw = agent.drain({after_id}, {limit});
+  if (!agent) return [];
   try {{
-    document.cookie = '__buzz_ba_drain=' + encodeURIComponent(raw) + '; path=/; SameSite=Lax';
-  }} catch (e) {{}}
+    if (agent.drainForHost) return agent.drainForHost({after_id}, {limit}, 262144);
+    var raw = agent.drain({after_id}, {limit});
+    return typeof raw === 'string' ? JSON.parse(raw) : (raw || []);
+  }} catch (e) {{ return []; }}
 }})();"#
     )
 }
 
-pub const DRAIN_COOKIE: &str = "__buzz_ba_drain";
 pub const SNAPSHOT_COOKIE: &str = "__buzz_ba_snapshot";
 
 /// Collect a11y/DOM snapshot into a cookie for host readback.
@@ -717,7 +821,6 @@ pub fn snapshot_to_cookie_js() -> String {
 }})();"#
     )
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -779,5 +882,55 @@ mod tests {
         assert!(js.contains("addEventListener('touchmove'"));
         assert!(js.contains("isTrusted === false"));
         assert!(js.contains("PageDown"));
+    }
+
+    #[test]
+    fn drain_for_host_is_size_capped_and_resets_cursor() {
+        let js = instrumentation_js("playground-x", false);
+        assert!(js.contains("drainForHost"));
+        assert!(js.contains("maxChars"));
+        assert!(js.contains("afterId > seq"));
+        let host_js = drain_page_queue_js(0, 25);
+        assert!(host_js.contains("drainForHost"));
+        assert!(!host_js.contains("__buzz_ba_drain"));
+    }
+
+    #[test]
+    fn ingest_page_events_uses_separate_page_cursor() {
+        let dir = tempfile::tempdir().unwrap();
+        let buf = BrowserObserveBuffer::default();
+        buf.set_root(dir.path().to_path_buf());
+        assert_eq!(buf.page_after_id("playground-a"), 0);
+        let events = vec![
+            PageDrainEvent {
+                id: 1,
+                kind: "console".into(),
+                at_ms: Some(10),
+                payload: Some(serde_json::json!({"level":"log","args":["hi"]})),
+            },
+            PageDrainEvent {
+                id: 2,
+                kind: "network".into(),
+                at_ms: Some(11),
+                payload: Some(serde_json::json!({
+                    "phase":"response","url":"https://example.test/x",
+                    "status":200,"body":"x".repeat(100)
+                })),
+            },
+        ];
+        assert_eq!(buf.ingest_page_events("playground-a", 0, &events, 99), 2);
+        assert_eq!(buf.page_after_id("playground-a"), 2);
+        // Stale expected_after must not double-ingest.
+        assert_eq!(buf.ingest_page_events("playground-a", 0, &events, 99), 0);
+        let polled = buf.poll("playground-a", 0, 10);
+        assert_eq!(polled.len(), 2);
+        assert_eq!(polled[0].kind, "console");
+        assert_eq!(polled[1].kind, "network");
+        // Host after_id is independent of page cursor.
+        assert_eq!(buf.poll("playground-a", polled[0].id, 10).len(), 1);
+        let jsonl =
+            std::fs::read_to_string(dir.path().join("playground-a").join("events.jsonl")).unwrap();
+        assert!(jsonl.contains("console"));
+        assert!(jsonl.contains("network"));
     }
 }
