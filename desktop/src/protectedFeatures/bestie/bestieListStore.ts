@@ -2,7 +2,7 @@ import * as React from "react";
 
 import {
   addBestieListItem,
-  emptyBestieListState,
+  EMPTY_BESTIE_LIST_STATE,
   markBestieListMessageProcessed,
   readBestieListState,
   removeBestieListItem,
@@ -139,12 +139,28 @@ function subscribe(scope: BestieListScope, listener: Listener): () => void {
   };
 }
 
+/**
+ * Snapshot for React / tests. Null scope returns the shared empty constant so
+ * useSyncExternalStore does not see a new object every getSnapshot call
+ * (Maximum update depth exceeded).
+ */
+export function getBestieListSnapshot(
+  scope: BestieListScope | null,
+): BestieListState {
+  if (!scope) return EMPTY_BESTIE_LIST_STATE;
+  return loadState(scope);
+}
+
+function getServerBestieListSnapshot(): BestieListState {
+  return EMPTY_BESTIE_LIST_STATE;
+}
+
 /** React hook for the scoped Bestie reminders/todos list. */
 export function useBestieList(scope: BestieListScope | null): BestieListState {
-  const getSnapshot = React.useCallback(() => {
-    if (!scope) return emptyBestieListState();
-    return loadState(scope);
-  }, [scope]);
+  const getSnapshot = React.useCallback(
+    () => getBestieListSnapshot(scope),
+    [scope],
+  );
   const subscribeScope = React.useCallback(
     (listener: Listener) => {
       if (!scope) return () => undefined;
@@ -155,7 +171,7 @@ export function useBestieList(scope: BestieListScope | null): BestieListState {
   return React.useSyncExternalStore(
     subscribeScope,
     getSnapshot,
-    emptyBestieListState,
+    getServerBestieListSnapshot,
   );
 }
 

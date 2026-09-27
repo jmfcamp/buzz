@@ -85,21 +85,40 @@ export function useBestieDmChannelExtras(
     );
   }, [isBestieDm, panelOpen]);
 
-  if (!enabled || !isBestieDm || !scope) {
-    return {};
-  }
+  const idleAuxiliaryPanel = React.useMemo(() => {
+    if (!scope) return null;
+    return <BestieDmRhsPanel scope={scope} />;
+  }, [scope]);
 
-  if (!panelOpen) {
+  const onCloseIdleAuxiliaryPanel = React.useCallback(() => {
+    setPanelOpen(false);
+  }, []);
+
+  return React.useMemo(() => {
+    if (!enabled || !isBestieDm || !scope) {
+      return {};
+    }
+
+    if (!panelOpen) {
+      return {
+        headerEndActions: headerToggle,
+      };
+    }
+
     return {
       headerEndActions: headerToggle,
+      idleAuxiliaryOverridesThread: true,
+      idleAuxiliaryPanel,
+      idleAuxiliaryTitle: "Bestie",
+      onCloseIdleAuxiliaryPanel,
     };
-  }
-
-  return {
-    headerEndActions: headerToggle,
-    idleAuxiliaryOverridesThread: true,
-    idleAuxiliaryPanel: <BestieDmRhsPanel scope={scope} />,
-    idleAuxiliaryTitle: "Bestie",
-    onCloseIdleAuxiliaryPanel: () => setPanelOpen(false),
-  };
+  }, [
+    enabled,
+    headerToggle,
+    idleAuxiliaryPanel,
+    isBestieDm,
+    onCloseIdleAuxiliaryPanel,
+    panelOpen,
+    scope,
+  ]);
 }

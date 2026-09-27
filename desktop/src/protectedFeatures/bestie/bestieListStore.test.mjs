@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   __resetBestieListStoreForTests,
   applyBestieListActionsFromAgentMessage,
+  getBestieListSnapshot,
   getBestieListState,
 } from "./bestieListStore.ts";
 
@@ -41,4 +42,14 @@ test("applyBestieListActionsFromAgentMessage is idempotent per message", () => {
   assert.equal(second, 0);
   assert.equal(getBestieListState(SCOPE).items.length, 1);
   assert.equal(getBestieListState(SCOPE).items[0].text, "From agent");
+});
+
+test("getBestieListSnapshot returns stable empty for null scope (useSyncExternalStore)", () => {
+  // Regression: a fresh empty object every getSnapshot made React throw
+  // "Maximum update depth exceeded" when BestieWakeController mounted with
+  // listScope still null (assignment / identity not ready yet).
+  const first = getBestieListSnapshot(null);
+  const second = getBestieListSnapshot(null);
+  assert.equal(first, second);
+  assert.equal(first.items.length, 0);
 });

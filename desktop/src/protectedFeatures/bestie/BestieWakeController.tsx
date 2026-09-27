@@ -55,6 +55,8 @@ export function BestieWakeController() {
   }, [agentPubkey, ownerPubkey, relayUrl]);
 
   const listState = useBestieList(listScope);
+  const ensureAgentRunningRef = React.useRef(bestie.ensureAgentRunning);
+  ensureAgentRunningRef.current = bestie.ensureAgentRunning;
 
   // Agent-add path: apply structured bestie-list fences from Bestie agent msgs.
   React.useEffect(() => {
@@ -75,6 +77,7 @@ export function BestieWakeController() {
   }, [agentPubkey, bestieChannel, listScope, messagesQuery.data]);
 
   // Autonomous wake + proactive nudge (footer / popover), ~5 min.
+  // Depend on listScope only — useBestie() returns a new object every render.
   React.useEffect(() => {
     if (!listScope) return;
     const handles = startBestieWakeScheduler({
@@ -83,7 +86,7 @@ export function BestieWakeController() {
       intervalMs: BESTIE_WAKE_INTERVAL_MS,
       onNudge: (nudge) => setBestieNudge(nudge),
       onWakeAgent: () => {
-        void bestie.ensureAgentRunning().catch(() => {
+        void ensureAgentRunningRef.current().catch(() => {
           // Best-effort wake.
         });
       },
@@ -91,7 +94,7 @@ export function BestieWakeController() {
     return () => {
       handles.stop();
     };
-  }, [bestie, listScope]);
+  }, [listScope]);
 
   // Clear stale nudge when the outstanding set is emptied.
   React.useEffect(() => {

@@ -29,8 +29,15 @@ function isKind(value: unknown): value is BestieListKind {
   return value === "todo" || value === "reminder";
 }
 
+/** Shared empty snapshot — stable Object.is for useSyncExternalStore. */
+export const EMPTY_BESTIE_LIST_STATE: BestieListState = Object.freeze({
+  items: Object.freeze([]) as BestieListItem[],
+  processedMessageIds: Object.freeze([]) as string[],
+  version: 1,
+});
+
 export function emptyBestieListState(): BestieListState {
-  return { items: [], processedMessageIds: [], version: 1 };
+  return EMPTY_BESTIE_LIST_STATE;
 }
 
 export function parseBestieListItem(value: unknown): BestieListItem | null {
