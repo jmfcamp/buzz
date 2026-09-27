@@ -25,6 +25,7 @@ export const DRIVE_PROTOCOL: string[] = [
   "Tabs: browser_tabs lists the group; browser_switch_tab focuses surfaceId (rebinds Drive).",
   "Viewport: browser_get_viewport reads Stage mode/size; browser_set_viewport (Drive) sets desktop|responsive|mobile (responsive W×H; mobile deviceId+orientation+scalePercent).",
   "On no element / no snapshot: waitFor once, re-snapshot once, then stop.",
+  "While Taken (userHasControl): follow the human via snapshots + user_click/user_input/user_keydown observe events (valueLength only — never values). Do not Drive until Release.",
   "browser_runbook_propose auto-activates agent procedures. Persisted (human-locked) procedures cannot be changed by agents.",
   "Agent brief is human-owned; do not overwrite it.",
   "Keep goals inside agentBrief + active procedures. Propose new procedures; do not invent sprawl.",
