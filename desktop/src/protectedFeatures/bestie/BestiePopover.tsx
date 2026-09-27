@@ -10,10 +10,11 @@ import {
   useToggleReactionMutation,
 } from "@/features/messages/hooks";
 import { formatTimelineMessages } from "@/features/messages/lib/formatTimelineMessages";
-import { buildMainTimelineEntries } from "@/features/messages/lib/threadPanel";
 import { useRenderScopedReactionHydration } from "@/features/messages/lib/useRenderScopedReactionHydration";
 import type { TimelineMessage } from "@/features/messages/types";
 import { TimelineMessageList } from "@/features/messages/ui/TimelineMessageList";
+import { TypingIndicatorRow } from "@/features/messages/ui/TypingIndicatorRow";
+import { useChannelTyping } from "@/features/messages/useChannelTyping";
 import { ProtectedMessageActionsBoundary } from "@protected-feature-components";
 import { PresenceDot } from "@/features/presence/ui/PresenceBadge";
 import { useProfileQuery } from "@/features/profile/hooks";
@@ -30,6 +31,17 @@ import { Button } from "@/shared/ui/button";
 import { Textarea } from "@/shared/ui/textarea";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
 import { buildBestieMessageContext } from "./bestieMessageContext";
+import {
+  clearBestieSessionBoundary,
+  readBestieSessionBoundary,
+  writeBestieSessionBoundary,
+  type BestieSessionBoundary,
+  type BestieSessionScope,
+} from "./bestieSessionStorage";
+import {
+  filterBestieSessionMessages,
+  flattenBestieTranscriptMessages,
+} from "./flattenBestieTranscript";
 import { useBestie } from "./useBestie";
 
 export function BestieTriggerVisual({
@@ -148,9 +160,17 @@ function BestieConversationTranscript({
 }) {
   const transcriptRef = React.useRef<HTMLDivElement>(null);
   const latestMessageKey = messages.at(-1)?.renderKey ?? messages.at(-1)?.id;
+  const flattenedMessages = React.useMemo(
+    () => flattenBestieTranscriptMessages(messages),
+    [messages],
+  );
   const mainTimelineEntries = React.useMemo(
-    () => buildMainTimelineEntries(messages, undefined, undefined, profiles),
-    [messages, profiles],
+    () =>
+      flattenedMessages.map((message) => ({
+        message,
+        summary: null,
+      })),
+    [flattenedMessages],
   );
   useRenderScopedReactionHydration({
     activeChannel: channel,
@@ -182,7 +202,7 @@ function BestieConversationTranscript({
           channelType={channel.channelType}
           currentPubkey={currentPubkey}
           mainEntries={mainTimelineEntries}
-          messages={messages}
+          messages={flattenedMessages}
           onToggleReaction={onToggleReaction}
           profiles={profiles}
           stickyDayDividers={false}
@@ -190,6 +210,18 @@ function BestieConversationTranscript({
       </ProtectedMessageActionsBoundary>
     </div>
   );
+}
+
+function toRuntimeBoundary(stored: BestieSessionBoundary): {
+  baselineMessageIds: ReadonlySet<string>;
+  firstMessageCreatedAt: number;
+  sessionRootId: string;
+} {
+  return {
+    baselineMessageIds: new Set(stored.baselineMessageIds),
+    firstMessageCreatedAt: stored.firstMessageCreatedAt,
+    sessionRootId: stored.sessionRootId,
+  };
 }
 
 export function BestiePopover({
@@ -211,6 +243,7 @@ export function BestiePopover({
   const [sessionBoundary, setSessionBoundary] = React.useState<{
     baselineMessageIds: ReadonlySet<string>;
     firstMessageCreatedAt: number;
+    sessionRootId: string;
   } | null>(null);
   const identityQuery = useIdentityQuery();
   const profileQuery = useProfileQuery();
@@ -231,11 +264,31 @@ export function BestiePopover({
   const resolveConversationForOpen = React.useEffectEvent(() =>
     bestie.resolveConversation(),
   );
+  const sessionScope = React.useMemo<BestieSessionScope | null>(() => {
+    if (!assignedAgentPubkey || !bestie.ownerPubkey || !bestie.relayUrl) {
+      return null;
+    }
+    return {
+      agentPubkey: assignedAgentPubkey,
+      ownerPubkey: bestie.ownerPubkey,
+      relayUrl: bestie.relayUrl,
+    };
+  }, [assignedAgentPubkey, bestie.ownerPubkey, bestie.relayUrl]);
 
   React.useEffect(() => {
     setConversationChannel(null);
     conversationPromiseRef.current = null;
-    if (!assignedAgentPubkey) return;
+    if (!assignedAgentPubkey) {
+      setSessionBoundary(null);
+      return;
+    }
+
+    if (sessionScope) {
+      const stored = readBestieSessionBoundary(sessionScope);
+      setSessionBoundary(stored ? toRuntimeBoundary(stored) : null);
+    } else {
+      setSessionBoundary(null);
+    }
 
     let cancelled = false;
     const pending = resolveConversationForOpen();
@@ -255,7 +308,7 @@ export function BestiePopover({
     return () => {
       cancelled = true;
     };
-  }, [assignedAgentPubkey]);
+  }, [assignedAgentPubkey, sessionScope]);
 
   const currentPubkey = identityQuery.data?.pubkey;
   const currentProfile = profileQuery.data;
@@ -303,9 +356,8 @@ export function BestiePopover({
     )
       .filter(
         (message) =>
-          (message.kind === KIND_STREAM_MESSAGE ||
-            message.kind === KIND_STREAM_MESSAGE_V2) &&
-          !message.parentId,
+          message.kind === KIND_STREAM_MESSAGE ||
+          message.kind === KIND_STREAM_MESSAGE_V2,
       )
       .map((message) => {
         if (!contextEnvelope || !message.body.startsWith(contextEnvelope)) {
@@ -326,15 +378,16 @@ export function BestiePopover({
     currentPubkey,
   ]);
   const conversationMessages = React.useMemo(() => {
-    if (!sessionBoundary) return [];
-    return allConversationMessages
-      .filter(
-        (message) =>
-          message.createdAt >= sessionBoundary.firstMessageCreatedAt &&
-          !sessionBoundary.baselineMessageIds.has(message.id),
-      )
-      .slice(-12);
+    return filterBestieSessionMessages(
+      allConversationMessages,
+      sessionBoundary,
+    ).slice(-24);
   }, [allConversationMessages, sessionBoundary]);
+  const typingEntries = useChannelTyping(conversationChannel, currentPubkey);
+  const typingPubkeys = React.useMemo(
+    () => typingEntries.map((entry) => entry.pubkey),
+    [typingEntries],
+  );
   const handleToggleReaction = React.useCallback(
     async (message: TimelineMessage, emoji: string, remove: boolean) => {
       await toggleReactionMutateRef.current({
@@ -345,6 +398,16 @@ export function BestiePopover({
     },
     [],
   );
+  const finishSession = React.useCallback(() => {
+    if (sessionScope) {
+      clearBestieSessionBoundary(sessionScope);
+    }
+    setSessionBoundary(null);
+    setContextSent(false);
+    setDraft("");
+    onRequestClose?.();
+  }, [onRequestClose, sessionScope]);
+
   if (bestie.isLoading) {
     return <p className="text-sm text-muted-foreground">Loading Bestie…</p>;
   }
@@ -374,13 +437,22 @@ export function BestiePopover({
             : trimmedDraft,
         targetChannel: channel,
       });
-      setSessionBoundary(
-        (current) =>
-          current ?? {
-            baselineMessageIds,
-            firstMessageCreatedAt: sentMessage.created_at,
-          },
-      );
+      setSessionBoundary((current) => {
+        if (current) return current;
+        const next = {
+          baselineMessageIds,
+          firstMessageCreatedAt: sentMessage.created_at,
+          sessionRootId: sentMessage.id,
+        };
+        if (sessionScope) {
+          writeBestieSessionBoundary(sessionScope, {
+            baselineMessageIds: [...baselineMessageIds],
+            firstMessageCreatedAt: next.firstMessageCreatedAt,
+            sessionRootId: next.sessionRootId,
+          });
+        }
+        return next;
+      });
       setContextSent(true);
       setDraft("");
       const { error: startError } = await startResult;
@@ -393,11 +465,11 @@ export function BestiePopover({
   };
 
   return (
-    <div className="flex max-h-[min(32rem,var(--radix-popover-content-available-height,calc(100vh-2rem)))] flex-col gap-4">
-      <div
-        className="flex shrink-0 touch-none select-none items-center gap-3 cursor-grab active:cursor-grabbing"
-        data-bestie-drag-handle
-      >
+    <div
+      className="flex max-h-[min(32rem,var(--radix-popover-content-available-height,calc(100vh-2rem)))] flex-col gap-4"
+      data-testid="bestie-popover"
+    >
+      <div className="flex shrink-0 items-center gap-3">
         <BestieAgentLockup
           agent={agent}
           avatarLayoutId={avatarLayoutId}
@@ -405,9 +477,21 @@ export function BestiePopover({
         />
         <div className="flex-1" />
         <Button
+          aria-label="Finish Bestie session"
+          data-testid="bestie-finish-session"
+          onClick={finishSession}
+          size="xs"
+          type="button"
+          variant="ghost"
+        >
+          Finish
+        </Button>
+        <Button
           aria-label="Close Bestie"
+          data-testid="bestie-close"
           onClick={onRequestClose}
           size="icon-xs"
+          type="button"
           variant="ghost"
         >
           <X />
@@ -422,6 +506,18 @@ export function BestiePopover({
             messages={conversationMessages}
             onToggleReaction={handleToggleReaction}
             profiles={conversationProfiles}
+          />
+        </div>
+      ) : null}
+
+      {typingPubkeys.length > 0 ? (
+        <div data-testid="bestie-typing-indicator">
+          <TypingIndicatorRow
+            channel={conversationChannel}
+            className="shrink-0 px-0 py-0"
+            currentPubkey={currentPubkey}
+            profiles={conversationProfiles}
+            typingPubkeys={typingPubkeys}
           />
         </div>
       ) : null}
@@ -487,6 +583,7 @@ export function BestiePopover({
           disabled={!draft.trim() || bestie.isOpening || sendMutation.isPending}
           onClick={sendMessage}
           size="icon"
+          type="button"
         >
           <ArrowUp />
         </Button>

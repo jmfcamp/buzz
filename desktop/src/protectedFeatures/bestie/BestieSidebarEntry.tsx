@@ -1,14 +1,15 @@
-import { Plus } from "lucide-react";
+import { Users } from "lucide-react";
 import { toast } from "sonner";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { SidebarMenuButton, SidebarMenuItem } from "@/shared/ui/sidebar";
-import { BestieAgentLockup } from "./BestiePopover";
+import { SidebarMenuLabel } from "@/shared/ui/sidebar-menu-label";
 import { useBestie } from "./useBestie";
 
 export function BestieSidebarEntry() {
   const bestie = useBestie();
   const { goAgents } = useAppNavigation();
+  const label = bestie.assignedAgent?.name ?? "Bestie";
 
   const handleClick = () => {
     if (!bestie.assignedAgent) {
@@ -29,21 +30,11 @@ export function BestieSidebarEntry() {
       <SidebarMenuButton
         disabled={bestie.isOpening}
         onClick={handleClick}
-        tooltip="Bestie"
+        tooltip={label}
         type="button"
       >
-        {bestie.assignedAgent ? (
-          <BestieAgentLockup
-            agent={bestie.assignedAgent}
-            compact
-            presenceStatus={bestie.presenceStatus ?? "offline"}
-          />
-        ) : (
-          <>
-            <Plus className="h-4 w-4" />
-            <span>Bestie</span>
-          </>
-        )}
+        <Users className="h-4 w-4" />
+        <SidebarMenuLabel>{label}</SidebarMenuLabel>
       </SidebarMenuButton>
     </SidebarMenuItem>
   );
