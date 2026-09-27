@@ -70,3 +70,30 @@ test("read/write/clear round-trip through localStorage", () => {
   clearBestieSessionBoundary(SCOPE);
   assert.equal(readBestieSessionBoundary(SCOPE), null);
 });
+
+test("X path keeps boundary; Finish path clears it", () => {
+  const memory = new Map();
+  globalThis.window = {
+    localStorage: {
+      getItem: (key) => memory.get(key) ?? null,
+      removeItem: (key) => {
+        memory.delete(key);
+      },
+      setItem: (key, value) => {
+        memory.set(key, String(value));
+      },
+    },
+  };
+
+  const boundary = {
+    baselineMessageIds: ["old-1"],
+    firstMessageCreatedAt: 42,
+    sessionRootId: "root-1",
+  };
+  writeBestieSessionBoundary(SCOPE, boundary);
+  // Simulate close via X: do not clear; reopen reads the same session.
+  assert.deepEqual(readBestieSessionBoundary(SCOPE), boundary);
+  // Simulate Finish: clear so next open starts blank.
+  clearBestieSessionBoundary(SCOPE);
+  assert.equal(readBestieSessionBoundary(SCOPE), null);
+});

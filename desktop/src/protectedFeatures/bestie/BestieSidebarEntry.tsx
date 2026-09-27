@@ -9,7 +9,8 @@ import { useBestie } from "./useBestie";
 export function BestieSidebarEntry() {
   const bestie = useBestie();
   const { goAgents } = useAppNavigation();
-  const label = bestie.assignedAgent?.name ?? "Bestie";
+  // Nav label stays product name "Bestie"; agent identity lives in the footer.
+  const label = "Bestie";
 
   const handleClick = () => {
     if (!bestie.assignedAgent) {

@@ -189,7 +189,7 @@ function BestieConversationTranscript({
   return (
     <div
       aria-live="polite"
-      className="h-full min-h-0 max-h-48 overflow-y-auto"
+      className="h-full min-h-0 overflow-y-auto"
       data-bestie-channel-id={channel.id}
       data-bestie-channel-name={channel.name}
       data-testid="bestie-mini-transcript"
@@ -378,10 +378,11 @@ export function BestiePopover({
     currentPubkey,
   ]);
   const conversationMessages = React.useMemo(() => {
+    // Full active-session transcript (X keeps this; Finish clears it).
     return filterBestieSessionMessages(
       allConversationMessages,
       sessionBoundary,
-    ).slice(-24);
+    );
   }, [allConversationMessages, sessionBoundary]);
   const typingEntries = useChannelTyping(conversationChannel, currentPubkey);
   const typingPubkeys = React.useMemo(
@@ -398,6 +399,8 @@ export function BestiePopover({
     },
     [],
   );
+  // Finish ends the session (next open = blank). X only calls onRequestClose
+  // and leaves localStorage boundary intact so reopen resumes history + typing.
   const finishSession = React.useCallback(() => {
     if (sessionScope) {
       clearBestieSessionBoundary(sessionScope);
@@ -499,7 +502,7 @@ export function BestiePopover({
       </div>
 
       {conversationMessages.length > 0 && conversationChannel ? (
-        <div className="min-h-0 max-h-48 overflow-hidden">
+        <div className="min-h-0 max-h-[min(20rem,calc(var(--radix-popover-content-available-height,100vh)-14rem))] flex-1 overflow-hidden">
           <BestieConversationTranscript
             channel={conversationChannel}
             currentPubkey={currentPubkey}

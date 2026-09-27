@@ -8,17 +8,19 @@ import { useBestie } from "./useBestie";
 
 /**
  * Anchored Bestie trigger for the sidebar profile footer.
+ * Shows agent avatar + name here; left-nav label stays "Bestie".
  * Opens the Bestie popover chat. Does not navigate away.
  */
 export function BestieProfileTrigger({ className }: { className?: string }) {
   const bestie = useBestie();
   const { goAgents } = useAppNavigation();
   const [open, setOpen] = React.useState(false);
+  const agent = bestie.assignedAgent;
 
   return (
     <Popover
       onOpenChange={(nextOpen) => {
-        if (nextOpen && !bestie.assignedAgent) {
+        if (nextOpen && !agent) {
           void goAgents();
           setOpen(false);
           return;
@@ -30,12 +32,10 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
       <PopoverTrigger asChild>
         <button
           aria-label={
-            bestie.assignedAgent
-              ? `Open Bestie chat with ${bestie.assignedAgent.name}`
-              : "Choose a Bestie"
+            agent ? `Open Bestie chat with ${agent.name}` : "Choose a Bestie"
           }
           className={cn(
-            "relative shrink-0 rounded-full outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+            "relative flex max-w-[42%] shrink-0 items-center gap-1.5 rounded-full outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
             className,
           )}
           data-testid="bestie-profile-trigger"
@@ -43,14 +43,22 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
           type="button"
         >
           <BestieTriggerVisual
-            agent={bestie.assignedAgent}
+            agent={agent}
             className="h-8 w-8"
             compact
             imageDraggable={false}
           />
+          {agent ? (
+            <span
+              className="min-w-0 truncate text-xs font-medium text-sidebar-foreground"
+              data-testid="bestie-profile-agent-name"
+            >
+              {agent.name}
+            </span>
+          ) : null}
         </button>
       </PopoverTrigger>
-      {bestie.assignedAgent ? (
+      {agent ? (
         <PopoverContent
           align="end"
           className="w-80"

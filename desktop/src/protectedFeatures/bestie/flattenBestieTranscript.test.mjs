@@ -21,7 +21,13 @@ function message(partial) {
 
 test("flattenBestieTranscriptMessages clears reply links and sorts", () => {
   const flattened = flattenBestieTranscriptMessages([
-    message({ createdAt: 2, depth: 1, id: "reply", parentId: "root", rootId: "root" }),
+    message({
+      createdAt: 2,
+      depth: 1,
+      id: "reply",
+      parentId: "root",
+      rootId: "root",
+    }),
     message({ createdAt: 1, id: "root" }),
   ]);
   assert.deepEqual(
@@ -68,4 +74,17 @@ test("filterBestieSessionMessages returns empty without a boundary", () => {
     filterBestieSessionMessages([message({ id: "a" })], null),
     [],
   );
+});
+
+test("filterBestieSessionMessages returns the full in-session list", () => {
+  const many = Array.from({ length: 30 }, (_, index) =>
+    message({ createdAt: 100 + index, id: `m${index}` }),
+  );
+  const filtered = filterBestieSessionMessages(many, {
+    baselineMessageIds: new Set(),
+    firstMessageCreatedAt: 100,
+  });
+  assert.equal(filtered.length, 30);
+  assert.equal(filtered[0].id, "m0");
+  assert.equal(filtered.at(-1).id, "m29");
 });
