@@ -59,6 +59,9 @@ import {
 } from "./flattenBestieTranscript";
 import { useBestie } from "./useBestie";
 
+/** How long Confirm? stays armed before reverting to Close Thread. */
+const CLOSE_THREAD_CONFIRM_MS = 4000;
+
 export function BestieTriggerVisual({
   agent,
   className,
@@ -307,6 +310,8 @@ export function BestiePopover({
   const { goChannel } = useAppNavigation();
   const [draft, setDraft] = React.useState("");
   const [contextSent, setContextSent] = React.useState(false);
+  // Two-step Close Thread: first click arms Confirm?, second ends the session.
+  const [closeThreadConfirm, setCloseThreadConfirm] = React.useState(false);
   const [conversationChannel, setConversationChannel] =
     React.useState<Channel | null>(null);
   const [sessionBoundary, setSessionBoundary] = React.useState<{
@@ -526,6 +531,20 @@ export function BestiePopover({
   );
   // Close Thread ends the session (next open = blank). Chevron only calls
   // onRequestClose and leaves localStorage boundary intact so reopen resumes.
+  // First click arms Confirm?; second click (or timeout / chevron / reopen) resets.
+  React.useEffect(() => {
+    if (!closeThreadConfirm) return;
+    const timer = window.setTimeout(() => {
+      setCloseThreadConfirm(false);
+    }, CLOSE_THREAD_CONFIRM_MS);
+    return () => window.clearTimeout(timer);
+  }, [closeThreadConfirm]);
+
+  const dismissPopover = React.useCallback(() => {
+    setCloseThreadConfirm(false);
+    onRequestClose?.();
+  }, [onRequestClose]);
+
   const closeThread = React.useCallback(() => {
     if (sessionScope) {
       clearBestieSessionBoundary(sessionScope);
@@ -533,8 +552,17 @@ export function BestiePopover({
     setSessionBoundary(null);
     setContextSent(false);
     setDraft("");
+    setCloseThreadConfirm(false);
     onRequestClose?.();
   }, [onRequestClose, sessionScope]);
+
+  const handleCloseThreadClick = React.useCallback(() => {
+    if (!closeThreadConfirm) {
+      setCloseThreadConfirm(true);
+      return;
+    }
+    closeThread();
+  }, [closeThread, closeThreadConfirm]);
 
   const openSessionThread = React.useCallback(() => {
     void (async () => {
@@ -551,7 +579,7 @@ export function BestiePopover({
           ? { thread: sessionBoundary.sessionRootId }
           : undefined,
       );
-      onRequestClose?.();
+      dismissPopover();
     })().catch((error) => {
       toast.error(
         error instanceof Error
@@ -562,8 +590,8 @@ export function BestiePopover({
   }, [
     activeConversationChannel,
     bestie,
+    dismissPopover,
     goChannel,
-    onRequestClose,
     sessionBoundary?.sessionRootId,
   ]);
 
@@ -642,15 +670,21 @@ export function BestiePopover({
         />
         <div className="flex-1" />
         <Button
-          aria-label="Close Thread"
-          className="h-7 rounded-full border border-border/50 bg-muted/45 px-2.5 text-xs font-medium text-foreground shadow-none hover:bg-muted/70"
+          aria-label={
+            closeThreadConfirm ? "Confirm close thread" : "Close Thread"
+          }
+          className={
+            closeThreadConfirm
+              ? "h-7 rounded-full px-2.5 text-xs font-medium shadow-none"
+              : "h-7 rounded-full border border-border/50 bg-muted/45 px-2.5 text-xs font-medium text-foreground shadow-none hover:bg-muted/70"
+          }
           data-testid="bestie-close-thread"
-          onClick={closeThread}
+          onClick={handleCloseThreadClick}
           size="xs"
           type="button"
-          variant="ghost"
+          variant={closeThreadConfirm ? "destructive" : "ghost"}
         >
-          Close Thread
+          {closeThreadConfirm ? "Confirm?" : "Close Thread"}
         </Button>
         <div className="flex shrink-0 items-center gap-1">
           <Button
@@ -667,7 +701,7 @@ export function BestiePopover({
           <Button
             aria-label="Close Bestie"
             data-testid="bestie-close"
-            onClick={onRequestClose}
+            onClick={dismissPopover}
             size="icon-xs"
             type="button"
             variant="ghost"
