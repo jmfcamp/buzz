@@ -10,27 +10,77 @@ import {
   setBestieListItemStatusForScope,
   useBestieList,
 } from "./bestieListStore";
-import type { BestieListItem, BestieListScope } from "./bestieListTypes";
+import type {
+  BestieListItem,
+  BestieListKind,
+  BestieListScope,
+} from "./bestieListTypes";
+import { presentBestieContextCount } from "./bestieDmRhsHelpers";
 
-function Section({
+export {
+  bestieCategoryTitle,
+  presentBestieContextCount,
+} from "./bestieDmRhsHelpers";
+
+/** Match project home context row chrome (icon + label + count). */
+const BESTIE_RHS_ROW_CLASS =
+  "h-8 w-full justify-start gap-2 rounded-md px-2 py-1.5 text-left text-sm font-normal text-sidebar-foreground/80 transition-[background-color,color] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50";
+
+function CategoryRowContent({
   children,
+  count,
   icon,
-  title,
+}: {
+  children: React.ReactNode;
+  count?: number;
+  icon: React.ReactNode;
+}) {
+  return (
+    <>
+      <span className="flex size-4 shrink-0 items-center justify-center text-current">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-left">{children}</span>
+      <span className="w-8 shrink-0 text-right tabular-nums text-current opacity-60">
+        {count ?? ""}
+      </span>
+    </>
+  );
+}
+
+function CategoryNavButton({
+  children,
+  count,
+  icon,
+  onClick,
+  pressed,
   testId,
 }: {
   children: React.ReactNode;
+  count?: number;
   icon: React.ReactNode;
-  title: string;
-  testId: string;
+  onClick?: () => void;
+  pressed?: boolean;
+  testId?: string;
 }) {
   return (
-    <section className="space-y-2" data-testid={testId}>
-      <div className="flex items-center gap-2 px-0.5 text-xs font-medium text-muted-foreground">
-        <span className="flex size-4 items-center justify-center">{icon}</span>
-        <h3 className="truncate">{title}</h3>
-      </div>
-      {children}
-    </section>
+    <Button
+      aria-pressed={pressed}
+      className={cn(
+        BESTIE_RHS_ROW_CLASS,
+        pressed &&
+          "bg-sidebar-active text-sidebar-active-foreground shadow-xs hover:bg-sidebar-active hover:text-sidebar-active-foreground",
+      )}
+      data-testid={testId}
+      onClick={onClick}
+      size="sm"
+      type="button"
+      variant="ghost"
+    >
+      <CategoryRowContent count={count} icon={icon}>
+        {children}
+      </CategoryRowContent>
+    </Button>
   );
 }
 
@@ -101,16 +151,20 @@ function AddRow({
   placeholder,
   testId,
 }: {
-  kind: BestieListItem["kind"];
-  onAdd: (text: string, dueAt: number | null) => void;
+  kind: BestieListKind;
+  onAdd: (text: string) => void;
   placeholder: string;
   testId: string;
 }) {
   const [text, setText] = React.useState("");
+  const inputRef = React.useRef<HTMLInputElement>(null);
+  React.useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
   const submit = () => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    onAdd(trimmed, kind === "reminder" ? null : null);
+    onAdd(trimmed);
     setText("");
   };
   return (
@@ -124,8 +178,13 @@ function AddRow({
             event.preventDefault();
             submit();
           }
+          if (event.key === "Escape") {
+            event.preventDefault();
+            setText("");
+          }
         }}
         placeholder={placeholder}
+        ref={inputRef}
         value={text}
       />
       <Button
@@ -143,89 +202,122 @@ function AddRow({
   );
 }
 
-export function BestieDmRhsPanel({ scope }: { scope: BestieListScope }) {
+/**
+ * Bestie DM RHS category list — project-home style rows (icon + label + count).
+ * Clicking a category opens the category slide sheet.
+ */
+export function BestieDmRhsPanel({
+  activeKind = null,
+  onOpenKind,
+  scope,
+}: {
+  activeKind?: BestieListKind | null;
+  onOpenKind: (kind: BestieListKind) => void;
+  scope: BestieListScope;
+}) {
   const state = useBestieList(scope);
-  const reminders = state.items.filter((item) => item.kind === "reminder");
-  const todos = state.items.filter((item) => item.kind === "todo");
+  const openReminders = state.items.filter(
+    (item) => item.kind === "reminder" && item.status === "open",
+  ).length;
+  const openTodos = state.items.filter(
+    (item) => item.kind === "todo" && item.status === "open",
+  ).length;
 
   return (
-    <div className="flex flex-col gap-5 py-1" data-testid="bestie-dm-rhs-panel">
-      <p className="text-xs text-muted-foreground">
-        Reminders and to-dos for this Bestie. Your agent can add items from chat
-        with a <code className="text-2xs">bestie-list</code> fence.
-      </p>
-
-      <Section
-        icon={<Bell className="size-3.5" />}
+    <div className="space-y-1 px-0 py-1" data-testid="bestie-dm-rhs-panel">
+      <CategoryNavButton
+        count={presentBestieContextCount(openReminders)}
+        icon={<Bell className="size-4" />}
+        onClick={() => onOpenKind("reminder")}
+        pressed={activeKind === "reminder"}
         testId="bestie-rhs-reminders"
-        title="Reminders"
       >
-        <AddRow
-          kind="reminder"
-          onAdd={(text) =>
-            addBestieListItemForScope(scope, { kind: "reminder", text })
-          }
-          placeholder="Add a reminder"
-          testId="bestie-add-reminder"
-        />
-        <div className="space-y-1.5">
-          {reminders.length === 0 ? (
-            <p className="px-0.5 text-xs text-muted-foreground">
-              No reminders yet.
-            </p>
-          ) : (
-            reminders.map((item) => (
-              <ListRow
-                key={item.id}
-                item={item}
-                onComplete={() =>
-                  setBestieListItemStatusForScope(scope, item.id, "done")
-                }
-                onRemove={() => removeBestieListItemForScope(scope, item.id)}
-                onReopen={() =>
-                  setBestieListItemStatusForScope(scope, item.id, "open")
-                }
-              />
-            ))
-          )}
-        </div>
-      </Section>
-
-      <Section
-        icon={<ListTodo className="size-3.5" />}
+        Reminders
+      </CategoryNavButton>
+      <CategoryNavButton
+        count={presentBestieContextCount(openTodos)}
+        icon={<ListTodo className="size-4" />}
+        onClick={() => onOpenKind("todo")}
+        pressed={activeKind === "todo"}
         testId="bestie-rhs-todos"
-        title="To-dos"
       >
+        To-dos
+      </CategoryNavButton>
+    </div>
+  );
+}
+
+/**
+ * Slide sheet for one Bestie category — lists items; header + reveals hand entry.
+ */
+export function BestieDmCategorySheet({
+  adding,
+  kind,
+  onRequestAdd,
+  scope,
+}: {
+  adding: boolean;
+  kind: BestieListKind;
+  onRequestAdd?: () => void;
+  scope: BestieListScope;
+}) {
+  const state = useBestieList(scope);
+  const items = state.items.filter((item) => item.kind === kind);
+  const placeholder = kind === "reminder" ? "Add a reminder" : "Add a to-do";
+  const addTestId =
+    kind === "reminder" ? "bestie-add-reminder" : "bestie-add-todo";
+
+  return (
+    <div
+      className="flex flex-col gap-3 py-1"
+      data-testid={`bestie-dm-category-sheet-${kind}`}
+    >
+      {adding ? (
         <AddRow
-          kind="todo"
-          onAdd={(text) =>
-            addBestieListItemForScope(scope, { kind: "todo", text })
-          }
-          placeholder="Add a to-do"
-          testId="bestie-add-todo"
+          kind={kind}
+          onAdd={(text) => addBestieListItemForScope(scope, { kind, text })}
+          placeholder={placeholder}
+          testId={addTestId}
         />
-        <div className="space-y-1.5">
-          {todos.length === 0 ? (
-            <p className="px-0.5 text-xs text-muted-foreground">
-              No to-dos yet.
-            </p>
-          ) : (
-            todos.map((item) => (
-              <ListRow
-                key={item.id}
-                item={item}
-                onComplete={() =>
-                  setBestieListItemStatusForScope(scope, item.id, "done")
-                }
-                onRemove={() => removeBestieListItemForScope(scope, item.id)}
-                onReopen={() =>
-                  setBestieListItemStatusForScope(scope, item.id, "open")
-                }
-              />
-            ))
-          )}
-        </div>
-      </Section>
+      ) : (
+        <p className="px-0.5 text-xs text-muted-foreground">
+          Use + to add by hand, or ask Bestie with a{" "}
+          <code className="text-2xs">bestie-list</code> fence.
+          {onRequestAdd ? (
+            <>
+              {" "}
+              <button
+                className="underline-offset-2 hover:underline"
+                onClick={onRequestAdd}
+                type="button"
+              >
+                Add one
+              </button>
+            </>
+          ) : null}
+        </p>
+      )}
+      <div className="space-y-1.5">
+        {items.length === 0 ? (
+          <p className="px-0.5 text-xs text-muted-foreground">
+            {kind === "reminder" ? "No reminders yet." : "No to-dos yet."}
+          </p>
+        ) : (
+          items.map((item) => (
+            <ListRow
+              key={item.id}
+              item={item}
+              onComplete={() =>
+                setBestieListItemStatusForScope(scope, item.id, "done")
+              }
+              onRemove={() => removeBestieListItemForScope(scope, item.id)}
+              onReopen={() =>
+                setBestieListItemStatusForScope(scope, item.id, "open")
+              }
+            />
+          ))
+        )}
+      </div>
     </div>
   );
 }
