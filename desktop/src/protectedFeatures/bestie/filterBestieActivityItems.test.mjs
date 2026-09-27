@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { filterBestieActivityItems } from "./filterBestieActivityItems.ts";
 
-function tool(id, channelId = "dm-1") {
+function tool(id, channelId = "dm-1", timestamp = "2026-01-01T00:00:00.000Z") {
   return {
     id,
     type: "tool",
@@ -16,9 +16,9 @@ function tool(id, channelId = "dm-1") {
     args: {},
     result: "",
     isError: false,
-    timestamp: "2026-01-01T00:00:00.000Z",
-    startedAt: "2026-01-01T00:00:00.000Z",
-    completedAt: "2026-01-01T00:00:01.000Z",
+    timestamp,
+    startedAt: timestamp,
+    completedAt: timestamp,
     channelId,
   };
 }
@@ -51,5 +51,30 @@ test("filterBestieActivityItems keeps tools, drops messages and other channels",
   assert.deepEqual(
     filtered.map((item) => item.id),
     ["t1"],
+  );
+});
+
+test("filterBestieActivityItems returns empty when session boundary is null", () => {
+  const filtered = filterBestieActivityItems([tool("t1")], {
+    channelId: "dm-1",
+    sessionBoundary: null,
+  });
+  assert.deepEqual(filtered, []);
+});
+
+test("filterBestieActivityItems scopes to session start (Close Thread boundary)", () => {
+  // Session started at unix 1000s → 1970-01-01T00:16:40.000Z
+  const items = [
+    tool("old", "dm-1", "1970-01-01T00:16:30.000Z"), // before
+    tool("in", "dm-1", "1970-01-01T00:16:40.000Z"), // at boundary
+    tool("later", "dm-1", "1970-01-01T00:17:00.000Z"),
+  ];
+  const filtered = filterBestieActivityItems(items, {
+    channelId: "dm-1",
+    sessionBoundary: { firstMessageCreatedAt: 1000 },
+  });
+  assert.deepEqual(
+    filtered.map((item) => item.id),
+    ["in", "later"],
   );
 });

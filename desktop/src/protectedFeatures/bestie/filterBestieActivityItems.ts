@@ -1,18 +1,34 @@
 import { isMeaningfulItem } from "@/features/agents/ui/agentSessionTranscriptPresentation";
 import type { TranscriptItem } from "@/features/agents/ui/agentSessionTypes";
 
+export type BestieActivitySessionBoundary = {
+  firstMessageCreatedAt: number;
+} | null;
+
 /**
  * Activity rows suitable for the Bestie popover when "Show activity" is on.
  * Drops chat-message items (Bestie already renders DM bubbles), raw/suppressed
  * noise, and items outside the active Bestie DM channel.
+ *
+ * When `sessionBoundary` is null (Close Thread / no active session), returns
+ * no rows — same session gate as Bestie chat messages. When set, keeps only
+ * activity at or after the session's first message.
  */
 export function filterBestieActivityItems(
   items: readonly TranscriptItem[],
   options: {
     channelId: string | null | undefined;
+    sessionBoundary?: BestieActivitySessionBoundary;
   },
 ): TranscriptItem[] {
+  if (options.sessionBoundary === null) return [];
+
   const channelId = options.channelId ?? null;
+  const sessionStartedAtMs =
+    options.sessionBoundary == null
+      ? null
+      : options.sessionBoundary.firstMessageCreatedAt * 1000;
+
   return items.filter((item) => {
     if (item.type === "message") return false;
     if (!isMeaningfulItem(item)) return false;
@@ -21,6 +37,12 @@ export function filterBestieActivityItems(
     }
     if (channelId && item.channelId && item.channelId !== channelId) {
       return false;
+    }
+    if (sessionStartedAtMs != null) {
+      const itemAt = Date.parse(item.timestamp);
+      if (!Number.isFinite(itemAt) || itemAt < sessionStartedAtMs) {
+        return false;
+      }
     }
     return true;
   });

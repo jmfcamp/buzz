@@ -64,6 +64,7 @@ import {
   flattenBestieTranscriptMessages,
   resolveBestieSendParentEventId,
 } from "./flattenBestieTranscript";
+import { buildBestiePopoverTimelineRuns } from "./interleaveBestiePopoverTimeline";
 import { useBestie } from "./useBestie";
 
 export function BestieTriggerVisual({
@@ -197,6 +198,7 @@ function BestieConversationTranscript({
     () => flattenBestieTranscriptMessages(messages),
     [messages],
   );
+  // Reaction hydration still sees the full session message set.
   const mainTimelineEntries = React.useMemo(
     () =>
       flattenedMessages.map((message) => ({
@@ -211,6 +213,17 @@ function BestieConversationTranscript({
     threadHeadMessage: null,
     threadMessages: [],
   });
+
+  // Interleave activity with messages by timestamp (Claude Code–style timeline).
+  // When Show activity is off, pass an empty activity list so only chat rows remain.
+  const timelineRuns = React.useMemo(
+    () =>
+      buildBestiePopoverTimelineRuns(
+        flattenedMessages,
+        showActivity ? activityItems : [],
+      ),
+    [activityItems, flattenedMessages, showActivity],
+  );
 
   const transcriptTailKey = [
     latestMessageKey ?? "",
@@ -242,35 +255,50 @@ function BestieConversationTranscript({
       ref={transcriptRef}
     >
       <div className="flex min-h-0 flex-col gap-2 pb-3">
-        <ProtectedMessageActionsBoundary>
-          <TimelineMessageList
-            channelId={channel.id}
-            channelName={channel.name}
-            channelType={channel.channelType}
-            currentPubkey={currentPubkey}
-            mainEntries={mainTimelineEntries}
-            messages={flattenedMessages}
-            onToggleReaction={onToggleReaction}
-            profiles={profiles}
-            stickyDayDividers={false}
-          />
-        </ProtectedMessageActionsBoundary>
-
-        {showActivity && activityItems.length > 0 ? (
-          <div className="px-1" data-testid="bestie-activity-transcript">
-            <AgentSessionTranscriptList
-              agentAvatarUrl={agent.avatarUrl ?? null}
-              agentName={agent.name}
-              agentPubkey={agent.pubkey}
-              autoTail={false}
-              channelId={channel.id}
-              emptyDescription="Activity will appear here while Bestie works."
-              items={activityItems}
-              profiles={profiles}
-              variant="compactPreview"
-            />
-          </div>
-        ) : null}
+        {timelineRuns.map((run, runIndex) => {
+          if (run.kind === "messages") {
+            const runEntries = run.messages.map((message) => ({
+              message,
+              summary: null,
+            }));
+            return (
+              <ProtectedMessageActionsBoundary
+                key={`messages:${run.messages[0]?.id ?? runIndex}`}
+              >
+                <TimelineMessageList
+                  channelId={channel.id}
+                  channelName={channel.name}
+                  channelType={channel.channelType}
+                  currentPubkey={currentPubkey}
+                  mainEntries={runEntries}
+                  messages={run.messages}
+                  onToggleReaction={onToggleReaction}
+                  profiles={profiles}
+                  stickyDayDividers={false}
+                />
+              </ProtectedMessageActionsBoundary>
+            );
+          }
+          return (
+            <div
+              className="px-1"
+              data-testid="bestie-activity-transcript"
+              key={`activity:${run.items[0]?.id ?? runIndex}`}
+            >
+              <AgentSessionTranscriptList
+                agentAvatarUrl={agent.avatarUrl ?? null}
+                agentName={agent.name}
+                agentPubkey={agent.pubkey}
+                autoTail={false}
+                channelId={channel.id}
+                emptyDescription="Activity will appear here while Bestie works."
+                items={run.items}
+                profiles={profiles}
+                variant="compactPreview"
+              />
+            </div>
+          );
+        })}
 
         {typingPubkeys.length > 0 ? (
           <div data-testid="bestie-typing-indicator">
@@ -533,8 +561,10 @@ export function BestiePopover({
     () =>
       filterBestieActivityItems(agentTranscript, {
         channelId: activeConversationChannel?.id,
+        // null after Close Thread — hides leftover Thinking/Searched rows.
+        sessionBoundary,
       }),
-    [activeConversationChannel?.id, agentTranscript],
+    [activeConversationChannel?.id, agentTranscript, sessionBoundary],
   );
   const handleToggleReaction = React.useCallback(
     async (message: TimelineMessage, emoji: string, remove: boolean) => {
