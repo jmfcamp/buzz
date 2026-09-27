@@ -688,44 +688,67 @@ export function BestiePopover({
       className="flex max-h-[min(32rem,var(--radix-popover-content-available-height,calc(100vh-2rem)))] min-h-0 flex-col gap-3"
       data-testid="bestie-popover"
     >
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex shrink-0 items-start gap-2">
         <BestieAgentLockup
           agent={agent}
           avatarLayoutId={avatarLayoutId}
           presenceStatus={presenceStatus}
         />
         <div className="flex-1" />
-        <Button
-          aria-label="Close Thread"
-          data-testid="bestie-close-thread"
-          onClick={closeThread}
-          size="xs"
-          type="button"
-          variant="ghost"
-        >
-          Close Thread
-        </Button>
-        <Button
-          aria-label="Open Bestie thread"
-          data-testid="bestie-open-thread"
-          disabled={bestie.isOpening}
-          onClick={openSessionThread}
-          size="icon-xs"
-          type="button"
-          variant="ghost"
-        >
-          <SquareArrowOutUpRight />
-        </Button>
-        <Button
-          aria-label="Close Bestie"
-          data-testid="bestie-close"
-          onClick={onRequestClose}
-          size="icon-xs"
-          type="button"
-          variant="ghost"
-        >
-          <ChevronDown />
-        </Button>
+        <div className="flex flex-col items-end gap-1.5">
+          <div
+            className="flex items-center gap-1.5 text-xs text-muted-foreground"
+            data-testid="bestie-show-activity"
+          >
+            <Checkbox
+              checked={showActivity}
+              id="bestie-show-activity-checkbox"
+              onCheckedChange={(checked) => {
+                setBestieShowActivity(checked === true);
+              }}
+            />
+            <label
+              className="cursor-pointer"
+              htmlFor="bestie-show-activity-checkbox"
+            >
+              Show activity
+            </label>
+          </div>
+          <Button
+            aria-label="Close Thread"
+            className="h-7 rounded-full border border-border/50 bg-muted/45 px-2.5 text-xs font-medium text-foreground shadow-none hover:bg-muted/70"
+            data-testid="bestie-close-thread"
+            onClick={closeThread}
+            size="xs"
+            type="button"
+            variant="ghost"
+          >
+            Close Thread
+          </Button>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            aria-label="Open Bestie thread"
+            data-testid="bestie-open-thread"
+            disabled={bestie.isOpening}
+            onClick={openSessionThread}
+            size="icon-xs"
+            type="button"
+            variant="ghost"
+          >
+            <SquareArrowOutUpRight />
+          </Button>
+          <Button
+            aria-label="Close Bestie"
+            data-testid="bestie-close"
+            onClick={onRequestClose}
+            size="icon-xs"
+            type="button"
+            variant="ghost"
+          >
+            <ChevronDown />
+          </Button>
+        </div>
       </div>
 
       {hasScrollableTranscript && activeConversationChannel ? (
@@ -772,25 +795,6 @@ export function BestiePopover({
           </div>
         </div>
       ) : null}
-
-      <div
-        className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground"
-        data-testid="bestie-show-activity"
-      >
-        <Checkbox
-          checked={showActivity}
-          id="bestie-show-activity-checkbox"
-          onCheckedChange={(checked) => {
-            setBestieShowActivity(checked === true);
-          }}
-        />
-        <label
-          className="cursor-pointer"
-          htmlFor="bestie-show-activity-checkbox"
-        >
-          Show activity
-        </label>
-      </div>
 
       <div className="relative shrink-0">
         <Textarea
