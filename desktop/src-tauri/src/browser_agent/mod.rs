@@ -1009,6 +1009,12 @@ fn inbox_lock_acquire(dir: &std::path::Path) -> Result<InboxLockGuard, String> {
     }
 }
 
+/// Whether Drive inbox actions may run for this grant.
+/// Snapshots still process while Taken; only click/type/scroll/etc. are blocked.
+fn drive_actions_allowed(grant: &BrowserAgentGrant) -> bool {
+    matches!(grant.mode, BrowserAgentMode::Drive) && !grant.user_has_control
+}
+
 async fn process_drive_inbox_for_label(
     app: &AppHandle,
     state: &BrowserAgentState,
@@ -1017,15 +1023,12 @@ async fn process_drive_inbox_for_label(
     let Some(grant) = state.grants.get(label) else {
         return Ok(0);
     };
-    // Skip while human has Taken control (Drive lock paused).
-    if matches!(grant.mode, BrowserAgentMode::Drive) && grant.user_has_control {
-        return Ok(0);
-    }
     let root = ensure_data_root(app, state)?;
     let mut applied = 0u32;
-    // Snapshot requests apply in Observe or Drive.
+    // Snapshot requests apply in Observe or Drive — including while Taken.
     applied += process_snapshot_request(app, state, label, &root).await;
-    if !matches!(grant.mode, BrowserAgentMode::Drive) {
+    // Drive actions stay blocked while human has Taken control.
+    if !drive_actions_allowed(&grant) {
         return Ok(applied);
     }
     let path = root.join(label).join("drive-inbox.jsonl");
@@ -1259,6 +1262,7 @@ fn label_has_wake(root: &PathBuf, label: &str) -> bool {
         || dir.join("runbook-propose-wake").exists()
         || dir.join("runbook-propose.jsonl").exists()
         || dir.join("tab-switch-request.json").exists()
+        || dir.join("viewport-request.json").exists()
 }
 
 fn clear_wake(root: &PathBuf, label: &str) {
@@ -1303,6 +1307,7 @@ pub fn spawn_grant_watcher(app: AppHandle) {
                     eprintln!("buzz-desktop: grant watcher {label}: {e}");
                 }
                 process_tab_switch_request(&app, &state, &label, &root);
+                process_viewport_request(&app, &state, &label, &root);
                 // Notify UI that MCP queued a learn→write proposal (pending until Accept).
                 let propose_path = root.join(&label).join("runbook-propose.jsonl");
                 if propose_path.exists() {
@@ -1551,6 +1556,117 @@ fn process_tab_switch_request(
     let _ = app.emit("browser-agent-switch-tab", payload);
 }
 
+fn process_viewport_request(
+    app: &AppHandle,
+    state: &BrowserAgentState,
+    label: &str,
+    root: &PathBuf,
+) {
+    let req_path = root.join(label).join("viewport-request.json");
+    let Ok(raw) = std::fs::read_to_string(&req_path) else {
+        return;
+    };
+    let _ = std::fs::remove_file(&req_path);
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return;
+    };
+    if state.grants.get(label).is_none() {
+        return;
+    }
+    // Drive-only: Observe grants must not change Stage chrome.
+    if let Some(grant) = state.grants.get(label) {
+        if !matches!(grant.mode, BrowserAgentMode::Drive) {
+            return;
+        }
+    }
+    let surface_id = value
+        .get("surfaceId")
+        .or_else(|| value.get("surface_id"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            state
+                .grants
+                .get(label)
+                .map(|g| g.surface_id.clone())
+        });
+    let Some(surface_id) = surface_id else {
+        return;
+    };
+    let mut payload = value.clone();
+    if let Some(obj) = payload.as_object_mut() {
+        obj.insert("surfaceId".into(), serde_json::json!(surface_id));
+    }
+    let _ = app.emit("browser-agent-set-viewport", payload);
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserViewportSyncInput {
+    pub surface_id: String,
+    pub mode: String,
+    pub width: f64,
+    pub height: f64,
+    pub scale_percent: Option<f64>,
+    pub device_id: Option<String>,
+    pub orientation: Option<String>,
+}
+
+/// Mirror playground viewport under the active grant dir for MCP `browser_get_viewport`.
+#[tauri::command]
+pub async fn browser_agent_sync_viewport(
+    app: AppHandle,
+    state: State<'_, BrowserAgentState>,
+    input: BrowserViewportSyncInput,
+) -> Result<(), String> {
+    let surface_id = input.surface_id.trim();
+    if surface_id.is_empty() {
+        return Err("surfaceId is required".into());
+    }
+    let root = ensure_data_root(&app, &state)?;
+    let body = serde_json::json!({
+        "surfaceId": surface_id,
+        "mode": input.mode,
+        "width": input.width,
+        "height": input.height,
+        "scalePercent": input.scale_percent,
+        "deviceId": input.device_id,
+        "orientation": input.orientation,
+    });
+    let grants = state.grants.list_all();
+    let mut wrote = false;
+    for grant in &grants {
+        if !matches!(grant.surface, BrowserAgentSurface::Playground) {
+            continue;
+        }
+        if grant.surface_id != surface_id {
+            continue;
+        }
+        let dir = root.join(&grant.webview_label);
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("viewport.json");
+        std::fs::write(
+            &path,
+            serde_json::to_vec_pretty(&body).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+        wrote = true;
+    }
+    if !wrote {
+        let dir = root.join("viewports").join(surface_id);
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("viewport.json");
+        std::fs::write(
+            &path,
+            serde_json::to_vec_pretty(&body).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1701,8 +1817,26 @@ fn base64_encode(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod inbox_tests {
-    use super::take_drive_inbox;
+    use super::{
+        drive_actions_allowed, take_drive_inbox, BrowserAgentGrant, BrowserAgentMode,
+        BrowserAgentSurface,
+    };
     use std::io::Write;
+
+    fn sample_grant(mode: BrowserAgentMode, user_has_control: bool) -> BrowserAgentGrant {
+        BrowserAgentGrant {
+            webview_label: "playground-a".into(),
+            surface: BrowserAgentSurface::Playground,
+            surface_id: "a".into(),
+            agent_id: "agent".into(),
+            agent_pubkey: "pk".into(),
+            channel_id: "ch".into(),
+            thread_root: None,
+            mode,
+            user_has_control,
+            created_at_ms: 1,
+        }
+    }
 
     #[test]
     fn take_inbox_is_atomic_rename() {
@@ -1718,5 +1852,22 @@ mod inbox_tests {
         // New appends can recreate the file without racing the taken contents.
         std::fs::write(&path, "new\n").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "new\n");
+    }
+
+    #[test]
+    fn taken_control_blocks_drive_actions_but_snapshots_still_stage() {
+        // Gate ordering: snapshots always stage (caller runs them first);
+        // drive_actions_allowed is false while Taken so inbox actions skip.
+        let taken = sample_grant(BrowserAgentMode::Drive, true);
+        assert!(!drive_actions_allowed(&taken));
+
+        let driving = sample_grant(BrowserAgentMode::Drive, false);
+        assert!(drive_actions_allowed(&driving));
+
+        let observe = sample_grant(BrowserAgentMode::Observe, false);
+        assert!(!drive_actions_allowed(&observe));
+
+        let observe_taken_flag = sample_grant(BrowserAgentMode::Observe, true);
+        assert!(!drive_actions_allowed(&observe_taken_flag));
     }
 }

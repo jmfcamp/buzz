@@ -12,7 +12,7 @@ Playground Sites (and OS pop-outs of playground) support two grant modes. **Pinn
 | **Observe** | Drives the page | May **read** console, network (headers/status/**bodies**), nav/URL/title, DOM/a11y when available. No PHI scrub. |
 | **Drive** | Sees theater cursor; input locked (unless Take control) | Takes over navigate/click/type/scroll/key/waitFor. |
 
-**Take control** (chrome, Drive only) → temporary human assist: page unlocks, grant stays **Drive**. **Release control** restores the Drive lock without re-picking the agent. **Off** / clear grant is the separate revoke path.
+**Take control** (chrome, Drive only) → temporary human assist: page unlocks, grant stays **Drive**. While Taken, agents may still request **snapshots** and follow **user_click / user_input / user_keydown** observe events (hit tag/name/ref + `valueLength` only — never field values / PHI); Drive actions stay blocked until **Release control**. **Release control** restores the Drive lock without re-picking the agent. **Off** / clear grant is the separate revoke path.
 
 ### Grant binding
 
@@ -45,6 +45,7 @@ Playground sessions live in a **browser group** (`browserId`, `tabSids[]`, `acti
 - **One live WKWebView per playground sid:** label is always `playground-{sid}`. Detach / pin Open / RHS stage **reparent** that child across windows instead of creating `playground-{sid}--{window}` siblings (siblings forked DOM + Drive phase). Pop-out close reparents back to main (hidden) when possible so Observe/Drive stay warm.
 - **Grants:** one agent per browser group. Observe/Drive bind to the **active tab** `surfaceId`. The **main tab** (`tabSids[0]` / `mainTabSid`) is **primary focus** and cannot be dismissed from the strip (Browsers **Remove** still disposes the group). Switching tabs (or focusing a new tab) **rebinds** the grant onto the active tab's webview label (same idea as detach host rebind). Closing a secondary tab disposes that session/webview only.
 - **Agent tabs:** MCP `browser_tabs` lists the group (`mainTabSid`, `activeTabSid`, `tabs[]` with `isMain`). `browser_switch_tab` focuses a `surface_id` (Desktop rebinds). Observe events `tab_opened` / `tab_switched` announce changes. Prefer returning to the main tab for primary work.
+- **Agent viewport (Drive):** While Drive is granted (and the human has not Taken control), humans cannot change Stage chrome — agents use MCP `browser_set_viewport` / `browser_get_viewport` instead. Same controls as the Stage UI: `mode` `desktop` | `responsive` | `mobile`; responsive `width`×`height` (min 320); mobile `deviceId` (`iphone-se` | `iphone-16` | `iphone-16-pro-max` | `pixel-8` | `ipad-mini` | `ipad-pro-11`) + `orientation` `portrait`|`landscape` + `scalePercent` (50–200, steps of 25). Desktop applies via `setPlaygroundViewport` (same store the Stage UI uses).
 - Existing sessions migrate to one-tab groups (`browserId` may equal `sid`).
 
 ### Site runbook
@@ -103,7 +104,7 @@ Rust type: `BrowserAgentGrant` (core fields). The grant **mirror** (`grant.json`
 
 Instrumentation runs **inside** the Buzz WKWebView (page script), not OpenClaw Chromium:
 
-1. On grant Observe/Drive, Desktop injects/hooks: `console.*`, `fetch`, `XMLHttpRequest`, and records nav from existing Rust nav emitters.
+1. On grant Observe/Drive, Desktop injects/hooks: `console.*`, `fetch`, `XMLHttpRequest`, trusted human `click` / `input` / `keydown` (payload: hit tag/name/ref + `valueLength` only — never values), and records nav from existing Rust nav emitters.
 2. Events land in an in-memory ring (`BrowserObserveBuffer`) and are mirrored to `{appData}/browser-agent/{label}/events.jsonl`.
 3. Bound agent reads via:
    - Desktop IPC / Tauri: `browser_observe_poll` (cursor + limit)
@@ -124,7 +125,7 @@ When `mode=drive`:
 4. **`key`:** `{ "kind":"key", "key":"Enter" }` — Enter, Tab, Escape, Backspace, arrows. Fires keydown/keypress/keyup on `document.activeElement`. If keydown not defaultPrevented: Enter in input+form → `form.requestSubmit()`; Enter in textarea → newline; Tab → move focus. No site special-cases.
 5. **MCP → Desktop path:** `buzz-dev-mcp` `browser_drive` validates the DriveAction shape (object or JSON string; field is **`kind`**, not `type`), assigns `id`, appends one line to `{appData}/browser-agent/{label}/drive-inbox.jsonl`. Prefer **`surface_id`** when calling (see Agent target). Desktop drains the inbox via a **Rust-side watcher** (~200ms over live grants) plus optional chrome backup poll; MCP and Desktop share a `drive-inbox.lock`, then Desktop **atomically renames** the inbox to a temp file, reads/deletes the temp (so appends during processing land in a fresh file). Bad lines / unknown kinds → `drive_error` (never silent ok).
 6. **Batch wait (default):** after queueing, MCP waits up to ~10s for matching `drive` / `drive_error` events in `events.jsonl` and returns per-step `results` + final `url`. Set `queue_only=true` to return immediately after queue.
-7. **Take control** → unlock page, keep Drive grant (`userHasControl`). **Release control** → lock again. **Off** clears the grant.
+7. **Take control** → unlock page, keep Drive grant (`userHasControl`). Snapshots + user events still flow; Drive inbox actions stay blocked until **Release control** → lock again. **Off** clears the grant.
 8. Detach / conversation-pin open / navigation rebinds the grant onto the live webview label and reinstalls instrumentation so Drive lock is not lost across hosts. Agents holding `surfaceId` keep working mid-turn.
 
 Playground only (existing `playground_webview_eval`). Pin navigate/drive paths remain unreachable for new grants.
@@ -165,6 +166,8 @@ Prefer **Desktop-managed / local ACP** agents that can call Desktop-side tools:
 | `browser_agent_grants` | List grants (`surfaceId` + live `webviewLabel`) for this agent |
 | `browser_tabs` | List tabs in the granted browser group (`mainTabSid` primary; extras from in-page open). Prefer `surface_id`. |
 | `browser_switch_tab` | Focus a tab by `surface_id` (rebinds grant). Poll `tab_switched` or re-call `browser_tabs`. |
+| `browser_get_viewport` | Read Stage viewport (`mode`, W×H, mobile device/orientation/scale). Prefer `surface_id`. |
+| `browser_set_viewport` | Set Stage viewport while Driving (desktop / responsive W×H / mobile device+orientation+scale). Prefer `surface_id`. |
 | `browser_runbook_get` | Site runbook for the granted browser: brief + procedure index, or full steps for `procedure_id`. |
 | `browser_runbook_propose` | Queue a pending how-to procedure (title + steps). Human Accept in Desktop required. |
 
