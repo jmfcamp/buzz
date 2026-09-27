@@ -6,7 +6,6 @@ import { getCachedSearchHitEvent } from "@/app/navigation/searchHitEventCache";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useChannelsQuery } from "@/features/channels/hooks";
 import { useOpenChannelDirectoryQuery } from "@/features/channels/openChannelDirectory";
-import { ChannelScreen } from "@/features/channels/ui/ChannelScreen";
 import { HuddleStartingView } from "@/features/huddle/components/HuddleStartingView";
 import { huddleWindowChannelId } from "@/features/huddle/lib/huddleWindow";
 import {
@@ -29,7 +28,7 @@ import { useIdentityQuery } from "@/shared/api/hooks";
 import { getEventById } from "@/shared/api/tauri";
 import type { RelayEvent } from "@/shared/api/types";
 import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
-import { useProtectedBestieChannelExtras } from "@protected-feature-components";
+import { ProtectedChannelScreen } from "@protected-feature-components";
 
 type ChannelRouteScreenProps = {
   autoSendDraftKey: string | null;
@@ -144,7 +143,6 @@ export function ChannelRouteScreen({
     memberChannel ??
     openDirectoryQuery.data?.find((channel) => channel.id === channelId) ??
     null;
-  const bestieChannelExtras = useProtectedBestieChannelExtras(activeChannel);
   const enumeratedProjectHome = findProjectHomeByChannelId(
     channelId,
     projectsQuery.data ?? [],
@@ -311,7 +309,7 @@ export function ChannelRouteScreen({
   }
 
   return (
-    <ChannelScreen
+    <ProtectedChannelScreen
       activeChannel={activeChannel}
       autoSendDraftKey={autoSendDraftKey}
       currentIdentity={identityQuery.data}
@@ -328,7 +326,6 @@ export function ChannelRouteScreen({
       targetMessageId={targetMessageId}
       targetSearchMessageId={activeSearchHighlight?.messageId}
       targetSearchQuery={activeSearchHighlight?.query}
-      {...bestieChannelExtras}
     />
   );
 }

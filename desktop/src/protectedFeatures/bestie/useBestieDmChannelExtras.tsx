@@ -3,7 +3,10 @@ import * as React from "react";
 
 import { findBestieDmChannel } from "./filterBestieDmChannels";
 import { BestieDmCategorySheet, BestieDmRhsPanel } from "./BestieDmRhsPanel";
-import { bestieCategoryTitle } from "./bestieDmRhsHelpers";
+import {
+  bestieCategoryTitle,
+  bestieIdleAuxiliaryKind,
+} from "./bestieDmRhsHelpers";
 import { useBestieAssignmentQuery } from "./useBestie";
 import type { BestieListKind } from "./bestieListTypes";
 import type { Channel } from "@/shared/api/types";
@@ -14,7 +17,7 @@ import type { IdleAuxiliaryHeaderControls } from "@/features/channels/ui/IdleAux
 import { useFeatureEnabled } from "@/shared/features";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 
-type BestieChannelExtras = Pick<
+type BestieChannelScreenExtras = Pick<
   ChannelScreenProps,
   | "headerEndActions"
   | "idleAuxiliaryPanel"
@@ -24,10 +27,19 @@ type BestieChannelExtras = Pick<
   | "onCloseIdleAuxiliaryPanel"
 >;
 
+export type BestieChannelExtras = BestieChannelScreenExtras & {
+  /**
+   * Fixed RHS category rows (Reminders / To-dos). Rendered outside
+   * ChannelScreen in {@link BestieDmChannelFrame} — never inside idleAuxiliary.
+   */
+  contextColumn: React.ReactNode | null;
+  contextColumnOpen: boolean;
+};
+
 /**
- * When the active channel is the Bestie DM, attach a project-like RHS:
- * category rows (Reminders / To-dos + counts), click opens a slide sheet with
- * items, header + for hand entry. Returns empty props otherwise (and always
+ * When the active channel is the Bestie DM, attach project-home-style RHS:
+ * fixed category rows in the native right column; idleAuxiliary slide only
+ * when drilling into a category’s items (+ add). Empty otherwise (and always
  * when Bestie is disabled).
  */
 export function useBestieDmChannelExtras(
@@ -55,7 +67,7 @@ export function useBestieDmChannelExtras(
     return found?.id === activeChannel.id;
   }, [activeChannel, bestiePubkey, enabled, ownerPubkey]);
 
-  // Re-open RHS (category list) when navigating into the Bestie DM.
+  // Re-open fixed RHS (category list) when navigating into the Bestie DM.
   React.useEffect(() => {
     if (isBestieDm) {
       setPanelOpen(true);
@@ -79,14 +91,10 @@ export function useBestieDmChannelExtras(
   }, []);
 
   const onCloseIdleAuxiliaryPanel = React.useCallback(() => {
-    // Project pattern: close slide → back to category list; close list → hide RHS.
-    if (activeKind != null) {
-      setActiveKind(null);
-      setAdding(false);
-      return;
-    }
-    setPanelOpen(false);
-  }, [activeKind]);
+    // Slide close → back to fixed category list (column stays open).
+    setActiveKind(null);
+    setAdding(false);
+  }, []);
 
   const headerToggle = React.useMemo(() => {
     if (!isBestieDm) return null;
@@ -121,18 +129,8 @@ export function useBestieDmChannelExtras(
     );
   }, [isBestieDm, panelOpen]);
 
-  const idleAuxiliaryPanel = React.useMemo(() => {
+  const contextColumn = React.useMemo(() => {
     if (!scope) return null;
-    if (activeKind != null) {
-      return (
-        <BestieDmCategorySheet
-          adding={adding}
-          kind={activeKind}
-          onRequestAdd={() => setAdding(true)}
-          scope={scope}
-        />
-      );
-    }
     return (
       <BestieDmRhsPanel
         activeKind={activeKind}
@@ -140,7 +138,19 @@ export function useBestieDmChannelExtras(
         scope={scope}
       />
     );
-  }, [activeKind, adding, openKind, scope]);
+  }, [activeKind, openKind, scope]);
+
+  const idleAuxiliaryPanel = React.useMemo(() => {
+    if (!scope || activeKind == null) return null;
+    return (
+      <BestieDmCategorySheet
+        adding={adding}
+        kind={activeKind}
+        onRequestAdd={() => setAdding(true)}
+        scope={scope}
+      />
+    );
+  }, [activeKind, adding, scope]);
 
   const idleAuxiliaryHeaderActions =
     React.useMemo<IdleAuxiliaryHeaderControls | null>(() => {
@@ -175,34 +185,44 @@ export function useBestieDmChannelExtras(
       };
     }, [activeKind, adding]);
 
-  const idleAuxiliaryTitle =
-    activeKind != null ? bestieCategoryTitle(activeKind) : "Bestie";
-
   return React.useMemo(() => {
     if (!enabled || !isBestieDm || !scope) {
-      return {};
-    }
-
-    if (!panelOpen) {
       return {
-        headerEndActions: headerToggle,
+        contextColumn: null,
+        contextColumnOpen: false,
       };
     }
 
-    return {
+    const screenExtras: BestieChannelScreenExtras = {
       headerEndActions: headerToggle,
-      idleAuxiliaryHeaderActions: idleAuxiliaryHeaderActions ?? undefined,
-      idleAuxiliaryOverridesThread: true,
-      idleAuxiliaryPanel,
-      idleAuxiliaryTitle,
-      onCloseIdleAuxiliaryPanel,
+    };
+
+    // Slide only when drilling into a category — never for the category list.
+    if (
+      panelOpen &&
+      bestieIdleAuxiliaryKind(activeKind) != null &&
+      idleAuxiliaryPanel
+    ) {
+      screenExtras.idleAuxiliaryHeaderActions =
+        idleAuxiliaryHeaderActions ?? undefined;
+      screenExtras.idleAuxiliaryOverridesThread = true;
+      screenExtras.idleAuxiliaryPanel = idleAuxiliaryPanel;
+      screenExtras.idleAuxiliaryTitle = bestieCategoryTitle(activeKind);
+      screenExtras.onCloseIdleAuxiliaryPanel = onCloseIdleAuxiliaryPanel;
+    }
+
+    return {
+      ...screenExtras,
+      contextColumn,
+      contextColumnOpen: panelOpen,
     };
   }, [
+    activeKind,
+    contextColumn,
     enabled,
     headerToggle,
     idleAuxiliaryHeaderActions,
     idleAuxiliaryPanel,
-    idleAuxiliaryTitle,
     isBestieDm,
     onCloseIdleAuxiliaryPanel,
     panelOpen,

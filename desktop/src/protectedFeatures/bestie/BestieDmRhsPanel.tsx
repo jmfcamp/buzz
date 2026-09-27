@@ -203,8 +203,9 @@ function AddRow({
 }
 
 /**
- * Bestie DM RHS category list — project-home style rows (icon + label + count).
- * Clicking a category opens the category slide sheet.
+ * Bestie DM fixed RHS category list — project-home style rows (icon + label +
+ * count). Lives in the native right column (not idleAuxiliary). Clicking a
+ * category opens the category slide sheet for that kind’s items.
  */
 export function BestieDmRhsPanel({
   activeKind = null,
@@ -224,7 +225,7 @@ export function BestieDmRhsPanel({
   ).length;
 
   return (
-    <div className="space-y-1 px-0 py-1" data-testid="bestie-dm-rhs-panel">
+    <div className="space-y-1 px-2 pb-8 pt-3" data-testid="bestie-dm-rhs-panel">
       <CategoryNavButton
         count={presentBestieContextCount(openReminders)}
         icon={<Bell className="size-4" />}
