@@ -71,7 +71,7 @@ test("read/write/clear round-trip through localStorage", () => {
   assert.equal(readBestieSessionBoundary(SCOPE), null);
 });
 
-test("X path keeps boundary; Finish path clears it", () => {
+test("chevron dismiss keeps boundary; Close Thread clears it", () => {
   const memory = new Map();
   globalThis.window = {
     localStorage: {
@@ -91,9 +91,9 @@ test("X path keeps boundary; Finish path clears it", () => {
     sessionRootId: "root-1",
   };
   writeBestieSessionBoundary(SCOPE, boundary);
-  // Simulate close via X: do not clear; reopen reads the same session.
+  // Simulate chevron dismiss: do not clear; reopen reads the same session.
   assert.deepEqual(readBestieSessionBoundary(SCOPE), boundary);
-  // Simulate Finish: clear so next open starts blank.
+  // Simulate Close Thread: clear so next open starts blank.
   clearBestieSessionBoundary(SCOPE);
   assert.equal(readBestieSessionBoundary(SCOPE), null);
 });

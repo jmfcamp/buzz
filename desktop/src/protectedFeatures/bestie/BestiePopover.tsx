@@ -1,8 +1,16 @@
-import { ArrowUp, Plus, X } from "lucide-react";
+import {
+  ArrowUp,
+  ChevronDown,
+  Plus,
+  SquareArrowOutUpRight,
+} from "lucide-react";
 import { motion } from "motion/react";
 import * as React from "react";
 import { toast } from "sonner";
 
+import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import { AgentSessionTranscriptList } from "@/features/agents/ui/AgentSessionTranscriptList";
+import { useAgentTranscript } from "@/features/agents/ui/useObserverEvents";
 import { useChannelsQuery } from "@/features/channels/hooks";
 import {
   mergeMessages,
@@ -18,10 +26,12 @@ import { TimelineMessageList } from "@/features/messages/ui/TimelineMessageList"
 import { TypingIndicatorRow } from "@/features/messages/ui/TypingIndicatorRow";
 import { useChannelTyping } from "@/features/messages/useChannelTyping";
 import { useThreadRepliesForRoots } from "@/features/messages/useThreadReplies";
-import { ProtectedMessageActionsBoundary } from "@protected-feature-components";
+import { parkPlaygroundHost } from "@/features/playground/lib/sessions";
 import { PresenceDot } from "@/features/presence/ui/PresenceBadge";
 import { useProfileQuery } from "@/features/profile/hooks";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
+import { leaveLeftNavBuzzTerm } from "@/features/terminal/terminalPanelStore";
+import { ProtectedMessageActionsBoundary } from "@protected-feature-components";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import type { Channel, ManagedAgent, PresenceStatus } from "@/shared/api/types";
 import {
@@ -31,8 +41,13 @@ import {
 import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
+import { Checkbox } from "@/shared/ui/checkbox";
 import { Textarea } from "@/shared/ui/textarea";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
+import {
+  setBestieShowActivity,
+  useBestieShowActivity,
+} from "./bestieActivityPreference";
 import { buildBestieMessageContext } from "./bestieMessageContext";
 import {
   clearBestieSessionBoundary,
@@ -41,6 +56,7 @@ import {
   type BestieSessionBoundary,
   type BestieSessionScope,
 } from "./bestieSessionStorage";
+import { filterBestieActivityItems } from "./filterBestieActivityItems";
 import { findBestieDmChannel } from "./filterBestieDmChannels";
 import {
   collectBestieSessionThreadRootIds,
@@ -148,12 +164,18 @@ function EmptyBestie() {
 }
 
 function BestieConversationTranscript({
+  activityItems,
+  agent,
   channel,
   currentPubkey,
   messages,
   onToggleReaction,
   profiles,
+  showActivity,
+  typingPubkeys,
 }: {
+  activityItems: import("@/features/agents/ui/agentSessionTypes").TranscriptItem[];
+  agent: ManagedAgent;
   channel: Channel;
   currentPubkey: string | undefined;
   messages: TimelineMessage[];
@@ -163,9 +185,14 @@ function BestieConversationTranscript({
     remove: boolean,
   ) => Promise<void>;
   profiles: UserProfileLookup;
+  showActivity: boolean;
+  typingPubkeys: string[];
 }) {
   const transcriptRef = React.useRef<HTMLDivElement>(null);
+  const bottomSentinelRef = React.useRef<HTMLDivElement>(null);
   const latestMessageKey = messages.at(-1)?.renderKey ?? messages.at(-1)?.id;
+  const latestActivityKey = activityItems.at(-1)?.id;
+  const typingKey = typingPubkeys.join(",");
   const flattenedMessages = React.useMemo(
     () => flattenBestieTranscriptMessages(messages),
     [messages],
@@ -185,35 +212,80 @@ function BestieConversationTranscript({
     threadMessages: [],
   });
 
+  const transcriptTailKey = [
+    latestMessageKey ?? "",
+    latestActivityKey ?? "",
+    showActivity ? "1" : "0",
+    typingKey,
+  ].join(":");
+
   React.useLayoutEffect(() => {
-    if (!latestMessageKey) return;
+    // Keep the newest bubble / activity / typing row fully above the composer.
+    void transcriptTailKey;
+    const sentinel = bottomSentinelRef.current;
+    if (sentinel) {
+      sentinel.scrollIntoView({ block: "end" });
+      return;
+    }
     const transcript = transcriptRef.current;
     if (!transcript) return;
     transcript.scrollTop = transcript.scrollHeight;
-  }, [latestMessageKey]);
+  }, [transcriptTailKey]);
 
   return (
     <div
       aria-live="polite"
-      className="h-full min-h-0 overflow-y-auto"
+      className="min-h-0 flex-1 overflow-y-auto"
       data-bestie-channel-id={channel.id}
       data-bestie-channel-name={channel.name}
       data-testid="bestie-mini-transcript"
       ref={transcriptRef}
     >
-      <ProtectedMessageActionsBoundary>
-        <TimelineMessageList
-          channelId={channel.id}
-          channelName={channel.name}
-          channelType={channel.channelType}
-          currentPubkey={currentPubkey}
-          mainEntries={mainTimelineEntries}
-          messages={flattenedMessages}
-          onToggleReaction={onToggleReaction}
-          profiles={profiles}
-          stickyDayDividers={false}
-        />
-      </ProtectedMessageActionsBoundary>
+      <div className="flex min-h-0 flex-col gap-2 pb-3">
+        <ProtectedMessageActionsBoundary>
+          <TimelineMessageList
+            channelId={channel.id}
+            channelName={channel.name}
+            channelType={channel.channelType}
+            currentPubkey={currentPubkey}
+            mainEntries={mainTimelineEntries}
+            messages={flattenedMessages}
+            onToggleReaction={onToggleReaction}
+            profiles={profiles}
+            stickyDayDividers={false}
+          />
+        </ProtectedMessageActionsBoundary>
+
+        {showActivity && activityItems.length > 0 ? (
+          <div className="px-1" data-testid="bestie-activity-transcript">
+            <AgentSessionTranscriptList
+              agentAvatarUrl={agent.avatarUrl ?? null}
+              agentName={agent.name}
+              agentPubkey={agent.pubkey}
+              autoTail={false}
+              channelId={channel.id}
+              emptyDescription="Activity will appear here while Bestie works."
+              items={activityItems}
+              profiles={profiles}
+              variant="compactPreview"
+            />
+          </div>
+        ) : null}
+
+        {typingPubkeys.length > 0 ? (
+          <div data-testid="bestie-typing-indicator">
+            <TypingIndicatorRow
+              channel={channel}
+              className="shrink-0 px-0 py-0"
+              currentPubkey={currentPubkey}
+              profiles={profiles}
+              typingPubkeys={typingPubkeys}
+            />
+          </div>
+        ) : null}
+
+        <div aria-hidden="true" ref={bottomSentinelRef} />
+      </div>
     </div>
   );
 }
@@ -242,6 +314,8 @@ export function BestiePopover({
   onRequestClose?: () => void;
 }) {
   const bestie = useBestie();
+  const { goChannel } = useAppNavigation();
+  const showActivity = useBestieShowActivity();
   const [draft, setDraft] = React.useState("");
   const [contextSent, setContextSent] = React.useState(false);
   const [conversationChannel, setConversationChannel] =
@@ -313,6 +387,8 @@ export function BestiePopover({
   const cachedBestieChannelRef = React.useRef(cachedBestieChannel);
   cachedBestieChannelRef.current = cachedBestieChannel;
 
+  // cachedBestieChannelId re-runs hydrate when the pair DM appears in cache.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: channel id is the intentional refresh key
   React.useEffect(() => {
     if (!assignedAgentPubkey) {
       setConversationChannel(null);
@@ -435,7 +511,7 @@ export function BestiePopover({
     mergedConversationEvents,
   ]);
   const conversationMessages = React.useMemo(() => {
-    // Full active-session transcript (X keeps this; Finish clears it).
+    // Full active-session transcript (chevron dismiss keeps this; Close Thread clears it).
     return filterBestieSessionMessages(
       allConversationMessages,
       sessionBoundary,
@@ -449,6 +525,17 @@ export function BestiePopover({
     () => typingEntries.map((entry) => entry.pubkey),
     [typingEntries],
   );
+  const agentTranscript = useAgentTranscript(
+    showActivity && Boolean(assignedAgentPubkey),
+    assignedAgentPubkey,
+  );
+  const activityItems = React.useMemo(
+    () =>
+      filterBestieActivityItems(agentTranscript, {
+        channelId: activeConversationChannel?.id,
+      }),
+    [activeConversationChannel?.id, agentTranscript],
+  );
   const handleToggleReaction = React.useCallback(
     async (message: TimelineMessage, emoji: string, remove: boolean) => {
       await toggleReactionMutateRef.current({
@@ -459,9 +546,9 @@ export function BestiePopover({
     },
     [],
   );
-  // Finish ends the session (next open = blank). X only calls onRequestClose
-  // and leaves localStorage boundary intact so reopen resumes history + typing.
-  const finishSession = React.useCallback(() => {
+  // Close Thread ends the session (next open = blank). Chevron only calls
+  // onRequestClose and leaves localStorage boundary intact so reopen resumes.
+  const closeThread = React.useCallback(() => {
     if (sessionScope) {
       clearBestieSessionBoundary(sessionScope);
     }
@@ -470,6 +557,37 @@ export function BestiePopover({
     setDraft("");
     onRequestClose?.();
   }, [onRequestClose, sessionScope]);
+
+  const openSessionThread = React.useCallback(() => {
+    void (async () => {
+      parkPlaygroundHost();
+      leaveLeftNavBuzzTerm();
+      const channel =
+        activeConversationChannel ??
+        (await (conversationPromiseRef.current ??
+          bestie.resolveConversation()));
+      setConversationChannel(channel);
+      await goChannel(
+        channel.id,
+        sessionBoundary?.sessionRootId
+          ? { thread: sessionBoundary.sessionRootId }
+          : undefined,
+      );
+      onRequestClose?.();
+    })().catch((error) => {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Couldn’t open Bestie conversation",
+      );
+    });
+  }, [
+    activeConversationChannel,
+    bestie,
+    goChannel,
+    onRequestClose,
+    sessionBoundary?.sessionRootId,
+  ]);
 
   if (bestie.isLoading) {
     return <p className="text-sm text-muted-foreground">Loading Bestie…</p>;
@@ -529,12 +647,18 @@ export function BestiePopover({
     });
   };
 
+  const hasScrollableTranscript =
+    Boolean(activeConversationChannel) &&
+    (conversationMessages.length > 0 ||
+      (showActivity && activityItems.length > 0) ||
+      typingPubkeys.length > 0);
+
   return (
     <div
-      className="flex max-h-[min(32rem,var(--radix-popover-content-available-height,calc(100vh-2rem)))] flex-col gap-4"
+      className="flex max-h-[min(32rem,var(--radix-popover-content-available-height,calc(100vh-2rem)))] min-h-0 flex-col gap-3"
       data-testid="bestie-popover"
     >
-      <div className="flex shrink-0 items-center gap-3">
+      <div className="flex shrink-0 items-center gap-2">
         <BestieAgentLockup
           agent={agent}
           avatarLayoutId={avatarLayoutId}
@@ -542,14 +666,25 @@ export function BestiePopover({
         />
         <div className="flex-1" />
         <Button
-          aria-label="Finish Bestie session"
-          data-testid="bestie-finish-session"
-          onClick={finishSession}
+          aria-label="Close Thread"
+          data-testid="bestie-close-thread"
+          onClick={closeThread}
           size="xs"
           type="button"
           variant="ghost"
         >
-          Finish
+          Close Thread
+        </Button>
+        <Button
+          aria-label="Open Bestie thread"
+          data-testid="bestie-open-thread"
+          disabled={bestie.isOpening}
+          onClick={openSessionThread}
+          size="icon-xs"
+          type="button"
+          variant="ghost"
+        >
+          <SquareArrowOutUpRight />
         </Button>
         <Button
           aria-label="Close Bestie"
@@ -559,32 +694,22 @@ export function BestiePopover({
           type="button"
           variant="ghost"
         >
-          <X />
+          <ChevronDown />
         </Button>
       </div>
 
-      {conversationMessages.length > 0 && activeConversationChannel ? (
-        <div className="min-h-0 max-h-[min(20rem,calc(var(--radix-popover-content-available-height,100vh)-14rem))] flex-1 overflow-hidden">
-          <BestieConversationTranscript
-            channel={activeConversationChannel}
-            currentPubkey={currentPubkey}
-            messages={conversationMessages}
-            onToggleReaction={handleToggleReaction}
-            profiles={conversationProfiles}
-          />
-        </div>
-      ) : null}
-
-      {typingPubkeys.length > 0 ? (
-        <div data-testid="bestie-typing-indicator">
-          <TypingIndicatorRow
-            channel={activeConversationChannel}
-            className="shrink-0 px-0 py-0"
-            currentPubkey={currentPubkey}
-            profiles={conversationProfiles}
-            typingPubkeys={typingPubkeys}
-          />
-        </div>
+      {hasScrollableTranscript && activeConversationChannel ? (
+        <BestieConversationTranscript
+          activityItems={activityItems}
+          agent={agent}
+          channel={activeConversationChannel}
+          currentPubkey={currentPubkey}
+          messages={conversationMessages}
+          onToggleReaction={handleToggleReaction}
+          profiles={conversationProfiles}
+          showActivity={showActivity}
+          typingPubkeys={typingPubkeys}
+        />
       ) : null}
 
       {contextMessage && !contextSent ? (
@@ -617,6 +742,25 @@ export function BestiePopover({
           </div>
         </div>
       ) : null}
+
+      <div
+        className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground"
+        data-testid="bestie-show-activity"
+      >
+        <Checkbox
+          checked={showActivity}
+          id="bestie-show-activity-checkbox"
+          onCheckedChange={(checked) => {
+            setBestieShowActivity(checked === true);
+          }}
+        />
+        <label
+          className="cursor-pointer"
+          htmlFor="bestie-show-activity-checkbox"
+        >
+          Show activity
+        </label>
+      </div>
 
       <div className="relative shrink-0">
         <Textarea
