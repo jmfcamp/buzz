@@ -20,6 +20,7 @@ import { BestieSidebarEntry } from "./bestie/BestieSidebarEntry";
 import { filterBestieDmChannels } from "./bestie/filterBestieDmChannels";
 import { findAssignedLocalAgent } from "./bestie/findAssignedLocalAgent";
 import { useBestieAssignmentQuery } from "./bestie/useBestie";
+import { useBestieDmChannelExtras } from "./bestie/useBestieDmChannelExtras";
 import { OpenClawWorkspaceRelayListener } from "./openclawWorkspaceMcp/OpenClawWorkspaceRelayListener";
 import { OpenClawWorkspaceSettingsCard } from "./openclawWorkspaceMcp/OpenClawWorkspaceSettingsCard";
 import { handleProtectedRelayPayload } from "./openclawWorkspaceMcp/handleRelayPayload";
@@ -101,6 +102,14 @@ export function useProtectedVisibleDirectMessages(
     () => filterBestieDmChannels(channels, currentPubkey, bestiePubkey),
     [bestiePubkey, channels, currentPubkey],
   );
+}
+
+export function useProtectedBestieChannelExtras(
+  activeChannel: Channel | null | undefined,
+) {
+  const enabled = useFeatureEnabled("bestie");
+  const extras = useBestieDmChannelExtras(enabled ? activeChannel : null);
+  return enabled ? extras : {};
 }
 
 export function ProtectedOpenClawWorkspaceSettingsCard() {

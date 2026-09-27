@@ -29,6 +29,7 @@ import { useIdentityQuery } from "@/shared/api/hooks";
 import { getEventById } from "@/shared/api/tauri";
 import type { RelayEvent } from "@/shared/api/types";
 import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
+import { useProtectedBestieChannelExtras } from "@protected-feature-components";
 
 type ChannelRouteScreenProps = {
   autoSendDraftKey: string | null;
@@ -143,6 +144,7 @@ export function ChannelRouteScreen({
     memberChannel ??
     openDirectoryQuery.data?.find((channel) => channel.id === channelId) ??
     null;
+  const bestieChannelExtras = useProtectedBestieChannelExtras(activeChannel);
   const enumeratedProjectHome = findProjectHomeByChannelId(
     channelId,
     projectsQuery.data ?? [],
@@ -326,6 +328,7 @@ export function ChannelRouteScreen({
       targetMessageId={targetMessageId}
       targetSearchMessageId={activeSearchHighlight?.messageId}
       targetSearchQuery={activeSearchHighlight?.query}
+      {...bestieChannelExtras}
     />
   );
 }

@@ -54,6 +54,12 @@ export function useProtectedVisibleDirectMessages(
   return channels;
 }
 
+export function useProtectedBestieChannelExtras(
+  _activeChannel: Channel | null | undefined,
+) {
+  return {};
+}
+
 export function ProtectedOpenClawWorkspaceSettingsCard() {
   return null;
 }

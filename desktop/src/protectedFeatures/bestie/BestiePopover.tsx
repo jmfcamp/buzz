@@ -57,6 +57,7 @@ import {
   flattenBestieTranscriptMessages,
   resolveBestieSendParentEventId,
 } from "./flattenBestieTranscript";
+import { BestieNudgeBanner } from "./BestieNudgeBanner";
 import { useBestie } from "./useBestie";
 
 /** How long Confirm? stays armed before reverting to Close Thread. */
@@ -710,6 +711,12 @@ export function BestiePopover({
           </Button>
         </div>
       </div>
+
+      <BestieNudgeBanner
+        onOpenList={() => {
+          void openSessionThread();
+        }}
+      />
 
       {hasScrollableTranscript && activeConversationChannel ? (
         <BestieConversationTranscript
