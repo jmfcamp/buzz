@@ -3,7 +3,9 @@ import { motion } from "motion/react";
 import * as React from "react";
 import { toast } from "sonner";
 
+import { useChannelsQuery } from "@/features/channels/hooks";
 import {
+  mergeMessages,
   useChannelMessagesQuery,
   useChannelSubscription,
   useSendMessageMutation,
@@ -15,6 +17,7 @@ import type { TimelineMessage } from "@/features/messages/types";
 import { TimelineMessageList } from "@/features/messages/ui/TimelineMessageList";
 import { TypingIndicatorRow } from "@/features/messages/ui/TypingIndicatorRow";
 import { useChannelTyping } from "@/features/messages/useChannelTyping";
+import { useThreadRepliesForRoots } from "@/features/messages/useThreadReplies";
 import { ProtectedMessageActionsBoundary } from "@protected-feature-components";
 import { PresenceDot } from "@/features/presence/ui/PresenceBadge";
 import { useProfileQuery } from "@/features/profile/hooks";
@@ -38,9 +41,12 @@ import {
   type BestieSessionBoundary,
   type BestieSessionScope,
 } from "./bestieSessionStorage";
+import { findBestieDmChannel } from "./filterBestieDmChannels";
 import {
+  collectBestieSessionThreadRootIds,
   filterBestieSessionMessages,
   flattenBestieTranscriptMessages,
+  resolveBestieSendParentEventId,
 } from "./flattenBestieTranscript";
 import { useBestie } from "./useBestie";
 
@@ -247,10 +253,26 @@ export function BestiePopover({
   } | null>(null);
   const identityQuery = useIdentityQuery();
   const profileQuery = useProfileQuery();
-  const conversationQuery = useChannelMessagesQuery(conversationChannel);
-  useChannelSubscription(conversationChannel);
+  const channelsQuery = useChannelsQuery();
+  const agent = bestie.assignedAgent;
+  const assignedAgentPubkey = agent?.pubkey;
+  const currentPubkey = identityQuery.data?.pubkey;
+  const cachedBestieChannel = React.useMemo(
+    () =>
+      findBestieDmChannel(
+        channelsQuery.data ?? [],
+        currentPubkey,
+        assignedAgentPubkey,
+      ),
+    [assignedAgentPubkey, channelsQuery.data, currentPubkey],
+  );
+  // Prefer resolved state; fall back to channels-cache hit so reopen hydrates
+  // the transcript immediately without waiting for resolveConversation.
+  const activeConversationChannel = conversationChannel ?? cachedBestieChannel;
+  const conversationQuery = useChannelMessagesQuery(activeConversationChannel);
+  useChannelSubscription(activeConversationChannel);
   const sendMutation = useSendMessageMutation(
-    conversationChannel,
+    activeConversationChannel,
     identityQuery.data,
   );
   const toggleReactionMutation = useToggleReactionMutation();
@@ -258,8 +280,6 @@ export function BestiePopover({
     toggleReactionMutation.mutateAsync,
   );
   toggleReactionMutateRef.current = toggleReactionMutation.mutateAsync;
-  const agent = bestie.assignedAgent;
-  const assignedAgentPubkey = agent?.pubkey;
   const conversationPromiseRef = React.useRef<Promise<Channel> | null>(null);
   const resolveConversationForOpen = React.useEffectEvent(() =>
     bestie.resolveConversation(),
@@ -275,19 +295,35 @@ export function BestiePopover({
     };
   }, [assignedAgentPubkey, bestie.ownerPubkey, bestie.relayUrl]);
 
-  React.useEffect(() => {
-    setConversationChannel(null);
-    conversationPromiseRef.current = null;
+  // Hydrate session boundary before paint so reopen is not blank for a frame.
+  React.useLayoutEffect(() => {
     if (!assignedAgentPubkey) {
       setSessionBoundary(null);
       return;
     }
-
     if (sessionScope) {
       const stored = readBestieSessionBoundary(sessionScope);
       setSessionBoundary(stored ? toRuntimeBoundary(stored) : null);
     } else {
       setSessionBoundary(null);
+    }
+  }, [assignedAgentPubkey, sessionScope]);
+
+  const cachedBestieChannelId = cachedBestieChannel?.id ?? null;
+  const cachedBestieChannelRef = React.useRef(cachedBestieChannel);
+  cachedBestieChannelRef.current = cachedBestieChannel;
+
+  React.useEffect(() => {
+    if (!assignedAgentPubkey) {
+      setConversationChannel(null);
+      conversationPromiseRef.current = null;
+      return;
+    }
+
+    // Seed from cache immediately when available (avoids blank until resolve).
+    const cached = cachedBestieChannelRef.current;
+    if (cached) {
+      setConversationChannel((current) => current ?? cached);
     }
 
     let cancelled = false;
@@ -308,9 +344,8 @@ export function BestiePopover({
     return () => {
       cancelled = true;
     };
-  }, [assignedAgentPubkey, sessionScope]);
+  }, [assignedAgentPubkey, cachedBestieChannelId]);
 
-  const currentPubkey = identityQuery.data?.pubkey;
   const currentProfile = profileQuery.data;
   const conversationProfiles = React.useMemo<UserProfileLookup>(() => {
     if (!agent) return {};
@@ -345,11 +380,33 @@ export function BestiePopover({
     () => buildBestieMessageContext(contextChannelId, contextMessage),
     [contextChannelId, contextMessage],
   );
+
+  // Channel window is roots-only; load reply subtrees for the active session
+  // so the popover shows the same continuous transcript as the DM thread.
+  const sessionThreadRootIds = React.useMemo(() => {
+    // Channel window is roots-only; treat each as a potential session thread root.
+    const channelRoots = (conversationQuery.data ?? []).map((event) => ({
+      createdAt: event.created_at,
+      id: event.id,
+      parentId: null as string | null,
+    }));
+    return collectBestieSessionThreadRootIds(sessionBoundary, channelRoots);
+  }, [conversationQuery.data, sessionBoundary]);
+  const sessionThreadReplies = useThreadRepliesForRoots(
+    activeConversationChannel,
+    sessionThreadRootIds,
+  );
+  const mergedConversationEvents = React.useMemo(() => {
+    const channelEvents = conversationQuery.data ?? [];
+    if (sessionThreadReplies.events.length === 0) return channelEvents;
+    return sessionThreadReplies.events.reduce(mergeMessages, channelEvents);
+  }, [conversationQuery.data, sessionThreadReplies.events]);
+
   const allConversationMessages = React.useMemo(() => {
-    if (!conversationChannel) return [];
+    if (!activeConversationChannel) return [];
     return formatTimelineMessages(
-      conversationQuery.data ?? [],
-      conversationChannel,
+      mergedConversationEvents,
+      activeConversationChannel,
       currentPubkey,
       currentProfile?.avatarUrl ?? null,
       conversationProfiles,
@@ -370,12 +427,12 @@ export function BestiePopover({
       })
       .filter((message) => message.body.length > 0);
   }, [
+    activeConversationChannel,
     contextEnvelope,
-    conversationChannel,
     conversationProfiles,
-    conversationQuery.data,
     currentProfile?.avatarUrl,
     currentPubkey,
+    mergedConversationEvents,
   ]);
   const conversationMessages = React.useMemo(() => {
     // Full active-session transcript (X keeps this; Finish clears it).
@@ -384,7 +441,10 @@ export function BestiePopover({
       sessionBoundary,
     );
   }, [allConversationMessages, sessionBoundary]);
-  const typingEntries = useChannelTyping(conversationChannel, currentPubkey);
+  const typingEntries = useChannelTyping(
+    activeConversationChannel,
+    currentPubkey,
+  );
   const typingPubkeys = React.useMemo(
     () => typingEntries.map((entry) => entry.pubkey),
     [typingEntries],
@@ -429,15 +489,17 @@ export function BestiePopover({
         (error: unknown) => ({ error }),
       );
       const channel =
-        conversationChannel ??
+        activeConversationChannel ??
         (await (conversationPromiseRef.current ??
           bestie.resolveConversation()));
       setConversationChannel(channel);
+      const parentEventId = resolveBestieSendParentEventId(sessionBoundary);
       const sentMessage = await sendMutation.mutateAsync({
         content:
           contextEnvelope && !contextSent
             ? `${contextEnvelope}\n\n${trimmedDraft}`
             : trimmedDraft,
+        parentEventId,
         targetChannel: channel,
       });
       setSessionBoundary((current) => {
@@ -501,10 +563,10 @@ export function BestiePopover({
         </Button>
       </div>
 
-      {conversationMessages.length > 0 && conversationChannel ? (
+      {conversationMessages.length > 0 && activeConversationChannel ? (
         <div className="min-h-0 max-h-[min(20rem,calc(var(--radix-popover-content-available-height,100vh)-14rem))] flex-1 overflow-hidden">
           <BestieConversationTranscript
-            channel={conversationChannel}
+            channel={activeConversationChannel}
             currentPubkey={currentPubkey}
             messages={conversationMessages}
             onToggleReaction={handleToggleReaction}
@@ -516,7 +578,7 @@ export function BestiePopover({
       {typingPubkeys.length > 0 ? (
         <div data-testid="bestie-typing-indicator">
           <TypingIndicatorRow
-            channel={conversationChannel}
+            channel={activeConversationChannel}
             className="shrink-0 px-0 py-0"
             currentPubkey={currentPubkey}
             profiles={conversationProfiles}
