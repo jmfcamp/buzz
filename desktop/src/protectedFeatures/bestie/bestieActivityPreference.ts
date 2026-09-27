@@ -1,9 +1,9 @@
 import * as React from "react";
 
 /**
- * Device-level preference for showing agent activity rows inline in the Bestie
- * popover transcript. Persisted in localStorage; defaults OFF so the mini chat
- * stays compact until opted in.
+ * Device-level preference for showing agent activity rows inline in Bestie.
+ * Kept for a later Bestie DM feature; the popover no longer renders activity.
+ * Persisted in localStorage; defaults OFF.
  */
 const STORAGE_KEY = "buzz-bestie-show-activity.v1";
 
@@ -53,7 +53,7 @@ export function setBestieShowActivity(enabled: boolean): void {
   }
 }
 
-/** Whether Bestie popover should render inline agent activity rows. */
+/** Whether Bestie should render inline agent activity rows (DM feature later). */
 export function useBestieShowActivity(): boolean {
   return React.useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
