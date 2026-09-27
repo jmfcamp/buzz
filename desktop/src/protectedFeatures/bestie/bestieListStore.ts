@@ -10,8 +10,14 @@ import {
   writeBestieListState,
 } from "./bestieListStorage";
 import { parseBestieListActionsFromMessage } from "./parseBestieListActions";
+import {
+  parseBestieUserListIntent,
+  type BestieUserListIntent,
+} from "./parseBestieUserListIntent";
 import type {
   BestieListAddInput,
+  BestieListItem,
+  BestieListKind,
   BestieListScope,
   BestieListState,
 } from "./bestieListTypes";
@@ -137,6 +143,84 @@ function subscribe(scope: BestieListScope, listener: Listener): () => void {
     set?.delete(listener);
     if (set && set.size === 0) listenersByKey.delete(key);
   };
+}
+
+
+function findOpenItemByText(
+  state: BestieListState,
+  text: string,
+  kind?: BestieListKind,
+): BestieListItem | null {
+  const needle = text.trim().toLowerCase();
+  if (!needle) return null;
+  const matches = state.items.filter((item) => {
+    if (item.status !== "open") return false;
+    if (kind && item.kind !== kind) return false;
+    return item.text.toLowerCase() === needle || item.text.toLowerCase().includes(needle);
+  });
+  if (matches.length === 0) return null;
+  // Prefer exact match, then shortest text (most specific).
+  matches.sort((a, b) => {
+    const aExact = a.text.toLowerCase() === needle ? 0 : 1;
+    const bExact = b.text.toLowerCase() === needle ? 0 : 1;
+    if (aExact !== bExact) return aExact - bExact;
+    return a.text.length - b.text.length;
+  });
+  return matches[0] ?? null;
+}
+
+function applyUserIntent(
+  state: BestieListState,
+  intent: BestieUserListIntent,
+  messageId: string,
+): { applied: number; state: BestieListState } {
+  if (intent.op === "add") {
+    let next = state;
+    let applied = 0;
+    for (const item of intent.items) {
+      next = addBestieListItem(next, {
+        ...item,
+        sourceMessageId: messageId,
+      });
+      applied += 1;
+    }
+    return { applied, state: next };
+  }
+  const match = findOpenItemByText(state, intent.text, intent.kind);
+  if (!match) return { applied: 0, state };
+  if (intent.op === "complete-match") {
+    return {
+      applied: 1,
+      state: updateBestieListItemStatus(state, match.id, "done"),
+    };
+  }
+  return {
+    applied: 1,
+    state: removeBestieListItem(state, match.id),
+  };
+}
+
+/**
+ * Apply natural-language list intents from a *user* Bestie message once.
+ * Returns how many mutations landed (0 if already processed / no intent).
+ */
+export function applyBestieListIntentFromUserMessage(
+  scope: BestieListScope,
+  messageId: string,
+  content: string,
+  nowMs = Date.now(),
+): number {
+  const current = loadState(scope);
+  if (current.processedMessageIds.includes(messageId)) return 0;
+  const intent = parseBestieUserListIntent(content, nowMs);
+  let next = markBestieListMessageProcessed(current, messageId);
+  if (!intent) {
+    commit(scope, next);
+    return 0;
+  }
+  const result = applyUserIntent(next, intent, messageId);
+  commit(scope, result.state);
+  return result.applied;
 }
 
 /**

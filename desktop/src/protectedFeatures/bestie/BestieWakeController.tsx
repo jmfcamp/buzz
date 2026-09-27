@@ -6,6 +6,7 @@ import { useIdentityQuery } from "@/shared/api/hooks";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import {
   applyBestieListActionsFromAgentMessage,
+  applyBestieListIntentFromUserMessage,
   getBestieListState,
   useBestieList,
 } from "./bestieListStore";
@@ -22,8 +23,9 @@ import {
 import { useBestie } from "./useBestie";
 
 /**
- * Mounts the ~5 min autonomous wake loop and watches Bestie DM messages for
- * structured list actions from the agent.
+ * Mounts the ~5 min autonomous wake loop (plus due-reminder one-shots) and
+ * watches Bestie DM messages for structured list actions from the agent and
+ * natural-language list intents from the user.
  */
 export function BestieWakeController() {
   const bestie = useBestie();
@@ -58,25 +60,46 @@ export function BestieWakeController() {
   const ensureAgentRunningRef = React.useRef(bestie.ensureAgentRunning);
   ensureAgentRunningRef.current = bestie.ensureAgentRunning;
 
-  // Agent-add path: apply structured bestie-list fences from Bestie agent msgs.
+  // Agent fence path + user NL path (idempotent per message id).
   React.useEffect(() => {
-    if (!listScope || !bestieChannel || !agentPubkey) return;
+    if (!listScope || !bestieChannel || !agentPubkey || !ownerPubkey) return;
     const agentNorm = normalizePubkey(agentPubkey);
+    const ownerNorm = normalizePubkey(ownerPubkey);
     const events = messagesQuery.data ?? [];
     for (const event of events) {
-      if (normalizePubkey(event.pubkey) !== agentNorm) continue;
       if (typeof event.content !== "string" || event.content.length === 0) {
         continue;
       }
-      applyBestieListActionsFromAgentMessage(
-        listScope,
-        event.id,
-        event.content,
-      );
+      const author = normalizePubkey(event.pubkey);
+      if (author === agentNorm) {
+        applyBestieListActionsFromAgentMessage(
+          listScope,
+          event.id,
+          event.content,
+        );
+        continue;
+      }
+      if (author === ownerNorm) {
+        applyBestieListIntentFromUserMessage(
+          listScope,
+          event.id,
+          event.content,
+        );
+      }
     }
-  }, [agentPubkey, bestieChannel, listScope, messagesQuery.data]);
+  }, [
+    agentPubkey,
+    bestieChannel,
+    listScope,
+    messagesQuery.data,
+    ownerPubkey,
+  ]);
 
-  // Autonomous wake + proactive nudge (footer / popover), ~5 min.
+  const wakeHandlesRef = React.useRef<ReturnType<
+    typeof startBestieWakeScheduler
+  > | null>(null);
+
+  // Autonomous wake + proactive nudge (footer / popover), ~5 min + due one-shots.
   // Depend on listScope only — useBestie() returns a new object every render.
   React.useEffect(() => {
     if (!listScope) return;
@@ -91,10 +114,28 @@ export function BestieWakeController() {
         });
       },
     });
+    wakeHandlesRef.current = handles;
     return () => {
       handles.stop();
+      wakeHandlesRef.current = null;
     };
   }, [listScope]);
+
+  // When open reminders / todos change, re-tick so due one-shots reschedule
+  // and newly-due items surface without waiting for the 5 min interval.
+  const openListSignature = React.useMemo(
+    () =>
+      listState.items
+        .filter((item) => item.status === "open")
+        .map((item) => `${item.id}:${item.kind}:${item.dueAt ?? ""}`)
+        .sort()
+        .join("|"),
+    [listState],
+  );
+  React.useEffect(() => {
+    if (!listScope || !openListSignature) return;
+    wakeHandlesRef.current?.tick();
+  }, [listScope, openListSignature]);
 
   // Clear stale nudge when the outstanding set is emptied.
   React.useEffect(() => {

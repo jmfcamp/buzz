@@ -28,6 +28,22 @@ function isKind(value: unknown): value is BestieListKind {
   return value === "todo" || value === "reminder";
 }
 
+
+function coerceDueAt(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.floor(value);
+  }
+  if (typeof value === "string" && value.trim().length > 0) {
+    const asNumber = Number(value);
+    if (Number.isFinite(asNumber) && String(asNumber) === value.trim()) {
+      return Math.floor(asNumber);
+    }
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return Math.floor(parsed / 1000);
+  }
+  return null;
+}
+
 function parseAddItems(value: unknown): BestieListAddInput[] {
   if (!Array.isArray(value)) return [];
   const items: BestieListAddInput[] = [];
@@ -37,10 +53,7 @@ function parseAddItems(value: unknown): BestieListAddInput[] {
     if (!isKind(record.kind) || typeof record.text !== "string") continue;
     const text = record.text.trim();
     if (!text) continue;
-    const dueAt =
-      typeof record.dueAt === "number" && Number.isFinite(record.dueAt)
-        ? Math.floor(record.dueAt)
-        : null;
+    const dueAt = coerceDueAt(record.dueAt);
     items.push({
       dueAt: record.kind === "reminder" ? dueAt : null,
       kind: record.kind,

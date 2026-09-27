@@ -12,6 +12,7 @@ import { useBestie } from "./useBestie";
  * Shows agent avatar + name here; left-nav label stays "Bestie".
  * Opens the Bestie popover chat. Does not navigate away.
  * Phase 2: proactive wake nudge shows a distinct badge (not a DM unread).
+ * Phase 3: due-reminder nudges auto-open the popover with the nudge banner.
  */
 export function BestieProfileTrigger({ className }: { className?: string }) {
   const bestie = useBestie();
@@ -20,6 +21,15 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
   const agent = bestie.assignedAgent;
   const nudge = useBestieNudge();
   const hasNudge = Boolean(nudge);
+  const lastAutoOpenedNudgeIdRef = React.useRef<string | null>(null);
+
+  // Auto-open when a *due reminder* nudge fires (distinct from todos check-in).
+  React.useEffect(() => {
+    if (!agent || !nudge || nudge.reason !== "due-reminder") return;
+    if (lastAutoOpenedNudgeIdRef.current === nudge.id) return;
+    lastAutoOpenedNudgeIdRef.current = nudge.id;
+    setOpen(true);
+  }, [agent, nudge]);
 
   return (
     <Popover

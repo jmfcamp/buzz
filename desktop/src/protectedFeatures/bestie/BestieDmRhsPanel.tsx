@@ -15,10 +15,15 @@ import type {
   BestieListKind,
   BestieListScope,
 } from "./bestieListTypes";
-import { presentBestieContextCount } from "./bestieDmRhsHelpers";
+import {
+  dueAtFromDatetimeLocal,
+  presentBestieContextCount,
+} from "./bestieDmRhsHelpers";
 
 export {
   bestieCategoryTitle,
+  datetimeLocalFromDueAt,
+  dueAtFromDatetimeLocal,
   presentBestieContextCount,
 } from "./bestieDmRhsHelpers";
 
@@ -152,11 +157,12 @@ function AddRow({
   testId,
 }: {
   kind: BestieListKind;
-  onAdd: (text: string) => void;
+  onAdd: (text: string, dueAt: number | null) => void;
   placeholder: string;
   testId: string;
 }) {
   const [text, setText] = React.useState("");
+  const [dueLocal, setDueLocal] = React.useState("");
   const inputRef = React.useRef<HTMLInputElement>(null);
   React.useEffect(() => {
     inputRef.current?.focus();
@@ -164,40 +170,68 @@ function AddRow({
   const submit = () => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    onAdd(trimmed);
+    onAdd(trimmed, kind === "reminder" ? dueAtFromDatetimeLocal(dueLocal) : null);
     setText("");
+    setDueLocal("");
   };
   return (
-    <div className="flex items-center gap-1.5" data-testid={testId}>
-      <Input
-        aria-label={placeholder}
-        className="h-8 text-sm"
-        onChange={(event) => setText(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            submit();
-          }
-          if (event.key === "Escape") {
-            event.preventDefault();
-            setText("");
-          }
-        }}
-        placeholder={placeholder}
-        ref={inputRef}
-        value={text}
-      />
-      <Button
-        aria-label={`Add ${kind}`}
-        className="size-8 shrink-0"
-        disabled={!text.trim()}
-        onClick={submit}
-        size="icon"
-        type="button"
-        variant="secondary"
-      >
-        <Plus className="size-4" />
-      </Button>
+    <div className="flex flex-col gap-1.5" data-testid={testId}>
+      <div className="flex items-center gap-1.5">
+        <Input
+          aria-label={placeholder}
+          className="h-8 text-sm"
+          onChange={(event) => setText(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              submit();
+            }
+            if (event.key === "Escape") {
+              event.preventDefault();
+              setText("");
+              setDueLocal("");
+            }
+          }}
+          placeholder={placeholder}
+          ref={inputRef}
+          value={text}
+        />
+        <Button
+          aria-label={`Add ${kind}`}
+          className="size-8 shrink-0"
+          disabled={!text.trim()}
+          onClick={submit}
+          size="icon"
+          type="button"
+          variant="secondary"
+        >
+          <Plus className="size-4" />
+        </Button>
+      </div>
+      {kind === "reminder" ? (
+        <div className="flex items-center gap-1.5">
+          <Input
+            aria-label="Due date and time"
+            className="h-8 text-sm"
+            data-testid="bestie-add-reminder-due"
+            onChange={(event) => setDueLocal(event.target.value)}
+            type="datetime-local"
+            value={dueLocal}
+          />
+          {dueLocal ? (
+            <Button
+              aria-label="Clear due time"
+              className="h-8 shrink-0 px-2 text-xs"
+              data-testid="bestie-add-reminder-due-clear"
+              onClick={() => setDueLocal("")}
+              type="button"
+              variant="ghost"
+            >
+              Clear
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -276,13 +310,16 @@ export function BestieDmCategorySheet({
       {adding ? (
         <AddRow
           kind={kind}
-          onAdd={(text) => addBestieListItemForScope(scope, { kind, text })}
+          onAdd={(text, dueAt) =>
+            addBestieListItemForScope(scope, { dueAt, kind, text })
+          }
           placeholder={placeholder}
           testId={addTestId}
         />
       ) : (
         <p className="px-0.5 text-xs text-muted-foreground">
-          Use + to add by hand, or ask Bestie with a{" "}
+          Use + to add by hand (reminders can set a due time), or ask Bestie
+          in natural language / with a{" "}
           <code className="text-2xs">bestie-list</code> fence.
           {onRequestAdd ? (
             <>

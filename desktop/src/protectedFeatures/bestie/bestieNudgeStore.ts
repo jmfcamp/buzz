@@ -1,5 +1,8 @@
 import * as React from "react";
 
+/** Why the proactive Bestie nudge fired — due reminders auto-open the popover. */
+export type BestieNudgeReason = "due-reminder" | "check-in";
+
 /** Proactive Bestie wake nudge — distinct from ordinary DM notifications. */
 export type BestieNudge = {
   body: string;
@@ -7,6 +10,7 @@ export type BestieNudge = {
   id: string;
   /** Open reminder / todo ids that triggered this nudge. */
   itemIds: string[];
+  reason: BestieNudgeReason;
   title: string;
 };
 

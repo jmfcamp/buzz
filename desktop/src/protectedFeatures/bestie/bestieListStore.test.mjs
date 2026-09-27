@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   __resetBestieListStoreForTests,
   applyBestieListActionsFromAgentMessage,
+  applyBestieListIntentFromUserMessage,
   getBestieListSnapshot,
   getBestieListState,
 } from "./bestieListStore.ts";
@@ -52,4 +53,40 @@ test("getBestieListSnapshot returns stable empty for null scope (useSyncExternal
   const second = getBestieListSnapshot(null);
   assert.equal(first, second);
   assert.equal(first.items.length, 0);
+});
+
+test("applyBestieListIntentFromUserMessage adds reminders from NL once", () => {
+  const memory = new Map();
+  globalThis.window = {
+    localStorage: {
+      getItem: (key) => memory.get(key) ?? null,
+      removeItem: (key) => {
+        memory.delete(key);
+      },
+      setItem: (key, value) => {
+        memory.set(key, String(value));
+      },
+    },
+  };
+  __resetBestieListStoreForTests();
+
+  const nowMs = Date.parse("2026-09-26T15:00:00.000-07:00");
+  const first = applyBestieListIntentFromUserMessage(
+    SCOPE,
+    "user-1",
+    "Remind me to stretch in 5 minutes",
+    nowMs,
+  );
+  const second = applyBestieListIntentFromUserMessage(
+    SCOPE,
+    "user-1",
+    "Remind me to stretch in 5 minutes",
+    nowMs,
+  );
+  assert.equal(first, 1);
+  assert.equal(second, 0);
+  const item = getBestieListState(SCOPE).items[0];
+  assert.equal(item.kind, "reminder");
+  assert.equal(item.text, "stretch");
+  assert.equal(item.dueAt, Math.floor(nowMs / 1000) + 5 * 60);
 });

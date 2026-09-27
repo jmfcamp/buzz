@@ -21,3 +21,20 @@ export function bestieIdleAuxiliaryKind(
 ): BestieListKind | null {
   return activeKind;
 }
+
+/** Convert datetime-local value to unix seconds, or null if empty/invalid. */
+export function dueAtFromDatetimeLocal(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const ms = Date.parse(trimmed);
+  if (!Number.isFinite(ms)) return null;
+  return Math.floor(ms / 1000);
+}
+
+/** Format unix seconds for a datetime-local input (local timezone). */
+export function datetimeLocalFromDueAt(dueAt: number): string {
+  const date = new Date(dueAt * 1000);
+  if (!Number.isFinite(date.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
