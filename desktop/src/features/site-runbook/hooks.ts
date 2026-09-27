@@ -8,19 +8,22 @@ import {
   acceptProcedure,
   archiveProcedure,
   deleteProcedure,
-  proposeProcedure,
   rejectProcedure,
   setAgentBrief,
+  setProcedurePersisted,
   updateProcedure,
+  upsertAgentProcedure,
 } from "./lib/mutations";
 import { emptyRunbook, shapeRunbookInject } from "./lib/serialize";
 import {
   clearSiteRunbook,
   configureSiteRunbooksScope,
+  getPendingProcedureCount,
   getSiteRunbookOrEmpty,
   setSiteRunbook,
   subscribeSiteRunbooks,
 } from "./lib/store";
+import { countPendingInRunbook } from "./lib/pendingCount";
 import type { SiteRunbook, SiteRunbookRef } from "./lib/types";
 
 function useSiteRunbooksConfigured(): void {
@@ -39,11 +42,10 @@ function useRunbookSnapshot(ref: SiteRunbookRef | null): SiteRunbook {
   useSiteRunbooksConfigured();
   const [epoch, bump] = React.useReducer((n: number) => n + 1, 0);
   React.useEffect(() => subscribeSiteRunbooks(bump), []);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: epoch forces re-read after store emits
   return React.useMemo(() => {
     if (!ref) return emptyRunbook();
     return getSiteRunbookOrEmpty(ref);
-    // epoch forces re-read after store emits.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ref, epoch]);
 }
 
@@ -58,6 +60,7 @@ export function useSiteRunbook(ref: SiteRunbookRef | null): {
     procedureId: string,
     patch: { title?: string; steps?: string },
   ) => void;
+  setPersisted: (procedureId: string, persisted: boolean) => void;
   addManual: (title: string, steps: string) => void;
   clear: () => void;
   inject: ReturnType<typeof shapeRunbookInject>;
@@ -84,13 +87,15 @@ export function useSiteRunbook(ref: SiteRunbookRef | null): {
     remove: (procedureId) => mutate(deleteProcedure(runbook, procedureId)),
     update: (procedureId, patch) =>
       mutate(updateProcedure(runbook, procedureId, patch)),
+    setPersisted: (procedureId, persisted) =>
+      mutate(setProcedurePersisted(runbook, procedureId, persisted)),
     addManual: (title, steps) => {
-      // Engineer-authored entries activate immediately.
-      const { runbook: withPending, procedure } = proposeProcedure(runbook, {
+      // Human-authored: auto-active, not persisted until they check Persist.
+      const { runbook: next } = upsertAgentProcedure(runbook, {
         title,
         steps,
       });
-      mutate(acceptProcedure(withPending, procedure.id));
+      mutate(next);
     },
     clear: () => {
       if (!ref) return;
@@ -111,4 +116,21 @@ export function usePinSiteRunbook(pinId: string | null | undefined) {
 export function useSidSiteRunbook(sid: string | null | undefined) {
   const ref = React.useMemo(() => (sid ? sidRunbookRef(sid) : null), [sid]);
   return useSiteRunbook(ref);
+}
+
+/** Live count of pending procedure proposals across all scoped runbooks. */
+export function usePendingProcedureCount(): number {
+  useSiteRunbooksConfigured();
+  const [epoch, bump] = React.useReducer((n: number) => n + 1, 0);
+  React.useEffect(() => subscribeSiteRunbooks(bump), []);
+  return React.useMemo(() => {
+    void epoch;
+    return getPendingProcedureCount();
+  }, [epoch]);
+}
+
+/** Pending count for one runbook ref (chip badge). */
+export function useRunbookPendingCount(ref: SiteRunbookRef | null): number {
+  const runbook = useRunbookSnapshot(ref);
+  return countPendingInRunbook(runbook);
 }
