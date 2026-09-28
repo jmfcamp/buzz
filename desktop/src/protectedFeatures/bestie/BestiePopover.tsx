@@ -82,20 +82,8 @@ import {
 } from "./parseBestieUserListIntent";
 import { messageLooksLikeBestieScratchRequest } from "./parseBestieUserScratchIntent";
 import { BestieNudgeBanner } from "./BestieNudgeBanner";
-import {
-  requestBestieRhsOpen,
-  subscribeBestieRhsOpen,
-} from "./bestieRhsOpenRequest";
-import { BestieDmCategorySheet, BestieDmRhsPanel } from "./BestieDmRhsPanel";
-import { BestieDmCoffeeSheet } from "./BestieDmCoffeeSheet";
-import { BestieDmJobsSheet } from "./BestieDmJobsSheet";
-import { BestieDmScratchSheet } from "./BestieDmScratchSheet";
-import { BestieDmThreadsSheet } from "./BestieDmThreadsSheet";
-import { BestieDmTodosSheet } from "./BestieDmTodosSheet";
-import {
-  bestieCategoryTitle,
-  type BestieRhsKind,
-} from "./bestieDmRhsHelpers";
+import { requestBestieRhsOpen } from "./bestieRhsOpenRequest";
+import { BestiePopoverListsSection } from "./BestiePopoverListsSection";
 import { useBestie } from "./useBestie";
 
 /** How long Confirm? stays armed before reverting to Close Thread. */
@@ -190,16 +178,6 @@ export function BestieAgentLockup({
 function EmptyBestie({ onRequestClose }: { onRequestClose?: () => void }) {
   const { goAgents } = useAppNavigation();
   const bestie = useBestie();
-  const [activeKind, setActiveKind] = React.useState<BestieRhsKind | null>(
-    null,
-  );
-  const [adding, setAdding] = React.useState(false);
-  React.useEffect(() => {
-    return subscribeBestieRhsOpen((kind) => {
-      setAdding(false);
-      setActiveKind(kind);
-    });
-  }, []);
   const scope =
     bestie.ownerPubkey && bestie.relayUrl
       ? {
@@ -209,48 +187,6 @@ function EmptyBestie({ onRequestClose }: { onRequestClose?: () => void }) {
           relayUrl: bestie.relayUrl,
         }
       : null;
-
-  const sheet =
-    scope == null || activeKind == null ? null : activeKind === "job" ? (
-      <BestieDmJobsSheet
-        adding={adding}
-        onRequestAdd={() => setAdding(true)}
-        scope={scope}
-      />
-    ) : activeKind === "coffee" ? (
-      <BestieDmCoffeeSheet
-        brewDisabled
-        coffeeLive={false}
-        summarizeLive={false}
-        onBrew={() => {}}
-        scope={scope}
-      />
-    ) : activeKind === "thread" ? (
-      <BestieDmThreadsSheet
-        adding={adding}
-        onRequestAdd={() => setAdding(true)}
-        scope={scope}
-      />
-    ) : activeKind === "scratch" ? (
-      <BestieDmScratchSheet
-        adding={adding}
-        onRequestAdd={() => setAdding(true)}
-        scope={scope}
-      />
-    ) : activeKind === "todo" ? (
-      <BestieDmTodosSheet
-        adding={adding}
-        onRequestAdd={() => setAdding(true)}
-        scope={scope}
-      />
-    ) : (
-      <BestieDmCategorySheet
-        adding={adding}
-        kind={activeKind}
-        onRequestAdd={() => setAdding(true)}
-        scope={scope}
-      />
-    );
 
   return (
     <div
@@ -281,54 +217,11 @@ function EmptyBestie({ onRequestClose }: { onRequestClose?: () => void }) {
       </div>
       <div className="min-h-16 flex-1 rounded-xl border border-dashed border-border/70 bg-muted/20" />
       {scope ? (
-        <div className="min-h-0 flex-1 overflow-y-auto border-t border-border/60 pt-2">
-          {activeKind != null && sheet ? (
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-2 px-1">
-                <Button
-                  className="h-7 px-2 text-xs"
-                  data-testid="bestie-empty-rhs-back"
-                  onClick={() => {
-                    setActiveKind(null);
-                    setAdding(false);
-                  }}
-                  size="sm"
-                  type="button"
-                  variant="ghost"
-                >
-                  Back
-                </Button>
-                <span className="text-xs font-medium">
-                  {bestieCategoryTitle(activeKind)}
-                </span>
-                {activeKind !== "coffee" ? (
-                  <Button
-                    aria-label={`Add ${bestieCategoryTitle(activeKind)}`}
-                    aria-pressed={adding}
-                    className="ml-auto h-7 w-7"
-                    data-testid="bestie-empty-rhs-add"
-                    onClick={() => setAdding((value) => !value)}
-                    size="icon"
-                    type="button"
-                    variant={adding ? "secondary" : "ghost"}
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                ) : null}
-              </div>
-              {sheet}
-            </div>
-          ) : (
-            <BestieDmRhsPanel
-              activeKind={activeKind}
-              onOpenKind={(kind) => {
-                setAdding(false);
-                setActiveKind((current) => (current === kind ? null : kind));
-              }}
-              scope={scope}
-            />
-          )}
-        </div>
+        <BestiePopoverListsSection
+          brewEnabled={false}
+          fillAvailable
+          scope={scope}
+        />
       ) : null}
     </div>
   );
@@ -1003,11 +896,9 @@ export function BestiePopover({
         }}
         onOpenReminders={() => {
           requestBestieRhsOpen("reminder");
-          void openSessionThread();
         }}
         onOpenTodos={() => {
           requestBestieRhsOpen("todo");
-          void openSessionThread();
         }}
         onSnoozeItems={(itemIds, deltaSeconds) => {
           if (!sessionScope) return;
@@ -1095,6 +986,14 @@ export function BestiePopover({
           <ArrowUp />
         </Button>
       </div>
+
+      {sessionScope ? (
+        <BestiePopoverListsSection
+          bestieChannel={activeConversationChannel}
+          brewEnabled
+          scope={sessionScope}
+        />
+      ) : null}
     </div>
   );
 }
