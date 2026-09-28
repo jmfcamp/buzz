@@ -6,6 +6,7 @@ import {
   coffeeScheduleGate,
   deriveBestieCoffeeBrief,
   isAtOrPastCoffeeTime,
+  isWithinCoffeeScheduleWindow,
   isBestieAgentOnlineForCoffee,
   localDayKey,
   nextCoffeeDueAt,
@@ -44,8 +45,24 @@ test("schedule gate skips offline, before time, duplicate day, brewing", () => {
   );
 
   assert.equal(
-    coffeeScheduleGate({ isAgentOnline: true, nowSeconds: now, state }).ok,
+    coffeeScheduleGate({ isAgentOnline: true, nowSeconds: now, state }).reason,
+    "missed-window",
+  );
+
+  const atEight = Math.floor(new Date(2026, 8, 27, 8, 0, 0).getTime() / 1000);
+  assert.equal(
+    coffeeScheduleGate({ isAgentOnline: true, nowSeconds: atEight, state }).ok,
     true,
+  );
+  const atEight04 = Math.floor(new Date(2026, 8, 27, 8, 4, 0).getTime() / 1000);
+  assert.equal(
+    coffeeScheduleGate({ isAgentOnline: true, nowSeconds: atEight04, state }).ok,
+    true,
+  );
+  const atEight06 = Math.floor(new Date(2026, 8, 27, 8, 6, 0).getTime() / 1000);
+  assert.equal(
+    coffeeScheduleGate({ isAgentOnline: true, nowSeconds: atEight06, state }).reason,
+    "missed-window",
   );
 
   state = {
@@ -90,8 +107,10 @@ test("deriveBestieCoffeeBrief takes first sentence", () => {
   assert.ok(deriveBestieCoffeeBrief("x".repeat(200)).endsWith("…"));
 });
 
-test("formatBestieCoffeeRunPrompt invokes /hula-coffee skill", () => {
-  const prompt = formatBestieCoffeeRunPrompt();
-  assert.match(prompt, /\[Bestie coffee\]/);
-  assert.match(prompt, /\/hula-coffee/);
+test("formatBestieCoffeeRunPrompt invokes /hula-coffee skill with source tag", () => {
+  const brew = formatBestieCoffeeRunPrompt("brew");
+  assert.match(brew, /\[Bestie coffee\] · brew/);
+  assert.match(brew, /\/hula-coffee/);
+  const scheduled = formatBestieCoffeeRunPrompt("scheduled");
+  assert.match(scheduled, /\[Bestie coffee\] · scheduled/);
 });

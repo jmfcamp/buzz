@@ -5,6 +5,7 @@ import { bestieOwnerScopeKey } from "./bestieOwnerScope";
 import {
   abandonBestieCoffeeRun,
   beginBestieCoffeeRun,
+  claimMissedBestieCoffeeSchedule,
   clearBestieCoffeePendingRun,
   completeBestieCoffeeRun,
   EMPTY_BESTIE_COFFEE_STATE,
@@ -85,6 +86,16 @@ export function beginBestieCoffeeRunForScope(
   return commit(scope, next);
 }
 
+export function claimMissedBestieCoffeeScheduleForScope(
+  scope: BestieCoffeeScope,
+  nowSeconds = Math.floor(Date.now() / 1000),
+): BestieCoffeeState {
+  return commit(
+    scope,
+    claimMissedBestieCoffeeSchedule(loadState(scope), nowSeconds),
+  );
+}
+
 export function setBestieCoffeePendingTriggerForScope(
   scope: BestieCoffeeScope,
   triggerMessageId: string | null,
@@ -139,6 +150,19 @@ export function removeBestieCoffeeEntryForScope(
  * other Assistant turns. Prefer pendingRun + bound triggerMessageId; also
  * fold replies to unmatched coffee triggers when pending was lost.
  */
+/** True when a Coffee row should accept a better in-thread reply (Path C). */
+export function isBestieCoffeeStubEntry(entry: {
+  brief: string;
+  fullOutput: string;
+  replyMessageId: string | null;
+}): boolean {
+  if (!entry.replyMessageId) return true;
+  if (!entry.fullOutput.trim()) return true;
+  if (!entry.brief.trim()) return true;
+  if (entry.fullOutput.trim() === BESTIE_COFFEE_ABANDONED_OUTPUT) return true;
+  return false;
+}
+
 export function applyBestieCoffeeAgentReply(
   scope: BestieCoffeeScope,
   messageId: string,
@@ -163,78 +187,110 @@ export function applyBestieCoffeeAgentReply(
   const parentId = replyParentIdFromEventTags(tags);
   const pending = current.pendingRun;
 
-  // Path A: pending run with bound trigger — only the in-thread coffee reply.
-  if (pending?.triggerMessageId) {
-    if (createdAtSeconds + 5 < pending.startedAt) return false;
-    if (parentId !== pending.triggerMessageId) return false;
-    completeBestieCoffeeRunForScope(
-      scope,
-      {
-        brief: "",
-        fullOutput: trimmed,
-        replyMessageId: messageId,
-        source: pending.source,
-        triggerMessageId: pending.triggerMessageId,
-      },
-      Math.max(createdAtSeconds, pending.startedAt),
-    );
-    return true;
-  }
-
-  // Path B: pending without trigger id yet — wait for bind (avoid stealing
-  // summarize/job replies that arrive while the coffee trigger is still unset).
-  if (pending && !pending.triggerMessageId) {
-    return false;
-  }
-
-  // Path C: no pending — capture reply to an unmatched coffee trigger so error
-  // / NCP / brief outcomes still land in the Coffee tab. Also upgrade a prior
-  // abandon/timeout entry (replyMessageId null) when the real in-thread reply
-  // finally arrives — channel window is roots-only so capture used to miss it.
-  if (parentId && unmatchedCoffeeTriggers?.has(parentId)) {
+  const finalizeForTrigger = (
+    triggerMessageId: string,
+    source: "scheduled" | "brew",
+    ranAt: number,
+    clearPending: boolean,
+  ): boolean => {
     // User deleted this brew — do not rehydrate from chat history.
-    if (current.forgottenTriggerIds.includes(parentId)) {
+    if (current.forgottenTriggerIds.includes(triggerMessageId)) {
       return false;
     }
-    const existing = current.entries.find(
-      (entry) => entry.triggerMessageId === parentId,
+    const existing = loadState(scope).entries.find(
+      (entry) => entry.triggerMessageId === triggerMessageId,
     );
-    if (existing?.replyMessageId) {
+    if (existing && !isBestieCoffeeStubEntry(existing)) {
+      // Already have a real capture for this trigger — drop leftover pending.
+      if (clearPending && loadState(scope).pendingRun) {
+        clearBestieCoffeePendingRunForScope(scope);
+      }
       return false;
     }
-    const source =
-      existing?.source ?? unmatchedCoffeeTriggers.get(parentId) ?? "brew";
-    if (existing && !existing.replyMessageId) {
-      // Replace abandoned timeout row with the real Assistant reply.
+    if (existing && isBestieCoffeeStubEntry(existing)) {
+      // Path C upgrade: replace empty / abandoned / unbound stub with full reply.
       const without = {
-        ...current,
-        entries: current.entries.filter((entry) => entry.id !== existing.id),
-        pendingRun: null,
+        ...loadState(scope),
+        entries: loadState(scope).entries.filter(
+          (entry) => entry.id !== existing.id,
+        ),
+        pendingRun: clearPending ? null : loadState(scope).pendingRun,
       };
       commit(
         scope,
-        completeBestieCoffeeRun(without, {
+        completeBestieCoffeeRun(
+          without,
+          {
+            brief: "",
+            fullOutput: trimmed,
+            replyMessageId: messageId,
+            source: existing.source ?? source,
+            triggerMessageId,
+          },
+          ranAt,
+        ),
+      );
+      return true;
+    }
+    const stateForComplete = clearPending
+      ? { ...loadState(scope), pendingRun: null }
+      : loadState(scope);
+    commit(
+      scope,
+      completeBestieCoffeeRun(
+        stateForComplete,
+        {
           brief: "",
           fullOutput: trimmed,
           replyMessageId: messageId,
           source,
-          triggerMessageId: parentId,
-        }, createdAtSeconds),
-      );
-      return true;
-    }
-    completeBestieCoffeeRunForScope(
-      scope,
-      {
-        brief: "",
-        fullOutput: trimmed,
-        replyMessageId: messageId,
-        source,
-        triggerMessageId: parentId,
-      },
-      createdAtSeconds,
+          triggerMessageId,
+        },
+        ranAt,
+      ),
     );
     return true;
+  };
+
+  // Path A: pending run with bound trigger — in-thread reply to that root.
+  if (pending?.triggerMessageId) {
+    if (createdAtSeconds + 5 < pending.startedAt) return false;
+    if (parentId === pending.triggerMessageId) {
+      return finalizeForTrigger(
+        pending.triggerMessageId,
+        pending.source,
+        Math.max(createdAtSeconds, pending.startedAt),
+        true,
+      );
+    }
+    // Bound to a different root (e.g. newer duplicate fire) — fall through so
+    // Path C can still fill the stub for the trigger the agent actually replied to.
+  }
+
+  // Path B: pending without trigger — bind from this reply's coffee parent, then capture.
+  if (pending && !pending.triggerMessageId) {
+    if (parentId && unmatchedCoffeeTriggers?.has(parentId)) {
+      setBestieCoffeePendingTriggerForScope(scope, parentId);
+      return finalizeForTrigger(
+        parentId,
+        pending.source,
+        Math.max(createdAtSeconds, pending.startedAt),
+        true,
+      );
+    }
+    // Not a coffee-parent reply yet — wait for bind (avoid stealing summarize/job).
+    return false;
+  }
+
+  // Path C: capture / upgrade reply to an unmatched coffee trigger root.
+  if (parentId && unmatchedCoffeeTriggers?.has(parentId)) {
+    const source =
+      loadState(scope).entries.find(
+        (entry) => entry.triggerMessageId === parentId,
+      )?.source ??
+      unmatchedCoffeeTriggers.get(parentId) ??
+      "brew";
+    return finalizeForTrigger(parentId, source, createdAtSeconds, true);
   }
 
   return false;

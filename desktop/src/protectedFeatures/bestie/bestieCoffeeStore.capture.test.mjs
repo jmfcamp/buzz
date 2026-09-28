@@ -7,12 +7,14 @@ import {
   applyBestieCoffeeAgentReply,
   beginBestieCoffeeRunForScope,
   getBestieCoffeeState,
+  isBestieCoffeeStubEntry,
   removeBestieCoffeeEntryForScope,
   setBestieCoffeePendingTriggerForScope,
 } from "./bestieCoffeeStore.ts";
 import {
   clearStalePendingOnLoad,
   parseBestieCoffeeState,
+  writeBestieCoffeeState,
 } from "./bestieCoffeeStorage.ts";
 import { BESTIE_COFFEE_ABANDONED_OUTPUT } from "./bestieCoffeeLive.ts";
 
@@ -222,4 +224,100 @@ test("does not rehydrate deleted coffee from unmatched trigger reply", () => {
   );
   assert.equal(ok2, false);
   assert.equal(getBestieCoffeeState(SCOPE).entries.length, 0);
+});
+
+
+test("Path C upgrades empty-output stub with full thread reply", () => {
+  memoryWindow();
+  __resetBestieCoffeeStoreForTests();
+  const startedAt = 1_700_000_800;
+  // Open stub at 8:38 "" — trigger root known, no reply captured yet.
+  writeBestieCoffeeState(SCOPE, {
+    version: 1,
+    entries: [
+      {
+        id: "stub-empty",
+        ranAt: startedAt,
+        brief: "",
+        fullOutput: "",
+        source: "scheduled",
+        triggerMessageId: "coffee-trigger-stub",
+        replyMessageId: null,
+      },
+    ],
+    forgottenTriggerIds: [],
+    lastScheduledDayKey: "2026-09-28",
+    pendingRun: null,
+    prefs: { hour: 8, minute: 0 },
+  });
+  __resetBestieCoffeeStoreForTests();
+  let state = getBestieCoffeeState(SCOPE);
+  assert.equal(state.entries.length, 1);
+  assert.equal(isBestieCoffeeStubEntry(state.entries[0]), true);
+
+  const unmatched = new Map([["coffee-trigger-stub", "scheduled"]]);
+  const ok = applyBestieCoffeeAgentReply(
+    SCOPE,
+    "agent-full-reply",
+    "Good morning, JM. Three priorities today.",
+    startedAt + 120,
+    [
+      ["e", "coffee-trigger-stub", "", "root"],
+      ["e", "coffee-trigger-stub", "", "reply"],
+    ],
+    unmatched,
+  );
+  assert.equal(ok, true);
+  state = getBestieCoffeeState(SCOPE);
+  assert.equal(state.entries.length, 1);
+  assert.equal(state.entries[0].replyMessageId, "agent-full-reply");
+  assert.match(state.entries[0].fullOutput, /Three priorities/);
+  assert.match(state.entries[0].brief, /Good morning/);
+  assert.equal(isBestieCoffeeStubEntry(state.entries[0]), false);
+});
+
+test("Path B binds pending from reply parent then captures", () => {
+  memoryWindow();
+  __resetBestieCoffeeStoreForTests();
+  const startedAt = 1_700_000_900;
+  beginBestieCoffeeRunForScope(SCOPE, "brew", startedAt);
+  assert.equal(getBestieCoffeeState(SCOPE).pendingRun.triggerMessageId, null);
+  const unmatched = new Map([["coffee-trigger-bind", "brew"]]);
+  const ok = applyBestieCoffeeAgentReply(
+    SCOPE,
+    "agent-reply-bind",
+    "Bound from parent root.",
+    startedAt + 20,
+    [["e", "coffee-trigger-bind", "", "reply"]],
+    unmatched,
+  );
+  assert.equal(ok, true);
+  const state = getBestieCoffeeState(SCOPE);
+  assert.equal(state.pendingRun, null);
+  assert.equal(state.entries[0].triggerMessageId, "coffee-trigger-bind");
+  assert.match(state.entries[0].fullOutput, /Bound from parent/);
+});
+
+test("Path C still captures when pending bound to a different duplicate trigger", () => {
+  memoryWindow();
+  __resetBestieCoffeeStoreForTests();
+  const startedAt = 1_700_001_000;
+  beginBestieCoffeeRunForScope(SCOPE, "scheduled", startedAt);
+  setBestieCoffeePendingTriggerForScope(SCOPE, "coffee-trigger-newest");
+  const unmatched = new Map([
+    ["coffee-trigger-oldest", "scheduled"],
+    ["coffee-trigger-newest", "scheduled"],
+  ]);
+  const ok = applyBestieCoffeeAgentReply(
+    SCOPE,
+    "agent-reply-oldest",
+    "Reply under the first coffee root.",
+    startedAt + 30,
+    [["e", "coffee-trigger-oldest", "", "reply"]],
+    unmatched,
+  );
+  assert.equal(ok, true);
+  const state = getBestieCoffeeState(SCOPE);
+  assert.equal(state.entries[0].triggerMessageId, "coffee-trigger-oldest");
+  assert.match(state.entries[0].fullOutput, /first coffee root/);
 });

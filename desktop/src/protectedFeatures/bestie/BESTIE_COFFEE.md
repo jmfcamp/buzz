@@ -18,8 +18,10 @@ RHS category that stores `/hula-coffee` briefing runs.
 - Default **08:00 local** (`Date#setHours` — America/Phoenix on JM’s machine).
 - Prefs on `BestieCoffeeState.prefs` `{ hour, minute }` for a later settings UI.
 - Fires only when relay presence is **`online`** (not away/offline).
-- At most one **scheduled** run per local calendar day — day is **claimed at begin** (not only on reply) so remount/reload/wake cannot re-fire.
-- Mutex: `pendingRun` + in-flight send lock; Brew shares the brewing lock.
+- **Only two fire paths:** (1) explicit **Brew** click (2) once inside the local **08:00 + 5m window** if the day is not claimed. Wake / remount / presence / Jobs / NL must **not** catch up later (e.g. 08:38).
+- At most one **scheduled** run per local calendar day — day is **claimed at begin** (and on missed-window) so remount/reload/wake cannot re-fire.
+- Each fire is **source-tagged** in the prompt (`[Bestie coffee] · brew|scheduled`) and `console.info("[bestie-coffee] fire", …)`.
+- Mutex: `pendingRun` + process-wide send lock; never re-send once `triggerMessageId` is bound. Brew shares the brewing lock.
 - Do **not** also run macOS `com.hula.coffee-slack` / `/hula-coffee --install` launchd — that was a second 08:00 path sharing `~/.hula-coffee` cache with Assistant.
 - Brew is manual, shares the brewing lock, and can run any time (unless a coffee turn is live).
 
@@ -46,6 +48,11 @@ trigger was posted) when:
 1. ACP is idle past start grace + settle (~60s),
 2. a newer competing system turn finished and ACP is idle, or
 3. hard timeout (~8 min) even if the working signal is stuck.
+
+**Path C upgrade:** open stubs (empty brief/output, abandoned timeout, or
+`replyMessageId` null) under a coffee trigger root are replaced when the real
+in-thread agent reply arrives. Pending binds from the reply parent when the
+trigger id was not set yet. Capture loads thread-replies for stub trigger ids.
 
 Reload migrates stuck pending older than start grace. Brew click retries after
 abandoning leftover pending so the button cannot silently no-op.

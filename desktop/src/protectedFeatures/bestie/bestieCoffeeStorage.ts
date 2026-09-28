@@ -293,6 +293,27 @@ export function beginBestieCoffeeRun(
   };
 }
 
+/**
+ * Past the local 08:00 fire window with no scheduled claim — mark the day
+ * skipped so wake/remount/presence ticks cannot keep probing, without
+ * posting a coffee turn. Brew remains allowed.
+ */
+export function claimMissedBestieCoffeeSchedule(
+  state: BestieCoffeeState,
+  nowSeconds = Math.floor(Date.now() / 1000),
+): BestieCoffeeState {
+  const today = localDayKey(nowSeconds);
+  if (state.lastScheduledDayKey === today) return state;
+  const hasScheduledToday = state.entries.some(
+    (entry) =>
+      entry.source === "scheduled" && localDayKey(entry.ranAt) === today,
+  );
+  if (hasScheduledToday) {
+    return { ...state, lastScheduledDayKey: today };
+  }
+  return { ...state, lastScheduledDayKey: today };
+}
+
 export function setBestieCoffeePendingTrigger(
   state: BestieCoffeeState,
   triggerMessageId: string | null,
