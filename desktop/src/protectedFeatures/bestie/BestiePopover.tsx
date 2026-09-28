@@ -58,14 +58,10 @@ import {
   snoozeBestieListItemsForScope,
 } from "./bestieListStore";
 import { applyBestieScratchIntentFromUserMessage } from "./bestieScratchStore";
-import {
-  stripBestieListTurnHint,
-  withBestieListTurnHint,
-} from "./bestieListProtocol";
-import {
-  stripBestieJobTurnHint,
-  withBestieJobTurnHint,
-} from "./bestieJobProtocol";
+import { withBestieListTurnHint } from "./bestieListProtocol";
+import { withBestieJobTurnHint } from "./bestieJobProtocol";
+import { stripBestieOutboundHints } from "./bestieOutboundHints";
+import { withBestieLiveListStateHint } from "./bestieLiveListState";
 import { applyBestieJobIntentFromUserMessage } from "./bestieJobStore";
 import { messageLooksLikeBestieJobRequest } from "./parseBestieUserJobIntent";
 import {
@@ -696,9 +692,7 @@ export function BestiePopover({
           message.kind === KIND_STREAM_MESSAGE_V2,
       )
       .map((message) => {
-        let body = stripBestieJobTurnHint(
-          stripBestieListTurnHint(message.body),
-        );
+        let body = stripBestieOutboundHints(message.body);
         if (contextEnvelope && body.startsWith(contextEnvelope)) {
           body = body.slice(contextEnvelope.length).trim();
         }
@@ -861,7 +855,16 @@ export function BestiePopover({
         messageNeedsBestieReminderBareClockConfirm(trimmedDraft);
       const jobIntent = messageLooksLikeBestieJobRequest(trimmedDraft);
       const scratchIntent = messageLooksLikeBestieScratchRequest(trimmedDraft);
-      let outboundBody = withBestieListTurnHint(trimmedDraft, listIntent, {
+      const liveScope =
+        sessionScope && bestie.ownerPubkey && assignedAgentPubkey && bestie.relayUrl
+          ? {
+              agentPubkey: normalizePubkey(assignedAgentPubkey),
+              ownerPubkey: normalizePubkey(bestie.ownerPubkey),
+              relayUrl: bestie.relayUrl,
+            }
+          : null;
+      let outboundBody = withBestieLiveListStateHint(trimmedDraft, liveScope);
+      outboundBody = withBestieListTurnHint(outboundBody, listIntent, {
         bareClockConfirm,
       });
       outboundBody = withBestieJobTurnHint(outboundBody, jobIntent);

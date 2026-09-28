@@ -71,3 +71,10 @@ Unconfirmed `add` is treated as draft and does not create.
 
 Same title+prompt within 10 minutes is not added twice (confirmed fence only).
 Each due slot (`jobId@dueAt`) fires once; recurring jobs reschedule `nextDueAt`.
+
+## Live list state
+
+Each Assistant DM / popover user turn also carries a `[Bestie live lists]` snapshot
+(open to-dos, reminders, jobs summary). Job Q&A about “what jobs do I have?” should
+use that block; see `BESTIE_LIST.md`.
+

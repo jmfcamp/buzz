@@ -18,6 +18,7 @@ import {
   parseBestieUserScratchIntent,
   type BestieUserScratchIntent,
 } from "./parseBestieUserScratchIntent";
+import { stripBestieOutboundHints } from "./bestieOutboundHints";
 import type {
   BestieScratchAddInput,
   BestieScratchScope,
@@ -153,7 +154,7 @@ export function applyBestieScratchIntentFromUserMessage(
 ): number {
   const current = loadState(scope);
   if (current.processedMessageIds.includes(messageId)) return 0;
-  const intent = parseBestieUserScratchIntent(content);
+  const intent = parseBestieUserScratchIntent(stripBestieOutboundHints(content));
   const next = markBestieScratchMessageProcessed(current, messageId);
   if (!intent) {
     commit(scope, next);

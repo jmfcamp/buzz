@@ -17,6 +17,7 @@ import {
   parseBestieUserJobIntent,
   type BestieUserJobIntent,
 } from "./parseBestieUserJobIntent";
+import { stripBestieOutboundHints } from "./bestieOutboundHints";
 import type {
   BestieJobAddInput,
   BestieJobScope,
@@ -175,7 +176,10 @@ export function applyBestieJobIntentFromUserMessage(
 ): number {
   const current = loadState(scope);
   if (current.processedMessageIds.includes(messageId)) return 0;
-  const intent = parseBestieUserJobIntent(content, nowMs);
+  const intent = parseBestieUserJobIntent(
+    stripBestieOutboundHints(content),
+    nowMs,
+  );
   const next = markBestieJobMessageProcessed(current, messageId);
   if (!intent) {
     commit(scope, next);

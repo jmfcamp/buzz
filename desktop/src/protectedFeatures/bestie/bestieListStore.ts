@@ -24,6 +24,7 @@ import {
   resolveBestieBareClockDueAt,
   type BestieUserListIntent,
 } from "./parseBestieUserListIntent";
+import { stripBestieOutboundHints } from "./bestieOutboundHints";
 import type {
   BestieListAddInput,
   BestieListItem,
@@ -362,6 +363,7 @@ export function applyBestieListIntentFromUserMessage(
 ): number {
   const current = loadState(scope);
   if (current.processedMessageIds.includes(messageId)) return 0;
+  const userContent = stripBestieOutboundHints(content);
   let next = markBestieListMessageProcessed(current, messageId);
 
   // Drop stale pendings (2h) so unrelated chat is not trapped.
@@ -376,7 +378,7 @@ export function applyBestieListIntentFromUserMessage(
   const meridiemResult = applyPendingMeridiemConfirm(
     next,
     messageId,
-    content,
+    userContent,
     nowMs,
   );
   if (meridiemResult) {
@@ -384,7 +386,7 @@ export function applyBestieListIntentFromUserMessage(
     return meridiemResult.applied;
   }
 
-  const intent = parseBestieUserListIntent(content, nowMs);
+  const intent = parseBestieUserListIntent(userContent, nowMs);
   if (!intent) {
     commit(scope, next);
     return 0;

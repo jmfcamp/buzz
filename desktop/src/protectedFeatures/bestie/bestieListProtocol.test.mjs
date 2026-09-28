@@ -21,6 +21,8 @@ test("agent instructions teach crystallize + bare clock confirm", () => {
   assert.match(BESTIE_LIST_AGENT_INSTRUCTIONS, /same thread/);
   assert.match(BESTIE_LIST_AGENT_INSTRUCTIONS, /top-level Assistant DM/);
   assert.match(BESTIE_LIST_AGENT_INSTRUCTIONS, /Ask AM vs PM/);
+  assert.match(BESTIE_LIST_AGENT_INSTRUCTIONS, /Bestie live lists/);
+  assert.match(BESTIE_LIST_AGENT_INSTRUCTIONS, /cannot query live state/);
 });
 
 test("turn hint attaches and strips cleanly", () => {

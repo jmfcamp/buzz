@@ -40,3 +40,13 @@ stripped) are not added twice when due times match within 120s, or when the
 first item was created in the last 10 minutes; close dueAt + similar wording
 also matches. Prefers keeping/upgrading the row that has `dueAt` (covers NL +
 agent fence on one ask even when wording differs).
+
+## Live list state (each user turn)
+
+On every Assistant DM / popover user send, desktop appends a `[Bestie live lists]`
+turn hint with the current **owner-scoped** RHS snapshot: open to-dos, open
+reminders, and an enabled-jobs summary (from localStorage). The agent must answer
+questions like “what's on my todo list?” from that block — not session memory —
+and must not claim it cannot query live state. The hint is stripped for UI
+display; NL intent parsers also strip outbound hints before matching.
+

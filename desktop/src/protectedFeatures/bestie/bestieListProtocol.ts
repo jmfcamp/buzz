@@ -37,7 +37,9 @@ If the user did not give a due time for a reminder, omit dueAt (or set null). Co
 
 The desktop may already apply the user's natural-language add before your reply when the time is unambiguous. Prefer acknowledging without a second add when the list already shows the item. If you still emit add, put the crystallized task text only (due time in dueAt, not in text); the client dedupes by core text + due window and prefers the row with dueAt.
 
-For scheduled *jobs* (auto-run a prompt later), follow the Bestie job confirmation protocol (clarify → exact plan → user approve → fenced bestie-job add with confirmed:true). Do not treat jobs like instant reminders.`;
+For scheduled *jobs* (auto-run a prompt later), follow the Bestie job confirmation protocol (clarify → exact plan → user approve → fenced bestie-job add with confirmed:true). Do not treat jobs like instant reminders.
+
+Each user turn includes a [Bestie live lists] block with the current owner-scoped RHS snapshot (open to-dos, open reminders, jobs summary). When the user asks what is on their to-do list, reminders, or jobs, answer from that live block. Do not claim you cannot query live state; do not prefer session chat memory over the live snapshot.`;
 
 export type BestieListTurnHintOptions = {
   /** Strengthen hint when this turn has a bare clock needing AM/PM confirm. */

@@ -26,6 +26,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import type { ChannelScreenProps } from "@/features/channels/ui/ChannelScreen.types";
 import type { IdleAuxiliaryHeaderControls } from "@/features/channels/ui/IdleAuxiliaryPanel";
 import { normalizePubkey } from "@/shared/lib/pubkey";
+import { stripBestieOutboundHints } from "./bestieOutboundHints";
+import { withBestieLiveListStateHint } from "./bestieLiveListState";
 
 type BestieChannelScreenExtras = Pick<
   ChannelScreenProps,
@@ -35,6 +37,8 @@ type BestieChannelScreenExtras = Pick<
   | "idleAuxiliaryOverridesThread"
   | "idleAuxiliaryHeaderActions"
   | "onCloseIdleAuxiliaryPanel"
+  | "transformDisplayedMessageBody"
+  | "transformOutboundMessageContent"
 >;
 
 export type BestieChannelExtras = BestieChannelScreenExtras & {
@@ -302,6 +306,9 @@ export function useBestieDmChannelExtras(
 
     const screenExtras: BestieChannelScreenExtras = {
       headerEndActions: headerToggle,
+      transformDisplayedMessageBody: stripBestieOutboundHints,
+      transformOutboundMessageContent: (content) =>
+        withBestieLiveListStateHint(content, scope),
     };
 
     // Slide only when drilling into a category — never for the category list.

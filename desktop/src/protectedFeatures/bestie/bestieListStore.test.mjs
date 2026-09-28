@@ -9,6 +9,7 @@ import {
   getBestieListSnapshot,
   getBestieListState,
 } from "./bestieListStore.ts";
+import { withBestieLiveListStateHint } from "./bestieLiveListState.ts";
 
 const SCOPE = {
   agentPubkey: "c".repeat(64),
@@ -306,3 +307,25 @@ test("agent fence with PM prose + AM dueAt is reconciled to PM", () => {
   assert.notEqual(item.dueAt, wrongAm);
   assert.equal(getBestieListState(SCOPE).pendingReminderConfirm, null);
 });
+
+test("live list turn hint does not block NL reminder apply", () => {
+  __resetBestieListStoreForTests();
+  const scope = {
+    agentPubkey: "e".repeat(64),
+    ownerPubkey: "f".repeat(64),
+    relayUrl: "wss://relay.test/live-hint",
+  };
+  const userText = "Remind me to stretch in 5 minutes";
+  const withHint = withBestieLiveListStateHint(userText, scope);
+  assert.match(withHint, /Bestie live lists/);
+  const applied = applyBestieListIntentFromUserMessage(
+    scope,
+    "user-live-hint-1",
+    withHint,
+  );
+  assert.equal(applied, 1);
+  const items = getBestieListState(scope).items.filter((item) => item.status === "open");
+  assert.equal(items.length, 1);
+  assert.match(items[0].text, /stretch/i);
+});
+
