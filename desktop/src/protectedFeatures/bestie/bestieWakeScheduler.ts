@@ -42,7 +42,9 @@ export function evaluateBestieWake(
   options?: { previousNudgeId?: string | null },
 ): BestieWakeEvaluation {
   const due = dueReminders(state, nowSeconds);
-  const todos = openTodos(state);
+  // Only starred todos are proactive check-in candidates; the full backlog
+  // remains available in the To-dos RHS without creating notification noise.
+  const todos = openTodos(state).filter((item) => item.starred);
   if (due.length === 0 && todos.length === 0) {
     return { nudge: null, shouldWakeAgent: false };
   }
@@ -71,15 +73,13 @@ export function evaluateBestieWake(
     // Title is just "Reminder"; body is exact reminder text only (never todo counts).
     title = due.length === 1 ? "Reminder" : "Reminders";
     body =
-      due.length === 1
-        ? due[0].text
-        : due.map((item) => item.text).join(" · ");
+      due.length === 1 ? due[0].text : due.map((item) => item.text).join(" · ");
   } else {
     title = "Assistant check-in";
     body =
       todos.length === 1
-        ? `Open to-do: ${todos[0].text}`
-        : `${todos.length} open to-dos`;
+        ? `Starred to-do: ${todos[0].text}`
+        : `${todos.length} starred to-dos`;
   }
 
   return {

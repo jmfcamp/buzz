@@ -43,13 +43,9 @@ import {
 import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
-import { Checkbox } from "@/shared/ui/checkbox";
 import { Textarea } from "@/shared/ui/textarea";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
-import {
-  setBestieShowActivity,
-  useBestieShowActivity,
-} from "./bestieActivityPreference";
+import { useBestieShowActivity } from "./bestieActivityPreference";
 import { buildBestieMessageContext } from "./bestieMessageContext";
 import {
   applyBestieListIntentFromUserMessage,
@@ -1009,6 +1005,10 @@ export function BestiePopover({
           requestBestieRhsOpen("reminder");
           void openSessionThread();
         }}
+        onOpenTodos={() => {
+          requestBestieRhsOpen("todo");
+          void openSessionThread();
+        }}
         onSnoozeItems={(itemIds, deltaSeconds) => {
           if (!sessionScope) return;
           snoozeBestieListItemsForScope(sessionScope, itemIds, deltaSeconds);
@@ -1059,19 +1059,6 @@ export function BestiePopover({
           </div>
         </div>
       ) : null}
-
-      <label
-        className="flex shrink-0 cursor-pointer items-center gap-2 text-xs text-muted-foreground"
-        data-testid="bestie-show-activity"
-      >
-        <Checkbox
-          checked={showActivity}
-          onCheckedChange={(checked) => {
-            setBestieShowActivity(checked === true);
-          }}
-        />
-        <span>Show activity</span>
-      </label>
 
       <div className="relative shrink-0">
         <Textarea

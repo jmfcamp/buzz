@@ -51,12 +51,25 @@ test("evaluateBestieWake due-reminder body never includes open todo counts", () 
   assert.doesNotMatch(result.nudge?.body ?? "", /to-do|Buy milk|3 open/i);
 });
 
-test("evaluateBestieWake todos-only is check-in (no auto-open reason)", () => {
+test("evaluateBestieWake starred todos-only is check-in (no auto-open reason)", () => {
   let state = emptyBestieListState();
-  state = addBestieListItem(state, { kind: "todo", text: "Only todo" }, 50);
+  state = addBestieListItem(
+    state,
+    { kind: "todo", starred: true, text: "Only todo" },
+    50,
+  );
   const result = evaluateBestieWake(state, 100);
   assert.equal(result.nudge?.reason, "check-in");
   assert.equal(result.nudge?.title, "Assistant check-in");
+  assert.equal(result.nudge?.body, "Starred to-do: Only todo");
+});
+
+test("evaluateBestieWake ignores unstarred todos for proactive check-in", () => {
+  let state = emptyBestieListState();
+  state = addBestieListItem(state, { kind: "todo", text: "Backlog item" }, 50);
+  const result = evaluateBestieWake(state, 100);
+  assert.equal(result.nudge, null);
+  assert.equal(result.shouldWakeAgent, false);
 });
 
 test("evaluateBestieWake is quiet when lists are empty", () => {
