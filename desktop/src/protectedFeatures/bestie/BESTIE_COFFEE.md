@@ -51,8 +51,13 @@ trigger was posted) when:
 
 **Path C upgrade:** open stubs (empty brief/output, abandoned timeout, or
 `replyMessageId` null) under a coffee trigger root are replaced when the real
-in-thread agent reply arrives. Pending binds from the reply parent when the
-trigger id was not set yet. Capture loads thread-replies for stub trigger ids.
+in-thread agent reply arrives — even if the trigger aged out of the roots-only
+channel window (stubs seed `unmatchedCoffeeTriggers`; parent id match is
+case-insensitive). Pending binds from the reply parent when the trigger id was
+not set yet. **Path D:** if a pending brew’s agent reply lands top-level (no
+`e` tag — first Assistant DM `--reply-to` omission), fold it into the pending
+trigger so Coffee cannot stick on 👀. Capture loads thread-replies for every
+stub trigger id.
 
 Reload migrates stuck pending older than start grace. Brew click retries after
 abandoning leftover pending so the button cannot silently no-op.

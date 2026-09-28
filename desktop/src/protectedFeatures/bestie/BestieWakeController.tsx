@@ -38,6 +38,7 @@ import {
   claimMissedBestieCoffeeScheduleForScope,
   clearBestieCoffeePendingRunForScope,
   getBestieCoffeeState,
+  isBestieCoffeeStubEntry,
   setBestieCoffeePendingTriggerForScope,
   useBestieCoffee,
 } from "./bestieCoffeeStore";
@@ -172,9 +173,10 @@ export function BestieWakeController() {
     };
     push(coffeeState.pendingRun?.triggerMessageId);
     push(threadCaptureState.pendingSummarize?.triggerMessageId);
-    // Open Coffee stubs (no reply yet) must load thread replies for Path C upgrade.
+    // Open Coffee stubs (empty / abandoned / unbound) must load thread replies
+    // for Path C upgrade — including rows that somehow have a reply id but no body.
     for (const entry of coffeeState.entries) {
-      if (entry.replyMessageId) continue;
+      if (!isBestieCoffeeStubEntry(entry)) continue;
       push(entry.triggerMessageId);
     }
     const ownerNorm = ownerPubkey ? normalizePubkey(ownerPubkey) : null;
@@ -370,6 +372,16 @@ export function BestieWakeController() {
           }
         }
       }
+      // Seed from open stubs first — trigger may have aged out of the
+      // roots-only channel window while the in-thread agent reply is still
+      // loadable via thread-replies.
+      for (const entry of coffeeState.entries) {
+        if (!entry.triggerMessageId || !isBestieCoffeeStubEntry(entry)) continue;
+        if (forgottenCoffeeTriggerIds.has(entry.triggerMessageId)) continue;
+        if (matchedCoffeeTriggerIds.has(entry.triggerMessageId)) continue;
+        unmatchedCoffeeTriggers.set(entry.triggerMessageId, entry.source);
+      }
+
       for (const event of events) {
         if (typeof event.content !== "string" || event.content.length === 0) {
           continue;

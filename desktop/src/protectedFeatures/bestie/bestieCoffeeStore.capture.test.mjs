@@ -321,3 +321,98 @@ test("Path C still captures when pending bound to a different duplicate trigger"
   assert.equal(state.entries[0].triggerMessageId, "coffee-trigger-oldest");
   assert.match(state.entries[0].fullOutput, /first coffee root/);
 });
+
+test("Path C upgrades stub when unmatched map omits aged-out trigger", () => {
+  memoryWindow();
+  __resetBestieCoffeeStoreForTests();
+  const startedAt = 1_700_001_100;
+  writeBestieCoffeeState(SCOPE, {
+    version: 1,
+    entries: [
+      {
+        id: "stub-aged",
+        ranAt: startedAt,
+        brief: "",
+        fullOutput: "",
+        source: "brew",
+        triggerMessageId: "coffee-trigger-aged",
+        replyMessageId: null,
+      },
+    ],
+    forgottenTriggerIds: [],
+    lastScheduledDayKey: null,
+    pendingRun: null,
+    prefs: { hour: 8, minute: 0 },
+  });
+  __resetBestieCoffeeStoreForTests();
+  // Empty unmatched map — trigger aged out of roots-only channel window.
+  const ok = applyBestieCoffeeAgentReply(
+    SCOPE,
+    "agent-aged-reply",
+    "Full brew brief after the trigger left the channel window.",
+    startedAt + 60,
+    [["e", "coffee-trigger-aged", "", "reply"]],
+    new Map(),
+  );
+  assert.equal(ok, true);
+  const state = getBestieCoffeeState(SCOPE);
+  assert.equal(state.entries[0].replyMessageId, "agent-aged-reply");
+  assert.match(state.entries[0].fullOutput, /Full brew brief/);
+});
+
+test("Path C matches reply parent id case-insensitively", () => {
+  memoryWindow();
+  __resetBestieCoffeeStoreForTests();
+  const startedAt = 1_700_001_200;
+  writeBestieCoffeeState(SCOPE, {
+    version: 1,
+    entries: [
+      {
+        id: "stub-case",
+        ranAt: startedAt,
+        brief: "",
+        fullOutput: "",
+        source: "brew",
+        triggerMessageId: "aa".repeat(32),
+        replyMessageId: null,
+      },
+    ],
+    forgottenTriggerIds: [],
+    lastScheduledDayKey: null,
+    pendingRun: null,
+    prefs: { hour: 8, minute: 0 },
+  });
+  __resetBestieCoffeeStoreForTests();
+  const upper = ("AA").repeat(32);
+  const ok = applyBestieCoffeeAgentReply(
+    SCOPE,
+    "agent-case-reply",
+    "Case-folded parent still fills the stub.",
+    startedAt + 10,
+    [["e", upper, "", "reply"]],
+    new Map([[upper, "brew"]]),
+  );
+  assert.equal(ok, true);
+  assert.match(getBestieCoffeeState(SCOPE).entries[0].fullOutput, /Case-folded/);
+});
+
+test("Path D captures top-level agent reply while pending brew is open", () => {
+  memoryWindow();
+  __resetBestieCoffeeStoreForTests();
+  const startedAt = 1_700_001_300;
+  beginBestieCoffeeRunForScope(SCOPE, "brew", startedAt);
+  setBestieCoffeePendingTriggerForScope(SCOPE, "coffee-trigger-toplevel");
+  const ok = applyBestieCoffeeAgentReply(
+    SCOPE,
+    "agent-toplevel-reply",
+    "Morning brief posted without --reply-to.",
+    startedAt + 40,
+    [], // no e-tags — first Assistant DM reply landed top-level
+    new Map([["coffee-trigger-toplevel", "brew"]]),
+  );
+  assert.equal(ok, true);
+  const state = getBestieCoffeeState(SCOPE);
+  assert.equal(state.pendingRun, null);
+  assert.equal(state.entries[0].triggerMessageId, "coffee-trigger-toplevel");
+  assert.match(state.entries[0].fullOutput, /without --reply-to/);
+});

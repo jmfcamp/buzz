@@ -186,6 +186,8 @@ export function applyBestieCoffeeAgentReply(
 
   const parentId = replyParentIdFromEventTags(tags);
   const pending = current.pendingRun;
+  const sameEventId = (a: string | null | undefined, b: string | null | undefined) =>
+    Boolean(a && b && a.toLowerCase() === b.toLowerCase());
 
   const finalizeForTrigger = (
     triggerMessageId: string,
@@ -194,11 +196,13 @@ export function applyBestieCoffeeAgentReply(
     clearPending: boolean,
   ): boolean => {
     // User deleted this brew — do not rehydrate from chat history.
-    if (current.forgottenTriggerIds.includes(triggerMessageId)) {
+    if (
+      current.forgottenTriggerIds.some((id) => sameEventId(id, triggerMessageId))
+    ) {
       return false;
     }
-    const existing = loadState(scope).entries.find(
-      (entry) => entry.triggerMessageId === triggerMessageId,
+    const existing = loadState(scope).entries.find((entry) =>
+      sameEventId(entry.triggerMessageId, triggerMessageId),
     );
     if (existing && !isBestieCoffeeStubEntry(existing)) {
       // Already have a real capture for this trigger — drop leftover pending.
@@ -255,7 +259,7 @@ export function applyBestieCoffeeAgentReply(
   // Path A: pending run with bound trigger — in-thread reply to that root.
   if (pending?.triggerMessageId) {
     if (createdAtSeconds + 5 < pending.startedAt) return false;
-    if (parentId === pending.triggerMessageId) {
+    if (sameEventId(parentId, pending.triggerMessageId)) {
       return finalizeForTrigger(
         pending.triggerMessageId,
         pending.source,
@@ -267,9 +271,19 @@ export function applyBestieCoffeeAgentReply(
     // Path C can still fill the stub for the trigger the agent actually replied to.
   }
 
+  const unmatchedSourceFor = (
+    triggerId: string,
+  ): "scheduled" | "brew" | undefined => {
+    if (!unmatchedCoffeeTriggers) return undefined;
+    for (const [id, source] of unmatchedCoffeeTriggers) {
+      if (sameEventId(id, triggerId)) return source;
+    }
+    return undefined;
+  };
+
   // Path B: pending without trigger — bind from this reply's coffee parent, then capture.
   if (pending && !pending.triggerMessageId) {
-    if (parentId && unmatchedCoffeeTriggers?.has(parentId)) {
+    if (parentId && unmatchedSourceFor(parentId) != null) {
       setBestieCoffeePendingTriggerForScope(scope, parentId);
       return finalizeForTrigger(
         parentId,
@@ -282,15 +296,44 @@ export function applyBestieCoffeeAgentReply(
     return false;
   }
 
-  // Path C: capture / upgrade reply to an unmatched coffee trigger root.
-  if (parentId && unmatchedCoffeeTriggers?.has(parentId)) {
-    const source =
-      loadState(scope).entries.find(
-        (entry) => entry.triggerMessageId === parentId,
-      )?.source ??
-      unmatchedCoffeeTriggers.get(parentId) ??
-      "brew";
-    return finalizeForTrigger(parentId, source, createdAtSeconds, true);
+  // Path C: capture / upgrade reply to an unmatched coffee trigger OR open stub
+  // (stub trigger may have aged out of the roots-only channel window).
+  if (parentId) {
+    const stubForParent = loadState(scope).entries.find(
+      (entry) =>
+        sameEventId(entry.triggerMessageId, parentId) &&
+        isBestieCoffeeStubEntry(entry),
+    );
+    const unmatchedSource = unmatchedSourceFor(parentId);
+    if (stubForParent || unmatchedSource != null) {
+      const source =
+        stubForParent?.source ??
+        unmatchedSource ??
+        loadState(scope).entries.find((entry) =>
+          sameEventId(entry.triggerMessageId, parentId),
+        )?.source ??
+        "brew";
+      return finalizeForTrigger(
+        stubForParent?.triggerMessageId ?? parentId,
+        source,
+        createdAtSeconds,
+        true,
+      );
+    }
+  }
+
+  // Path D: pending brew whose agent reply landed top-level (no e-tag) — common
+  // when ACP omitted --reply-to on the first Assistant DM turn. Fold into the
+  // pending trigger so Coffee cannot stick on 👀 after a finished brew.
+  if (pending?.triggerMessageId && !parentId) {
+    if (createdAtSeconds + 5 >= pending.startedAt) {
+      return finalizeForTrigger(
+        pending.triggerMessageId,
+        pending.source,
+        Math.max(createdAtSeconds, pending.startedAt),
+        true,
+      );
+    }
   }
 
   return false;

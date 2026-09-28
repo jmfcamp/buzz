@@ -77,8 +77,10 @@ export function replyParentIdFromEventTags(
   let lastE: string | null = null;
   for (const tag of tags) {
     if (!tag || tag[0] !== "e" || !tag[1]) continue;
-    lastE = tag[1];
-    if (tag[3] === "reply") reply = tag[1];
+    // Lowercase — harness / CLI e-tags may differ in hex case from stored ids.
+    const id = tag[1].toLowerCase();
+    lastE = id;
+    if (tag[3] === "reply") reply = id;
   }
   return reply ?? lastE;
 }
