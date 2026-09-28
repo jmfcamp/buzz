@@ -2,6 +2,7 @@ import * as React from "react";
 
 import { BESTIE_POPOVER_SHORTCUT_EVENT } from "@/shared/lib/keyboard-shortcuts";
 import { cn } from "@/shared/lib/cn";
+import { ParkNativeWebviewsWhileMounted } from "@/shared/ui/ParkNativeWebviewsWhileMounted";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { BestiePopover, BestieTriggerVisual } from "./BestiePopover";
 import {
@@ -28,8 +29,9 @@ import { useBestie } from "./useBestie";
  * Phase 3: due-reminder nudges auto-open the popover with the nudge banner.
  * Unread agent replies (popover + DM closed) show a pulsing light ring.
  *
- * Popover is always-on-top (high z-index), drag-resizable (width + height),
- * with persisted size.
+ * Popover is always-on-top of the React chrome (high z-index) and parks
+ * native WKWebView overlays while open so pinned sites / playgrounds cannot
+ * cover it. Drag-resizable (width + height) with persisted size.
  */
 export function BestieProfileTrigger({ className }: { className?: string }) {
   const bestie = useBestie();
@@ -107,9 +109,11 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
     }
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
     return () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
     };
   }, []);
 
@@ -170,7 +174,7 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
       </PopoverTrigger>
       <PopoverContent
         align="end"
-        className="relative z-[200] w-auto overflow-visible p-4"
+        className="relative z-[300] overflow-visible p-4"
         onClick={(event) => event.stopPropagation()}
         onOpenAutoFocus={(event) => {
           const content = event.currentTarget;
@@ -188,19 +192,25 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
         style={
           {
             width: popoverSize.widthPx,
+            minWidth: popoverSize.widthPx,
             maxWidth: "min(96vw, 720px)",
             ["--bestie-popover-max-h" as string]: `${popoverSize.maxHeightPx}px`,
           } as React.CSSProperties
         }
       >
-        {/* Width drag — left edge (align end grows leftward). */}
+        {/* Park pin/playground WKWebViews — CSS z-index cannot cover natives. */}
+        <ParkNativeWebviewsWhileMounted />
+        <BestiePopover onRequestClose={() => setOpen(false)} />
+        {/* Resize handles AFTER content so they stay above chat/Lists hit targets.
+            Width was previously under BestiePopover (DOM order) so only height worked. */}
         <div
           aria-label="Resize Assistant width"
-          className="absolute bottom-3 left-0 top-3 z-10 w-1.5 cursor-ew-resize rounded-full bg-transparent hover:bg-border/80"
+          className="absolute -left-1 bottom-2 top-2 z-20 w-3 cursor-ew-resize touch-none rounded-full bg-transparent hover:bg-border/80"
           data-testid="bestie-popover-resize-width"
           onPointerDown={(event) => {
             event.preventDefault();
             event.stopPropagation();
+            event.currentTarget.setPointerCapture(event.pointerId);
             dragRef.current = {
               kind: "width",
               startX: event.clientX,
@@ -210,14 +220,14 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
             };
           }}
         />
-        {/* Height drag — top edge (side top grows upward). */}
         <div
           aria-label="Resize Assistant height"
-          className="absolute left-3 right-3 top-0 z-10 h-1.5 cursor-ns-resize rounded-full bg-transparent hover:bg-border/80"
+          className="absolute -top-1 left-2 right-2 z-20 h-3 cursor-ns-resize touch-none rounded-full bg-transparent hover:bg-border/80"
           data-testid="bestie-popover-resize-height"
           onPointerDown={(event) => {
             event.preventDefault();
             event.stopPropagation();
+            event.currentTarget.setPointerCapture(event.pointerId);
             dragRef.current = {
               kind: "height",
               startX: event.clientX,
@@ -227,7 +237,6 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
             };
           }}
         />
-        <BestiePopover onRequestClose={() => setOpen(false)} />
       </PopoverContent>
     </Popover>
   );
