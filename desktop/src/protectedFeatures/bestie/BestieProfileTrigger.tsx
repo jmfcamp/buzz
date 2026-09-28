@@ -275,12 +275,15 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
         sideOffset={10}
         style={
           {
-            width: popoverSize.widthPx,
-            height: heightPx,
-            minWidth: BESTIE_POPOVER_MIN_WIDTH_PX,
-            maxWidth: BESTIE_POPOVER_MAX_WIDTH_PX,
-            minHeight: minHeightPx,
-            maxHeight: `min(${BESTIE_POPOVER_MAX_MAX_HEIGHT_PX}px, var(--radix-popover-content-available-height, calc(100vh - 2rem)))`,
+            // Keep a real viewport gutter even when Radix reports the full
+            // available client height/width. Without this, the top/left drag
+            // handles can land in the native window-resize edge zone.
+            width: `min(${popoverSize.widthPx}px, calc(100vw - 2rem))`,
+            height: `min(${heightPx}px, calc(100vh - 2rem))`,
+            minWidth: `min(${BESTIE_POPOVER_MIN_WIDTH_PX}px, calc(100vw - 2rem))`,
+            maxWidth: `min(${BESTIE_POPOVER_MAX_WIDTH_PX}px, calc(100vw - 2rem))`,
+            minHeight: `min(${minHeightPx}px, calc(100vh - 2rem))`,
+            maxHeight: `min(${BESTIE_POPOVER_MAX_MAX_HEIGHT_PX}px, var(--radix-popover-content-available-height, calc(100vh - 2rem)), calc(100vh - 2rem))`,
             ["--bestie-popover-max-h" as string]: `${heightPx}px`,
           } as React.CSSProperties
         }
