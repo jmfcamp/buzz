@@ -31,7 +31,7 @@ Ops:
 
 Reminder text must be **crystallized**: clean imperative, capitalize the first letter, drop a leading "to"/"for". Example: user said "remind me to run the nightly report" → fence text "Run the nightly report" (due time only in dueAt, never in text).
 
-Bare clock without AM/PM (e.g. "at 8:36"): do **not** invent am/pm and do **not** create yet. Ask AM vs PM, or propose the next occurrence from now, wait for explicit confirm, then emit the fence with absolute dueAt + crystallized text. Relative times ("in 20 minutes") and clocks with am/pm (or 24h hours 13–23) may be fenced immediately.
+Bare clock without AM/PM (e.g. "at 8:36"): do **not** invent am/pm and do **not** create yet. Ask AM vs PM (or propose the next occurrence from now) **in your reply in this same thread** — parent to the user ask / session root; never post a new top-level Assistant DM for the confirm question. Wait for explicit confirm. The desktop resolves dueAt from the user's AM/PM reply; if you still fence, dueAt MUST match the confirmed meridiem (evening "PM" must not land as next-morning AM). Relative times ("in 20 minutes") and clocks with am/pm (or 24h hours 13–23) may be fenced immediately.
 
 If the user did not give a due time for a reminder, omit dueAt (or set null). Confirm briefly in natural language in addition to the fence.
 
@@ -50,9 +50,9 @@ export function bestieListTurnHint(
 ): string {
   const bare = options.bareClockConfirm
     ? `
-Bare clock without AM/PM in this message: do NOT create a reminder yet. Ask AM vs PM (or propose the next occurrence), wait for explicit confirm, then emit a fenced ${BESTIE_LIST_FENCE_LANG} add with absolute dueAt and crystallized text (e.g. "Run the nightly report").`
+Bare clock without AM/PM in this message: do NOT create a reminder yet. Ask AM vs PM (or propose the next occurrence) in your reply in this same thread (never a new top-level Assistant DM). Wait for explicit confirm. Prefer letting the desktop apply dueAt from the user's AM/PM reply; if you fence, dueAt must match confirmed meridiem + crystallized text (e.g. "Run the nightly report").`
     : `
-Reminder text: crystallize as a clean imperative (capitalize; drop leading "to"). Bare clock like "8:36" with no AM/PM: ask AM vs PM or propose next occurrence before fencing — do not invent am/pm.`;
+Reminder text: crystallize as a clean imperative (capitalize; drop leading "to"). Bare clock like "8:36" with no AM/PM: ask AM vs PM in-thread (not a new top-level DM) or propose next occurrence before fencing — do not invent am/pm; fence dueAt must match confirmed AM/PM.`;
 
   return `
 

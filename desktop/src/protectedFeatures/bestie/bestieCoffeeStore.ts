@@ -13,6 +13,7 @@ import {
   setBestieCoffeePrefs,
   writeBestieCoffeeState,
 } from "./bestieCoffeeStorage";
+import { replyParentIdFromEventTags } from "./bestieCoffeeLive";
 import type {
   BestieCoffeeAddEntryInput,
   BestieCoffeePrefs,
@@ -115,34 +116,83 @@ export function removeBestieCoffeeEntryForScope(
 }
 
 /**
- * Capture an agent reply into a coffee entry when a pending run is waiting.
- * Returns true when the message completed a pending brew.
+ * Capture an agent reply into a Coffee tab entry.
+ *
+ * Records **all** outcomes (briefs, failures, NCP-disabled, errors) when the
+ * agent message replies to a coffee trigger — never Thread Summarize / job /
+ * other Assistant turns. Prefer pendingRun + bound triggerMessageId; also
+ * fold replies to unmatched coffee triggers when pending was lost.
  */
 export function applyBestieCoffeeAgentReply(
   scope: BestieCoffeeScope,
   messageId: string,
   content: string,
   createdAtSeconds: number,
+  tags?: readonly (readonly string[])[] | null,
+  /**
+   * Optional map of coffee trigger message id → source, for capture when
+   * pendingRun was cleared or never set (manual /hula-coffee).
+   */
+  unmatchedCoffeeTriggers?: ReadonlyMap<string, "scheduled" | "brew">,
 ): boolean {
   const current = loadState(scope);
-  const pending = current.pendingRun;
-  if (!pending) return false;
-  // Ignore replies that clearly precede the run start (clock skew buffer 5s).
-  if (createdAtSeconds + 5 < pending.startedAt) return false;
   const trimmed = content.trim();
   if (!trimmed) return false;
-  completeBestieCoffeeRunForScope(
-    scope,
-    {
-      brief: "",
-      fullOutput: trimmed,
-      replyMessageId: messageId,
-      source: pending.source,
-      triggerMessageId: pending.triggerMessageId,
-    },
-    Math.max(createdAtSeconds, pending.startedAt),
-  );
-  return true;
+
+  // Already captured this agent message.
+  if (current.entries.some((entry) => entry.replyMessageId === messageId)) {
+    return false;
+  }
+
+  const parentId = replyParentIdFromEventTags(tags);
+  const pending = current.pendingRun;
+
+  // Path A: pending run with bound trigger — only the in-thread coffee reply.
+  if (pending?.triggerMessageId) {
+    if (createdAtSeconds + 5 < pending.startedAt) return false;
+    if (parentId !== pending.triggerMessageId) return false;
+    completeBestieCoffeeRunForScope(
+      scope,
+      {
+        brief: "",
+        fullOutput: trimmed,
+        replyMessageId: messageId,
+        source: pending.source,
+        triggerMessageId: pending.triggerMessageId,
+      },
+      Math.max(createdAtSeconds, pending.startedAt),
+    );
+    return true;
+  }
+
+  // Path B: pending without trigger id yet — wait for bind (avoid stealing
+  // summarize/job replies that arrive while the coffee trigger is still unset).
+  if (pending && !pending.triggerMessageId) {
+    return false;
+  }
+
+  // Path C: no pending — capture reply to an unmatched coffee trigger so error
+  // / NCP / brief outcomes still land in the Coffee tab.
+  if (parentId && unmatchedCoffeeTriggers?.has(parentId)) {
+    if (current.entries.some((entry) => entry.triggerMessageId === parentId)) {
+      return false;
+    }
+    const source = unmatchedCoffeeTriggers.get(parentId) ?? "brew";
+    completeBestieCoffeeRunForScope(
+      scope,
+      {
+        brief: "",
+        fullOutput: trimmed,
+        replyMessageId: messageId,
+        source,
+        triggerMessageId: parentId,
+      },
+      createdAtSeconds,
+    );
+    return true;
+  }
+
+  return false;
 }
 
 export function useBestieCoffee(
@@ -171,3 +221,10 @@ export function useBestieCoffee(
   }, [scope]);
   return React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
+
+/** Test helper: drop cached in-memory coffee state. */
+export function __resetBestieCoffeeStoreForTests(): void {
+  stateByKey.clear();
+  listenersByKey.clear();
+}
+

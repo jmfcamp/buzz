@@ -11,6 +11,7 @@ import type {
   BestieListScope,
   BestieListState,
   BestieListTodoUpdateInput,
+  BestiePendingReminderConfirm,
   BestieReminderRepeat,
 } from "./bestieListTypes";
 
@@ -57,9 +58,51 @@ function parseReminderRepeat(value: unknown): BestieReminderRepeat | null {
   return null;
 }
 
+
+function parsePendingReminderConfirm(
+  value: unknown,
+): BestiePendingReminderConfirm | null {
+  if (typeof value !== "object" || value === null) return null;
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.text !== "string" ||
+    record.text.trim().length === 0 ||
+    typeof record.sourceMessageId !== "string" ||
+    record.sourceMessageId.length === 0 ||
+    typeof record.createdAt !== "number" ||
+    !Number.isFinite(record.createdAt) ||
+    typeof record.bareClock !== "object" ||
+    record.bareClock === null
+  ) {
+    return null;
+  }
+  const clock = record.bareClock as Record<string, unknown>;
+  const hour =
+    typeof clock.hour === "number" && Number.isFinite(clock.hour)
+      ? Math.floor(clock.hour)
+      : null;
+  const minute =
+    typeof clock.minute === "number" && Number.isFinite(clock.minute)
+      ? Math.floor(clock.minute)
+      : null;
+  if (hour == null || minute == null) return null;
+  if (hour < 1 || hour > 12 || minute < 0 || minute > 59) return null;
+  const dayHint =
+    clock.dayHint === "today" || clock.dayHint === "tomorrow"
+      ? clock.dayHint
+      : null;
+  return {
+    bareClock: { dayHint, hour, minute },
+    createdAt: record.createdAt,
+    sourceMessageId: record.sourceMessageId,
+    text: record.text.trim(),
+  };
+}
+
 /** Shared empty snapshot — stable Object.is for useSyncExternalStore. */
 export const EMPTY_BESTIE_LIST_STATE: BestieListState = Object.freeze({
   items: Object.freeze([]) as unknown as BestieListItem[],
+  pendingReminderConfirm: null,
   processedMessageIds: Object.freeze([]) as unknown as string[],
   version: 1,
 });
@@ -136,7 +179,10 @@ export function parseBestieListState(value: unknown): BestieListState | null {
         (id): id is string => typeof id === "string" && id.length > 0,
       )
     : [];
-  return { items, processedMessageIds, version: 1 };
+  const pendingReminderConfirm = parsePendingReminderConfirm(
+    record.pendingReminderConfirm,
+  );
+  return { items, pendingReminderConfirm, processedMessageIds, version: 1 };
 }
 
 function mergeBestieListStates(
@@ -154,8 +200,14 @@ function mergeBestieListStates(
     ...into.processedMessageIds,
     ...from.processedMessageIds,
   ]);
+  const pendingReminderConfirm =
+    (from.pendingReminderConfirm?.createdAt ?? 0) >=
+    (into.pendingReminderConfirm?.createdAt ?? 0)
+      ? from.pendingReminderConfirm
+      : into.pendingReminderConfirm;
   return {
     items: [...byId.values()],
+    pendingReminderConfirm,
     processedMessageIds: [...processed].slice(-200),
     version: 1,
   };
@@ -165,7 +217,9 @@ export function readBestieListState(scope: BestieListScope): BestieListState {
   return readOwnerScopedState({
     empty: emptyBestieListState,
     isEmpty: (state) =>
-      state.items.length === 0 && state.processedMessageIds.length === 0,
+      state.items.length === 0 &&
+      state.processedMessageIds.length === 0 &&
+      state.pendingReminderConfirm == null,
     merge: mergeBestieListStates,
     parse: parseBestieListState,
     prefix: BESTIE_LIST_STORAGE_PREFIX,

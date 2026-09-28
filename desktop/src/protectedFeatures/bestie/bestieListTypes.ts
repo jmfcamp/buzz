@@ -30,8 +30,24 @@ export type BestieListItem = {
   updatedAt: number;
 };
 
+
+/** Pending bare-clock reminder waiting for AM/PM confirm (client-resolved dueAt). */
+export type BestiePendingReminderConfirm = {
+  bareClock: {
+    dayHint: "today" | "tomorrow" | null;
+    hour: number;
+    minute: number;
+  };
+  /** Unix ms when the confirm was opened. */
+  createdAt: number;
+  sourceMessageId: string;
+  text: string;
+};
+
 export type BestieListState = {
   items: BestieListItem[];
+  /** Bare clock awaiting AM/PM; cleared when reminder is created. */
+  pendingReminderConfirm: BestiePendingReminderConfirm | null;
   /** Message ids already applied so reloads don't duplicate agent-add actions. */
   processedMessageIds: string[];
   version: 1;

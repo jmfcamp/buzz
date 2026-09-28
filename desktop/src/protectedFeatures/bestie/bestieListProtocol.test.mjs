@@ -18,6 +18,8 @@ test("agent instructions teach crystallize + bare clock confirm", () => {
   assert.match(BESTIE_LIST_AGENT_INSTRUCTIONS, /crystallized/i);
   assert.match(BESTIE_LIST_AGENT_INSTRUCTIONS, /Run the nightly report/);
   assert.match(BESTIE_LIST_AGENT_INSTRUCTIONS, /Bare clock without AM\/PM/);
+  assert.match(BESTIE_LIST_AGENT_INSTRUCTIONS, /same thread/);
+  assert.match(BESTIE_LIST_AGENT_INSTRUCTIONS, /top-level Assistant DM/);
   assert.match(BESTIE_LIST_AGENT_INSTRUCTIONS, /Ask AM vs PM/);
 });
 
@@ -40,6 +42,8 @@ test("bare-clock turn hint strengthens confirm-before-create", () => {
   });
   assert.match(withHint, /do NOT create a reminder yet/i);
   assert.match(withHint, /Ask AM vs PM/);
+  assert.match(withHint, /same thread/);
+  assert.match(withHint, /top-level Assistant DM/);
   assert.match(withHint, /Run the nightly report/);
   assert.equal(stripBestieListTurnHint(withHint), body);
 });

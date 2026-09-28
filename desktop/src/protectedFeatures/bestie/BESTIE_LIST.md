@@ -8,8 +8,11 @@ relay / owner / agent). Mutations happen three ways:
 2. **Natural language** — user messages like `Remind me to … in 20 minutes` or
    `Add a todo: …` are applied client-side (and a short turn hint is appended so
    the agent can acknowledge with a fence). **Exception:** a bare clock without
-   AM/PM (e.g. `at 8:36`) does **not** auto-create — the client leaves it for the
-   agent to confirm AM vs PM (or propose the next occurrence) then fence.
+   AM/PM (e.g. `at 8:36`) does **not** auto-create — the client stores a pending
+   confirm; the agent asks AM vs PM **in the same thread** (not a new top-level
+   DM); when the user replies `PM` / `AM` (or `8:45 PM`), the **client** resolves
+   `dueAt` and creates the reminder. Agent fences are reconciled when prose says
+   PM/AM but `dueAt` disagrees (e.g. next-morning AM).
 3. **Agent fence** — Bestie agent replies may include:
 
 ```bestie-list

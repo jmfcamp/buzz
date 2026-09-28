@@ -9,6 +9,7 @@ import {
   isBestieCoffeeLive,
   isBestieCoffeePendingStale,
   messageLooksLikeBestieCoffeeTrigger,
+  messageLooksLikeBestieCompetingSystemTrigger,
   shouldDisableBestieCoffeeBrew,
 } from "./bestieCoffeeLive";
 import {
@@ -48,31 +49,46 @@ export function useBestieCoffeeLive(
     return () => window.clearInterval(timer);
   }, [tickWhilePending, pendingRun?.startedAt]);
 
-  const openCoffeeTriggerAt = React.useMemo(() => {
-    if (!scope || !agentPubkey) return null;
+  const { latestCompetingTriggerAt, openCoffeeTriggerAt } = React.useMemo(() => {
+    if (!scope || !agentPubkey) {
+      return { latestCompetingTriggerAt: null, openCoffeeTriggerAt: null };
+    }
     const owner = normalizePubkey(scope.ownerPubkey);
     const events = messagesQuery.data ?? [];
+    const matchedTriggerIds = new Set(
+      coffeeState.entries
+        .map((entry) => entry.triggerMessageId)
+        .filter((id): id is string => typeof id === "string" && id.length > 0),
+    );
     const lastEntryRanAt = coffeeState.entries[0]?.ranAt ?? 0;
-    let latest: number | null = null;
+    let latestCoffee: number | null = null;
+    let latestCompeting: number | null = null;
     for (const event of events) {
       if (typeof event.content !== "string") continue;
       if (normalizePubkey(event.pubkey) !== owner) continue;
-      if (!messageLooksLikeBestieCoffeeTrigger(event.content)) continue;
       const createdAt =
         typeof event.created_at === "number"
           ? event.created_at
           : Math.floor(Date.now() / 1000);
-      // Ignore triggers already folded into a completed entry.
+      if (messageLooksLikeBestieCompetingSystemTrigger(event.content)) {
+        if (latestCompeting == null || createdAt > latestCompeting) {
+          latestCompeting = createdAt;
+        }
+        continue;
+      }
+      if (!messageLooksLikeBestieCoffeeTrigger(event.content)) continue;
+      // Prefer id match; fall back to time vs last entry for legacy rows.
+      if (matchedTriggerIds.has(event.id)) continue;
       if (createdAt + 5 < lastEntryRanAt) continue;
-      if (latest == null || createdAt > latest) latest = createdAt;
+      if (latestCoffee == null || createdAt > latestCoffee) {
+        latestCoffee = createdAt;
+      }
     }
-    return latest;
-  }, [
-    agentPubkey,
-    coffeeState.entries,
-    messagesQuery.data,
-    scope,
-  ]);
+    return {
+      latestCompetingTriggerAt: latestCompeting,
+      openCoffeeTriggerAt: latestCoffee,
+    };
+  }, [agentPubkey, coffeeState.entries, messagesQuery.data, scope]);
 
   const agentWorkingOnBestieDm = working.working;
 
@@ -95,12 +111,14 @@ export function useBestieCoffeeLive(
     agentWorkingOnBestieDm,
     nowSeconds,
     openCoffeeTriggerAt,
+    latestCompetingTriggerAt,
     pendingRun,
   });
   const brewDisabled = shouldDisableBestieCoffeeBrew({
     agentWorkingOnBestieDm,
     nowSeconds,
     openCoffeeTriggerAt,
+    latestCompetingTriggerAt,
     pendingRun,
   });
 

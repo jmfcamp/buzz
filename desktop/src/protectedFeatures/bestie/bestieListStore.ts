@@ -18,7 +18,10 @@ import {
 } from "./bestieListStorage";
 import { parseBestieListActionsFromMessage } from "./parseBestieListActions";
 import {
+  parseBestieReminderMeridiemReply,
   parseBestieUserListIntent,
+  reconcileReminderDueAtWithStatedMeridiem,
+  resolveBestieBareClockDueAt,
   type BestieUserListIntent,
 } from "./parseBestieUserListIntent";
 import type {
@@ -145,6 +148,7 @@ export function applyBestieListActionsFromAgentMessage(
   scope: BestieListScope,
   messageId: string,
   content: string,
+  nowMs = Date.now(),
 ): number {
   const current = loadState(scope);
   if (current.processedMessageIds.includes(messageId)) return 0;
@@ -155,15 +159,42 @@ export function applyBestieListActionsFromAgentMessage(
     return 0;
   }
   let applied = 0;
+  const pending = next.pendingReminderConfirm;
   for (const action of actions) {
     if (action.op === "add") {
       for (const item of action.items) {
-        const before = next;
-        next = addBestieListItem(next, {
+        let addInput = {
           ...item,
           sourceMessageId: messageId,
-        });
+        };
+        if (item.kind === "reminder") {
+          const bareClock =
+            pending &&
+            item.text.trim().toLowerCase() === pending.text.toLowerCase()
+              ? pending.bareClock
+              : pending?.bareClock ?? null;
+          const reconciledDue = reconcileReminderDueAtWithStatedMeridiem(
+            item.dueAt ?? null,
+            content,
+            bareClock,
+            nowMs,
+          );
+          if (reconciledDue != null && reconciledDue !== (item.dueAt ?? null)) {
+            addInput = { ...addInput, dueAt: reconciledDue };
+          }
+        }
+        const before = next;
+        next = addBestieListItem(next, addInput);
         if (next !== before) applied += 1;
+        // Clear pending when a matching reminder lands (fence or reconciled).
+        if (
+          next.pendingReminderConfirm &&
+          item.kind === "reminder" &&
+          item.text.trim().toLowerCase() ===
+            next.pendingReminderConfirm.text.toLowerCase()
+        ) {
+          next = { ...next, pendingReminderConfirm: null };
+        }
       }
       continue;
     }
@@ -223,10 +254,22 @@ function applyUserIntent(
   state: BestieListState,
   intent: BestieUserListIntent,
   messageId: string,
+  nowMs: number,
 ): { applied: number; state: BestieListState } {
-  // Bare clock without am/pm — wait for agent confirm + fence; do not create.
+  // Bare clock without am/pm — stash pending; create after AM/PM reply (or fixed fence).
   if (intent.op === "reminder-confirm-needed") {
-    return { applied: 0, state };
+    return {
+      applied: 0,
+      state: {
+        ...state,
+        pendingReminderConfirm: {
+          bareClock: intent.bareClock,
+          createdAt: nowMs,
+          sourceMessageId: messageId,
+          text: intent.text,
+        },
+      },
+    };
   }
   if (intent.op === "add") {
     let next = state;
@@ -238,6 +281,18 @@ function applyUserIntent(
         sourceMessageId: messageId,
       });
       if (next !== before) applied += 1;
+    }
+    // A fully-specified add clears any stale pending for the same text.
+    if (
+      next.pendingReminderConfirm &&
+      intent.items.some(
+        (item) =>
+          item.kind === "reminder" &&
+          item.text.trim().toLowerCase() ===
+            next.pendingReminderConfirm!.text.toLowerCase(),
+      )
+    ) {
+      next = { ...next, pendingReminderConfirm: null };
     }
     return { applied, state: next };
   }
@@ -256,6 +311,46 @@ function applyUserIntent(
 }
 
 /**
+ * Apply a short AM/PM reply against pending bare-clock confirm.
+ * Resolves dueAt client-side so agent fence epoch cannot invent the wrong half-day.
+ */
+function applyPendingMeridiemConfirm(
+  state: BestieListState,
+  messageId: string,
+  content: string,
+  nowMs: number,
+): { applied: number; state: BestieListState } | null {
+  const pending = state.pendingReminderConfirm;
+  if (!pending) return null;
+  const reply = parseBestieReminderMeridiemReply(content);
+  if (!reply) return null;
+  let bareClock = pending.bareClock;
+  if (reply.hour != null && reply.hour >= 1 && reply.hour <= 12) {
+    bareClock = {
+      ...bareClock,
+      hour: reply.hour,
+      minute: reply.minute ?? bareClock.minute,
+    };
+  }
+  const dueAt = resolveBestieBareClockDueAt(bareClock, reply.meridiem, nowMs);
+  let next: BestieListState = {
+    ...state,
+    pendingReminderConfirm: null,
+  };
+  const before = next;
+  next = addBestieListItem(next, {
+    dueAt,
+    kind: "reminder",
+    sourceMessageId: messageId,
+    text: pending.text,
+  });
+  return {
+    applied: next !== before ? 1 : 0,
+    state: next,
+  };
+}
+
+/**
  * Apply natural-language list intents from a *user* Bestie message once.
  * Returns how many mutations landed (0 if already processed / no intent).
  */
@@ -267,13 +362,34 @@ export function applyBestieListIntentFromUserMessage(
 ): number {
   const current = loadState(scope);
   if (current.processedMessageIds.includes(messageId)) return 0;
+  let next = markBestieListMessageProcessed(current, messageId);
+
+  // Drop stale pendings (2h) so unrelated chat is not trapped.
+  if (
+    next.pendingReminderConfirm &&
+    nowMs - next.pendingReminderConfirm.createdAt > 2 * 60 * 60 * 1000
+  ) {
+    next = { ...next, pendingReminderConfirm: null };
+  }
+
+  // Prefer client resolve of AM/PM reply against pending bare-clock confirm.
+  const meridiemResult = applyPendingMeridiemConfirm(
+    next,
+    messageId,
+    content,
+    nowMs,
+  );
+  if (meridiemResult) {
+    commit(scope, meridiemResult.state);
+    return meridiemResult.applied;
+  }
+
   const intent = parseBestieUserListIntent(content, nowMs);
-  const next = markBestieListMessageProcessed(current, messageId);
   if (!intent) {
     commit(scope, next);
     return 0;
   }
-  const result = applyUserIntent(next, intent, messageId);
+  const result = applyUserIntent(next, intent, messageId, nowMs);
   commit(scope, result.state);
   return result.applied;
 }

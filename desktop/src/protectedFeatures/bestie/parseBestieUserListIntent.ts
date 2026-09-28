@@ -113,6 +113,178 @@ function buildDueAtFromClock(
   return Math.floor(base.getTime() / 1000);
 }
 
+export type BestieMeridiem = "am" | "pm";
+
+/**
+ * Resolve a bare 1–12 clock + confirmed am/pm into unix seconds (local tz).
+ * Rolls to tomorrow when that clock today has already passed.
+ */
+export function resolveBestieBareClockDueAt(
+  bareClock: BestieBareClock,
+  meridiem: BestieMeridiem,
+  nowMs = Date.now(),
+): number {
+  const hours24 = resolveHours(bareClock.hour, meridiem);
+  return buildDueAtFromClock(
+    hours24,
+    bareClock.minute,
+    bareClock.dayHint,
+    nowMs,
+  );
+}
+
+function normalizeMeridiemToken(raw: string): BestieMeridiem | null {
+  const s = raw.toLowerCase().replace(/\./g, "").replace(/\s+/g, "");
+  if (s === "am" || s === "a") return "am";
+  if (s === "pm" || s === "p") return "pm";
+  return null;
+}
+
+/**
+ * Parse a short AM/PM confirm reply (e.g. "PM", "8:45 PM", "am please").
+ * Returns null when the message is not a clear meridiem confirm.
+ */
+export function parseBestieReminderMeridiemReply(
+  content: string,
+): { meridiem: BestieMeridiem; hour?: number; minute?: number } | null {
+  const trimmed = content.trim();
+  if (!trimmed || trimmed.length > 80) return null;
+  const firstLine = trimmed.split(/\n/)[0]?.trim() ?? trimmed;
+
+  // Bare "PM" / "AM" / "p.m." / "a.m."
+  const bare = firstLine.match(
+    /^(?:please\s+)?(a\.?\s*m\.?|p\.?\s*m\.?|am|pm)\s*(?:please|thanks|thank you)?\.?$/i,
+  );
+  if (bare) {
+    const meridiem = normalizeMeridiemToken(bare[1] ?? "");
+    if (meridiem) return { meridiem };
+  }
+
+  // "8:45 PM" / "at 8:45pm" / "8 PM"
+  const clock = firstLine.match(
+    /^(?:please\s+)?(?:at\s+|make\s+it\s+)?(\d{1,2})(?::(\d{2}))?\s*(a\.?\s*m\.?|p\.?\s*m\.?|am|pm)\s*(?:please|thanks|thank you)?\.?$/i,
+  );
+  if (clock) {
+    const meridiem = normalizeMeridiemToken(clock[3] ?? "");
+    if (!meridiem) return null;
+    const hour = Number(clock[1]);
+    if (!Number.isFinite(hour) || hour < 0 || hour > 23) return null;
+    const minute = clock[2] != null ? Number(clock[2]) : undefined;
+    return {
+      meridiem,
+      hour,
+      ...(minute != null && Number.isFinite(minute) ? { minute } : {}),
+    };
+  }
+
+  // "go with PM" / "make it PM"
+  const goWith = firstLine.match(
+    /^(?:go\s+with|make\s+it|it(?:'|’)s)\s+(a\.?\s*m\.?|p\.?\s*m\.?|am|pm)\.?$/i,
+  );
+  if (goWith) {
+    const meridiem = normalizeMeridiemToken(goWith[1] ?? "");
+    if (meridiem) return { meridiem };
+  }
+
+  return null;
+}
+
+/**
+ * Find am/pm stated next to a known clock face in agent (or user) prose.
+ * Example: "Got it — 8:45 PM" → "pm".
+ */
+export function extractStatedMeridiemForBareClock(
+  content: string,
+  bareClock: BestieBareClock,
+): BestieMeridiem | null {
+  const hour = bareClock.hour;
+  const minute = bareClock.minute;
+  const mm = String(minute).padStart(2, "0");
+  const patterns = [
+    new RegExp(
+      `\\b${hour}:${mm}\\s*(a\\.?\\s*m\\.?|p\\.?\\s*m\\.?|am|pm)\\b`,
+      "i",
+    ),
+    new RegExp(
+      `\\b${hour}\\s*(a\\.?\\s*m\\.?|p\\.?\\s*m\\.?|am|pm)\\b`,
+      "i",
+    ),
+  ];
+  for (const re of patterns) {
+    const match = content.match(re);
+    if (!match) continue;
+    const meridiem = normalizeMeridiemToken(match[1] ?? "");
+    if (meridiem) return meridiem;
+  }
+  return null;
+}
+
+/** True when local wall-clock of dueAt matches the confirmed bare clock + meridiem. */
+export function dueAtMatchesBareClockMeridiem(
+  dueAt: number,
+  bareClock: BestieBareClock,
+  meridiem: BestieMeridiem,
+): boolean {
+  const date = new Date(dueAt * 1000);
+  const expected = resolveHours(bareClock.hour, meridiem);
+  return date.getHours() === expected && date.getMinutes() === bareClock.minute;
+}
+
+/**
+ * Infer a bare clock from prose that already includes am/pm (e.g. "8:45 PM").
+ * Used to repair agent fences when pending confirm was cleared or missing.
+ */
+export function inferBareClockFromStatedMeridiemClock(
+  content: string,
+): { bareClock: BestieBareClock; meridiem: BestieMeridiem } | null {
+  const match = content.match(
+    /\b(\d{1,2}):(\d{2})\s*(a\.?\s*m\.?|p\.?\s*m\.?|am|pm)\b/i,
+  );
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  const meridiem = normalizeMeridiemToken(match[3] ?? "");
+  if (!meridiem || !Number.isFinite(hour) || !Number.isFinite(minute)) {
+    return null;
+  }
+  if (hour < 1 || hour > 12 || minute < 0 || minute > 59) return null;
+  return {
+    bareClock: { dayHint: null, hour, minute },
+    meridiem,
+  };
+}
+
+/**
+ * When agent prose states AM/PM for the pending bare clock but fence dueAt
+ * disagrees (classic: text says PM, dueAt is next-morning AM), replace dueAt
+ * with a client-resolved epoch.
+ */
+export function reconcileReminderDueAtWithStatedMeridiem(
+  dueAt: number | null,
+  content: string,
+  bareClock: BestieBareClock | null,
+  nowMs = Date.now(),
+): number | null {
+  let clock = bareClock;
+  let stated: BestieMeridiem | null = clock
+    ? extractStatedMeridiemForBareClock(content, clock)
+    : null;
+  if (!stated) {
+    const inferred = inferBareClockFromStatedMeridiemClock(content);
+    if (inferred) {
+      clock = inferred.bareClock;
+      stated = inferred.meridiem;
+    }
+  }
+  if (!clock || !stated) return dueAt;
+  const resolved = resolveBestieBareClockDueAt(clock, stated, nowMs);
+  if (dueAt == null) return resolved;
+  if (!dueAtMatchesBareClockMeridiem(dueAt, clock, stated)) {
+    return resolved;
+  }
+  return dueAt;
+}
+
 function stripDayWords(text: string): string {
   return text
     .replace(TOMORROW_RE, " ")
@@ -308,4 +480,11 @@ export function messageNeedsBestieReminderBareClockConfirm(
 ): boolean {
   const intent = parseBestieUserListIntent(content, nowMs);
   return intent?.op === "reminder-confirm-needed";
+}
+
+/** True when the message is a short AM/PM confirm reply (pending confirm path). */
+export function messageLooksLikeBestieReminderMeridiemReply(
+  content: string,
+): boolean {
+  return parseBestieReminderMeridiemReply(content) != null;
 }

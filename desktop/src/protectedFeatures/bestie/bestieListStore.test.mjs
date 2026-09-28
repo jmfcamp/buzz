@@ -214,3 +214,95 @@ test("bare clock NL does not create; agent fence after confirm does", () => {
   assert.equal(item.text, "Run the nightly report");
   assert.equal(item.dueAt, dueAt);
 });
+
+test("bare-clock pending + PM reply creates reminder with evening dueAt", () => {
+  const memory = new Map();
+  globalThis.window = {
+    localStorage: {
+      getItem: (key) => memory.get(key) ?? null,
+      removeItem: (key) => {
+        memory.delete(key);
+      },
+      setItem: (key, value) => {
+        memory.set(key, String(value));
+      },
+    },
+  };
+  __resetBestieListStoreForTests();
+
+  const evening = Date.parse("2026-09-27T20:40:00.000-07:00");
+  const ask = applyBestieListIntentFromUserMessage(
+    SCOPE,
+    "user-bare",
+    "Remind me to run the nightly report at 8:45",
+    evening,
+  );
+  assert.equal(ask, 0);
+  assert.equal(getBestieListState(SCOPE).items.length, 0);
+  assert.ok(getBestieListState(SCOPE).pendingReminderConfirm);
+  assert.equal(
+    getBestieListState(SCOPE).pendingReminderConfirm.text,
+    "Run the nightly report",
+  );
+
+  const confirm = applyBestieListIntentFromUserMessage(
+    SCOPE,
+    "user-pm",
+    "PM",
+    evening,
+  );
+  assert.equal(confirm, 1);
+  const state = getBestieListState(SCOPE);
+  assert.equal(state.pendingReminderConfirm, null);
+  assert.equal(state.items.length, 1);
+  const item = state.items[0];
+  assert.equal(item.text, "Run the nightly report");
+  const due = new Date(item.dueAt * 1000);
+  assert.equal(due.getHours(), 20);
+  assert.equal(due.getMinutes(), 45);
+});
+
+test("agent fence with PM prose + AM dueAt is reconciled to PM", () => {
+  const memory = new Map();
+  globalThis.window = {
+    localStorage: {
+      getItem: (key) => memory.get(key) ?? null,
+      removeItem: (key) => {
+        memory.delete(key);
+      },
+      setItem: (key, value) => {
+        memory.set(key, String(value));
+      },
+    },
+  };
+  __resetBestieListStoreForTests();
+
+  const evening = Date.parse("2026-09-27T20:40:00.000-07:00");
+  applyBestieListIntentFromUserMessage(
+    SCOPE,
+    "user-bare-2",
+    "Remind me to run the nightly report at 8:45",
+    evening,
+  );
+  const wrongAm = Math.floor(
+    Date.parse("2026-09-28T08:45:00.000-07:00") / 1000,
+  );
+  const fence = `Got it — 8:45 PM.
+
+\`\`\`bestie-list
+{"op":"add","items":[{"kind":"reminder","text":"Run the nightly report","dueAt":${wrongAm}}]}
+\`\`\``;
+  const applied = applyBestieListActionsFromAgentMessage(
+    SCOPE,
+    "agent-wrong-am",
+    fence,
+    evening,
+  );
+  assert.equal(applied, 1);
+  const item = getBestieListState(SCOPE).items[0];
+  const due = new Date(item.dueAt * 1000);
+  assert.equal(due.getHours(), 20);
+  assert.equal(due.getMinutes(), 45);
+  assert.notEqual(item.dueAt, wrongAm);
+  assert.equal(getBestieListState(SCOPE).pendingReminderConfirm, null);
+});

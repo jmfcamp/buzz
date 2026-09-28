@@ -29,7 +29,12 @@ While `/hula-coffee` is actually in flight:
 
 1. **Disable Brew**.
 2. Show **🤔…** on the Coffee RHS tab and sheet (thinking face + ellipsis), not eyes-only.
-3. Live = ACP agent-working on the Assistant DM for an open coffee turn, or the short post-start grace while the turn is still queued.
+3. Live = ACP agent-working on the Assistant DM for an **open coffee turn**, or the short post-start grace while the turn is still queued.
+4. **Not** live for Thread Summarize, Jobs, Reminder notifies, or other Assistant turns — even if ACP is working on the Assistant DM. A newer summarize/job/reminder system turn supersedes coffee for the brewing indicator.
+
+## Coffee tab capture
+
+Every `/hula-coffee` outcome becomes a Coffee tab entry when the agent replies **in-thread to the coffee trigger** (success briefs, failures, NCP-disabled messages, other errors). Capture keys off the reply parent event id — never an arbitrary Assistant DM message (so Summarize replies cannot steal or fake a coffee entry).
 
 Abandoned `pendingRun` locks clear after a stale idle timeout so Brew cannot lie forever.
 

@@ -54,6 +54,7 @@ import { buildBestieMessageContext } from "./bestieMessageContext";
 import {
   applyBestieListIntentFromUserMessage,
   dismissBestieReminderItemsForScope,
+  getBestieListState,
   snoozeBestieListItemsForScope,
 } from "./bestieListStore";
 import { applyBestieScratchIntentFromUserMessage } from "./bestieScratchStore";
@@ -84,6 +85,7 @@ import {
 } from "./flattenBestieTranscript";
 import {
   messageLooksLikeBestieListRequest,
+  messageLooksLikeBestieReminderMeridiemReply,
   messageNeedsBestieReminderBareClockConfirm,
 } from "./parseBestieUserListIntent";
 import { messageLooksLikeBestieScratchRequest } from "./parseBestieUserScratchIntent";
@@ -839,7 +841,21 @@ export function BestiePopover({
           bestie.resolveConversation()));
       setConversationChannel(channel);
       const parentEventId = resolveBestieSendParentEventId(sessionBoundary);
-      const listIntent = messageLooksLikeBestieListRequest(trimmedDraft);
+      // Confirm Qs / AM-PM replies stay in-session (parentEventId = session root
+      // when active; null only for a brand-new session root).
+      const pendingReminderConfirm =
+        sessionScope && bestie.ownerPubkey && assignedAgentPubkey && bestie.relayUrl
+          ? getBestieListState({
+              agentPubkey: normalizePubkey(assignedAgentPubkey),
+              ownerPubkey: normalizePubkey(bestie.ownerPubkey),
+              relayUrl: bestie.relayUrl,
+            }).pendingReminderConfirm
+          : null;
+      const meridiemReply =
+        pendingReminderConfirm != null &&
+        messageLooksLikeBestieReminderMeridiemReply(trimmedDraft);
+      const listIntent =
+        messageLooksLikeBestieListRequest(trimmedDraft) || meridiemReply;
       const bareClockConfirm =
         messageNeedsBestieReminderBareClockConfirm(trimmedDraft);
       const jobIntent = messageLooksLikeBestieJobRequest(trimmedDraft);

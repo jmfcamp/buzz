@@ -7,6 +7,8 @@ import {
   isBestieCoffeeLive,
   isBestieCoffeePendingStale,
   messageLooksLikeBestieCoffeeTrigger,
+  messageLooksLikeBestieCompetingSystemTrigger,
+  replyParentIdFromEventTags,
   shouldDisableBestieCoffeeBrew,
 } from "./bestieCoffeeLive.ts";
 
@@ -101,4 +103,79 @@ test("stale pending clears only after idle past stale window", () => {
     }),
     false,
   );
+});
+
+test("competing system triggers match summarize / job / reminder", () => {
+  assert.equal(
+    messageLooksLikeBestieCompetingSystemTrigger(
+      "[Bestie thread summarize]\n\nPlease summarize…",
+    ),
+    true,
+  );
+  assert.equal(
+    messageLooksLikeBestieCompetingSystemTrigger("[Bestie job: inbox]\n\nok"),
+    true,
+  );
+  assert.equal(
+    messageLooksLikeBestieCompetingSystemTrigger("[Bestie reminder]\n\nDue"),
+    true,
+  );
+  assert.equal(
+    messageLooksLikeBestieCompetingSystemTrigger("[Bestie coffee]\n\n/hula-coffee"),
+    false,
+  );
+});
+
+test("not live when Thread Summarize is newer than coffee pending", () => {
+  assert.equal(
+    isBestieCoffeeLive({
+      agentWorkingOnBestieDm: true,
+      nowSeconds: 5_000,
+      latestCompetingTriggerAt: 4_000,
+      pendingRun: {
+        source: "brew",
+        startedAt: 1_000,
+        triggerMessageId: "coffee-1",
+      },
+    }),
+    false,
+  );
+  assert.equal(
+    shouldDisableBestieCoffeeBrew({
+      agentWorkingOnBestieDm: true,
+      nowSeconds: 5_000,
+      latestCompetingTriggerAt: 4_000,
+      pendingRun: {
+        source: "brew",
+        startedAt: 1_000,
+        triggerMessageId: "coffee-1",
+      },
+    }),
+    false,
+  );
+});
+
+test("open coffee trigger + working is not live after newer summarize", () => {
+  assert.equal(
+    isBestieCoffeeLive({
+      agentWorkingOnBestieDm: true,
+      nowSeconds: 3_000,
+      openCoffeeTriggerAt: 1_500,
+      latestCompetingTriggerAt: 2_500,
+      pendingRun: null,
+    }),
+    false,
+  );
+});
+
+test("replyParentIdFromEventTags prefers reply marker", () => {
+  assert.equal(
+    replyParentIdFromEventTags([
+      ["e", "root-id", "", "root"],
+      ["e", "parent-id", "", "reply"],
+    ]),
+    "parent-id",
+  );
+  assert.equal(replyParentIdFromEventTags([["e", "only-e"]]), "only-e");
+  assert.equal(replyParentIdFromEventTags([]), null);
 });

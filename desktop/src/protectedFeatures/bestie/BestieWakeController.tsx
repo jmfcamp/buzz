@@ -187,7 +187,34 @@ export function BestieWakeController() {
     const ownerNorm = normalizePubkey(ownerPubkey);
     const events = messagesQuery.data ?? [];
 
-    const agentCreatedAts: number[] = [];
+    // Pass 1: bind coffee pending → trigger id, collect unmatched coffee triggers
+    // so failure / NCP / error replies still land in the Coffee tab.
+    const unmatchedCoffeeTriggers = new Map();
+    {
+      const coffeeState = getBestieCoffeeState(listScope);
+      const matchedTriggerIds = new Set(
+        coffeeState.entries
+          .map((entry) => entry.triggerMessageId)
+          .filter((id) => typeof id === "string" && id.length > 0),
+      );
+      for (const event of events) {
+        if (typeof event.content !== "string" || event.content.length === 0) {
+          continue;
+        }
+        if (normalizePubkey(event.pubkey) !== ownerNorm) continue;
+        if (!messageLooksLikeBestieCoffeeTrigger(event.content)) continue;
+        const livePending = getBestieCoffeeState(listScope).pendingRun;
+        if (livePending && !livePending.triggerMessageId) {
+          setBestieCoffeePendingTriggerForScope(listScope, event.id);
+        }
+        if (matchedTriggerIds.has(event.id)) continue;
+        const source =
+          getBestieCoffeeState(listScope).pendingRun?.source ?? "brew";
+        unmatchedCoffeeTriggers.set(event.id, source);
+      }
+    }
+
+    const agentCreatedAts = [];
     for (const event of events) {
       if (typeof event.content !== "string" || event.content.length === 0) {
         continue;
@@ -206,6 +233,8 @@ export function BestieWakeController() {
           event.id,
           event.content,
           createdAt,
+          event.tags,
+          unmatchedCoffeeTriggers,
         );
         applyBestieThreadSummarizeReply(listScope, event.content, createdAt);
         applyBestieListActionsFromAgentMessage(
@@ -226,15 +255,6 @@ export function BestieWakeController() {
         continue;
       }
       if (author === ownerNorm) {
-        // Bind pending coffee run to the trigger message when we see it.
-        const coffeeState = getBestieCoffeeState(listScope);
-        if (
-          coffeeState.pendingRun &&
-          !coffeeState.pendingRun.triggerMessageId &&
-          messageLooksLikeBestieCoffeeTrigger(event.content)
-        ) {
-          setBestieCoffeePendingTriggerForScope(listScope, event.id);
-        }
         // System-injected turns — skip NL list/job parsers.
         if (
           event.content.includes(BESTIE_JOB_RUN_MARKER) ||
