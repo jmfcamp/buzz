@@ -14,6 +14,13 @@ test("agent instructions document the bestie-list fence", () => {
   assert.match(BESTIE_LIST_AGENT_INSTRUCTIONS, /dueAt/);
 });
 
+test("agent instructions teach crystallize + bare clock confirm", () => {
+  assert.match(BESTIE_LIST_AGENT_INSTRUCTIONS, /crystallized/i);
+  assert.match(BESTIE_LIST_AGENT_INSTRUCTIONS, /Run the nightly report/);
+  assert.match(BESTIE_LIST_AGENT_INSTRUCTIONS, /Bare clock without AM\/PM/);
+  assert.match(BESTIE_LIST_AGENT_INSTRUCTIONS, /Ask AM vs PM/);
+});
+
 test("turn hint attaches and strips cleanly", () => {
   const body = "Remind me to water plants in 10 minutes";
   const withHint = withBestieListTurnHint(body, true);
@@ -21,6 +28,18 @@ test("turn hint attaches and strips cleanly", () => {
     withHint,
     new RegExp(BESTIE_LIST_TURN_HINT_MARKER.replace(/[[\]]/g, "\\$&")),
   );
+  assert.match(withHint, /crystallize/i);
   assert.equal(stripBestieListTurnHint(withHint), body);
   assert.equal(withBestieListTurnHint(body, false), body);
+});
+
+test("bare-clock turn hint strengthens confirm-before-create", () => {
+  const body = "Remind me to run the nightly report at 8:36";
+  const withHint = withBestieListTurnHint(body, true, {
+    bareClockConfirm: true,
+  });
+  assert.match(withHint, /do NOT create a reminder yet/i);
+  assert.match(withHint, /Ask AM vs PM/);
+  assert.match(withHint, /Run the nightly report/);
+  assert.equal(stripBestieListTurnHint(withHint), body);
 });

@@ -3,7 +3,8 @@
  * reminders / to-dos via a fenced `bestie-list` JSON block.
  *
  * Desktop also applies a client-side natural-language path so “remind me…”
- * works even when the agent forgets the fence.
+ * works even when the agent forgets the fence — except bare clocks without
+ * AM/PM, which need confirm (AM vs PM or next-occurrence) before create.
  */
 
 export const BESTIE_LIST_FENCE_LANG = "bestie-list";
@@ -28,22 +29,39 @@ Ops:
 - complete: {"op":"complete","id":"<item-id>"}
 - remove: {"op":"remove","id":"<item-id>"}
 
+Reminder text must be **crystallized**: clean imperative, capitalize the first letter, drop a leading "to"/"for". Example: user said "remind me to run the nightly report" → fence text "Run the nightly report" (due time only in dueAt, never in text).
+
+Bare clock without AM/PM (e.g. "at 8:36"): do **not** invent am/pm and do **not** create yet. Ask AM vs PM, or propose the next occurrence from now, wait for explicit confirm, then emit the fence with absolute dueAt + crystallized text. Relative times ("in 20 minutes") and clocks with am/pm (or 24h hours 13–23) may be fenced immediately.
+
 If the user did not give a due time for a reminder, omit dueAt (or set null). Confirm briefly in natural language in addition to the fence.
 
-The desktop may already apply the user's natural-language add before your reply. Prefer acknowledging without a second add when the list already shows the item. If you still emit add, put the task text only (due time in dueAt, not in text); the client dedupes by core text + due window and prefers the row with dueAt.
+The desktop may already apply the user's natural-language add before your reply when the time is unambiguous. Prefer acknowledging without a second add when the list already shows the item. If you still emit add, put the crystallized task text only (due time in dueAt, not in text); the client dedupes by core text + due window and prefers the row with dueAt.
 
 For scheduled *jobs* (auto-run a prompt later), follow the Bestie job confirmation protocol (clarify → exact plan → user approve → fenced bestie-job add with confirmed:true). Do not treat jobs like instant reminders.`;
 
+export type BestieListTurnHintOptions = {
+  /** Strengthen hint when this turn has a bare clock needing AM/PM confirm. */
+  bareClockConfirm?: boolean;
+};
+
 /** Compact turn hint appended to Bestie user messages that look like list intents. */
-export function bestieListTurnHint(): string {
+export function bestieListTurnHint(
+  options: BestieListTurnHintOptions = {},
+): string {
+  const bare = options.bareClockConfirm
+    ? `
+Bare clock without AM/PM in this message: do NOT create a reminder yet. Ask AM vs PM (or propose the next occurrence), wait for explicit confirm, then emit a fenced ${BESTIE_LIST_FENCE_LANG} add with absolute dueAt and crystallized text (e.g. "Run the nightly report").`
+    : `
+Reminder text: crystallize as a clean imperative (capitalize; drop leading "to"). Bare clock like "8:36" with no AM/PM: ask AM vs PM or propose next occurrence before fencing — do not invent am/pm.`;
+
   return `
 
 ${BESTIE_LIST_TURN_HINT_MARKER}
 When mutating reminders/todos, emit a fenced ${BESTIE_LIST_FENCE_LANG} JSON block, e.g.
 \`\`\`${BESTIE_LIST_FENCE_LANG}
-{"op":"add","items":[{"kind":"reminder","text":"…","dueAt":1735689600}]}
+{"op":"add","items":[{"kind":"reminder","text":"Run the nightly report","dueAt":1735689600}]}
 \`\`\`
-(dueAt = unix seconds; omit if unknown). Also support complete/remove by id.`;
+(dueAt = unix seconds; omit if unknown). Also support complete/remove by id.${bare}`;
 }
 
 /** Strip the outbound turn hint (and anything after the marker) for UI display. */
@@ -61,8 +79,9 @@ export function stripBestieListTurnHint(content: string): string {
 export function withBestieListTurnHint(
   content: string,
   shouldAttach: boolean,
+  options: BestieListTurnHintOptions = {},
 ): string {
   if (!shouldAttach) return content;
   if (content.includes(BESTIE_LIST_TURN_HINT_MARKER)) return content;
-  return `${content.trimEnd()}${bestieListTurnHint()}`;
+  return `${content.trimEnd()}${bestieListTurnHint(options)}`;
 }

@@ -224,6 +224,10 @@ function applyUserIntent(
   intent: BestieUserListIntent,
   messageId: string,
 ): { applied: number; state: BestieListState } {
+  // Bare clock without am/pm — wait for agent confirm + fence; do not create.
+  if (intent.op === "reminder-confirm-needed") {
+    return { applied: 0, state };
+  }
   if (intent.op === "add") {
     let next = state;
     let applied = 0;

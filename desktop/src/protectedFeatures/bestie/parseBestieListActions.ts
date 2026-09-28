@@ -3,6 +3,7 @@ import type {
   BestieListKind,
   BestieReminderRepeat,
 } from "./bestieListTypes";
+import { crystallizeReminderText } from "./parseBestieUserListIntent";
 
 /**
  * Structured Bestie list mutations embedded in agent chat.
@@ -69,7 +70,12 @@ function parseAddItems(value: unknown): BestieListAddInput[] {
     if (typeof entry !== "object" || entry === null) continue;
     const record = entry as Record<string, unknown>;
     if (!isKind(record.kind) || typeof record.text !== "string") continue;
-    const text = record.text.trim();
+    const rawText = record.text.trim();
+    if (!rawText) continue;
+    const text =
+      record.kind === "reminder"
+        ? crystallizeReminderText(rawText)
+        : rawText;
     if (!text) continue;
     const dueAt = coerceDueAt(record.dueAt);
     items.push({

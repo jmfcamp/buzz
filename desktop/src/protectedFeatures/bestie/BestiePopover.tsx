@@ -82,7 +82,10 @@ import {
   flattenBestieTranscriptMessages,
   resolveBestieSendParentEventId,
 } from "./flattenBestieTranscript";
-import { messageLooksLikeBestieListRequest } from "./parseBestieUserListIntent";
+import {
+  messageLooksLikeBestieListRequest,
+  messageNeedsBestieReminderBareClockConfirm,
+} from "./parseBestieUserListIntent";
 import { messageLooksLikeBestieScratchRequest } from "./parseBestieUserScratchIntent";
 import { BestieNudgeBanner } from "./BestieNudgeBanner";
 import {
@@ -837,9 +840,13 @@ export function BestiePopover({
       setConversationChannel(channel);
       const parentEventId = resolveBestieSendParentEventId(sessionBoundary);
       const listIntent = messageLooksLikeBestieListRequest(trimmedDraft);
+      const bareClockConfirm =
+        messageNeedsBestieReminderBareClockConfirm(trimmedDraft);
       const jobIntent = messageLooksLikeBestieJobRequest(trimmedDraft);
       const scratchIntent = messageLooksLikeBestieScratchRequest(trimmedDraft);
-      let outboundBody = withBestieListTurnHint(trimmedDraft, listIntent);
+      let outboundBody = withBestieListTurnHint(trimmedDraft, listIntent, {
+        bareClockConfirm,
+      });
       outboundBody = withBestieJobTurnHint(outboundBody, jobIntent);
       const content =
         contextEnvelope && !contextSent

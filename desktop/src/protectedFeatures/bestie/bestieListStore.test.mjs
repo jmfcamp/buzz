@@ -88,7 +88,7 @@ test("applyBestieListIntentFromUserMessage adds reminders from NL once", () => {
   assert.equal(second, 0);
   const item = getBestieListState(SCOPE).items[0];
   assert.equal(item.kind, "reminder");
-  assert.equal(item.text, "stretch");
+  assert.equal(item.text, "Stretch");
   assert.equal(item.dueAt, Math.floor(nowMs / 1000) + 5 * 60);
 });
 
@@ -126,7 +126,7 @@ test("NL user add + agent fence with same text creates one reminder", () => {
   );
   assert.equal(fromAgent, 0);
   assert.equal(getBestieListState(SCOPE).items.length, 1);
-  assert.equal(getBestieListState(SCOPE).items[0].text, "water plants");
+  assert.equal(getBestieListState(SCOPE).items[0].text, "Water plants");
 });
 
 test("NL + agent fence different wording still one reminder (screenshot)", () => {
@@ -173,4 +173,44 @@ test("NL + agent fence different wording still one reminder (screenshot)", () =>
   const kept = getBestieListState(SCOPE).items[0];
   assert.ok(kept.dueAt);
   assert.equal(coreListTextForDedupe(kept.text), "finish the nightly reports");
+});
+
+test("bare clock NL does not create; agent fence after confirm does", () => {
+  const memory = new Map();
+  globalThis.window = {
+    localStorage: {
+      getItem: (key) => memory.get(key) ?? null,
+      removeItem: (key) => {
+        memory.delete(key);
+      },
+      setItem: (key, value) => {
+        memory.set(key, String(value));
+      },
+    },
+  };
+  __resetBestieListStoreForTests();
+
+  const nowMs = Date.parse("2026-09-27T20:00:00.000-07:00");
+  const fromNl = applyBestieListIntentFromUserMessage(
+    SCOPE,
+    "user-bare",
+    "Remind me to run the nightly report at 8:36",
+    nowMs,
+  );
+  assert.equal(fromNl, 0);
+  assert.equal(getBestieListState(SCOPE).items.length, 0);
+
+  const dueAt = Math.floor(Date.parse("2026-09-28T08:36:00.000-07:00") / 1000);
+  const fence = `\`\`\`bestie-list
+{"op":"add","items":[{"kind":"reminder","text":"Run the nightly report","dueAt":${dueAt}}]}
+\`\`\``;
+  const fromAgent = applyBestieListActionsFromAgentMessage(
+    SCOPE,
+    "agent-bare",
+    fence,
+  );
+  assert.equal(fromAgent, 1);
+  const item = getBestieListState(SCOPE).items[0];
+  assert.equal(item.text, "Run the nightly report");
+  assert.equal(item.dueAt, dueAt);
 });

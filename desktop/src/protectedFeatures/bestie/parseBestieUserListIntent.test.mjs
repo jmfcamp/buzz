@@ -2,36 +2,103 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  crystallizeReminderText,
   messageLooksLikeBestieListRequest,
+  messageNeedsBestieReminderBareClockConfirm,
   parseBestieDueAtFromText,
   parseBestieUserListIntent,
 } from "./parseBestieUserListIntent.ts";
 
 const NOW = Date.parse("2026-09-26T15:00:00.000-07:00");
 
-test("parses remind me … in N minutes", () => {
+test("crystallizeReminderText capitalizes and drops leading to", () => {
+  assert.equal(
+    crystallizeReminderText("run the nightly report"),
+    "Run the nightly report",
+  );
+  assert.equal(
+    crystallizeReminderText("to run the nightly report"),
+    "Run the nightly report",
+  );
+  assert.equal(crystallizeReminderText("stretch"), "Stretch");
+});
+
+test("parses remind me … in N minutes with crystallized text", () => {
   const intent = parseBestieUserListIntent(
     "Remind me to stretch in 20 minutes",
     NOW,
   );
   assert.equal(intent?.op, "add");
   assert.equal(intent?.items[0].kind, "reminder");
-  assert.equal(intent?.items[0].text, "stretch");
+  assert.equal(intent?.items[0].text, "Stretch");
   assert.equal(intent?.items[0].dueAt, Math.floor(NOW / 1000) + 20 * 60);
 });
 
-test("parses remind me … tomorrow at time", () => {
+test("parses remind me … tomorrow at time with am/pm", () => {
   const intent = parseBestieUserListIntent(
     "remind me to call mom tomorrow at 9am",
     NOW,
   );
   assert.equal(intent?.op, "add");
-  assert.equal(intent?.items[0].text, "call mom");
+  assert.equal(intent?.items[0].text, "Call mom");
   assert.ok(intent?.items[0].dueAt);
   const due = new Date(intent.items[0].dueAt * 1000);
   assert.equal(due.getHours(), 9);
   assert.ok(due.getTime() > NOW);
   assert.notEqual(due.toDateString(), new Date(NOW).toDateString());
+});
+
+test("bare clock without am/pm does not auto-add — confirm needed", () => {
+  const intent = parseBestieUserListIntent(
+    "Remind me to run the nightly report at 8:36",
+    NOW,
+  );
+  assert.equal(intent?.op, "reminder-confirm-needed");
+  assert.equal(intent?.text, "Run the nightly report");
+  assert.deepEqual(intent?.bareClock, {
+    dayHint: null,
+    hour: 8,
+    minute: 36,
+  });
+  assert.equal(
+    messageNeedsBestieReminderBareClockConfirm(
+      "Remind me to run the nightly report at 8:36",
+      NOW,
+    ),
+    true,
+  );
+  assert.equal(
+    messageNeedsBestieReminderBareClockConfirm(
+      "Remind me to stretch in 5 minutes",
+      NOW,
+    ),
+    false,
+  );
+});
+
+test("clock with am/pm still auto-adds crystallized text", () => {
+  const intent = parseBestieUserListIntent(
+    "Remind me to finish the nightly reports at 8:10pm",
+    NOW,
+  );
+  assert.equal(intent?.op, "add");
+  assert.equal(intent?.items[0].text, "Finish the nightly reports");
+  assert.ok(intent?.items[0].dueAt);
+  const due = new Date(intent.items[0].dueAt * 1000);
+  assert.equal(due.getHours(), 20);
+  assert.equal(due.getMinutes(), 10);
+});
+
+test("24h hour without am/pm is unambiguous and auto-adds", () => {
+  const intent = parseBestieUserListIntent(
+    "Remind me to ship the build at 14:30",
+    NOW,
+  );
+  assert.equal(intent?.op, "add");
+  assert.equal(intent?.items[0].text, "Ship the build");
+  const due = new Date(intent.items[0].dueAt * 1000);
+  assert.equal(due.getHours(), 14);
+  assert.equal(due.getMinutes(), 30);
 });
 
 test("parses add todo", () => {
@@ -67,14 +134,29 @@ test("ignores free-form chat", () => {
 });
 
 test("parseBestieDueAtFromText handles at-time roll to tomorrow", () => {
-  // 3pm already passed relative to NOW (3pm PT) → next day.
-  const { dueAt, textWithoutDue } = parseBestieDueAtFromText(
+  // 2pm already passed relative to NOW (3pm PT) → next day.
+  const { ambiguousBareClock, dueAt, textWithoutDue } = parseBestieDueAtFromText(
     "pay rent at 2pm",
     NOW,
   );
+  assert.equal(ambiguousBareClock, null);
   assert.equal(textWithoutDue, "pay rent");
   assert.ok(dueAt);
   const due = new Date(dueAt * 1000);
   assert.equal(due.getHours(), 14);
   assert.ok(due.getTime() > NOW);
+});
+
+test("parseBestieDueAtFromText flags bare clock ambiguity", () => {
+  const { ambiguousBareClock, dueAt, textWithoutDue } = parseBestieDueAtFromText(
+    "run the nightly report at 8:36",
+    NOW,
+  );
+  assert.equal(dueAt, null);
+  assert.equal(textWithoutDue, "run the nightly report");
+  assert.deepEqual(ambiguousBareClock, {
+    dayHint: null,
+    hour: 8,
+    minute: 36,
+  });
 });

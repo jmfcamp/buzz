@@ -7,17 +7,24 @@ relay / owner / agent). Mutations happen three ways:
    One-off / Daily repeat).
 2. **Natural language** — user messages like `Remind me to … in 20 minutes` or
    `Add a todo: …` are applied client-side (and a short turn hint is appended so
-   the agent can acknowledge with a fence).
+   the agent can acknowledge with a fence). **Exception:** a bare clock without
+   AM/PM (e.g. `at 8:36`) does **not** auto-create — the client leaves it for the
+   agent to confirm AM vs PM (or propose the next occurrence) then fence.
 3. **Agent fence** — Bestie agent replies may include:
 
 ```bestie-list
-{"op":"add","items":[{"kind":"reminder","text":"Call mom","dueAt":1735689600}]}
+{"op":"add","items":[{"kind":"reminder","text":"Run the nightly report","dueAt":1735689600}]}
 ```
 
 `dueAt` is unix seconds (ISO-8601 strings also accepted). Optional
 `repeat: {"kind":"daily"}` or `{"kind":"weekly","weekday":1}` (0=Sun). Ops:
 `add`, `complete`, `remove`. Completing a recurring reminder advances `dueAt`
 instead of marking done.
+
+**Crystallized reminder text:** store a clean imperative — capitalize the first
+letter; drop a leftover leading `to`/`for`. Example: user said
+`remind me to run the nightly report` → stored / fenced
+`Run the nightly report` (time only in `dueAt`, never in text).
 
 Due reminders are detected by the ~5 minute wake loop (plus a one-shot timer for
 the next dueAt). A due nudge shows the footer `!` badge, auto-opens the Bestie
