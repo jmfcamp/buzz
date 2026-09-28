@@ -3,11 +3,8 @@ import * as React from "react";
 
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
-import { isBestieCoffeeBrewing } from "./bestieCoffeeStorage";
-import {
-  removeBestieCoffeeEntryForScope,
-  useBestieCoffee,
-} from "./bestieCoffeeStore";
+import { BESTIE_COFFEE_LIVE_LABEL } from "./bestieCoffeeLive";
+import { removeBestieCoffeeEntryForScope, useBestieCoffee } from "./bestieCoffeeStore";
 import type {
   BestieCoffeeEntry,
   BestieCoffeeScope,
@@ -87,18 +84,22 @@ function CoffeeRow({
 /**
  * Coffee category sheet — Brew button + expandable briefing history.
  * Scheduled runs and Brew share the same invoke path (/hula-coffee turn).
+ * Brewing UI follows the real ACP in-flight coffee turn (🤔…), not eyes alone.
  */
 export function BestieDmCoffeeSheet({
-  brewing,
+  brewDisabled,
+  coffeeLive,
   onBrew,
   scope,
 }: {
-  brewing?: boolean;
+  /** Disable Brew while /hula-coffee is actually running (ACP live / grace). */
+  brewDisabled: boolean;
+  /** Show thinking-face live indicator on the sheet. */
+  coffeeLive: boolean;
   onBrew: () => void;
   scope: BestieCoffeeScope;
 }) {
   const state = useBestieCoffee(scope);
-  const isBrewing = brewing ?? isBestieCoffeeBrewing(state);
   const [expandedId, setExpandedId] = React.useState<string | null>(null);
 
   return (
@@ -110,9 +111,9 @@ export function BestieDmCoffeeSheet({
         <Button
           className="h-8 gap-1.5"
           data-testid="bestie-coffee-brew"
-          disabled={isBrewing}
+          disabled={brewDisabled}
           onClick={() => {
-            if (isBrewing) return;
+            if (brewDisabled) return;
             onBrew();
           }}
           size="sm"
@@ -120,13 +121,15 @@ export function BestieDmCoffeeSheet({
           variant="secondary"
         >
           <Coffee className="size-3.5" />
-          {isBrewing ? "Brewing…" : "Brew"}
+          {brewDisabled ? "Brewing…" : "Brew"}
         </Button>
-        {isBrewing ? (
+        {coffeeLive ? (
           <span
+            aria-live="polite"
             className="text-xs text-muted-foreground"
             data-testid="bestie-coffee-brewing"
           >
+            <span aria-hidden="true">{BESTIE_COFFEE_LIVE_LABEL}</span>{" "}
             Running /hula-coffee…
           </span>
         ) : (

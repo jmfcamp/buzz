@@ -22,6 +22,7 @@ import {
 } from "./bestieDmRhsHelpers";
 import { enabledJobs } from "./bestieJobStorage";
 import { useBestieJobs } from "./bestieJobStore";
+import { BESTIE_COFFEE_LIVE_LABEL } from "./bestieCoffeeLive";
 import { useBestieCoffee } from "./bestieCoffeeStore";
 import { useBestieThreads } from "./bestieThreadStore";
 import { useBestieScratch } from "./bestieScratchStore";
@@ -262,10 +263,13 @@ function AddRow({
  */
 export function BestieDmRhsPanel({
   activeKind = null,
+  coffeeLive = false,
   onOpenKind,
   scope,
 }: {
   activeKind?: BestieRhsKind | null;
+  /** True while /hula-coffee ACP turn is live — show 🤔… on the Coffee row. */
+  coffeeLive?: boolean;
   onOpenKind: (kind: BestieRhsKind) => void;
   scope: BestieListScope;
 }) {
@@ -315,13 +319,28 @@ export function BestieDmRhsPanel({
         Jobs
       </CategoryNavButton>
       <CategoryNavButton
-        count={presentBestieContextCount(coffeeCount)}
+        count={
+          coffeeLive ? undefined : presentBestieContextCount(coffeeCount)
+        }
         icon={<Coffee className="size-4" />}
         onClick={() => onOpenKind("coffee")}
         pressed={activeKind === "coffee"}
         testId="bestie-rhs-coffee"
       >
-        Coffee
+        {coffeeLive ? (
+          <span className="inline-flex min-w-0 items-center gap-1">
+            <span className="truncate">Coffee</span>
+            <span
+              aria-label="Coffee brewing"
+              className="shrink-0 tabular-nums opacity-80"
+              data-testid="bestie-rhs-coffee-live"
+            >
+              {BESTIE_COFFEE_LIVE_LABEL}
+            </span>
+          </span>
+        ) : (
+          "Coffee"
+        )}
       </CategoryNavButton>
       <CategoryNavButton
         count={presentBestieContextCount(threadCount)}

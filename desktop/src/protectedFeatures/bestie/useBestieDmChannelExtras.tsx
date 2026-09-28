@@ -9,10 +9,8 @@ import { BestieDmThreadsSheet } from "./BestieDmThreadsSheet";
 import { BestieDmScratchSheet } from "./BestieDmScratchSheet";
 import { BestieDmTodosSheet } from "./BestieDmTodosSheet";
 import { BESTIE_COFFEE_BREW_EVENT } from "./bestieCoffeeSchedule";
-import {
-  beginBestieCoffeeRunForScope,
-  useBestieCoffee,
-} from "./bestieCoffeeStore";
+import { beginBestieCoffeeRunForScope } from "./bestieCoffeeStore";
+import { useBestieCoffeeLive } from "./useBestieCoffeeLive";
 import {
   bestieCategoryTitle,
   bestieIdleAuxiliaryKind,
@@ -143,20 +141,13 @@ export function useBestieDmChannelExtras(
     );
   }, [isBestieDm, panelOpen]);
 
-  const contextColumn = React.useMemo(() => {
-    if (!scope) return null;
-    return (
-      <BestieDmRhsPanel
-        activeKind={activeKind}
-        onOpenKind={openKind}
-        scope={scope}
-      />
-    );
-  }, [activeKind, openKind, scope]);
-
-  const coffeeState = useBestieCoffee(scope);
+  const bestieChannelForCoffee = isBestieDm ? activeChannel : null;
+  const { brewDisabled, coffeeLive } = useBestieCoffeeLive(
+    scope,
+    bestieChannelForCoffee,
+  );
   const requestCoffeeBrew = React.useCallback(() => {
-    if (!scope) return;
+    if (!scope || brewDisabled) return;
     const begun = beginBestieCoffeeRunForScope(scope, "brew");
     if (!begun) return;
     window.dispatchEvent(
@@ -164,7 +155,19 @@ export function useBestieDmChannelExtras(
         detail: { agentPubkey: scope.agentPubkey },
       }),
     );
-  }, [scope]);
+  }, [brewDisabled, scope]);
+
+  const contextColumn = React.useMemo(() => {
+    if (!scope) return null;
+    return (
+      <BestieDmRhsPanel
+        activeKind={activeKind}
+        coffeeLive={coffeeLive}
+        onOpenKind={openKind}
+        scope={scope}
+      />
+    );
+  }, [activeKind, coffeeLive, openKind, scope]);
 
   const idleAuxiliaryPanel = React.useMemo(() => {
     if (!scope || activeKind == null) return null;
@@ -180,7 +183,8 @@ export function useBestieDmChannelExtras(
     if (activeKind === "coffee") {
       return (
         <BestieDmCoffeeSheet
-          brewing={coffeeState.pendingRun != null}
+          brewDisabled={brewDisabled}
+          coffeeLive={coffeeLive}
           onBrew={requestCoffeeBrew}
           scope={scope}
         />
@@ -215,7 +219,7 @@ export function useBestieDmChannelExtras(
         scope={scope}
       />
     );
-  }, [activeKind, adding, coffeeState.pendingRun, requestCoffeeBrew, scope]);
+  }, [activeKind, adding, brewDisabled, coffeeLive, requestCoffeeBrew, scope]);
 
   const idleAuxiliaryHeaderActions =
     React.useMemo<IdleAuxiliaryHeaderControls | null>(() => {

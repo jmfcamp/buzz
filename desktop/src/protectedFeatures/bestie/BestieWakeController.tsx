@@ -5,6 +5,7 @@ import {
   useChannelMessagesQuery,
   useSendMessageMutation,
 } from "@/features/messages/hooks";
+import { getAgentWorkingState } from "@/features/agents/agentWorkingSignal";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import {
@@ -17,12 +18,17 @@ import {
   formatBestieCoffeeRunPrompt,
   isBestieAgentOnlineForCoffee,
 } from "./bestieCoffeeSchedule";
+import {
+  isBestieCoffeePendingStale,
+  messageLooksLikeBestieCoffeeTrigger,
+} from "./bestieCoffeeLive";
 import { startBestieCoffeeRunner } from "./bestieCoffeeRunner";
 import {
   applyBestieCoffeeAgentReply,
   beginBestieCoffeeRunForScope,
   clearBestieCoffeePendingRunForScope,
   getBestieCoffeeState,
+  setBestieCoffeePendingTriggerForScope,
   useBestieCoffee,
 } from "./bestieCoffeeStore";
 import {
@@ -220,6 +226,15 @@ export function BestieWakeController() {
         continue;
       }
       if (author === ownerNorm) {
+        // Bind pending coffee run to the trigger message when we see it.
+        const coffeeState = getBestieCoffeeState(listScope);
+        if (
+          coffeeState.pendingRun &&
+          !coffeeState.pendingRun.triggerMessageId &&
+          messageLooksLikeBestieCoffeeTrigger(event.content)
+        ) {
+          setBestieCoffeePendingTriggerForScope(listScope, event.id);
+        }
         // System-injected turns — skip NL list/job parsers.
         if (
           event.content.includes(BESTIE_JOB_RUN_MARKER) ||
@@ -392,6 +407,30 @@ export function BestieWakeController() {
     if (!listScope) return;
     coffeeHandlesRef.current?.tick();
   }, [coffeeState.pendingRun, coffeeState.lastScheduledDayKey, listScope, presenceStatus]);
+
+  // Drop abandoned pendingRun so Brew cannot stay disabled without ACP activity.
+  React.useEffect(() => {
+    if (!listScope || !coffeeState.pendingRun || !bestieChannel) return;
+    const check = () => {
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      const working = getAgentWorkingState(
+        listScope.agentPubkey,
+        bestieChannel.id,
+      ).working;
+      if (
+        isBestieCoffeePendingStale({
+          agentWorkingOnBestieDm: working,
+          nowSeconds,
+          pendingRun: coffeeState.pendingRun,
+        })
+      ) {
+        clearBestieCoffeePendingRunForScope(listScope);
+      }
+    };
+    check();
+    const timer = window.setInterval(check, 30_000);
+    return () => window.clearInterval(timer);
+  }, [bestieChannel, coffeeState.pendingRun, listScope]);
 
   // Clear stale nudge when the outstanding set is emptied.
   React.useEffect(() => {
