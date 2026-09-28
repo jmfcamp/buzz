@@ -13,7 +13,8 @@ export type BestiePopoverNewMessageTarget = {
  * Pick the newest message the popover should offer a jump target for.
  *
  * - Prefer the newest channel message that is *outside* the active session
- *   (another top-level thread / response the filter hides).
+ *   (another top-level thread / response the filter hides). View navigates to
+ *   the Assistant DM and opens that thread; the popover session stays put.
  * - Otherwise, when the user has scrolled away from the bottom, the newest
  *   in-session message is the jump target ("New message" → scroll to it).
  */

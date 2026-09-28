@@ -32,6 +32,10 @@ export const BESTIE_POPOVER_MIN_HEIGHT_WITH_LISTS_PX = 520;
 /** @deprecated Prefer BESTIE_POPOVER_MIN_HEIGHT_CHAT_PX; kept for older imports/tests. */
 export const BESTIE_POPOVER_MIN_MAX_HEIGHT_PX = BESTIE_POPOVER_MIN_HEIGHT_CHAT_PX;
 export const BESTIE_POPOVER_MAX_MAX_HEIGHT_PX = 960;
+/** Cap persisted/dragged height to this fraction of the viewport. */
+export const BESTIE_POPOVER_VIEWPORT_HEIGHT_RATIO = 0.9;
+/** Match CSS `calc(100vh - 2rem)` gutter so drag handles stay off the window edge. */
+export const BESTIE_POPOVER_VIEWPORT_GUTTER_PX = 32;
 
 export type BestiePopoverSize = {
   maxHeightPx: number;
@@ -46,6 +50,7 @@ let size: BestiePopoverSize = readStoredSize();
 
 function clamp(n: number, min: number, max: number): number {
   if (!Number.isFinite(n)) return min;
+  if (min > max) return max;
   return Math.min(max, Math.max(min, Math.round(n)));
 }
 
@@ -56,15 +61,40 @@ export function bestiePopoverMinHeightPx(listsCollapsed: boolean): number {
     : BESTIE_POPOVER_MIN_HEIGHT_WITH_LISTS_PX;
 }
 
+/**
+ * Absolute max height for the current viewport: min(hard cap, 90% vh, vh − gutter).
+ * Falls back to the hard cap when no viewport size is available (SSR / tests).
+ */
+export function bestiePopoverViewportMaxHeightPx(
+  viewportHeightPx?: number,
+): number {
+  const vh =
+    viewportHeightPx ??
+    (typeof window !== "undefined" && Number.isFinite(window.innerHeight)
+      ? window.innerHeight
+      : undefined);
+  if (vh == null || vh <= 0) {
+    return BESTIE_POPOVER_MAX_MAX_HEIGHT_PX;
+  }
+  const ratioCap = Math.floor(vh * BESTIE_POPOVER_VIEWPORT_HEIGHT_RATIO);
+  const gutterCap = Math.floor(vh - BESTIE_POPOVER_VIEWPORT_GUTTER_PX);
+  return Math.max(
+    1,
+    Math.min(BESTIE_POPOVER_MAX_MAX_HEIGHT_PX, ratioCap, gutterCap),
+  );
+}
+
 function normalizeSize(
   input: StoredSize | null | undefined,
   minHeightPx: number = BESTIE_POPOVER_MIN_HEIGHT_CHAT_PX,
+  viewportMaxHeightPx: number = bestiePopoverViewportMaxHeightPx(),
 ): BestiePopoverSize {
+  const heightCeiling = Math.max(1, viewportMaxHeightPx);
   return {
     maxHeightPx: clamp(
       input?.maxHeightPx ?? BESTIE_POPOVER_DEFAULT_MAX_HEIGHT_PX,
       minHeightPx,
-      BESTIE_POPOVER_MAX_MAX_HEIGHT_PX,
+      heightCeiling,
     ),
     widthPx: clamp(
       input?.widthPx ?? BESTIE_POPOVER_DEFAULT_WIDTH_PX,
@@ -81,7 +111,24 @@ function readStoredSize(): BestiePopoverSize {
   try {
     const raw = window.localStorage.getItem(BESTIE_POPOVER_SIZE_STORAGE_KEY);
     if (!raw) return normalizeSize(null);
-    return normalizeSize(JSON.parse(raw) as StoredSize);
+    const parsed = JSON.parse(raw) as StoredSize;
+    const next = normalizeSize(parsed);
+    // Migrate oversized persisted heights (e.g. full-viewport / 960) down to
+    // the current 90% viewport + gutter ceiling so drag can shrink from there.
+    if (
+      typeof parsed.maxHeightPx === "number" &&
+      parsed.maxHeightPx !== next.maxHeightPx
+    ) {
+      try {
+        window.localStorage.setItem(
+          BESTIE_POPOVER_SIZE_STORAGE_KEY,
+          JSON.stringify(next),
+        );
+      } catch {
+        // Persistence is best-effort.
+      }
+    }
+    return next;
   } catch {
     return normalizeSize(null);
   }
@@ -112,10 +159,11 @@ function emit(): void {
  */
 export function setBestiePopoverSize(
   patch: Partial<BestiePopoverSize>,
-  options?: { minHeightPx?: number },
+  options?: { minHeightPx?: number; viewportHeightPx?: number },
 ): BestiePopoverSize {
   const minHeightPx = options?.minHeightPx ?? BESTIE_POPOVER_MIN_HEIGHT_CHAT_PX;
-  size = normalizeSize({ ...size, ...patch }, minHeightPx);
+  const viewportMax = bestiePopoverViewportMaxHeightPx(options?.viewportHeightPx);
+  size = normalizeSize({ ...size, ...patch }, minHeightPx, viewportMax);
   try {
     window.localStorage.setItem(
       BESTIE_POPOVER_SIZE_STORAGE_KEY,

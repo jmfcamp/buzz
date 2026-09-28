@@ -19,6 +19,7 @@ import {
   BESTIE_POPOVER_MAX_WIDTH_PX,
   BESTIE_POPOVER_MIN_WIDTH_PX,
   bestiePopoverMinHeightPx,
+  bestiePopoverViewportMaxHeightPx,
   setBestiePopoverSize,
   useBestiePopoverSize,
 } from "./bestiePopoverSizePreference";
@@ -53,7 +54,13 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
   const popoverSize = useBestiePopoverSize();
   const listsCollapsed = useBestiePopoverListsCollapsed();
   const minHeightPx = bestiePopoverMinHeightPx(listsCollapsed);
-  const heightPx = Math.max(popoverSize.maxHeightPx, minHeightPx);
+  const viewportMaxHeightPx = bestiePopoverViewportMaxHeightPx();
+  // Effective height is always within the viewport ceiling so drag starts from
+  // what the user sees (not a stale full-height persisted value).
+  const heightPx = Math.min(
+    Math.max(popoverSize.maxHeightPx, minHeightPx),
+    viewportMaxHeightPx,
+  );
   const [isResizing, setIsResizing] = React.useState(false);
   const dragRef = React.useRef<{
     kind: "width" | "height";
@@ -71,6 +78,19 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
     setBestiePopoverOpen(open);
     return () => setBestiePopoverOpen(false);
   }, [open]);
+
+  // Migrate / re-clamp persisted height to 90% viewport + gutter when open
+  // (and when the window resizes) so oversized stores can be dragged smaller.
+  React.useEffect(() => {
+    if (!open) return;
+    const clampToViewport = () => {
+      // Empty patch re-normalizes the live stored size against current vh.
+      setBestiePopoverSize({}, { minHeightPx });
+    };
+    clampToViewport();
+    window.addEventListener("resize", clampToViewport);
+    return () => window.removeEventListener("resize", clampToViewport);
+  }, [minHeightPx, open]);
 
   // Auto-open when a *due reminder* nudge fires (distinct from todos check-in).
   React.useEffect(() => {
@@ -136,10 +156,12 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
     }
     // side=top: dragging the top edge upward grows height.
     const next = drag.startHeight + (drag.startY - event.clientY);
+    const viewportMax = bestiePopoverViewportMaxHeightPx();
     setBestiePopoverSize(
       {
         maxHeightPx: Math.min(
           BESTIE_POPOVER_MAX_MAX_HEIGHT_PX,
+          viewportMax,
           Math.max(drag.minHeightPx, next),
         ),
       },
@@ -283,7 +305,7 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
             minWidth: `min(${BESTIE_POPOVER_MIN_WIDTH_PX}px, calc(100vw - 2rem))`,
             maxWidth: `min(${BESTIE_POPOVER_MAX_WIDTH_PX}px, calc(100vw - 2rem))`,
             minHeight: `min(${minHeightPx}px, calc(100vh - 2rem))`,
-            maxHeight: `min(${BESTIE_POPOVER_MAX_MAX_HEIGHT_PX}px, var(--radix-popover-content-available-height, calc(100vh - 2rem)), calc(100vh - 2rem))`,
+            maxHeight: `min(${viewportMaxHeightPx}px, ${BESTIE_POPOVER_MAX_MAX_HEIGHT_PX}px, var(--radix-popover-content-available-height, calc(100vh - 2rem)), calc(100vh - 2rem))`,
             ["--bestie-popover-max-h" as string]: `${heightPx}px`,
           } as React.CSSProperties
         }

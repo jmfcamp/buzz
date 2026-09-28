@@ -5,16 +5,22 @@ import {
   __resetBestiePopoverSizeForTests,
   BESTIE_POPOVER_DEFAULT_MAX_HEIGHT_PX,
   BESTIE_POPOVER_DEFAULT_WIDTH_PX,
+  BESTIE_POPOVER_MAX_MAX_HEIGHT_PX,
   BESTIE_POPOVER_MIN_HEIGHT_CHAT_PX,
   BESTIE_POPOVER_MIN_HEIGHT_WITH_LISTS_PX,
   BESTIE_POPOVER_MIN_WIDTH_PX,
+  BESTIE_POPOVER_SIZE_STORAGE_KEY,
+  BESTIE_POPOVER_VIEWPORT_GUTTER_PX,
+  BESTIE_POPOVER_VIEWPORT_HEIGHT_RATIO,
   bestiePopoverMinHeightPx,
+  bestiePopoverViewportMaxHeightPx,
   setBestiePopoverSize,
 } from "./bestiePopoverSizePreference.ts";
 
-function memoryWindow() {
+function memoryWindow(innerHeight) {
   const memory = new Map();
   globalThis.window = {
+    innerHeight: innerHeight ?? undefined,
     localStorage: {
       getItem: (key) => memory.get(key) ?? null,
       removeItem: (key) => {
@@ -25,6 +31,7 @@ function memoryWindow() {
       },
     },
   };
+  return memory;
 }
 
 test("defaults are taller and wider than the old fixed popover", () => {
@@ -66,4 +73,35 @@ test("setBestiePopoverSize respects Lists-open minHeightPx option", () => {
     { minHeightPx: BESTIE_POPOVER_MIN_HEIGHT_WITH_LISTS_PX },
   );
   assert.equal(next.maxHeightPx, BESTIE_POPOVER_MIN_HEIGHT_WITH_LISTS_PX);
+});
+
+test("viewport max is 90% vh and gutter, under hard cap", () => {
+  assert.equal(bestiePopoverViewportMaxHeightPx(1000), 900);
+  assert.equal(
+    bestiePopoverViewportMaxHeightPx(1000),
+    Math.floor(1000 * BESTIE_POPOVER_VIEWPORT_HEIGHT_RATIO),
+  );
+  // Gutter wins when tighter than 90%.
+  const short = BESTIE_POPOVER_VIEWPORT_GUTTER_PX + 50;
+  assert.equal(
+    bestiePopoverViewportMaxHeightPx(short),
+    Math.floor(short - BESTIE_POPOVER_VIEWPORT_GUTTER_PX),
+  );
+  // Hard cap still applies on huge viewports.
+  assert.equal(
+    bestiePopoverViewportMaxHeightPx(5000),
+    BESTIE_POPOVER_MAX_MAX_HEIGHT_PX,
+  );
+});
+
+test("setBestiePopoverSize clamps to 90% viewport and persists", () => {
+  const memory = memoryWindow(1000);
+  __resetBestiePopoverSizeForTests();
+  const next = setBestiePopoverSize(
+    { maxHeightPx: 9999 },
+    { viewportHeightPx: 1000 },
+  );
+  assert.equal(next.maxHeightPx, 900);
+  const stored = JSON.parse(memory.get(BESTIE_POPOVER_SIZE_STORAGE_KEY));
+  assert.equal(stored.maxHeightPx, 900);
 });

@@ -688,36 +688,35 @@ export function BestiePopover({
   );
   const jumpToNewMessage = React.useCallback(
     (target: { id: string; outsideSession: boolean }) => {
-      if (!target.outsideSession || !sessionScope) return;
+      if (!target.outsideSession) return;
       const message = allConversationMessages.find((entry) => entry.id === target.id);
       if (!message) return;
-      // Start a fresh session focused on that thread/response root.
+      // Open the Assistant DM on that thread in the main app. Do NOT change the
+      // popover session/thread — the popover stays where it is.
       const rootId = message.rootId ?? message.parentId ?? message.id;
-      const root =
-        allConversationMessages.find((entry) => entry.id === rootId) ?? message;
-      const baselineMessageIds = new Set(
-        allConversationMessages
-          .filter(
-            (entry) =>
-              entry.createdAt < root.createdAt ||
-              (entry.createdAt === root.createdAt && entry.id !== root.id),
-          )
-          .map((entry) => entry.id),
-      );
-      const next = {
-        baselineMessageIds,
-        firstMessageCreatedAt: root.createdAt,
-        sessionRootId: root.id,
-      };
-      writeBestieSessionBoundary(sessionScope, {
-        baselineMessageIds: [...baselineMessageIds],
-        firstMessageCreatedAt: next.firstMessageCreatedAt,
-        sessionRootId: next.sessionRootId,
+      void (async () => {
+        parkPlaygroundHost();
+        leaveLeftNavBuzzTerm();
+        const channel =
+          activeConversationChannel ??
+          (await (conversationPromiseRef.current ??
+            bestie.resolveConversation()));
+        setConversationChannel(channel);
+        await goChannel(channel.id, { thread: rootId });
+      })().catch((error) => {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Couldn’t open Assistant conversation",
+        );
       });
-      setSessionBoundary(next);
-      setTranscriptNearBottom(true);
     },
-    [allConversationMessages, sessionScope],
+    [
+      activeConversationChannel,
+      allConversationMessages,
+      bestie,
+      goChannel,
+    ],
   );
   const typingEntries = useChannelTyping(
     activeConversationChannel,
