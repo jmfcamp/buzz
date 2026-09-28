@@ -22,8 +22,9 @@ test("evaluateBestieWake nudges on due reminders and open todos", () => {
   assert.equal(first.shouldWakeAgent, true);
   assert.ok(first.nudge);
   assert.equal(first.nudge.reason, "due-reminder");
-  assert.equal(first.nudge.title, "Reminder due");
-  assert.match(first.nudge.body, /Due soon|reminders/i);
+  assert.equal(first.nudge.title, "Reminder");
+  assert.match(first.nudge.body, /Due soon/);
+  assert.doesNotMatch(first.nudge.body, /^Reminder:/i);
   assert.match(first.nudge.body, /Open item|to-dos/i);
 
   const same = evaluateBestieWake(state, 100, {

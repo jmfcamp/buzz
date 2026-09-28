@@ -51,7 +51,11 @@ import {
   useBestieShowActivity,
 } from "./bestieActivityPreference";
 import { buildBestieMessageContext } from "./bestieMessageContext";
-import { applyBestieListIntentFromUserMessage } from "./bestieListStore";
+import {
+  applyBestieListIntentFromUserMessage,
+  dismissBestieReminderItemsForScope,
+  snoozeBestieListItemsForScope,
+} from "./bestieListStore";
 import { applyBestieScratchIntentFromUserMessage } from "./bestieScratchStore";
 import {
   stripBestieListTurnHint,
@@ -81,6 +85,10 @@ import {
 import { messageLooksLikeBestieListRequest } from "./parseBestieUserListIntent";
 import { messageLooksLikeBestieScratchRequest } from "./parseBestieUserScratchIntent";
 import { BestieNudgeBanner } from "./BestieNudgeBanner";
+import {
+  requestBestieRhsOpen,
+  subscribeBestieRhsOpen,
+} from "./bestieRhsOpenRequest";
 import { BestieDmCategorySheet, BestieDmRhsPanel } from "./BestieDmRhsPanel";
 import { BestieDmCoffeeSheet } from "./BestieDmCoffeeSheet";
 import { BestieDmJobsSheet } from "./BestieDmJobsSheet";
@@ -189,6 +197,12 @@ function EmptyBestie({ onRequestClose }: { onRequestClose?: () => void }) {
     null,
   );
   const [adding, setAdding] = React.useState(false);
+  React.useEffect(() => {
+    return subscribeBestieRhsOpen((kind) => {
+      setAdding(false);
+      setActiveKind(kind);
+    });
+  }, []);
   const scope =
     bestie.ownerPubkey && bestie.relayUrl
       ? {
@@ -960,8 +974,17 @@ export function BestiePopover({
       </div>
 
       <BestieNudgeBanner
-        onOpenList={() => {
+        onDismissItems={(itemIds) => {
+          if (!sessionScope) return;
+          dismissBestieReminderItemsForScope(sessionScope, itemIds);
+        }}
+        onOpenReminders={() => {
+          requestBestieRhsOpen("reminder");
           void openSessionThread();
+        }}
+        onSnoozeItems={(itemIds, deltaSeconds) => {
+          if (!sessionScope) return;
+          snoozeBestieListItemsForScope(sessionScope, itemIds, deltaSeconds);
         }}
       />
 

@@ -64,31 +64,38 @@ export function evaluateBestieWake(
     };
   }
 
-  const parts: string[] = [];
-  if (due.length > 0) {
-    parts.push(
+  const dueFocused = due.length > 0;
+  let body: string;
+  let title: string;
+  if (dueFocused) {
+    // Title is just "Reminder"; body is the thing being reminded (no "reminder" word).
+    title = due.length === 1 ? "Reminder" : "Reminders";
+    body =
       due.length === 1
-        ? `Reminder: ${due[0].text}`
-        : `${due.length} reminders are due`,
-    );
-  }
-  if (todos.length > 0) {
-    parts.push(
+        ? due[0].text
+        : due.map((item) => item.text).join(" · ");
+    if (todos.length > 0) {
+      body +=
+        todos.length === 1
+          ? ` · Open to-do: ${todos[0].text}`
+          : ` · ${todos.length} open to-dos`;
+    }
+  } else {
+    title = "Assistant check-in";
+    body =
       todos.length === 1
         ? `Open to-do: ${todos[0].text}`
-        : `${todos.length} open to-dos`,
-    );
+        : `${todos.length} open to-dos`;
   }
 
-  const dueFocused = due.length > 0;
   return {
     nudge: {
-      body: parts.join(" · "),
+      body,
       createdAt: nowSeconds,
       id,
       itemIds,
       reason: dueFocused ? "due-reminder" : "check-in",
-      title: dueFocused ? "Reminder due" : "Assistant check-in",
+      title,
     },
     shouldWakeAgent: true,
   };

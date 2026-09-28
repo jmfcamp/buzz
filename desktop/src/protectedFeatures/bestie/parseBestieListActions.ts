@@ -1,4 +1,8 @@
-import type { BestieListAddInput, BestieListKind } from "./bestieListTypes";
+import type {
+  BestieListAddInput,
+  BestieListKind,
+  BestieReminderRepeat,
+} from "./bestieListTypes";
 
 /**
  * Structured Bestie list mutations embedded in agent chat.
@@ -26,6 +30,21 @@ const FENCE_RE = /```bestie-list\s*\r?\n([\s\S]*?)```/gi;
 
 function isKind(value: unknown): value is BestieListKind {
   return value === "todo" || value === "reminder";
+}
+
+function parseRepeat(value: unknown): BestieReminderRepeat | null {
+  if (typeof value !== "object" || value === null) return null;
+  const record = value as Record<string, unknown>;
+  if (record.kind === "daily") return { kind: "daily" };
+  if (record.kind === "weekly") {
+    const weekday =
+      typeof record.weekday === "number" && Number.isFinite(record.weekday)
+        ? Math.floor(record.weekday)
+        : null;
+    if (weekday == null) return null;
+    return { kind: "weekly", weekday: ((weekday % 7) + 7) % 7 };
+  }
+  return null;
 }
 
 function coerceDueAt(value: unknown): number | null {
@@ -56,6 +75,7 @@ function parseAddItems(value: unknown): BestieListAddInput[] {
     items.push({
       dueAt: record.kind === "reminder" ? dueAt : null,
       kind: record.kind,
+      repeat: record.kind === "reminder" ? parseRepeat(record.repeat) : null,
       text,
     });
   }

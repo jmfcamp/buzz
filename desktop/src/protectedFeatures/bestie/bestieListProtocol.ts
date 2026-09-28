@@ -30,7 +30,7 @@ Ops:
 
 If the user did not give a due time for a reminder, omit dueAt (or set null). Confirm briefly in natural language in addition to the fence.
 
-The desktop may already apply the user's natural-language add before your reply. Prefer acknowledging without a second add when the list already shows the item. If you still emit add, use the same text; the client dedupes identical open items.
+The desktop may already apply the user's natural-language add before your reply. Prefer acknowledging without a second add when the list already shows the item. If you still emit add, put the task text only (due time in dueAt, not in text); the client dedupes by core text + due window and prefers the row with dueAt.
 
 For scheduled *jobs* (auto-run a prompt later), follow the Bestie job confirmation protocol (clarify → exact plan → user approve → fenced bestie-job add with confirmed:true). Do not treat jobs like instant reminders.`;
 

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { coreListTextForDedupe } from "./bestieListStorage.ts";
 import {
   __resetBestieListStoreForTests,
   applyBestieListActionsFromAgentMessage,
@@ -126,4 +127,50 @@ test("NL user add + agent fence with same text creates one reminder", () => {
   assert.equal(fromAgent, 0);
   assert.equal(getBestieListState(SCOPE).items.length, 1);
   assert.equal(getBestieListState(SCOPE).items[0].text, "water plants");
+});
+
+test("NL + agent fence different wording still one reminder (screenshot)", () => {
+  const memory = new Map();
+  globalThis.window = {
+    localStorage: {
+      getItem: (key) => memory.get(key) ?? null,
+      removeItem: (key) => {
+        memory.delete(key);
+      },
+      setItem: (key, value) => {
+        memory.set(key, String(value));
+      },
+    },
+  };
+  __resetBestieListStoreForTests();
+
+  // Simulate NL already applied with clean text + dueAt.
+  const nowMs = Date.parse("2026-09-27T20:00:00.000-07:00");
+  const dueAt = Math.floor(Date.parse("2026-09-27T20:10:00.000-07:00") / 1000);
+  const fromNl = applyBestieListIntentFromUserMessage(
+    SCOPE,
+    "user-nightly",
+    "Remind me to finish the nightly reports at 8:10pm",
+    nowMs,
+  );
+  assert.equal(fromNl, 1);
+  const nlItem = getBestieListState(SCOPE).items[0];
+  assert.equal(nlItem.kind, "reminder");
+  assert.match(nlItem.text.toLowerCase(), /finish the nightly reports/);
+  assert.ok(nlItem.dueAt);
+
+  // Agent fence uses different text and omits dueAt — must not create a second row.
+  const fence = `\`\`\`bestie-list
+{"op":"add","items":[{"kind":"reminder","text":"8:10 to finish the nightly reports"}]}
+\`\`\``;
+  const fromAgent = applyBestieListActionsFromAgentMessage(
+    SCOPE,
+    "agent-nightly",
+    fence,
+  );
+  assert.equal(fromAgent, 0);
+  assert.equal(getBestieListState(SCOPE).items.length, 1);
+  const kept = getBestieListState(SCOPE).items[0];
+  assert.ok(kept.dueAt);
+  assert.equal(coreListTextForDedupe(kept.text), "finish the nightly reports");
 });

@@ -11,6 +11,7 @@ import type {
   BestieListScope,
   BestieListState,
   BestieListTodoUpdateInput,
+  BestieReminderRepeat,
 } from "./bestieListTypes";
 
 /** Local YYYY-MM-DD for todo day grouping. */
@@ -39,6 +40,21 @@ function isFiniteNonNegative(value: unknown): value is number {
 
 function isKind(value: unknown): value is BestieListKind {
   return value === "todo" || value === "reminder";
+}
+
+function parseReminderRepeat(value: unknown): BestieReminderRepeat | null {
+  if (typeof value !== "object" || value === null) return null;
+  const record = value as Record<string, unknown>;
+  if (record.kind === "daily") return { kind: "daily" };
+  if (record.kind === "weekly") {
+    const weekday =
+      typeof record.weekday === "number" && Number.isFinite(record.weekday)
+        ? Math.floor(record.weekday)
+        : null;
+    if (weekday == null) return null;
+    return { kind: "weekly", weekday: ((weekday % 7) + 7) % 7 };
+  }
+  return null;
 }
 
 /** Shared empty snapshot — stable Object.is for useSyncExternalStore. */
@@ -88,12 +104,15 @@ export function parseBestieListItem(value: unknown): BestieListItem | null {
       : record.kind === "todo"
         ? localDayKeyFromSeconds(record.createdAt)
         : null;
+  const repeat =
+    record.kind === "reminder" ? parseReminderRepeat(record.repeat) : null;
   return {
     createdAt: record.createdAt,
     dayKey,
     dueAt,
     id: record.id,
     kind: record.kind,
+    repeat,
     sortOrder,
     sourceMessageId,
     starred,
@@ -172,13 +191,36 @@ export function createBestieListItemId(): string {
 export const BESTIE_LIST_DUE_DEDUPE_WINDOW_SECONDS = 120;
 
 /**
- * Recent open items with the same kind+text count as duplicates even when
- * dueAt differs (NL client path vs agent fence often disagree slightly).
+ * Recent open items with the same kind+core-text count as duplicates even when
+ * dueAt / wording differs (NL client path vs agent fence often disagree).
  */
 export const BESTIE_LIST_RECENT_DEDUPE_SECONDS = 600;
 
 function normalizeListText(text: string): string {
   return text.trim().toLowerCase();
+}
+
+/**
+ * Strip clock / relative-time phrases so NL and agent fence wording compare
+ * equal. Example: "8:10 to finish the nightly reports" → "finish the nightly
+ * reports" (same core as "Finish the nightly reports").
+ */
+export function coreListTextForDedupe(text: string): string {
+  let s = normalizeListText(text);
+  if (!s) return "";
+  s = s.replace(
+    /\b(?:in|after)\s+\d+\s*(?:minutes?|mins?|m|hours?|hrs?|h|days?|d)\b/g,
+    " ",
+  );
+  s = s.replace(/\b(?:at|by)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/g, " ");
+  // Leading bare clock: "8:10 to finish…" / "8:10pm finish…"
+  s = s.replace(/^\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*(?:to\s+|for\s+)?/, "");
+  s = s.replace(/\b\d{1,2}:\d{2}\s*(?:am|pm)?\b/g, " ");
+  s = s.replace(/\b\d{1,2}\s*(?:am|pm)\b/g, " ");
+  s = s.replace(/\b(?:tomorrow|today)\b/g, " ");
+  s = s.replace(/\s+/g, " ").trim();
+  s = s.replace(/^(?:to|for)\s+/, "");
+  return s.trim();
 }
 
 function dueAtsMatch(
@@ -190,28 +232,127 @@ function dueAtsMatch(
   return Math.abs(existing - incoming) <= BESTIE_LIST_DUE_DEDUPE_WINDOW_SECONDS;
 }
 
+/** True when both dues are set and within the due dedupe window. */
+function dueAtsClose(
+  existing: number | null,
+  incoming: number | null,
+): boolean {
+  if (existing == null || incoming == null) return false;
+  return Math.abs(existing - incoming) <= BESTIE_LIST_DUE_DEDUPE_WINDOW_SECONDS;
+}
+
+/**
+ * Similar reminder wording after stripping times: exact core, containment, or
+ * strong token overlap on the shorter side.
+ */
+export function listTextsSimilarForDedupe(a: string, b: string): boolean {
+  const ca = coreListTextForDedupe(a);
+  const cb = coreListTextForDedupe(b);
+  if (!ca || !cb) return false;
+  if (ca === cb) return true;
+  if (ca.includes(cb) || cb.includes(ca)) return true;
+  const tokensA = new Set(ca.split(/\s+/).filter((t) => t.length > 2));
+  const tokensB = new Set(cb.split(/\s+/).filter((t) => t.length > 2));
+  if (tokensA.size === 0 || tokensB.size === 0) return false;
+  const [smaller, larger] =
+    tokensA.size <= tokensB.size ? [tokensA, tokensB] : [tokensB, tokensA];
+  let hits = 0;
+  for (const token of smaller) {
+    if (larger.has(token)) hits += 1;
+  }
+  return hits >= Math.ceil(smaller.size * 0.75) && hits >= 1;
+}
+
+/** Prefer wording that is not padded with clock phrases (higher is better). */
+function listTextQualityScore(text: string): number {
+  const full = normalizeListText(text);
+  const core = coreListTextForDedupe(text);
+  let score = 0;
+  if (full === core) score += 100;
+  // Shorter display text wins among equally clean cores.
+  score += Math.max(0, 80 - full.length);
+  return score;
+}
+
 /**
  * Find an open item that would duplicate this add (NL + agent fence case).
- * Matches on kind + normalized text, then due window or recent creation.
+ * Matches on kind + core text (time phrases stripped), then due window or
+ * recent creation; or close dueAt + similar wording.
  */
 export function findDuplicateBestieListItem(
   state: BestieListState,
   input: BestieListAddInput,
   nowSeconds = Math.floor(Date.now() / 1000),
 ): BestieListItem | null {
-  const needle = normalizeListText(input.text);
-  if (!needle) return null;
+  const needleCore = coreListTextForDedupe(input.text);
+  if (!needleCore) return null;
   const incomingDue = input.kind === "reminder" ? (input.dueAt ?? null) : null;
   for (const item of state.items) {
     if (item.status !== "open") continue;
     if (item.kind !== input.kind) continue;
-    if (normalizeListText(item.text) !== needle) continue;
-    if (dueAtsMatch(item.dueAt, incomingDue)) return item;
-    if (nowSeconds - item.createdAt <= BESTIE_LIST_RECENT_DEDUPE_SECONDS) {
+    const itemCore = coreListTextForDedupe(item.text);
+    if (!itemCore) continue;
+    const coresEqual = itemCore === needleCore;
+    const similar = listTextsSimilarForDedupe(item.text, input.text);
+    const recent =
+      nowSeconds - item.createdAt <= BESTIE_LIST_RECENT_DEDUPE_SECONDS;
+
+    // Same core intent: due window (incl. both null) or recent open item.
+    if (coresEqual && (dueAtsMatch(item.dueAt, incomingDue) || recent)) {
+      return item;
+    }
+    // Both have due times close together and wording is similar.
+    if (dueAtsClose(item.dueAt, incomingDue) && similar) {
+      return item;
+    }
+    // Reminder NL vs fence: one side has dueAt, texts similar, recent window.
+    if (
+      input.kind === "reminder" &&
+      similar &&
+      recent &&
+      (item.dueAt != null || incomingDue != null)
+    ) {
       return item;
     }
   }
   return null;
+}
+
+/**
+ * When NL and agent fence both add the same intent, keep one row. Prefer the
+ * dueAt (fill null from incoming) and the cleaner display text.
+ */
+function mergeDuplicateBestieListAdd(
+  state: BestieListState,
+  existing: BestieListItem,
+  input: BestieListAddInput,
+  nowSeconds: number,
+): BestieListState {
+  const incomingText = input.text.trim();
+  const incomingDue = input.kind === "reminder" ? (input.dueAt ?? null) : null;
+  const nextDue =
+    existing.dueAt == null && incomingDue != null
+      ? incomingDue
+      : existing.dueAt;
+  const preferIncomingText =
+    listTextQualityScore(incomingText) > listTextQualityScore(existing.text);
+  const nextText = preferIncomingText ? incomingText : existing.text;
+  if (nextDue === existing.dueAt && nextText === existing.text) {
+    return state;
+  }
+  return {
+    ...state,
+    items: state.items.map((item) =>
+      item.id === existing.id
+        ? {
+            ...item,
+            dueAt: nextDue,
+            text: nextText,
+            updatedAt: nowSeconds,
+          }
+        : item,
+    ),
+  };
 }
 
 export function addBestieListItem(
@@ -223,8 +364,9 @@ export function addBestieListItem(
   if (!text) return state;
   // One user ask must not create two rows (NL + agent fence use different
   // message ids, so processedMessageIds alone is not enough).
-  if (findDuplicateBestieListItem(state, input, nowSeconds)) {
-    return state;
+  const duplicate = findDuplicateBestieListItem(state, input, nowSeconds);
+  if (duplicate) {
+    return mergeDuplicateBestieListAdd(state, duplicate, input, nowSeconds);
   }
   const minOrder = state.items.reduce(
     (min, item) => Math.min(min, item.sortOrder),
@@ -246,6 +388,8 @@ export function addBestieListItem(
     dueAt: input.kind === "reminder" ? (input.dueAt ?? null) : null,
     id: createBestieListItemId(),
     kind: input.kind,
+    repeat:
+      input.kind === "reminder" ? (input.repeat ?? null) : null,
     sortOrder,
     sourceMessageId: input.sourceMessageId ?? null,
     starred: input.kind === "todo" ? input.starred === true : false,
@@ -267,9 +411,25 @@ export function updateBestieListItemStatus(
 ): BestieListState {
   return {
     ...state,
-    items: state.items.map((item) =>
-      item.id === id ? { ...item, status, updatedAt: nowSeconds } : item,
-    ),
+    items: state.items.map((item) => {
+      if (item.id !== id) return item;
+      // Completing a recurring reminder advances to the next occurrence.
+      if (
+        status === "done" &&
+        item.kind === "reminder" &&
+        item.repeat != null &&
+        item.dueAt != null
+      ) {
+        const from = Math.max(item.dueAt, nowSeconds);
+        return {
+          ...item,
+          dueAt: nextBestieReminderDueAt(from, item.repeat),
+          status: "open",
+          updatedAt: nowSeconds,
+        };
+      }
+      return { ...item, status, updatedAt: nowSeconds };
+    }),
   };
 }
 
@@ -400,4 +560,96 @@ export function reorderBestieTodos(
     };
   });
   return { ...state, items };
+}
+
+/** Chip label: One-off vs Daily / Weekly. */
+export function presentBestieReminderRepeat(
+  repeat: BestieReminderRepeat | null | undefined,
+): string {
+  if (!repeat) return "One-off";
+  if (repeat.kind === "daily") return "Daily";
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  return `Weekly · ${days[((repeat.weekday % 7) + 7) % 7] ?? "Sun"}`;
+}
+
+/** Friendly next due for reminder rows (local date + time). */
+export function formatBestieReminderDueAt(dueAt: number): string {
+  const date = new Date(dueAt * 1000);
+  if (!Number.isFinite(date.getTime())) return "";
+  return date.toLocaleString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+/** Next occurrence after `fromDueAt` for a repeating reminder. */
+export function nextBestieReminderDueAt(
+  fromDueAt: number,
+  repeat: BestieReminderRepeat,
+): number {
+  const base = new Date(fromDueAt * 1000);
+  if (repeat.kind === "daily") {
+    base.setDate(base.getDate() + 1);
+    return Math.floor(base.getTime() / 1000);
+  }
+  // Weekly: advance at least one day, then to the target weekday.
+  base.setDate(base.getDate() + 1);
+  while (base.getDay() !== (((repeat.weekday % 7) + 7) % 7)) {
+    base.setDate(base.getDate() + 1);
+  }
+  return Math.floor(base.getTime() / 1000);
+}
+
+/**
+ * Push dueAt forward by deltaSeconds from now (snooze). Open reminders only.
+ * Returns how many items were updated.
+ */
+export function snoozeBestieListItems(
+  state: BestieListState,
+  ids: string[],
+  deltaSeconds: number,
+  nowSeconds = Math.floor(Date.now() / 1000),
+): BestieListState {
+  if (deltaSeconds <= 0 || ids.length === 0) return state;
+  const idSet = new Set(ids);
+  let changed = false;
+  const nextDue = nowSeconds + Math.floor(deltaSeconds);
+  const items = state.items.map((item) => {
+    if (!idSet.has(item.id)) return item;
+    if (item.kind !== "reminder" || item.status !== "open") return item;
+    changed = true;
+    return { ...item, dueAt: nextDue, updatedAt: nowSeconds };
+  });
+  return changed ? { ...state, items } : state;
+}
+
+/**
+ * Dismiss due reminders: one-off → done; recurring → advance next dueAt.
+ */
+export function dismissBestieReminderItems(
+  state: BestieListState,
+  ids: string[],
+  nowSeconds = Math.floor(Date.now() / 1000),
+): BestieListState {
+  if (ids.length === 0) return state;
+  const idSet = new Set(ids);
+  let changed = false;
+  const items = state.items.map((item) => {
+    if (!idSet.has(item.id)) return item;
+    if (item.kind !== "reminder" || item.status !== "open") return item;
+    changed = true;
+    if (item.repeat != null && item.dueAt != null) {
+      const from = Math.max(item.dueAt, nowSeconds);
+      return {
+        ...item,
+        dueAt: nextBestieReminderDueAt(from, item.repeat),
+        updatedAt: nowSeconds,
+      };
+    }
+    return { ...item, status: "done" as const, updatedAt: nowSeconds };
+  });
+  return changed ? { ...state, items } : state;
 }

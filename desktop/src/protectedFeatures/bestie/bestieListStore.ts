@@ -4,11 +4,13 @@ import { bestieOwnerScopeKey } from "./bestieOwnerScope";
 
 import {
   addBestieListItem,
+  dismissBestieReminderItems,
   EMPTY_BESTIE_LIST_STATE,
   markBestieListMessageProcessed,
   readBestieListState,
   removeBestieListItem,
   reorderBestieTodos,
+  snoozeBestieListItems,
   toggleBestieListItemStarred,
   updateBestieListItem,
   updateBestieListItemStatus,
@@ -90,6 +92,24 @@ export function removeBestieListItemForScope(
   id: string,
 ): BestieListState {
   return commit(scope, removeBestieListItem(loadState(scope), id));
+}
+
+export function snoozeBestieListItemsForScope(
+  scope: BestieListScope,
+  ids: string[],
+  deltaSeconds: number,
+): BestieListState {
+  return commit(
+    scope,
+    snoozeBestieListItems(loadState(scope), ids, deltaSeconds),
+  );
+}
+
+export function dismissBestieReminderItemsForScope(
+  scope: BestieListScope,
+  ids: string[],
+): BestieListState {
+  return commit(scope, dismissBestieReminderItems(loadState(scope), ids));
 }
 
 export function toggleBestieListItemStarredForScope(

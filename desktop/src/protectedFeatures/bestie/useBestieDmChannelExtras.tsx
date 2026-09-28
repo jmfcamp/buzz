@@ -2,6 +2,7 @@ import { ListTodo, Plus } from "lucide-react";
 import * as React from "react";
 
 import { findBestieDmChannel } from "./filterBestieDmChannels";
+import { subscribeBestieRhsOpen } from "./bestieRhsOpenRequest";
 import { BestieDmCategorySheet, BestieDmRhsPanel } from "./BestieDmRhsPanel";
 import { BestieDmCoffeeSheet } from "./BestieDmCoffeeSheet";
 import { BestieDmJobsSheet } from "./BestieDmJobsSheet";
@@ -101,6 +102,15 @@ export function useBestieDmChannelExtras(
     setAdding(false);
     setActiveKind((current) => (current === kind ? null : kind));
   }, []);
+
+  React.useEffect(() => {
+    if (!isBestieDm) return;
+    return subscribeBestieRhsOpen((kind) => {
+      setPanelOpen(true);
+      setAdding(false);
+      setActiveKind(kind);
+    });
+  }, [isBestieDm]);
 
   const onCloseIdleAuxiliaryPanel = React.useCallback(() => {
     // Slide close → back to fixed category list (column stays open).

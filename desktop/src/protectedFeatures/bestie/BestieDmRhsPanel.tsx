@@ -10,10 +10,15 @@ import {
   setBestieListItemStatusForScope,
   useBestieList,
 } from "./bestieListStore";
+import {
+  formatBestieReminderDueAt,
+  presentBestieReminderRepeat,
+} from "./bestieListStorage";
 import type {
   BestieListItem,
   BestieListKind,
   BestieListScope,
+  BestieReminderRepeat,
 } from "./bestieListTypes";
 import {
   dueAtFromDatetimeLocal,
@@ -128,6 +133,7 @@ function ListRow({
   onReopen: () => void;
 }) {
   const done = item.status === "done";
+  const isReminder = item.kind === "reminder";
   return (
     <div
       className={cn(
@@ -154,20 +160,35 @@ function ListRow({
               "min-w-0 flex-1 text-sm leading-snug",
               done && "line-through text-muted-foreground",
             )}
+            data-testid={
+              isReminder ? `bestie-reminder-text-${item.id}` : undefined
+            }
           >
             {item.text}
           </p>
-          {item.kind === "reminder" && item.dueAt != null && !done ? (
+          {isReminder && item.dueAt != null && !done ? (
             <BestieDueCountdownChip
               dueAt={item.dueAt}
               testId={`bestie-due-chip-${item.id}`}
             />
           ) : null}
         </div>
-        {item.kind === "reminder" && item.dueAt != null ? (
-          <p className="mt-0.5 text-2xs text-muted-foreground">
-            Due {new Date(item.dueAt * 1000).toLocaleString()}
-          </p>
+        {isReminder ? (
+          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-2xs text-muted-foreground">
+            <span
+              className="inline-flex items-center rounded-full border border-border/70 bg-background/70 px-1.5 py-0.5 font-medium uppercase tracking-wide text-[10px] text-muted-foreground"
+              data-testid={`bestie-reminder-repeat-${item.id}`}
+            >
+              {presentBestieReminderRepeat(item.repeat)}
+            </span>
+            {item.dueAt != null ? (
+              <span data-testid={`bestie-reminder-due-${item.id}`}>
+                Next {formatBestieReminderDueAt(item.dueAt)}
+              </span>
+            ) : (
+              <span>No due time</span>
+            )}
+          </div>
         ) : null}
       </div>
       <Button
@@ -192,12 +213,17 @@ function AddRow({
   testId,
 }: {
   kind: BestieListKind;
-  onAdd: (text: string, dueAt: number | null) => void;
+  onAdd: (
+    text: string,
+    dueAt: number | null,
+    repeat: BestieReminderRepeat | null,
+  ) => void;
   placeholder: string;
   testId: string;
 }) {
   const [text, setText] = React.useState("");
   const [dueLocal, setDueLocal] = React.useState("");
+  const [repeatKind, setRepeatKind] = React.useState<"once" | "daily">("once");
   const inputRef = React.useRef<HTMLInputElement>(null);
   React.useEffect(() => {
     inputRef.current?.focus();
@@ -205,12 +231,16 @@ function AddRow({
   const submit = () => {
     const trimmed = text.trim();
     if (!trimmed) return;
+    const repeat: BestieReminderRepeat | null =
+      kind === "reminder" && repeatKind === "daily" ? { kind: "daily" } : null;
     onAdd(
       trimmed,
       kind === "reminder" ? dueAtFromDatetimeLocal(dueLocal) : null,
+      repeat,
     );
     setText("");
     setDueLocal("");
+    setRepeatKind("once");
   };
   return (
     <div className="flex flex-col gap-1.5" data-testid={testId}>
@@ -228,6 +258,7 @@ function AddRow({
               event.preventDefault();
               setText("");
               setDueLocal("");
+              setRepeatKind("once");
             }
           }}
           placeholder={placeholder}
@@ -247,28 +278,42 @@ function AddRow({
         </Button>
       </div>
       {kind === "reminder" ? (
-        <div className="flex items-center gap-1.5">
-          <Input
-            aria-label="Due date and time"
-            className="h-8 text-sm"
-            data-testid="bestie-add-reminder-due"
-            onChange={(event) => setDueLocal(event.target.value)}
-            type="datetime-local"
-            value={dueLocal}
-          />
-          {dueLocal ? (
-            <Button
-              aria-label="Clear due time"
-              className="h-8 shrink-0 px-2 text-xs"
-              data-testid="bestie-add-reminder-due-clear"
-              onClick={() => setDueLocal("")}
-              type="button"
-              variant="ghost"
-            >
-              Clear
-            </Button>
-          ) : null}
-        </div>
+        <>
+          <div className="flex items-center gap-1.5">
+            <Input
+              aria-label="Due date and time"
+              className="h-8 text-sm"
+              data-testid="bestie-add-reminder-due"
+              onChange={(event) => setDueLocal(event.target.value)}
+              type="datetime-local"
+              value={dueLocal}
+            />
+            {dueLocal ? (
+              <Button
+                aria-label="Clear due time"
+                className="h-8 shrink-0 px-2 text-xs"
+                data-testid="bestie-add-reminder-due-clear"
+                onClick={() => setDueLocal("")}
+                type="button"
+                variant="ghost"
+              >
+                Clear
+              </Button>
+            ) : null}
+          </div>
+          <select
+            aria-label="Reminder repeat"
+            className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+            data-testid="bestie-add-reminder-repeat"
+            onChange={(event) =>
+              setRepeatKind(event.target.value as "once" | "daily")
+            }
+            value={repeatKind}
+          >
+            <option value="once">One-off</option>
+            <option value="daily">Daily</option>
+          </select>
+        </>
       ) : null}
     </div>
   );
@@ -416,8 +461,8 @@ export function BestieDmCategorySheet({
       {adding ? (
         <AddRow
           kind={kind}
-          onAdd={(text, dueAt) =>
-            addBestieListItemForScope(scope, { dueAt, kind, text })
+          onAdd={(text, dueAt, repeat) =>
+            addBestieListItemForScope(scope, { dueAt, kind, repeat, text })
           }
           placeholder={placeholder}
           testId={addTestId}

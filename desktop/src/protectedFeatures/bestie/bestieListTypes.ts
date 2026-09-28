@@ -1,6 +1,11 @@
 /** Kind of Bestie list item shown in the Bestie DM RHS. */
 export type BestieListKind = "todo" | "reminder";
 
+/** Reminder recurrence. Null / omitted = one-off. */
+export type BestieReminderRepeat =
+  | { kind: "daily" }
+  | { kind: "weekly"; weekday: number };
+
 export type BestieListItem = {
   createdAt: number;
   /**
@@ -12,6 +17,8 @@ export type BestieListItem = {
   dueAt: number | null;
   id: string;
   kind: BestieListKind;
+  /** Reminders only — null means one-off. */
+  repeat: BestieReminderRepeat | null;
   /** Lower sorts first within a group; starred block uses its own order. */
   sortOrder: number;
   /** Message id that created this item (agent-add path), when known. */
@@ -45,6 +52,7 @@ export type BestieListAddInput = {
   dayKey?: string | null;
   dueAt?: number | null;
   kind: BestieListKind;
+  repeat?: BestieReminderRepeat | null;
   sortOrder?: number;
   sourceMessageId?: string | null;
   starred?: boolean;
