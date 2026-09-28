@@ -1147,6 +1147,9 @@ export function AgentInstanceEditDialog({
                 runtimeTouched.current ? undefined : configSurfaceQuery.data
               }
               disabled={isSaving}
+              model={model}
+              provider={effectiveProvider}
+              selectedRuntime={prospectiveRuntime}
               value={
                 effortTouched.current
                   ? effortLevel

@@ -1,20 +1,36 @@
 import * as React from "react";
 
 /**
- * Persisted Assistant popover size (width + max height). Drag handles in the
+ * Persisted Assistant popover size (width + height). Drag handles in the
  * popover chrome write here; defaults are intentionally taller/wider than the
  * old fixed w-80 / 32rem so chat has room above Lists.
+ *
+ * `maxHeightPx` is the stored field name (compat); it is applied as the
+ * popover's explicit height so dragging taller than content leaves empty
+ * space in the chat area.
  */
 export const BESTIE_POPOVER_SIZE_STORAGE_KEY = "buzz-bestie-popover-size.v1";
 
 /** Default width (px) — was Tailwind w-80 = 320. */
 export const BESTIE_POPOVER_DEFAULT_WIDTH_PX = 448;
-/** Default max height (px) — was 32rem = 512. */
+/** Default height (px) — was 32rem = 512. */
 export const BESTIE_POPOVER_DEFAULT_MAX_HEIGHT_PX = 720;
 
 export const BESTIE_POPOVER_MIN_WIDTH_PX = 320;
 export const BESTIE_POPOVER_MAX_WIDTH_PX = 720;
-export const BESTIE_POPOVER_MIN_MAX_HEIGHT_PX = 420;
+
+/**
+ * Absolute floor when Lists are collapsed: header + visible message area +
+ * composer must stay on screen.
+ */
+export const BESTIE_POPOVER_MIN_HEIGHT_CHAT_PX = 360;
+/**
+ * Floor when Lists are expanded: chat/reminders stay visible — cannot collapse
+ * past seeing the Lists section (category rows / reminders).
+ */
+export const BESTIE_POPOVER_MIN_HEIGHT_WITH_LISTS_PX = 520;
+/** @deprecated Prefer BESTIE_POPOVER_MIN_HEIGHT_CHAT_PX; kept for older imports/tests. */
+export const BESTIE_POPOVER_MIN_MAX_HEIGHT_PX = BESTIE_POPOVER_MIN_HEIGHT_CHAT_PX;
 export const BESTIE_POPOVER_MAX_MAX_HEIGHT_PX = 960;
 
 export type BestiePopoverSize = {
@@ -33,11 +49,21 @@ function clamp(n: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, Math.round(n)));
 }
 
-function normalizeSize(input: StoredSize | null | undefined): BestiePopoverSize {
+/** Min height for the current Lists collapse state. */
+export function bestiePopoverMinHeightPx(listsCollapsed: boolean): number {
+  return listsCollapsed
+    ? BESTIE_POPOVER_MIN_HEIGHT_CHAT_PX
+    : BESTIE_POPOVER_MIN_HEIGHT_WITH_LISTS_PX;
+}
+
+function normalizeSize(
+  input: StoredSize | null | undefined,
+  minHeightPx: number = BESTIE_POPOVER_MIN_HEIGHT_CHAT_PX,
+): BestiePopoverSize {
   return {
     maxHeightPx: clamp(
       input?.maxHeightPx ?? BESTIE_POPOVER_DEFAULT_MAX_HEIGHT_PX,
-      BESTIE_POPOVER_MIN_MAX_HEIGHT_PX,
+      minHeightPx,
       BESTIE_POPOVER_MAX_MAX_HEIGHT_PX,
     ),
     widthPx: clamp(
@@ -80,11 +106,16 @@ function emit(): void {
   for (const listener of listeners) listener();
 }
 
-/** Replace width and/or max height; persists to localStorage. */
+/**
+ * Replace width and/or height; persists to localStorage.
+ * Pass `minHeightPx` while dragging so Lists-open cannot collapse past reminders.
+ */
 export function setBestiePopoverSize(
   patch: Partial<BestiePopoverSize>,
+  options?: { minHeightPx?: number },
 ): BestiePopoverSize {
-  size = normalizeSize({ ...size, ...patch });
+  const minHeightPx = options?.minHeightPx ?? BESTIE_POPOVER_MIN_HEIGHT_CHAT_PX;
+  size = normalizeSize({ ...size, ...patch }, minHeightPx);
   try {
     window.localStorage.setItem(
       BESTIE_POPOVER_SIZE_STORAGE_KEY,

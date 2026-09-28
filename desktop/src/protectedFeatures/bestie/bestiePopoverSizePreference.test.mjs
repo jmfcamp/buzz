@@ -5,7 +5,10 @@ import {
   __resetBestiePopoverSizeForTests,
   BESTIE_POPOVER_DEFAULT_MAX_HEIGHT_PX,
   BESTIE_POPOVER_DEFAULT_WIDTH_PX,
+  BESTIE_POPOVER_MIN_HEIGHT_CHAT_PX,
+  BESTIE_POPOVER_MIN_HEIGHT_WITH_LISTS_PX,
   BESTIE_POPOVER_MIN_WIDTH_PX,
+  bestiePopoverMinHeightPx,
   setBestiePopoverSize,
 } from "./bestiePopoverSizePreference.ts";
 
@@ -42,4 +45,25 @@ test("setBestiePopoverSize clamps and persists", () => {
   const again = setBestiePopoverSize({ widthPx: 500 });
   assert.equal(again.widthPx, 500);
   assert.equal(again.maxHeightPx, 960);
+});
+
+test("Lists-open min height is higher than chat-only min", () => {
+  assert.equal(bestiePopoverMinHeightPx(true), BESTIE_POPOVER_MIN_HEIGHT_CHAT_PX);
+  assert.equal(
+    bestiePopoverMinHeightPx(false),
+    BESTIE_POPOVER_MIN_HEIGHT_WITH_LISTS_PX,
+  );
+  assert.ok(
+    BESTIE_POPOVER_MIN_HEIGHT_WITH_LISTS_PX > BESTIE_POPOVER_MIN_HEIGHT_CHAT_PX,
+  );
+});
+
+test("setBestiePopoverSize respects Lists-open minHeightPx option", () => {
+  memoryWindow();
+  __resetBestiePopoverSizeForTests();
+  const next = setBestiePopoverSize(
+    { maxHeightPx: 200 },
+    { minHeightPx: BESTIE_POPOVER_MIN_HEIGHT_WITH_LISTS_PX },
+  );
+  assert.equal(next.maxHeightPx, BESTIE_POPOVER_MIN_HEIGHT_WITH_LISTS_PX);
 });
