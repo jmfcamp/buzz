@@ -3,7 +3,7 @@ import * as React from "react";
 /**
  * Device-level preference: whether the Assistant popover Lists section
  * (Reminders / To-dos / Jobs / Coffee / Threads / Scratch) starts collapsed.
- * Shared by no-agent and agent-assigned popovers. Defaults expanded.
+ * Shared by no-agent and agent-assigned popovers. Defaults collapsed.
  */
 const STORAGE_KEY = "buzz-bestie-popover-lists-collapsed.v1";
 
@@ -13,12 +13,13 @@ let listsCollapsed = readStoredPreference();
 
 function readStoredPreference(): boolean {
   if (typeof window === "undefined") {
-    return false;
+    return true;
   }
   try {
-    return window.localStorage.getItem(STORAGE_KEY) === "1";
+    const stored = window.localStorage.getItem(STORAGE_KEY);
+    return stored == null ? true : stored === "1";
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -34,7 +35,7 @@ function getSnapshot(): boolean {
 }
 
 function getServerSnapshot(): boolean {
-  return false;
+  return true;
 }
 
 /** Collapse or expand the popover Lists section. */

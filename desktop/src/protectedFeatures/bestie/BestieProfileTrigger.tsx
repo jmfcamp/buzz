@@ -38,8 +38,9 @@ import { useBestie } from "./useBestie";
  * above the app UI. Pinned / playground WKWebViews stay mounted and visible
  * underneath while idle — do not park on open. During edge drag we briefly
  * park natives and drive size from window pointermove/up (handle-only move
- * is eaten once the pointer crosses WKWebViews). Width handle stays inset
- * so the initial grab is on the React surface, not the native edge zone.
+ * is eaten once the pointer crosses WKWebViews). Width handle stays on the
+ * popover's right edge so the initial grab is on the React surface, not the
+ * native window edge zone.
  * Drag-resizable (width + height) with persisted size and min/max clamps.
  * Height is explicit (empty chat space OK). Min height keeps the message
  * area visible; when Lists are open, min also includes Lists/reminders.
@@ -158,8 +159,8 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
     const drag = dragRef.current;
     if (!drag) return;
     if (drag.kind === "width") {
-      // align=end: dragging the left edge leftward grows width.
-      const next = drag.startWidth + (drag.startX - event.clientX);
+      // The right edge follows the pointer: dragging right grows width.
+      const next = drag.startWidth + (event.clientX - drag.startX);
       setBestiePopoverSize({
         widthPx: Math.min(
           BESTIE_POPOVER_MAX_WIDTH_PX,
@@ -352,13 +353,14 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
           <BestiePopover onRequestClose={() => setOpen(false)} />
         </div>
         {/* Resize handles AFTER content so they stay above chat/Lists hit
-            targets. Width handle is inset (left-0) so the grab starts on the
-            React surface; window pointermove + brief native park keep tracking
-            after the pointer crosses WKWebViews.
-            w-auto + max-w-none override PopoverContent's default w-72. */}
+            targets. Keep width on the right edge so the grab starts on the
+            React surface instead of the native window edge zone; window
+            pointermove + brief native park keep tracking after the pointer
+            crosses WKWebViews. w-auto + max-w-none override PopoverContent's
+            default w-72. */}
         <div
           aria-label="Resize Assistant width"
-          className="absolute bottom-2 left-0 top-2 z-30 w-3 cursor-ew-resize touch-none rounded-full bg-transparent hover:bg-border/80"
+          className="absolute bottom-2 right-0 top-2 z-30 w-3 cursor-ew-resize touch-none rounded-full bg-transparent hover:bg-border/80"
           data-testid="bestie-popover-resize-width"
           onPointerDown={(event) => startDrag(event, "width")}
         />

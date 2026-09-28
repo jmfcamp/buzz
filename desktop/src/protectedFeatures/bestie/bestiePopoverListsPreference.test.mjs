@@ -7,7 +7,7 @@ import {
   useBestiePopoverListsCollapsed,
 } from "./bestiePopoverListsPreference.ts";
 
-test("setBestiePopoverListsCollapsed persists and defaults expanded", () => {
+test("setBestiePopoverListsCollapsed persists with collapsed default", () => {
   const memory = new Map();
   globalThis.window = {
     localStorage: {
