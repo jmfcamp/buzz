@@ -68,18 +68,12 @@ export function evaluateBestieWake(
   let body: string;
   let title: string;
   if (dueFocused) {
-    // Title is just "Reminder"; body is the thing being reminded (no "reminder" word).
+    // Title is just "Reminder"; body is exact reminder text only (never todo counts).
     title = due.length === 1 ? "Reminder" : "Reminders";
     body =
       due.length === 1
         ? due[0].text
         : due.map((item) => item.text).join(" · ");
-    if (todos.length > 0) {
-      body +=
-        todos.length === 1
-          ? ` · Open to-do: ${todos[0].text}`
-          : ` · ${todos.length} open to-dos`;
-    }
   } else {
     title = "Assistant check-in";
     body =
