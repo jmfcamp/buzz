@@ -21,9 +21,11 @@ import {
 import {
   isBestieCoffeePendingStale,
   messageLooksLikeBestieCoffeeTrigger,
+  messageLooksLikeBestieCompetingSystemTrigger,
 } from "./bestieCoffeeLive";
 import { startBestieCoffeeRunner } from "./bestieCoffeeRunner";
 import {
+  abandonBestieCoffeePendingForScope,
   applyBestieCoffeeAgentReply,
   beginBestieCoffeeRunForScope,
   clearBestieCoffeePendingRunForScope,
@@ -71,11 +73,16 @@ import {
   parseBestieThreadIdFromSummarizePrompt,
 } from "./bestieThreadProtocol";
 import {
+  abandonBestieThreadSummarizeForScope,
   applyBestieThreadSummarizeReply,
   clearBestieThreadSummarizeForScope,
   getBestieThreadState,
   setBestieThreadSummarizeTriggerForScope,
 } from "./bestieThreadStore";
+import {
+  isBestieThreadSummarizePendingStale,
+  messageLooksLikeBestieSummarizeCompetingTrigger,
+} from "./bestieThreadSummarizeLive";
 import { useBestie } from "./useBestie";
 
 /** Top-level DM marker for due-reminder notifications (never threaded). */
@@ -467,29 +474,75 @@ export function BestieWakeController() {
     coffeeHandlesRef.current?.tick();
   }, [coffeeState.pendingRun, coffeeState.lastScheduledDayKey, listScope, presenceStatus]);
 
-  // Drop abandoned pendingRun so Brew cannot stay disabled without ACP activity.
+  // Drop / finalize abandoned coffee + summarize pending (idle, hard timeout,
+  // or superseded by a newer system turn) so Brew/Summarize cannot stick on 👀.
   React.useEffect(() => {
-    if (!listScope || !coffeeState.pendingRun || !bestieChannel) return;
+    if (!listScope || !bestieChannel) return;
     const check = () => {
       const nowSeconds = Math.floor(Date.now() / 1000);
       const working = getAgentWorkingState(
         listScope.agentPubkey,
         bestieChannel.id,
       ).working;
+      const events = messagesQuery.data ?? [];
+      const ownerNorm = ownerPubkey ? normalizePubkey(ownerPubkey) : null;
+      let latestCoffeeCompeting: number | null = null;
+      let latestSummarizeCompeting: number | null = null;
+      if (ownerNorm) {
+        for (const event of events) {
+          if (typeof event.content !== "string") continue;
+          if (normalizePubkey(event.pubkey) !== ownerNorm) continue;
+          const createdAt =
+            typeof event.created_at === "number"
+              ? event.created_at
+              : nowSeconds;
+          if (messageLooksLikeBestieCompetingSystemTrigger(event.content)) {
+            if (
+              latestCoffeeCompeting == null ||
+              createdAt > latestCoffeeCompeting
+            ) {
+              latestCoffeeCompeting = createdAt;
+            }
+          }
+          if (messageLooksLikeBestieSummarizeCompetingTrigger(event.content)) {
+            if (
+              latestSummarizeCompeting == null ||
+              createdAt > latestSummarizeCompeting
+            ) {
+              latestSummarizeCompeting = createdAt;
+            }
+          }
+        }
+      }
+      const coffeePending = getBestieCoffeeState(listScope).pendingRun;
       if (
+        coffeePending &&
         isBestieCoffeePendingStale({
           agentWorkingOnBestieDm: working,
           nowSeconds,
-          pendingRun: coffeeState.pendingRun,
+          pendingRun: coffeePending,
+          latestCompetingTriggerAt: latestCoffeeCompeting,
         })
       ) {
-        clearBestieCoffeePendingRunForScope(listScope);
+        abandonBestieCoffeePendingForScope(listScope);
+      }
+      const summarizePending = getBestieThreadState(listScope).pendingSummarize;
+      if (
+        summarizePending &&
+        isBestieThreadSummarizePendingStale({
+          agentWorkingOnBestieDm: working,
+          nowSeconds,
+          pendingSummarize: summarizePending,
+          latestCompetingTriggerAt: latestSummarizeCompeting,
+        })
+      ) {
+        abandonBestieThreadSummarizeForScope(listScope);
       }
     };
     check();
-    const timer = window.setInterval(check, 30_000);
+    const timer = window.setInterval(check, 15_000);
     return () => window.clearInterval(timer);
-  }, [bestieChannel, coffeeState.pendingRun, listScope]);
+  }, [bestieChannel, coffeeState.pendingRun, listScope, messagesQuery.data, ownerPubkey]);
 
   // Clear stale nudge when the outstanding set is emptied.
   React.useEffect(() => {

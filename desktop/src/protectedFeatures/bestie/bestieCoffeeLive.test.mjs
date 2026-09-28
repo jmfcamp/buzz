@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  BESTIE_COFFEE_HARD_TIMEOUT_SECONDS,
+  BESTIE_COFFEE_IDLE_SETTLE_SECONDS,
   BESTIE_COFFEE_START_GRACE_SECONDS,
-  BESTIE_COFFEE_STALE_PENDING_SECONDS,
   isBestieCoffeeLive,
   isBestieCoffeePendingStale,
   messageLooksLikeBestieCoffeeTrigger,
@@ -77,8 +78,12 @@ test("manual coffee trigger + ACP working disables brew without pendingRun", () 
   );
 });
 
-test("stale pending clears only after idle past stale window", () => {
+test("stale pending clears after idle past grace + settle", () => {
   const startedAt = 1_000;
+  const settleAt =
+    startedAt +
+    BESTIE_COFFEE_START_GRACE_SECONDS +
+    BESTIE_COFFEE_IDLE_SETTLE_SECONDS;
   assert.equal(
     isBestieCoffeePendingStale({
       agentWorkingOnBestieDm: false,
@@ -90,7 +95,7 @@ test("stale pending clears only after idle past stale window", () => {
   assert.equal(
     isBestieCoffeePendingStale({
       agentWorkingOnBestieDm: false,
-      nowSeconds: startedAt + BESTIE_COFFEE_STALE_PENDING_SECONDS,
+      nowSeconds: settleAt,
       pendingRun: { source: "brew", startedAt, triggerMessageId: null },
     }),
     true,
@@ -98,10 +103,44 @@ test("stale pending clears only after idle past stale window", () => {
   assert.equal(
     isBestieCoffeePendingStale({
       agentWorkingOnBestieDm: true,
-      nowSeconds: startedAt + BESTIE_COFFEE_STALE_PENDING_SECONDS,
+      nowSeconds: settleAt,
       pendingRun: { source: "brew", startedAt, triggerMessageId: null },
     }),
     false,
+  );
+});
+
+test("hard timeout clears pending even while ACP working signal stuck", () => {
+  const startedAt = 1_000;
+  assert.equal(
+    isBestieCoffeePendingStale({
+      agentWorkingOnBestieDm: true,
+      nowSeconds: startedAt + BESTIE_COFFEE_HARD_TIMEOUT_SECONDS,
+      pendingRun: { source: "brew", startedAt, triggerMessageId: "t1" },
+    }),
+    true,
+  );
+});
+
+test("newer competing system turn abandons coffee pending after grace when idle", () => {
+  const startedAt = 1_000;
+  assert.equal(
+    isBestieCoffeePendingStale({
+      agentWorkingOnBestieDm: true,
+      nowSeconds: startedAt + BESTIE_COFFEE_START_GRACE_SECONDS + 1,
+      latestCompetingTriggerAt: startedAt + 10,
+      pendingRun: { source: "brew", startedAt, triggerMessageId: "t1" },
+    }),
+    false,
+  );
+  assert.equal(
+    isBestieCoffeePendingStale({
+      agentWorkingOnBestieDm: false,
+      nowSeconds: startedAt + BESTIE_COFFEE_START_GRACE_SECONDS + 1,
+      latestCompetingTriggerAt: startedAt + 10,
+      pendingRun: { source: "brew", startedAt, triggerMessageId: "t1" },
+    }),
+    true,
   );
 });
 

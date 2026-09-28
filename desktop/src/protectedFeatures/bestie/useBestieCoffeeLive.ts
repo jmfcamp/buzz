@@ -13,7 +13,7 @@ import {
   shouldDisableBestieCoffeeBrew,
 } from "./bestieCoffeeLive";
 import {
-  clearBestieCoffeePendingRunForScope,
+  abandonBestieCoffeePendingForScope,
   useBestieCoffee,
 } from "./bestieCoffeeStore";
 import type { BestieCoffeeScope } from "./bestieCoffeeTypes";
@@ -92,7 +92,7 @@ export function useBestieCoffeeLive(
 
   const agentWorkingOnBestieDm = working.working;
 
-  // Drop abandoned pending locks so Brew cannot stay disabled forever.
+  // Drop / finalize abandoned pending so Brew + 👀 cannot stick forever.
   React.useEffect(() => {
     if (!scope) return;
     if (
@@ -100,12 +100,19 @@ export function useBestieCoffeeLive(
         agentWorkingOnBestieDm,
         nowSeconds,
         pendingRun,
+        latestCompetingTriggerAt,
       })
     ) {
       return;
     }
-    clearBestieCoffeePendingRunForScope(scope);
-  }, [agentWorkingOnBestieDm, nowSeconds, pendingRun, scope]);
+    abandonBestieCoffeePendingForScope(scope);
+  }, [
+    agentWorkingOnBestieDm,
+    latestCompetingTriggerAt,
+    nowSeconds,
+    pendingRun,
+    scope,
+  ]);
 
   const coffeeLive = isBestieCoffeeLive({
     agentWorkingOnBestieDm,

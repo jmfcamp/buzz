@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  BESTIE_THREAD_SUMMARIZE_HARD_TIMEOUT_SECONDS,
+  BESTIE_THREAD_SUMMARIZE_IDLE_SETTLE_SECONDS,
   BESTIE_THREAD_SUMMARIZE_START_GRACE_SECONDS,
   isBestieThreadSummarizeLive,
+  isBestieThreadSummarizePendingStale,
   messageLooksLikeBestieSummarizeCompetingTrigger,
   messageLooksLikeBestieSummarizeTrigger,
   shouldDisableBestieThreadSummarize,
@@ -70,6 +73,68 @@ test("live during start grace when summarize is latest", () => {
         startedAt,
         threadId: "ch:root",
         triggerMessageId: null,
+      },
+    }),
+    true,
+  );
+});
+
+test("stale summarize pending after idle settle or hard timeout", () => {
+  const startedAt = 2_000;
+  const settleAt =
+    startedAt +
+    BESTIE_THREAD_SUMMARIZE_START_GRACE_SECONDS +
+    BESTIE_THREAD_SUMMARIZE_IDLE_SETTLE_SECONDS;
+  assert.equal(
+    isBestieThreadSummarizePendingStale({
+      agentWorkingOnBestieDm: false,
+      nowSeconds: settleAt,
+      pendingSummarize: {
+        startedAt,
+        threadId: "ch:root",
+        triggerMessageId: "s1",
+      },
+    }),
+    true,
+  );
+  assert.equal(
+    isBestieThreadSummarizePendingStale({
+      agentWorkingOnBestieDm: true,
+      nowSeconds: startedAt + BESTIE_THREAD_SUMMARIZE_HARD_TIMEOUT_SECONDS,
+      pendingSummarize: {
+        startedAt,
+        threadId: "ch:root",
+        triggerMessageId: "s1",
+      },
+    }),
+    true,
+  );
+});
+
+test("competing coffee abandons summarize pending after grace when idle", () => {
+  const startedAt = 1_000;
+  assert.equal(
+    isBestieThreadSummarizePendingStale({
+      agentWorkingOnBestieDm: true,
+      nowSeconds: startedAt + BESTIE_THREAD_SUMMARIZE_START_GRACE_SECONDS + 2,
+      latestCompetingTriggerAt: startedAt + 5,
+      pendingSummarize: {
+        startedAt,
+        threadId: "ch:root",
+        triggerMessageId: "s1",
+      },
+    }),
+    false,
+  );
+  assert.equal(
+    isBestieThreadSummarizePendingStale({
+      agentWorkingOnBestieDm: false,
+      nowSeconds: startedAt + BESTIE_THREAD_SUMMARIZE_START_GRACE_SECONDS + 2,
+      latestCompetingTriggerAt: startedAt + 5,
+      pendingSummarize: {
+        startedAt,
+        threadId: "ch:root",
+        triggerMessageId: "s1",
       },
     }),
     true,

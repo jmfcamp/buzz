@@ -3,6 +3,7 @@ import * as React from "react";
 import { bestieOwnerScopeKey } from "./bestieOwnerScope";
 
 import {
+  abandonBestieCoffeeRun,
   beginBestieCoffeeRun,
   clearBestieCoffeePendingRun,
   completeBestieCoffeeRun,
@@ -13,7 +14,10 @@ import {
   setBestieCoffeePrefs,
   writeBestieCoffeeState,
 } from "./bestieCoffeeStorage";
-import { replyParentIdFromEventTags } from "./bestieCoffeeLive";
+import {
+  BESTIE_COFFEE_ABANDONED_OUTPUT,
+  replyParentIdFromEventTags,
+} from "./bestieCoffeeLive";
 import type {
   BestieCoffeeAddEntryInput,
   BestieCoffeePrefs,
@@ -95,6 +99,18 @@ export function clearBestieCoffeePendingRunForScope(
   scope: BestieCoffeeScope,
 ): BestieCoffeeState {
   return commit(scope, clearBestieCoffeePendingRun(loadState(scope)));
+}
+
+/** Finalize or clear a stale/abandoned pending brew so UI cannot stick on 👀. */
+export function abandonBestieCoffeePendingForScope(
+  scope: BestieCoffeeScope,
+  fullOutput: string = BESTIE_COFFEE_ABANDONED_OUTPUT,
+  nowSeconds = Math.floor(Date.now() / 1000),
+): BestieCoffeeState {
+  return commit(
+    scope,
+    abandonBestieCoffeeRun(loadState(scope), fullOutput, nowSeconds),
+  );
 }
 
 export function completeBestieCoffeeRunForScope(

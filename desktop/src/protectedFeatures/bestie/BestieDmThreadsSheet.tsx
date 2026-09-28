@@ -386,7 +386,7 @@ export function BestieDmThreadsSheet({
           ))
         )}
       </div>
-      {pendingId ? (
+      {summarizeLive ? (
         <p
           className="flex items-center gap-1.5 text-xs text-muted-foreground"
           data-testid="bestie-thread-summarizing"

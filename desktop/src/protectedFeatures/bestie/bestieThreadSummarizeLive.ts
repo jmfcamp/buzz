@@ -15,7 +15,15 @@ import type { BestieThreadPendingSummarize } from "./bestieThreadTypes";
 export const BESTIE_THREAD_SUMMARIZE_LIVE_LABEL = "🤔…";
 
 export const BESTIE_THREAD_SUMMARIZE_START_GRACE_SECONDS = 15;
-export const BESTIE_THREAD_SUMMARIZE_STALE_PENDING_SECONDS = 20 * 60;
+export const BESTIE_THREAD_SUMMARIZE_IDLE_SETTLE_SECONDS = 45;
+export const BESTIE_THREAD_SUMMARIZE_HARD_TIMEOUT_SECONDS = 8 * 60;
+/** @deprecated Prefer IDLE_SETTLE + HARD_TIMEOUT. */
+export const BESTIE_THREAD_SUMMARIZE_STALE_PENDING_SECONDS =
+  BESTIE_THREAD_SUMMARIZE_START_GRACE_SECONDS +
+  BESTIE_THREAD_SUMMARIZE_IDLE_SETTLE_SECONDS;
+
+export const BESTIE_THREAD_SUMMARIZE_ABANDONED_OUTPUT =
+  "Summarize timed out — no Assistant reply was captured for this thread.";
 
 const BESTIE_REMINDER_NOTIFY_MARKER = "[Bestie reminder]";
 
@@ -84,14 +92,33 @@ export function isBestieThreadSummarizePendingStale(options: {
   agentWorkingOnBestieDm: boolean;
   nowSeconds: number;
   pendingSummarize: BestieThreadPendingSummarize | null;
+  latestCompetingTriggerAt?: number | null;
 }): boolean {
   const pending = options.pendingSummarize;
   if (!pending) return false;
-  if (options.agentWorkingOnBestieDm) return false;
   const age = options.nowSeconds - pending.startedAt;
   if (age < 0) return false;
+  if (age >= BESTIE_THREAD_SUMMARIZE_HARD_TIMEOUT_SECONDS) return true;
+
+  const competingAt = options.latestCompetingTriggerAt ?? null;
+  // Superseded by a newer system turn: only abandon once ACP is idle so we
+  // do not finalize while the original reply may still be in flight.
+  if (
+    competingAt != null &&
+    competingAt > pending.startedAt &&
+    age > BESTIE_THREAD_SUMMARIZE_START_GRACE_SECONDS &&
+    !options.agentWorkingOnBestieDm
+  ) {
+    return true;
+  }
+
+  if (options.agentWorkingOnBestieDm) return false;
   if (age <= BESTIE_THREAD_SUMMARIZE_START_GRACE_SECONDS) return false;
-  return age >= BESTIE_THREAD_SUMMARIZE_STALE_PENDING_SECONDS;
+  return (
+    age >=
+    BESTIE_THREAD_SUMMARIZE_START_GRACE_SECONDS +
+      BESTIE_THREAD_SUMMARIZE_IDLE_SETTLE_SECONDS
+  );
 }
 
 export function shouldDisableBestieThreadSummarize(options: {

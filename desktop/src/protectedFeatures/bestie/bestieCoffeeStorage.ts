@@ -10,6 +10,7 @@ import {
   localDayKey,
   normalizeCoffeePrefs,
 } from "./bestieCoffeeSchedule";
+import { BESTIE_COFFEE_START_GRACE_SECONDS } from "./bestieCoffeeLive";
 import type {
   BestieCoffeeAddEntryInput,
   BestieCoffeeEntry,
@@ -122,13 +123,32 @@ export function parseBestieCoffeeState(
     /^\d{4}-\d{2}-\d{2}$/.test(record.lastScheduledDayKey)
       ? record.lastScheduledDayKey
       : null;
+  const pendingRun = clearStalePendingOnLoad(
+    parsePending(record.pendingRun),
+    Math.floor(Date.now() / 1000),
+  );
   return {
     entries,
     lastScheduledDayKey,
-    pendingRun: parsePending(record.pendingRun),
+    pendingRun,
     prefs,
     version: 1,
   };
+}
+
+/**
+ * Migrate stuck pending from prior sessions: any pending older than start
+ * grace cannot still be mid-send, and ACP working state does not survive reload.
+ */
+export function clearStalePendingOnLoad(
+  pending: BestieCoffeePendingRun | null,
+  nowSeconds = Math.floor(Date.now() / 1000),
+): BestieCoffeePendingRun | null {
+  if (!pending) return null;
+  const age = nowSeconds - pending.startedAt;
+  if (age < 0) return null;
+  if (age > BESTIE_COFFEE_START_GRACE_SECONDS) return null;
+  return pending;
 }
 
 
@@ -228,6 +248,42 @@ export function clearBestieCoffeePendingRun(
 ): BestieCoffeeState {
   if (!state.pendingRun) return state;
   return { ...state, pendingRun: null };
+}
+
+/**
+ * Finalize a stuck pending run as a failure entry (so Coffee never stays on 👀
+ * forever), or just clear when nothing was posted yet.
+ */
+export function abandonBestieCoffeeRun(
+  state: BestieCoffeeState,
+  fullOutput: string,
+  nowSeconds = Math.floor(Date.now() / 1000),
+): BestieCoffeeState {
+  const pending = state.pendingRun;
+  if (!pending) return state;
+  // No trigger posted yet — nothing to show; drop the lock.
+  if (!pending.triggerMessageId) {
+    return { ...state, pendingRun: null };
+  }
+  // Already captured for this trigger.
+  if (
+    state.entries.some(
+      (entry) => entry.triggerMessageId === pending.triggerMessageId,
+    )
+  ) {
+    return { ...state, pendingRun: null };
+  }
+  return completeBestieCoffeeRun(
+    state,
+    {
+      brief: "",
+      fullOutput,
+      replyMessageId: null,
+      source: pending.source,
+      triggerMessageId: pending.triggerMessageId,
+    },
+    nowSeconds,
+  );
 }
 
 export function completeBestieCoffeeRun(

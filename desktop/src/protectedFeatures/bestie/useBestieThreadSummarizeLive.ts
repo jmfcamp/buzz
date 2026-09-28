@@ -13,7 +13,7 @@ import {
   shouldDisableBestieThreadSummarize,
 } from "./bestieThreadSummarizeLive";
 import {
-  clearBestieThreadSummarizeForScope,
+  abandonBestieThreadSummarizeForScope,
   useBestieThreads,
 } from "./bestieThreadStore";
 import type { BestieThreadScope } from "./bestieThreadTypes";
@@ -114,12 +114,19 @@ export function useBestieThreadSummarizeLive(
         agentWorkingOnBestieDm,
         nowSeconds,
         pendingSummarize,
+        latestCompetingTriggerAt,
       })
     ) {
       return;
     }
-    clearBestieThreadSummarizeForScope(scope);
-  }, [agentWorkingOnBestieDm, nowSeconds, pendingSummarize, scope]);
+    abandonBestieThreadSummarizeForScope(scope);
+  }, [
+    agentWorkingOnBestieDm,
+    latestCompetingTriggerAt,
+    nowSeconds,
+    pendingSummarize,
+    scope,
+  ]);
 
   const summarizeLive = isBestieThreadSummarizeLive({
     agentWorkingOnBestieDm,

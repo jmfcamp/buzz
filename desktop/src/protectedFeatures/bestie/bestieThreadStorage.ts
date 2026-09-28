@@ -5,6 +5,7 @@ import {
 } from "./bestieOwnerScope";
 
 import { bestieThreadId } from "./bestieThreadProtocol";
+import { BESTIE_THREAD_SUMMARIZE_START_GRACE_SECONDS } from "./bestieThreadSummarizeLive";
 import type {
   BestieThreadScope,
   BestieThreadState,
@@ -105,14 +106,26 @@ export function parseBestieThreadState(
         pending.triggerMessageId.length > 0
           ? pending.triggerMessageId
           : null;
-      pendingSummarize = {
+      pendingSummarize = clearStaleThreadPendingOnLoad({
         startedAt: Math.floor(pending.startedAt),
         threadId: pending.threadId,
         triggerMessageId,
-      };
+      });
     }
   }
   return { pendingSummarize, threads, version: 1 };
+}
+
+/** Drop stuck summarize pending restored from localStorage after reload. */
+export function clearStaleThreadPendingOnLoad(
+  pending: BestieThreadState["pendingSummarize"],
+  nowSeconds = Math.floor(Date.now() / 1000),
+): BestieThreadState["pendingSummarize"] {
+  if (!pending) return null;
+  const age = nowSeconds - pending.startedAt;
+  if (age < 0) return null;
+  if (age > BESTIE_THREAD_SUMMARIZE_START_GRACE_SECONDS) return null;
+  return pending;
 }
 
 function mergeBestieThreadStates(
@@ -233,6 +246,22 @@ export function clearBestieThreadSummarize(
 ): BestieThreadState {
   if (!state.pendingSummarize) return state;
   return { ...state, pendingSummarize: null };
+}
+
+/**
+ * Finalize stuck summarize as failure text on the row, or clear if nothing posted.
+ */
+export function abandonBestieThreadSummarize(
+  state: BestieThreadState,
+  summary: string,
+  nowSeconds = Math.floor(Date.now() / 1000),
+): BestieThreadState {
+  const pending = state.pendingSummarize;
+  if (!pending) return state;
+  if (!pending.triggerMessageId) {
+    return { ...state, pendingSummarize: null };
+  }
+  return completeBestieThreadSummarize(state, summary, nowSeconds);
 }
 
 export function setBestieThreadSummarizeTrigger(

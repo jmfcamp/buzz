@@ -5,6 +5,7 @@ import { bestieOwnerScopeKey } from "./bestieOwnerScope";
 import { bestieThreadId } from "./bestieThreadProtocol";
 import { replyParentIdFromEventTags } from "./bestieCoffeeLive";
 import {
+  abandonBestieThreadSummarize,
   beginBestieThreadSummarize,
   clearBestieThreadSummarize,
   completeBestieThreadSummarize,
@@ -15,6 +16,7 @@ import {
   upsertBestieTrackedThread,
   writeBestieThreadState,
 } from "./bestieThreadStorage";
+import { BESTIE_THREAD_SUMMARIZE_ABANDONED_OUTPUT } from "./bestieThreadSummarizeLive";
 import type {
   BestieThreadScope,
   BestieThreadState,
@@ -89,6 +91,18 @@ export function clearBestieThreadSummarizeForScope(
   scope: BestieThreadScope,
 ): BestieThreadState {
   return commit(scope, clearBestieThreadSummarize(loadState(scope)));
+}
+
+/** Finalize or clear a stale summarize pending so rows cannot stick on Summarizing… */
+export function abandonBestieThreadSummarizeForScope(
+  scope: BestieThreadScope,
+  summary: string = BESTIE_THREAD_SUMMARIZE_ABANDONED_OUTPUT,
+  nowSeconds = Math.floor(Date.now() / 1000),
+): BestieThreadState {
+  return commit(
+    scope,
+    abandonBestieThreadSummarize(loadState(scope), summary, nowSeconds),
+  );
 }
 
 export function setBestieThreadSummarizeTriggerForScope(

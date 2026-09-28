@@ -10,7 +10,10 @@ import { BestieDmThreadsSheet } from "./BestieDmThreadsSheet";
 import { BestieDmScratchSheet } from "./BestieDmScratchSheet";
 import { BestieDmTodosSheet } from "./BestieDmTodosSheet";
 import { BESTIE_COFFEE_BREW_EVENT } from "./bestieCoffeeSchedule";
-import { beginBestieCoffeeRunForScope } from "./bestieCoffeeStore";
+import {
+  abandonBestieCoffeePendingForScope,
+  beginBestieCoffeeRunForScope,
+} from "./bestieCoffeeStore";
 import { useBestieCoffeeLive } from "./useBestieCoffeeLive";
 import { useBestieThreadSummarizeLive } from "./useBestieThreadSummarizeLive";
 import {
@@ -165,7 +168,12 @@ export function useBestieDmChannelExtras(
     useBestieThreadSummarizeLive(scope, bestieChannelForCoffee);
   const requestCoffeeBrew = React.useCallback(() => {
     if (!scope || brewDisabled) return;
-    const begun = beginBestieCoffeeRunForScope(scope, "brew");
+    let begun = beginBestieCoffeeRunForScope(scope, "brew");
+    if (!begun) {
+      // Leftover pending with Brew re-enabled (idle past grace) — finalize + retry.
+      abandonBestieCoffeePendingForScope(scope);
+      begun = beginBestieCoffeeRunForScope(scope, "brew");
+    }
     if (!begun) return;
     window.dispatchEvent(
       new CustomEvent(BESTIE_COFFEE_BREW_EVENT, {

@@ -36,7 +36,15 @@ While `/hula-coffee` is actually in flight:
 
 Every `/hula-coffee` outcome becomes a Coffee tab entry when the agent replies **in-thread to the coffee trigger** (success briefs, failures, NCP-disabled messages, other errors). Capture keys off the reply parent event id — never an arbitrary Assistant DM message (so Summarize replies cannot steal or fake a coffee entry).
 
-Abandoned `pendingRun` locks clear after a stale idle timeout so Brew cannot lie forever.
+Abandoned `pendingRun` locks clear (and finalize a failure Coffee entry when a
+trigger was posted) when:
+
+1. ACP is idle past start grace + settle (~60s),
+2. a newer competing system turn finished and ACP is idle, or
+3. hard timeout (~8 min) even if the working signal is stuck.
+
+Reload migrates stuck pending older than start grace. Brew click retries after
+abandoning leftover pending so the button cannot silently no-op.
 
 ## Storage
 

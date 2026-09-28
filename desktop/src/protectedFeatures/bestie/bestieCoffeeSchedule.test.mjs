@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  formatBestieCoffeeRunPrompt,
   coffeeScheduleGate,
   deriveBestieCoffeeBrief,
   isAtOrPastCoffeeTime,
@@ -87,4 +88,10 @@ test("deriveBestieCoffeeBrief takes first sentence", () => {
     "Hello world.",
   );
   assert.ok(deriveBestieCoffeeBrief("x".repeat(200)).endsWith("…"));
+});
+
+test("formatBestieCoffeeRunPrompt invokes /hula-coffee skill", () => {
+  const prompt = formatBestieCoffeeRunPrompt();
+  assert.match(prompt, /\[Bestie coffee\]/);
+  assert.match(prompt, /\/hula-coffee/);
 });

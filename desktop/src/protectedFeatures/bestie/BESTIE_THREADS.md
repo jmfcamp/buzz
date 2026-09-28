@@ -25,7 +25,10 @@ call `buzz messages thread --channel <UUID> --event <ID>`.
 
 Show **🤔…** on the Threads RHS category / row **only** while that summarize
 turn is the latest open system turn on the Assistant DM — not while Coffee,
-Jobs, or Reminder notifies own ACP. Same grace / stale-pending rules as Coffee.
+Jobs, or Reminder notifies own ACP. Same grace / stale-pending rules as Coffee
+(idle settle ~60s, hard timeout ~8 min, reload clears stuck pending). When
+pending is abandoned, write a failure `lastSummary` so the row is never stuck
+on Summarizing… forever.
 
 ### Outcomes on the row
 

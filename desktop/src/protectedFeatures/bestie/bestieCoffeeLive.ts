@@ -27,10 +27,24 @@ export const BESTIE_COFFEE_LIVE_LABEL = "🤔…";
 export const BESTIE_COFFEE_START_GRACE_SECONDS = 15;
 
 /**
- * If pendingRun is still set, ACP is idle, and grace has elapsed, treat the
- * lock as stale so Brew cannot lie forever after a failed/abandoned turn.
+ * After start grace, if ACP is idle for this long, treat pending as stale.
+ * Keeps a short settle window so a reply can land after working→idle.
  */
-export const BESTIE_COFFEE_STALE_PENDING_SECONDS = 20 * 60;
+export const BESTIE_COFFEE_IDLE_SETTLE_SECONDS = 45;
+
+/**
+ * Hard cap: clear pending even if the working signal is stuck, so Brew/👀
+ * cannot hang for an hour.
+ */
+export const BESTIE_COFFEE_HARD_TIMEOUT_SECONDS = 8 * 60;
+
+/** @deprecated Use IDLE_SETTLE + HARD_TIMEOUT; kept for older test imports. */
+export const BESTIE_COFFEE_STALE_PENDING_SECONDS =
+  BESTIE_COFFEE_START_GRACE_SECONDS + BESTIE_COFFEE_IDLE_SETTLE_SECONDS;
+
+/** Failure text when a brew/schedule never gets a matching Assistant reply. */
+export const BESTIE_COFFEE_ABANDONED_OUTPUT =
+  "Brew timed out — no Assistant reply was captured for this /hula-coffee run.";
 
 export function messageLooksLikeBestieCoffeeTrigger(content: string): boolean {
   if (!content) return false;
@@ -125,19 +139,39 @@ export function isBestieCoffeeLive(options: {
   return false;
 }
 
-/** Pending lock that survived past grace with no ACP activity — safe to clear. */
+/**
+ * Pending lock that should be cleared / finalized:
+ * - hard timeout (even if working signal stuck)
+ * - ACP idle past grace + settle
+ * - a newer competing system turn (summarize/job/reminder) after grace
+ */
 export function isBestieCoffeePendingStale(options: {
   agentWorkingOnBestieDm: boolean;
   nowSeconds: number;
   pendingRun: BestieCoffeePendingRun | null;
+  latestCompetingTriggerAt?: number | null;
 }): boolean {
   const pending = options.pendingRun;
   if (!pending) return false;
-  if (options.agentWorkingOnBestieDm) return false;
   const age = options.nowSeconds - pending.startedAt;
   if (age < 0) return false;
+  if (age >= BESTIE_COFFEE_HARD_TIMEOUT_SECONDS) return true;
+
+  const competingAt = options.latestCompetingTriggerAt ?? null;
+  // Superseded by a newer system turn: only abandon once ACP is idle so we
+  // do not finalize while the original reply may still be in flight.
+  if (
+    competingAt != null &&
+    competingAt > pending.startedAt &&
+    age > BESTIE_COFFEE_START_GRACE_SECONDS &&
+    !options.agentWorkingOnBestieDm
+  ) {
+    return true;
+  }
+
+  if (options.agentWorkingOnBestieDm) return false;
   if (age <= BESTIE_COFFEE_START_GRACE_SECONDS) return false;
-  return age >= BESTIE_COFFEE_STALE_PENDING_SECONDS;
+  return age >= BESTIE_COFFEE_START_GRACE_SECONDS + BESTIE_COFFEE_IDLE_SETTLE_SECONDS;
 }
 
 /**

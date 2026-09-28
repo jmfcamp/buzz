@@ -3,12 +3,14 @@ import test from "node:test";
 
 import {
   __resetBestieThreadStoreForTests,
+  abandonBestieThreadSummarizeForScope,
   applyBestieThreadSummarizeReply,
   beginBestieThreadSummarizeForScope,
   getBestieThreadState,
   setBestieThreadSummarizeTriggerForScope,
   upsertBestieTrackedThreadForScope,
 } from "./bestieThreadStore.ts";
+import { BESTIE_THREAD_SUMMARIZE_ABANDONED_OUTPUT } from "./bestieThreadSummarizeLive.ts";
 
 const SCOPE = {
   agentPubkey: "c".repeat(64),
@@ -89,4 +91,24 @@ test("does not capture coffee reply while summarize pending", () => {
   assert.equal(ok, false);
   assert.ok(getBestieThreadState(SCOPE).pendingSummarize);
   assert.equal(getBestieThreadState(SCOPE).threads[0].lastSummary, null);
+});
+
+test("abandon summarize with trigger writes failure on the row", () => {
+  memoryWindow();
+  __resetBestieThreadStoreForTests();
+  upsertBestieTrackedThreadForScope(SCOPE, {
+    channelId: "chan-abandon",
+    preview: "hello",
+    rootEventId: "root-abandon",
+    source: "add",
+  });
+  beginBestieThreadSummarizeForScope(SCOPE, "chan-abandon:root-abandon");
+  setBestieThreadSummarizeTriggerForScope(SCOPE, "sum-trigger-abandon");
+  abandonBestieThreadSummarizeForScope(SCOPE);
+  const state = getBestieThreadState(SCOPE);
+  assert.equal(state.pendingSummarize, null);
+  assert.equal(
+    state.threads[0].lastSummary,
+    BESTIE_THREAD_SUMMARIZE_ABANDONED_OUTPUT,
+  );
 });
