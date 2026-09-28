@@ -90,3 +90,40 @@ test("applyBestieListIntentFromUserMessage adds reminders from NL once", () => {
   assert.equal(item.text, "stretch");
   assert.equal(item.dueAt, Math.floor(nowMs / 1000) + 5 * 60);
 });
+
+test("NL user add + agent fence with same text creates one reminder", () => {
+  const memory = new Map();
+  globalThis.window = {
+    localStorage: {
+      getItem: (key) => memory.get(key) ?? null,
+      removeItem: (key) => {
+        memory.delete(key);
+      },
+      setItem: (key, value) => {
+        memory.set(key, String(value));
+      },
+    },
+  };
+  __resetBestieListStoreForTests();
+
+  const nowMs = Date.parse("2026-09-26T15:00:00.000-07:00");
+  const fromNl = applyBestieListIntentFromUserMessage(
+    SCOPE,
+    "user-dup",
+    "Remind me to water plants in 10 minutes",
+    nowMs,
+  );
+  assert.equal(fromNl, 1);
+  const dueAt = Math.floor(nowMs / 1000) + 10 * 60;
+  const fence = `\`\`\`bestie-list
+{"op":"add","items":[{"kind":"reminder","text":"water plants","dueAt":${dueAt}}]}
+\`\`\``;
+  const fromAgent = applyBestieListActionsFromAgentMessage(
+    SCOPE,
+    "agent-dup",
+    fence,
+  );
+  assert.equal(fromAgent, 0);
+  assert.equal(getBestieListState(SCOPE).items.length, 1);
+  assert.equal(getBestieListState(SCOPE).items[0].text, "water plants");
+});

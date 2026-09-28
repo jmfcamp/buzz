@@ -43,11 +43,14 @@ test("parses add todo", () => {
 });
 
 test("parses complete / remove by text", () => {
-  assert.deepEqual(parseBestieUserListIntent("mark todo ship phase 3 done", NOW), {
-    kind: "todo",
-    op: "complete-match",
-    text: "ship phase 3",
-  });
+  assert.deepEqual(
+    parseBestieUserListIntent("mark todo ship phase 3 done", NOW),
+    {
+      kind: "todo",
+      op: "complete-match",
+      text: "ship phase 3",
+    },
+  );
   assert.deepEqual(parseBestieUserListIntent("remove reminder call mom", NOW), {
     kind: "reminder",
     op: "remove-match",
@@ -56,13 +59,19 @@ test("parses complete / remove by text", () => {
 });
 
 test("ignores free-form chat", () => {
-  assert.equal(parseBestieUserListIntent("how are my reminders looking?", NOW), null);
+  assert.equal(
+    parseBestieUserListIntent("how are my reminders looking?", NOW),
+    null,
+  );
   assert.equal(messageLooksLikeBestieListRequest("just chatting"), false);
 });
 
 test("parseBestieDueAtFromText handles at-time roll to tomorrow", () => {
   // 3pm already passed relative to NOW (3pm PT) → next day.
-  const { dueAt, textWithoutDue } = parseBestieDueAtFromText("pay rent at 2pm", NOW);
+  const { dueAt, textWithoutDue } = parseBestieDueAtFromText(
+    "pay rent at 2pm",
+    NOW,
+  );
   assert.equal(textWithoutDue, "pay rent");
   assert.ok(dueAt);
   const due = new Date(dueAt * 1000);

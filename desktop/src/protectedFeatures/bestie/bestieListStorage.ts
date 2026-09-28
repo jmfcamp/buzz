@@ -126,6 +126,52 @@ export function createBestieListItemId(): string {
   return `bestie-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+/** Due times within this many seconds count as the same reminder slot. */
+export const BESTIE_LIST_DUE_DEDUPE_WINDOW_SECONDS = 120;
+
+/**
+ * Recent open items with the same kind+text count as duplicates even when
+ * dueAt differs (NL client path vs agent fence often disagree slightly).
+ */
+export const BESTIE_LIST_RECENT_DEDUPE_SECONDS = 600;
+
+function normalizeListText(text: string): string {
+  return text.trim().toLowerCase();
+}
+
+function dueAtsMatch(
+  existing: number | null,
+  incoming: number | null,
+): boolean {
+  if (existing == null && incoming == null) return true;
+  if (existing == null || incoming == null) return false;
+  return Math.abs(existing - incoming) <= BESTIE_LIST_DUE_DEDUPE_WINDOW_SECONDS;
+}
+
+/**
+ * Find an open item that would duplicate this add (NL + agent fence case).
+ * Matches on kind + normalized text, then due window or recent creation.
+ */
+export function findDuplicateBestieListItem(
+  state: BestieListState,
+  input: BestieListAddInput,
+  nowSeconds = Math.floor(Date.now() / 1000),
+): BestieListItem | null {
+  const needle = normalizeListText(input.text);
+  if (!needle) return null;
+  const incomingDue = input.kind === "reminder" ? (input.dueAt ?? null) : null;
+  for (const item of state.items) {
+    if (item.status !== "open") continue;
+    if (item.kind !== input.kind) continue;
+    if (normalizeListText(item.text) !== needle) continue;
+    if (dueAtsMatch(item.dueAt, incomingDue)) return item;
+    if (nowSeconds - item.createdAt <= BESTIE_LIST_RECENT_DEDUPE_SECONDS) {
+      return item;
+    }
+  }
+  return null;
+}
+
 export function addBestieListItem(
   state: BestieListState,
   input: BestieListAddInput,
@@ -133,6 +179,11 @@ export function addBestieListItem(
 ): BestieListState {
   const text = input.text.trim();
   if (!text) return state;
+  // One user ask must not create two rows (NL + agent fence use different
+  // message ids, so processedMessageIds alone is not enough).
+  if (findDuplicateBestieListItem(state, input, nowSeconds)) {
+    return state;
+  }
   const item: BestieListItem = {
     createdAt: nowSeconds,
     dueAt: input.kind === "reminder" ? (input.dueAt ?? null) : null,

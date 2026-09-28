@@ -3,12 +3,14 @@ import * as React from "react";
 
 import { findBestieDmChannel } from "./filterBestieDmChannels";
 import { BestieDmCategorySheet, BestieDmRhsPanel } from "./BestieDmRhsPanel";
+import { BestieDmJobsSheet } from "./BestieDmJobsSheet";
 import {
   bestieCategoryTitle,
   bestieIdleAuxiliaryKind,
+  type BestieRhsKind,
 } from "./bestieDmRhsHelpers";
+import { setBestieViewingDm } from "./bestieAttentionStore";
 import { useBestieAssignmentQuery } from "./useBestie";
-import type { BestieListKind } from "./bestieListTypes";
 import type { Channel } from "@/shared/api/types";
 import { Button } from "@/shared/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
@@ -49,7 +51,7 @@ export function useBestieDmChannelExtras(
   const { assignmentQuery, ownerPubkey, relayUrl } =
     useBestieAssignmentQuery(enabled);
   const [panelOpen, setPanelOpen] = React.useState(true);
-  const [activeKind, setActiveKind] = React.useState<BestieListKind | null>(
+  const [activeKind, setActiveKind] = React.useState<BestieRhsKind | null>(
     null,
   );
   const [adding, setAdding] = React.useState(false);
@@ -85,7 +87,13 @@ export function useBestieDmChannelExtras(
     };
   }, [bestiePubkey, ownerPubkey, relayUrl]);
 
-  const openKind = React.useCallback((kind: BestieListKind) => {
+  // Footer unread clears while the Bestie DM thread is the active view.
+  React.useEffect(() => {
+    setBestieViewingDm(isBestieDm);
+    return () => setBestieViewingDm(false);
+  }, [isBestieDm]);
+
+  const openKind = React.useCallback((kind: BestieRhsKind) => {
     setAdding(false);
     setActiveKind((current) => (current === kind ? null : kind));
   }, []);
@@ -142,6 +150,15 @@ export function useBestieDmChannelExtras(
 
   const idleAuxiliaryPanel = React.useMemo(() => {
     if (!scope || activeKind == null) return null;
+    if (activeKind === "job") {
+      return (
+        <BestieDmJobsSheet
+          adding={adding}
+          onRequestAdd={() => setAdding(true)}
+          scope={scope}
+        />
+      );
+    }
     return (
       <BestieDmCategorySheet
         adding={adding}
@@ -155,7 +172,12 @@ export function useBestieDmChannelExtras(
   const idleAuxiliaryHeaderActions =
     React.useMemo<IdleAuxiliaryHeaderControls | null>(() => {
       if (activeKind == null) return null;
-      const addLabel = activeKind === "reminder" ? "Add reminder" : "Add to-do";
+      const addLabel =
+        activeKind === "reminder"
+          ? "Add reminder"
+          : activeKind === "todo"
+            ? "Add to-do"
+            : "Add job";
       return {
         actions: (
           <Tooltip disableHoverableContent>

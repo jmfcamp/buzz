@@ -1,5 +1,8 @@
 import type { BestieListKind } from "./bestieListTypes";
 
+/** Fixed RHS categories: reminders, todos, and jobs. */
+export type BestieRhsKind = BestieListKind | "job";
+
 /** Omit empty counts the same way Projects overview does. */
 export function presentBestieContextCount(
   value: number | undefined,
@@ -7,8 +10,10 @@ export function presentBestieContextCount(
   return value != null && value > 0 ? value : undefined;
 }
 
-export function bestieCategoryTitle(kind: BestieListKind): string {
-  return kind === "reminder" ? "Reminders" : "To-dos";
+export function bestieCategoryTitle(kind: BestieRhsKind): string {
+  if (kind === "reminder") return "Reminders";
+  if (kind === "todo") return "To-dos";
+  return "Jobs";
 }
 
 /**
@@ -17,8 +22,8 @@ export function bestieCategoryTitle(kind: BestieListKind): string {
  * Returns null when the slide must stay closed (category home).
  */
 export function bestieIdleAuxiliaryKind(
-  activeKind: BestieListKind | null,
-): BestieListKind | null {
+  activeKind: BestieRhsKind | null,
+): BestieRhsKind | null {
   return activeKind;
 }
 
@@ -37,4 +42,36 @@ export function datetimeLocalFromDueAt(dueAt: number): string {
   if (!Number.isFinite(date.getTime())) return "";
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+export function presentBestieJobSchedule(schedule: {
+  kind: string;
+  dueAt?: number;
+  everySeconds?: number;
+  hour?: number;
+  minute?: number;
+  weekday?: number;
+}): string {
+  if (schedule.kind === "once" && schedule.dueAt != null) {
+    return `Once · ${new Date(schedule.dueAt * 1000).toLocaleString()}`;
+  }
+  if (schedule.kind === "interval" && schedule.everySeconds != null) {
+    const s = schedule.everySeconds;
+    if (s % 3600 === 0) return `Every ${s / 3600}h`;
+    if (s % 60 === 0) return `Every ${s / 60}m`;
+    return `Every ${s}s`;
+  }
+  if (schedule.kind === "daily") {
+    const h = schedule.hour ?? 0;
+    const m = schedule.minute ?? 0;
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `Daily · ${pad(h)}:${pad(m)}`;
+  }
+  if (schedule.kind === "weekly") {
+    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const day = days[(((schedule.weekday ?? 0) % 7) + 7) % 7] ?? "Sun";
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `Weekly · ${day} ${pad(schedule.hour ?? 0)}:${pad(schedule.minute ?? 0)}`;
+  }
+  return schedule.kind;
 }

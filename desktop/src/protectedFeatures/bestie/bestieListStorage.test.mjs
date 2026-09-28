@@ -76,3 +76,34 @@ test("read/write round-trip through localStorage", () => {
   assert.equal(dueReminders(loaded, 5).length, 1);
   assert.equal(dueReminders(loaded, 4).length, 0);
 });
+
+test("addBestieListItem dedupes same kind+text within due window", () => {
+  let state = emptyBestieListState();
+  state = addBestieListItem(
+    state,
+    { kind: "reminder", text: "Stretch", dueAt: 1000 },
+    900,
+  );
+  const again = addBestieListItem(
+    state,
+    { kind: "reminder", text: "stretch", dueAt: 1050 },
+    910,
+  );
+  assert.equal(again.items.length, 1);
+  assert.equal(again.items[0].text, "Stretch");
+});
+
+test("addBestieListItem dedupes recent open item even if due differs", () => {
+  let state = emptyBestieListState();
+  state = addBestieListItem(
+    state,
+    { kind: "reminder", text: "Call mom", dueAt: 1000 },
+    900,
+  );
+  const again = addBestieListItem(
+    state,
+    { kind: "reminder", text: "Call mom", dueAt: 5000 },
+    950,
+  );
+  assert.equal(again.items.length, 1);
+});

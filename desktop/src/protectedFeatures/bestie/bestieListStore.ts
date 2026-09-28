@@ -111,11 +111,12 @@ export function applyBestieListActionsFromAgentMessage(
   for (const action of actions) {
     if (action.op === "add") {
       for (const item of action.items) {
+        const before = next;
         next = addBestieListItem(next, {
           ...item,
           sourceMessageId: messageId,
         });
-        applied += 1;
+        if (next !== before) applied += 1;
       }
       continue;
     }
@@ -145,7 +146,6 @@ function subscribe(scope: BestieListScope, listener: Listener): () => void {
   };
 }
 
-
 function findOpenItemByText(
   state: BestieListState,
   text: string,
@@ -156,7 +156,10 @@ function findOpenItemByText(
   const matches = state.items.filter((item) => {
     if (item.status !== "open") return false;
     if (kind && item.kind !== kind) return false;
-    return item.text.toLowerCase() === needle || item.text.toLowerCase().includes(needle);
+    return (
+      item.text.toLowerCase() === needle ||
+      item.text.toLowerCase().includes(needle)
+    );
   });
   if (matches.length === 0) return null;
   // Prefer exact match, then shortest text (most specific).
@@ -178,11 +181,12 @@ function applyUserIntent(
     let next = state;
     let applied = 0;
     for (const item of intent.items) {
+      const before = next;
       next = addBestieListItem(next, {
         ...item,
         sourceMessageId: messageId,
       });
-      applied += 1;
+      if (next !== before) applied += 1;
     }
     return { applied, state: next };
   }
@@ -213,7 +217,7 @@ export function applyBestieListIntentFromUserMessage(
   const current = loadState(scope);
   if (current.processedMessageIds.includes(messageId)) return 0;
   const intent = parseBestieUserListIntent(content, nowMs);
-  let next = markBestieListMessageProcessed(current, messageId);
+  const next = markBestieListMessageProcessed(current, messageId);
   if (!intent) {
     commit(scope, next);
     return 0;

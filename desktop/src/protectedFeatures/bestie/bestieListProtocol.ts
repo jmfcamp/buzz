@@ -28,7 +28,11 @@ Ops:
 - complete: {"op":"complete","id":"<item-id>"}
 - remove: {"op":"remove","id":"<item-id>"}
 
-If the user did not give a due time for a reminder, omit dueAt (or set null). Confirm briefly in natural language in addition to the fence.`;
+If the user did not give a due time for a reminder, omit dueAt (or set null). Confirm briefly in natural language in addition to the fence.
+
+The desktop may already apply the user's natural-language add before your reply. Prefer acknowledging without a second add when the list already shows the item. If you still emit add, use the same text; the client dedupes identical open items.
+
+For scheduled *jobs* (auto-run a prompt later), use a fenced bestie-job block — see Bestie job instructions.`;
 
 /** Compact turn hint appended to Bestie user messages that look like list intents. */
 export function bestieListTurnHint(): string {

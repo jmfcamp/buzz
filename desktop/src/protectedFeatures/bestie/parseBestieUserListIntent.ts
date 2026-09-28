@@ -20,8 +20,7 @@ const REMOVE_RE =
 
 const IN_DURATION_RE =
   /\b(?:in|after)\s+(\d+)\s*(minutes?|mins?|m|hours?|hrs?|h|days?|d)\b/i;
-const AT_TIME_RE =
-  /\b(?:at|by)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i;
+const AT_TIME_RE = /\b(?:at|by)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i;
 const TOMORROW_RE = /\btomorrow\b/i;
 const TODAY_RE = /\btoday\b/i;
 
@@ -53,7 +52,10 @@ export function parseBestieDueAtFromText(
     const amount = Number(inMatch[1]);
     const seconds = durationSeconds(amount, inMatch[2] ?? "m");
     const dueAt = Math.floor(nowMs / 1000) + seconds;
-    const textWithoutDue = text.replace(inMatch[0], " ").replace(/\s+/g, " ").trim();
+    const textWithoutDue = text
+      .replace(inMatch[0], " ")
+      .replace(/\s+/g, " ")
+      .trim();
     return { dueAt, textWithoutDue };
   }
 
@@ -78,7 +80,10 @@ export function parseBestieDueAtFromText(
     let cleaned = text.replace(atMatch[0], " ");
     cleaned = cleaned.replace(TOMORROW_RE, " ").replace(TODAY_RE, " ");
     cleaned = cleaned.replace(/\s+/g, " ").trim();
-    return { dueAt: Math.floor(base.getTime() / 1000), textWithoutDue: cleaned };
+    return {
+      dueAt: Math.floor(base.getTime() / 1000),
+      textWithoutDue: cleaned,
+    };
   }
 
   if (tomorrow) {
@@ -86,7 +91,10 @@ export function parseBestieDueAtFromText(
     base.setDate(base.getDate() + 1);
     base.setHours(9, 0, 0, 0);
     const cleaned = text.replace(TOMORROW_RE, " ").replace(/\s+/g, " ").trim();
-    return { dueAt: Math.floor(base.getTime() / 1000), textWithoutDue: cleaned };
+    return {
+      dueAt: Math.floor(base.getTime() / 1000),
+      textWithoutDue: cleaned,
+    };
   }
 
   return { dueAt: null, textWithoutDue: text.trim() };

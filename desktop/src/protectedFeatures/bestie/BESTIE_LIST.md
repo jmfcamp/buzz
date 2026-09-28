@@ -19,3 +19,7 @@ relay / owner / agent). Mutations happen three ways:
 Due reminders are detected by the ~5 minute wake loop (plus a one-shot timer for
 the next dueAt). A due nudge shows the footer `!` badge, auto-opens the Bestie
 popover, and renders the amber check-in banner (not a normal DM).
+
+Client dedupe: open items with the same kind and normalized text are not
+added twice when due times match within 120s, or when the first item was
+created in the last 10 minutes (covers NL + agent fence on one ask).

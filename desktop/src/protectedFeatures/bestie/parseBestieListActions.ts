@@ -28,7 +28,6 @@ function isKind(value: unknown): value is BestieListKind {
   return value === "todo" || value === "reminder";
 }
 
-
 function coerceDueAt(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return Math.floor(value);

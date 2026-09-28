@@ -4,6 +4,10 @@ import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { cn } from "@/shared/lib/cn";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { BestiePopover, BestieTriggerVisual } from "./BestiePopover";
+import {
+  setBestiePopoverOpen,
+  useBestieHasUnreadMessage,
+} from "./bestieAttentionStore";
 import { useBestieNudge } from "./bestieNudgeStore";
 import { useBestie } from "./useBestie";
 
@@ -13,6 +17,7 @@ import { useBestie } from "./useBestie";
  * Opens the Bestie popover chat. Does not navigate away.
  * Phase 2: proactive wake nudge shows a distinct badge (not a DM unread).
  * Phase 3: due-reminder nudges auto-open the popover with the nudge banner.
+ * Unread agent replies (popover + DM closed) show a pulsing light ring.
  */
 export function BestieProfileTrigger({ className }: { className?: string }) {
   const bestie = useBestie();
@@ -21,7 +26,14 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
   const agent = bestie.assignedAgent;
   const nudge = useBestieNudge();
   const hasNudge = Boolean(nudge);
+  const hasUnread = useBestieHasUnreadMessage();
   const lastAutoOpenedNudgeIdRef = React.useRef<string | null>(null);
+
+  // Keep attention store in sync with popover open state.
+  React.useEffect(() => {
+    setBestiePopoverOpen(open);
+    return () => setBestiePopoverOpen(false);
+  }, [open]);
 
   // Auto-open when a *due reminder* nudge fires (distinct from todos check-in).
   React.useEffect(() => {
@@ -30,6 +42,14 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
     lastAutoOpenedNudgeIdRef.current = nudge.id;
     setOpen(true);
   }, [agent, nudge]);
+
+  const ariaLabel = agent
+    ? hasNudge
+      ? `Open Bestie chat with ${agent.name} (check-in waiting)`
+      : hasUnread
+        ? `Open Bestie chat with ${agent.name} (new message)`
+        : `Open Bestie chat with ${agent.name}`
+    : "Choose a Bestie";
 
   return (
     <Popover
@@ -45,13 +65,7 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
     >
       <PopoverTrigger asChild>
         <button
-          aria-label={
-            agent
-              ? hasNudge
-                ? `Open Bestie chat with ${agent.name} (check-in waiting)`
-                : `Open Bestie chat with ${agent.name}`
-              : "Choose a Bestie"
-          }
+          aria-label={ariaLabel}
           className={cn(
             "relative flex max-w-[42%] shrink-0 items-center gap-1.5 rounded-full outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
             className,
@@ -61,6 +75,13 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
           type="button"
         >
           <span className="relative inline-flex shrink-0">
+            {hasUnread && !hasNudge ? (
+              <span
+                aria-hidden="true"
+                className="bestie-unread-ring pointer-events-none absolute -inset-1 rounded-full"
+                data-testid="bestie-unread-ring"
+              />
+            ) : null}
             <BestieTriggerVisual
               agent={agent}
               className="h-8 w-8"

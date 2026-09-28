@@ -1,4 +1,4 @@
-import { Bell, Check, ListTodo, Plus, Trash2 } from "lucide-react";
+import { Bell, Briefcase, Check, ListTodo, Plus, Trash2 } from "lucide-react";
 import * as React from "react";
 
 import { cn } from "@/shared/lib/cn";
@@ -18,7 +18,10 @@ import type {
 import {
   dueAtFromDatetimeLocal,
   presentBestieContextCount,
+  type BestieRhsKind,
 } from "./bestieDmRhsHelpers";
+import { enabledJobs } from "./bestieJobStorage";
+import { useBestieJobs } from "./bestieJobStore";
 
 export {
   bestieCategoryTitle,
@@ -26,6 +29,7 @@ export {
   dueAtFromDatetimeLocal,
   presentBestieContextCount,
 } from "./bestieDmRhsHelpers";
+export type { BestieRhsKind } from "./bestieDmRhsHelpers";
 
 /** Match project home context row chrome (icon + label + count). */
 const BESTIE_RHS_ROW_CLASS =
@@ -170,7 +174,10 @@ function AddRow({
   const submit = () => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    onAdd(trimmed, kind === "reminder" ? dueAtFromDatetimeLocal(dueLocal) : null);
+    onAdd(
+      trimmed,
+      kind === "reminder" ? dueAtFromDatetimeLocal(dueLocal) : null,
+    );
     setText("");
     setDueLocal("");
   };
@@ -246,17 +253,19 @@ export function BestieDmRhsPanel({
   onOpenKind,
   scope,
 }: {
-  activeKind?: BestieListKind | null;
-  onOpenKind: (kind: BestieListKind) => void;
+  activeKind?: BestieRhsKind | null;
+  onOpenKind: (kind: BestieRhsKind) => void;
   scope: BestieListScope;
 }) {
   const state = useBestieList(scope);
+  const jobState = useBestieJobs(scope);
   const openReminders = state.items.filter(
     (item) => item.kind === "reminder" && item.status === "open",
   ).length;
   const openTodos = state.items.filter(
     (item) => item.kind === "todo" && item.status === "open",
   ).length;
+  const openJobs = enabledJobs(jobState).length;
 
   return (
     <div className="space-y-1 px-2 pb-8 pt-3" data-testid="bestie-dm-rhs-panel">
@@ -277,6 +286,15 @@ export function BestieDmRhsPanel({
         testId="bestie-rhs-todos"
       >
         To-dos
+      </CategoryNavButton>
+      <CategoryNavButton
+        count={presentBestieContextCount(openJobs)}
+        icon={<Briefcase className="size-4" />}
+        onClick={() => onOpenKind("job")}
+        pressed={activeKind === "job"}
+        testId="bestie-rhs-jobs"
+      >
+        Jobs
       </CategoryNavButton>
     </div>
   );
@@ -318,8 +336,8 @@ export function BestieDmCategorySheet({
         />
       ) : (
         <p className="px-0.5 text-xs text-muted-foreground">
-          Use + to add by hand (reminders can set a due time), or ask Bestie
-          in natural language / with a{" "}
+          Use + to add by hand (reminders can set a due time), or ask Bestie in
+          natural language / with a{" "}
           <code className="text-2xs">bestie-list</code> fence.
           {onRequestAdd ? (
             <>

@@ -51,13 +51,17 @@ import {
   useBestieShowActivity,
 } from "./bestieActivityPreference";
 import { buildBestieMessageContext } from "./bestieMessageContext";
-import {
-  applyBestieListIntentFromUserMessage,
-} from "./bestieListStore";
+import { applyBestieListIntentFromUserMessage } from "./bestieListStore";
 import {
   stripBestieListTurnHint,
   withBestieListTurnHint,
 } from "./bestieListProtocol";
+import {
+  stripBestieJobTurnHint,
+  withBestieJobTurnHint,
+} from "./bestieJobProtocol";
+import { applyBestieJobIntentFromUserMessage } from "./bestieJobStore";
+import { messageLooksLikeBestieJobRequest } from "./parseBestieUserJobIntent";
 import {
   clearBestieSessionBoundary,
   readBestieSessionBoundary,
@@ -531,7 +535,9 @@ export function BestiePopover({
           message.kind === KIND_STREAM_MESSAGE_V2,
       )
       .map((message) => {
-        let body = stripBestieListTurnHint(message.body);
+        let body = stripBestieJobTurnHint(
+          stripBestieListTurnHint(message.body),
+        );
         if (contextEnvelope && body.startsWith(contextEnvelope)) {
           body = body.slice(contextEnvelope.length).trim();
         }
@@ -574,11 +580,7 @@ export function BestiePopover({
           ? { firstMessageCreatedAt: sessionBoundary.firstMessageCreatedAt }
           : null,
       }),
-    [
-      activeConversationChannel?.id,
-      agentTranscript,
-      sessionBoundary,
-    ],
+    [activeConversationChannel?.id, agentTranscript, sessionBoundary],
   );
   const handleToggleReaction = React.useCallback(
     async (message: TimelineMessage, emoji: string, remove: boolean) => {
@@ -680,7 +682,9 @@ export function BestiePopover({
       setConversationChannel(channel);
       const parentEventId = resolveBestieSendParentEventId(sessionBoundary);
       const listIntent = messageLooksLikeBestieListRequest(trimmedDraft);
-      const outboundBody = withBestieListTurnHint(trimmedDraft, listIntent);
+      const jobIntent = messageLooksLikeBestieJobRequest(trimmedDraft);
+      let outboundBody = withBestieListTurnHint(trimmedDraft, listIntent);
+      outboundBody = withBestieJobTurnHint(outboundBody, jobIntent);
       const content =
         contextEnvelope && !contextSent
           ? `${contextEnvelope}\n\n${outboundBody}`
@@ -690,23 +694,33 @@ export function BestiePopover({
         parentEventId,
         targetChannel: channel,
       });
-      // Apply NL list intent immediately (WakeController also applies; idempotent).
+      // Apply NL list/job intent immediately (WakeController also applies; idempotent).
       if (
-        listIntent &&
+        (listIntent || jobIntent) &&
         sessionScope &&
         bestie.ownerPubkey &&
         assignedAgentPubkey &&
         bestie.relayUrl
       ) {
-        applyBestieListIntentFromUserMessage(
-          {
-            agentPubkey: normalizePubkey(assignedAgentPubkey),
-            ownerPubkey: normalizePubkey(bestie.ownerPubkey),
-            relayUrl: bestie.relayUrl,
-          },
-          sentMessage.id,
-          trimmedDraft,
-        );
+        const scope = {
+          agentPubkey: normalizePubkey(assignedAgentPubkey),
+          ownerPubkey: normalizePubkey(bestie.ownerPubkey),
+          relayUrl: bestie.relayUrl,
+        };
+        if (listIntent) {
+          applyBestieListIntentFromUserMessage(
+            scope,
+            sentMessage.id,
+            trimmedDraft,
+          );
+        }
+        if (jobIntent) {
+          applyBestieJobIntentFromUserMessage(
+            scope,
+            sentMessage.id,
+            trimmedDraft,
+          );
+        }
       }
       setSessionBoundary((current) => {
         if (current) return current;

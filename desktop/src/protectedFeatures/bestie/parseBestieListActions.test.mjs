@@ -40,5 +40,8 @@ test("parses ISO dueAt strings on reminder adds", () => {
   const actions = parseBestieListActionsFromMessage(
     '```bestie-list\n{"op":"add","items":[{"kind":"reminder","text":"ISO","dueAt":"2026-09-26T18:00:00.000Z"}]}\n```',
   );
-  assert.equal(actions[0].items[0].dueAt, Math.floor(Date.parse("2026-09-26T18:00:00.000Z") / 1000));
+  assert.equal(
+    actions[0].items[0].dueAt,
+    Math.floor(Date.parse("2026-09-26T18:00:00.000Z") / 1000),
+  );
 });
