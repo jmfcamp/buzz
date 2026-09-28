@@ -82,6 +82,7 @@ import {
 } from "./parseBestieUserListIntent";
 import { messageLooksLikeBestieScratchRequest } from "./parseBestieUserScratchIntent";
 import { BestieNudgeBanner } from "./BestieNudgeBanner";
+import { resolveBestiePopoverNewMessageTarget } from "./bestiePopoverNewMessage";
 import { requestBestieRhsOpen } from "./bestieRhsOpenRequest";
 import { BestiePopoverListsSection } from "./BestiePopoverListsSection";
 import { useBestie } from "./useBestie";
@@ -233,6 +234,9 @@ function BestieConversationTranscript({
   channel,
   currentPubkey,
   messages,
+  newMessageTarget,
+  onJumpToNewMessage,
+  onNearBottomChange,
   onToggleReaction,
   profiles,
   showActivity,
@@ -243,6 +247,10 @@ function BestieConversationTranscript({
   channel: Channel;
   currentPubkey: string | undefined;
   messages: TimelineMessage[];
+  /** Pending "New message" jump target (outside session or below fold). */
+  newMessageTarget?: { id: string; outsideSession: boolean } | null;
+  onJumpToNewMessage?: (target: { id: string; outsideSession: boolean }) => void;
+  onNearBottomChange?: (nearBottom: boolean) => void;
   onToggleReaction: (
     message: TimelineMessage,
     emoji: string,
@@ -257,6 +265,7 @@ function BestieConversationTranscript({
   // Stick-to-bottom: auto-scroll only while the user is already near the end
   // (or on first open / remount). Reuses desktop chat near-bottom threshold.
   const shouldStickToBottomRef = React.useRef(true);
+  const [nearBottom, setNearBottom] = React.useState(true);
   const latestMessageKey = messages.at(-1)?.renderKey ?? messages.at(-1)?.id;
   const typingKey = typingPubkeys.join(",");
   const flattenedMessages = React.useMemo(
@@ -293,14 +302,17 @@ function BestieConversationTranscript({
     const transcript = transcriptRef.current;
     if (!transcript) return;
     const onScroll = () => {
-      shouldStickToBottomRef.current = isNearBottom(transcript);
+      const near = isNearBottom(transcript);
+      shouldStickToBottomRef.current = near;
+      setNearBottom((prev) => (prev === near ? prev : near));
+      onNearBottomChange?.(near);
     };
     onScroll();
     transcript.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       transcript.removeEventListener("scroll", onScroll);
     };
-  }, [channel.id]);
+  }, [channel.id, onNearBottomChange]);
 
   React.useLayoutEffect(() => {
     // Fire on open, new messages, and typing rows — but only while sticky.
@@ -316,7 +328,53 @@ function BestieConversationTranscript({
     transcript.scrollTop = transcript.scrollHeight;
   }, [transcriptTailKey]);
 
+  const scrollToLatest = React.useCallback(() => {
+    shouldStickToBottomRef.current = true;
+    setNearBottom(true);
+    onNearBottomChange?.(true);
+    const sentinel = bottomSentinelRef.current;
+    if (sentinel) {
+      sentinel.scrollIntoView({ block: "end", behavior: "smooth" });
+      return;
+    }
+    const transcript = transcriptRef.current;
+    if (transcript) {
+      transcript.scrollTo({ top: transcript.scrollHeight, behavior: "smooth" });
+    }
+  }, [onNearBottomChange]);
+
+  const showNewMessageBanner = Boolean(newMessageTarget) && (
+    newMessageTarget!.outsideSession || !nearBottom
+  );
+
   return (
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      {showNewMessageBanner && newMessageTarget ? (
+        <div
+          className="pointer-events-none absolute inset-x-0 top-1 z-20 flex justify-center px-2"
+          data-testid="bestie-new-message-banner"
+        >
+          <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-sky-500/40 bg-sky-500/15 px-3 py-1 text-xs font-medium text-sky-950 shadow-sm backdrop-blur-sm dark:text-sky-100">
+            <span>New message</span>
+            <Button
+              className="h-6 px-2 text-2xs"
+              data-testid="bestie-new-message-jump"
+              onClick={() => {
+                if (newMessageTarget.outsideSession) {
+                  onJumpToNewMessage?.(newMessageTarget);
+                } else {
+                  scrollToLatest();
+                }
+              }}
+              size="xs"
+              type="button"
+              variant="secondary"
+            >
+              View
+            </Button>
+          </div>
+        </div>
+      ) : null}
     <div
       aria-live="polite"
       className="min-h-0 flex-1 overflow-y-auto"
@@ -372,6 +430,7 @@ function BestieConversationTranscript({
 
         <div aria-hidden="true" ref={bottomSentinelRef} />
       </div>
+    </div>
     </div>
   );
 }
@@ -604,6 +663,62 @@ export function BestiePopover({
       sessionBoundary,
     );
   }, [allConversationMessages, sessionBoundary]);
+  const sessionMessageIds = React.useMemo(
+    () => new Set(conversationMessages.map((message) => message.id)),
+    [conversationMessages],
+  );
+  const [transcriptNearBottom, setTranscriptNearBottom] = React.useState(true);
+  const handleNearBottomChange = React.useCallback((near: boolean) => {
+    setTranscriptNearBottom(near);
+  }, []);
+  const newMessageTarget = React.useMemo(
+    () =>
+      resolveBestiePopoverNewMessageTarget({
+        allMessages: allConversationMessages,
+        nearBottom: transcriptNearBottom,
+        sessionMessageIds,
+        sessionRootId: sessionBoundary?.sessionRootId,
+      }),
+    [
+      allConversationMessages,
+      sessionBoundary?.sessionRootId,
+      sessionMessageIds,
+      transcriptNearBottom,
+    ],
+  );
+  const jumpToNewMessage = React.useCallback(
+    (target: { id: string; outsideSession: boolean }) => {
+      if (!target.outsideSession || !sessionScope) return;
+      const message = allConversationMessages.find((entry) => entry.id === target.id);
+      if (!message) return;
+      // Start a fresh session focused on that thread/response root.
+      const rootId = message.rootId ?? message.parentId ?? message.id;
+      const root =
+        allConversationMessages.find((entry) => entry.id === rootId) ?? message;
+      const baselineMessageIds = new Set(
+        allConversationMessages
+          .filter(
+            (entry) =>
+              entry.createdAt < root.createdAt ||
+              (entry.createdAt === root.createdAt && entry.id !== root.id),
+          )
+          .map((entry) => entry.id),
+      );
+      const next = {
+        baselineMessageIds,
+        firstMessageCreatedAt: root.createdAt,
+        sessionRootId: root.id,
+      };
+      writeBestieSessionBoundary(sessionScope, {
+        baselineMessageIds: [...baselineMessageIds],
+        firstMessageCreatedAt: next.firstMessageCreatedAt,
+        sessionRootId: next.sessionRootId,
+      });
+      setSessionBoundary(next);
+      setTranscriptNearBottom(true);
+    },
+    [allConversationMessages, sessionScope],
+  );
   const typingEntries = useChannelTyping(
     activeConversationChannel,
     currentPubkey,
@@ -913,6 +1028,9 @@ export function BestiePopover({
           channel={activeConversationChannel}
           currentPubkey={currentPubkey}
           messages={conversationMessages}
+          newMessageTarget={newMessageTarget}
+          onJumpToNewMessage={jumpToNewMessage}
+          onNearBottomChange={handleNearBottomChange}
           onToggleReaction={handleToggleReaction}
           profiles={conversationProfiles}
           showActivity={showActivity}

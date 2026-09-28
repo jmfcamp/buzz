@@ -180,12 +180,18 @@ export function upsertBestieTrackedThread(
   const preview = input.preview.trim().slice(0, 280);
   const existing = state.threads.find((thread) => thread.id === id);
   const source = input.source ?? existing?.source ?? "ask";
+  const activityAt =
+    typeof input.lastActiveAt === "number" &&
+    Number.isFinite(input.lastActiveAt) &&
+    input.lastActiveAt >= 0
+      ? Math.floor(input.lastActiveAt)
+      : nowSeconds;
   const nextThread: BestieTrackedThread = existing
     ? {
         ...existing,
         authorName: input.authorName?.trim() || existing.authorName,
         channelName: input.channelName?.trim() || existing.channelName,
-        lastActiveAt: nowSeconds,
+        lastActiveAt: Math.max(existing.lastActiveAt, activityAt),
         preview: preview || existing.preview,
         // Prefer explicit agent/add over legacy ask when rediscovered.
         source:
@@ -199,7 +205,7 @@ export function upsertBestieTrackedThread(
         channelId,
         channelName: input.channelName?.trim() || null,
         id,
-        lastActiveAt: nowSeconds,
+        lastActiveAt: activityAt,
         lastSummary: null,
         lastSummaryAt: null,
         preview,

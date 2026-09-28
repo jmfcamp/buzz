@@ -41,6 +41,8 @@ export type BestieThreadUpsertInput = {
   authorName?: string | null;
   channelId: string;
   channelName?: string | null;
+  /** Optional activity timestamp (unix seconds). Bumps lastActiveAt when newer. */
+  lastActiveAt?: number;
   preview: string;
   rootEventId: string;
   source?: BestieThreadSource;

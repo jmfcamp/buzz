@@ -206,16 +206,21 @@ export function syncBestieParticipatingThreadsForScope(
     if (!channelId || !rootEventId) continue;
     const id = bestieThreadId(channelId, rootEventId);
     if (known.has(id)) {
-      // Already tracked (ask/add/agent) — do not bump lastActiveAt on every sync.
       const existing = next.threads.find((thread) => thread.id === id);
-      if (
-        existing &&
-        existing.source === "ask" &&
-        (input.source ?? "agent") === "agent"
-      ) {
+      if (!existing) continue;
+      const activityAt =
+        typeof input.lastActiveAt === "number" &&
+        Number.isFinite(input.lastActiveAt)
+          ? Math.floor(input.lastActiveAt)
+          : null;
+      const newerActivity =
+        activityAt != null && activityAt > existing.lastActiveAt;
+      const promoteAskToAgent =
+        existing.source === "ask" && (input.source ?? "agent") === "agent";
+      if (newerActivity || promoteAskToAgent) {
         next = upsertBestieTrackedThread(next, {
           ...input,
-          source: "agent",
+          source: promoteAskToAgent ? "agent" : existing.source,
         });
         changed = true;
       }

@@ -41,9 +41,18 @@ export function bestieParticipatingThreadInputs(input: {
     const id = bestieThreadId(channelId, rootEventId);
     const existing = byId.get(id);
     const preview = (item.content ?? "").trim().slice(0, 280);
+    const activityAt =
+      typeof item.createdAt === "number" && Number.isFinite(item.createdAt)
+        ? Math.floor(item.createdAt)
+        : undefined;
+    const priorActivity = existing?.lastActiveAt;
     byId.set(id, {
       channelId,
       channelName: item.channelName?.trim() || existing?.channelName || null,
+      lastActiveAt:
+        activityAt != null
+          ? Math.max(activityAt, priorActivity ?? 0)
+          : priorActivity,
       preview: preview || existing?.preview || "",
       rootEventId,
       source: "agent",

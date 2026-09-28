@@ -1,11 +1,10 @@
-import { MessagesSquare, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, MessagesSquare, Plus, SquareArrowOutUpRight, Trash2 } from "lucide-react";
 import * as React from "react";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useChannelsQuery } from "@/features/channels/hooks";
 import { getThreadReference, isThreadReply } from "@/features/messages/lib/threading";
 import { getEventById, getHomeFeed } from "@/shared/api/tauri";
-import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { ensureBestieAgentThreadAccess } from "./bestieThreadAccess";
@@ -14,6 +13,7 @@ import {
   parseBestieThreadAddInput,
 } from "./bestieThreadDiscover";
 import { BESTIE_THREAD_SUMMARIZE_EVENT } from "./bestieThreadProtocol";
+import { bestieThreadNeedsSummarize } from "./bestieThreadSummarizeEligibility";
 import { BESTIE_THREAD_SUMMARIZE_LIVE_LABEL } from "./bestieThreadSummarizeLive";
 import { sortedBestieThreads } from "./bestieThreadStorage";
 import {
@@ -42,7 +42,9 @@ function ThreadRow({
   thread: BestieTrackedThread;
 }) {
   const { goChannel } = useAppNavigation();
+  // Rows start collapsed; click the thread header to expand and read summary.
   const [expanded, setExpanded] = React.useState(false);
+  const needsSummarize = bestieThreadNeedsSummarize(thread);
   const title =
     thread.channelName?.trim() ||
     `Thread ${thread.rootEventId.slice(0, 8)}…`;
@@ -52,6 +54,7 @@ function ThreadRow({
       : thread.source === "add"
         ? "Added"
         : "Ask Assistant";
+  const Chevron = expanded ? ChevronDown : ChevronRight;
 
   return (
     <div
@@ -59,52 +62,68 @@ function ThreadRow({
       data-testid={`bestie-thread-item-${thread.id}`}
     >
       <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1">
-          <button
-            className="text-left"
-            onClick={() =>
-              void goChannel(thread.channelId, { thread: thread.rootEventId })
-            }
-            type="button"
-          >
-            <p className="text-sm font-medium leading-snug">{title}</p>
-            <p className="mt-0.5 line-clamp-2 text-2xs text-muted-foreground">
-              {thread.preview || "No preview"}
-            </p>
-          </button>
-          <p className="mt-0.5 text-2xs text-muted-foreground">
+        <button
+          aria-expanded={expanded}
+          className="min-w-0 flex-1 text-left"
+          data-testid={`bestie-thread-toggle-${thread.id}`}
+          onClick={() => setExpanded((value) => !value)}
+          type="button"
+        >
+          <p className="flex items-center gap-1 text-sm font-medium leading-snug">
+            <Chevron className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="truncate">{title}</span>
+          </p>
+          <p className="mt-0.5 line-clamp-2 pl-5 text-2xs text-muted-foreground">
+            {thread.preview || "No preview"}
+          </p>
+          <p className="mt-0.5 pl-5 text-2xs text-muted-foreground">
             {sourceLabel} · Added{" "}
             {new Date(thread.addedAt * 1000).toLocaleString()}
             {thread.lastSummaryAt
               ? ` · summarized ${new Date(thread.lastSummaryAt * 1000).toLocaleString()}`
               : ""}
           </p>
-        </div>
+        </button>
+        {needsSummarize || summarizeLive ? (
+          <Button
+            className="h-7 shrink-0 px-2 text-xs"
+            data-testid={`bestie-thread-summarize-${thread.id}`}
+            disabled={pending}
+            onClick={() => {
+              const begun = beginBestieThreadSummarizeForScope(
+                scope,
+                thread.id,
+              );
+              if (!begun) return;
+              window.dispatchEvent(
+                new CustomEvent(BESTIE_THREAD_SUMMARIZE_EVENT, {
+                  detail: { threadId: thread.id },
+                }),
+              );
+            }}
+            size="sm"
+            type="button"
+            variant="secondary"
+          >
+            {summarizeLive
+              ? BESTIE_THREAD_SUMMARIZE_LIVE_LABEL
+              : pending
+                ? "…"
+                : "Summarize"}
+          </Button>
+        ) : null}
         <Button
-          className="h-7 shrink-0 px-2 text-xs"
-          data-testid={`bestie-thread-summarize-${thread.id}`}
-          disabled={pending}
-          onClick={() => {
-            const begun = beginBestieThreadSummarizeForScope(
-              scope,
-              thread.id,
-            );
-            if (!begun) return;
-            window.dispatchEvent(
-              new CustomEvent(BESTIE_THREAD_SUMMARIZE_EVENT, {
-                detail: { threadId: thread.id },
-              }),
-            );
-          }}
-          size="sm"
+          aria-label="Open thread"
+          className="size-6 shrink-0"
+          data-testid={`bestie-thread-open-${thread.id}`}
+          onClick={() =>
+            void goChannel(thread.channelId, { thread: thread.rootEventId })
+          }
+          size="icon-xs"
           type="button"
-          variant="secondary"
+          variant="ghost"
         >
-          {summarizeLive
-            ? BESTIE_THREAD_SUMMARIZE_LIVE_LABEL
-            : pending
-              ? "…"
-              : "Summarize"}
+          <SquareArrowOutUpRight className="size-3.5" />
         </Button>
         <Button
           aria-label="Stop tracking thread"
@@ -118,19 +137,21 @@ function ThreadRow({
           <Trash2 className="size-3.5" />
         </Button>
       </div>
-      {thread.lastSummary ? (
-        <div className="mt-1.5 border-t border-border/40 pt-1.5">
-          <button
-            className={cn(
-              "w-full text-left text-xs text-muted-foreground",
-              !expanded && "line-clamp-2",
-            )}
-            data-testid={`bestie-thread-summary-${thread.id}`}
-            onClick={() => setExpanded((value) => !value)}
-            type="button"
-          >
-            {thread.lastSummary}
-          </button>
+      {expanded ? (
+        <div className="mt-1.5 border-t border-border/40 pt-1.5 pl-5">
+          {thread.lastSummary ? (
+            <p
+              className="whitespace-pre-wrap text-xs text-muted-foreground"
+              data-testid={`bestie-thread-summary-${thread.id}`}
+            >
+              {thread.lastSummary}
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              No summary yet
+              {needsSummarize ? " — use Summarize when ready." : "."}
+            </p>
+          )}
         </div>
       ) : null}
     </div>

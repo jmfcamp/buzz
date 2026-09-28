@@ -28,10 +28,11 @@ Channel id: ${thread.channelId}
 
 Use \`buzz messages thread --channel ${thread.channelId} --event ${thread.rootEventId}\` if you need full history (channel membership or open visibility required on the relay).
 
-Cover:
-1. What the thread is about
-2. Decisions already made
-3. Open items still to work
+Structure the reply as:
+- **Covered** — bullet list of what was discussed / decided
+- **Outstanding** — brief open items still to work
+- **Expected of you** — bullets of anything asking Assistant / you to do next
+- **Mentions of you** — anything that @mentions or clearly addresses you
 
 Starter context${who}:
 ${thread.preview.trim() || "(no preview)"}`;

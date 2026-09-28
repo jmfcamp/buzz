@@ -65,6 +65,10 @@ function ScratchListRow({
   );
 }
 
+const SCRATCH_BODY_MIN_PX = 112; // ~min-h-28
+const SCRATCH_BODY_DEFAULT_PX = 160;
+const SCRATCH_BODY_MAX_PX = 480; // stay inside the Lists sheet
+
 function ScratchEditor({
   note,
   onClose,
@@ -76,14 +80,38 @@ function ScratchEditor({
 }) {
   const [title, setTitle] = React.useState(note.title);
   const [body, setBody] = React.useState(note.body);
+  const [bodyHeight, setBodyHeight] = React.useState(SCRATCH_BODY_DEFAULT_PX);
   const titleRef = React.useRef<HTMLInputElement>(null);
+  const dragRef = React.useRef<{ startY: number; startH: number } | null>(null);
   React.useEffect(() => {
     titleRef.current?.focus();
+    setBodyHeight(SCRATCH_BODY_DEFAULT_PX);
   }, [note.id]);
 
   const save = () => {
     const nextTitle = title.trim() || deriveBestieScratchTitle(body);
     onSave({ body, title: nextTitle });
+  };
+
+  const onResizePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    dragRef.current = { startY: event.clientY, startH: bodyHeight };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const onResizePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const next = Math.min(
+      SCRATCH_BODY_MAX_PX,
+      Math.max(SCRATCH_BODY_MIN_PX, drag.startH + (event.clientY - drag.startY)),
+    );
+    setBodyHeight(next);
+  };
+  const onResizePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    dragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
   };
 
   return (
@@ -108,7 +136,7 @@ function ScratchEditor({
       />
       <Textarea
         aria-label="Scratch body"
-        className="min-h-28 resize-none text-sm"
+        className="resize-none overflow-y-auto text-sm"
         data-testid="bestie-scratch-body"
         onChange={(event) => setBody(event.target.value)}
         onKeyDown={(event) => {
@@ -118,29 +146,59 @@ function ScratchEditor({
           }
         }}
         placeholder="Notes…"
+        style={{ height: bodyHeight }}
         value={body}
       />
-      <div className="flex justify-end gap-1.5">
+      <div
+        aria-label="Drag to resize note"
+        className="flex h-3 cursor-ns-resize items-center justify-center rounded-sm hover:bg-muted/60"
+        data-testid="bestie-scratch-resize"
+        onPointerDown={onResizePointerDown}
+        onPointerMove={onResizePointerMove}
+        onPointerUp={onResizePointerUp}
+        onPointerCancel={onResizePointerUp}
+        role="separator"
+        title="Drag to make taller"
+      >
+        <span className="h-0.5 w-8 rounded-full bg-border" />
+      </div>
+      <div className="flex items-center justify-between gap-1.5">
         <Button
           className="h-7 px-2 text-xs"
-          data-testid="bestie-scratch-cancel"
-          onClick={onClose}
+          data-testid="bestie-scratch-expand"
+          onClick={() =>
+            setBodyHeight((h) =>
+              Math.min(SCRATCH_BODY_MAX_PX, h + 96),
+            )
+          }
           size="sm"
           type="button"
           variant="ghost"
         >
-          Close
+          Read more
         </Button>
-        <Button
-          className="h-7 px-2 text-xs"
-          data-testid="bestie-scratch-save"
-          onClick={save}
-          size="sm"
-          type="button"
-          variant="secondary"
-        >
-          Save
-        </Button>
+        <div className="flex gap-1.5">
+          <Button
+            className="h-7 px-2 text-xs"
+            data-testid="bestie-scratch-cancel"
+            onClick={onClose}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            Close
+          </Button>
+          <Button
+            className="h-7 px-2 text-xs"
+            data-testid="bestie-scratch-save"
+            onClick={save}
+            size="sm"
+            type="button"
+            variant="secondary"
+          >
+            Save
+          </Button>
+        </div>
       </div>
     </div>
   );
