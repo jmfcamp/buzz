@@ -38,6 +38,7 @@ export function BestieMessageAction({
         channelId,
         preview: message.body ?? "",
         rootEventId,
+        source: "ask",
       },
     );
   }, [

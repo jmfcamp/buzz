@@ -20,9 +20,11 @@ export function formatBestieThreadSummarizePrompt(thread: {
   const who = thread.authorName?.trim() ? ` (from ${thread.authorName})` : "";
   return `${BESTIE_THREAD_SUMMARIZE_MARKER}
 
-Summarize this thread Bestie is tracking in ${where}.
+Summarize this thread Assistant is tracking in ${where}.
 Root event: ${thread.rootEventId}
 Channel id: ${thread.channelId}
+
+Use \`buzz messages thread --channel ${thread.channelId} --event ${thread.rootEventId}\` if you need full history (channel membership or open visibility required on the relay).
 
 Cover:
 1. What the thread is about

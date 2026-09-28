@@ -47,6 +47,12 @@ function parseThread(value: unknown): BestieTrackedThread | null {
   ) {
     return null;
   }
+  const source =
+    record.source === "ask" ||
+    record.source === "agent" ||
+    record.source === "add"
+      ? record.source
+      : "ask";
   return {
     addedAt: Math.floor(record.addedAt),
     authorName:
@@ -69,6 +75,7 @@ function parseThread(value: unknown): BestieTrackedThread | null {
       : null,
     preview: record.preview.trim(),
     rootEventId: record.rootEventId,
+    source,
   };
 }
 
@@ -153,6 +160,7 @@ export function upsertBestieTrackedThread(
   const id = bestieThreadId(channelId, rootEventId);
   const preview = input.preview.trim().slice(0, 280);
   const existing = state.threads.find((thread) => thread.id === id);
+  const source = input.source ?? existing?.source ?? "ask";
   const nextThread: BestieTrackedThread = existing
     ? {
         ...existing,
@@ -160,6 +168,11 @@ export function upsertBestieTrackedThread(
         channelName: input.channelName?.trim() || existing.channelName,
         lastActiveAt: nowSeconds,
         preview: preview || existing.preview,
+        // Prefer explicit agent/add over legacy ask when rediscovered.
+        source:
+          existing.source === "ask" && source !== "ask"
+            ? source
+            : existing.source,
       }
     : {
         addedAt: nowSeconds,
@@ -172,6 +185,7 @@ export function upsertBestieTrackedThread(
         lastSummaryAt: null,
         preview,
         rootEventId,
+        source,
       };
   const threads = [
     nextThread,

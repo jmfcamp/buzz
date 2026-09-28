@@ -2,6 +2,7 @@ import * as React from "react";
 
 import { bestieOwnerScopeKey } from "./bestieOwnerScope";
 
+import { bestieThreadId } from "./bestieThreadProtocol";
 import {
   beginBestieThreadSummarize,
   clearBestieThreadSummarize,
@@ -104,6 +105,46 @@ export function applyBestieThreadSummarizeReply(
     completeBestieThreadSummarize(current, trimmed, createdAtSeconds),
   );
   return true;
+}
+
+
+export function syncBestieParticipatingThreadsForScope(
+  scope: BestieThreadScope,
+  inputs: readonly BestieThreadUpsertInput[],
+): BestieThreadState {
+  let next = loadState(scope);
+  const known = new Set(next.threads.map((thread) => thread.id));
+  let changed = false;
+  for (const input of inputs) {
+    const channelId = input.channelId.trim();
+    const rootEventId = input.rootEventId.trim();
+    if (!channelId || !rootEventId) continue;
+    const id = bestieThreadId(channelId, rootEventId);
+    if (known.has(id)) {
+      // Already tracked (ask/add/agent) — do not bump lastActiveAt on every sync.
+      const existing = next.threads.find((thread) => thread.id === id);
+      if (
+        existing &&
+        existing.source === "ask" &&
+        (input.source ?? "agent") === "agent"
+      ) {
+        next = upsertBestieTrackedThread(next, {
+          ...input,
+          source: "agent",
+        });
+        changed = true;
+      }
+      continue;
+    }
+    next = upsertBestieTrackedThread(next, {
+      ...input,
+      source: input.source ?? "agent",
+    });
+    known.add(id);
+    changed = true;
+  }
+  if (!changed) return next;
+  return commit(scope, next);
 }
 
 export function useBestieThreads(

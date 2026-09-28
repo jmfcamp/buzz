@@ -1,8 +1,11 @@
-/** Threads Bestie has joined — tracked for Summarize + history. */
+/** Threads Assistant has joined — tracked for Summarize + history. */
 
 import type { BestieListScope } from "./bestieListTypes";
 
 export type BestieThreadScope = BestieListScope;
+
+/** How the thread entered local tracking. */
+export type BestieThreadSource = "ask" | "agent" | "add";
 
 export type BestieTrackedThread = {
   addedAt: number;
@@ -14,9 +17,11 @@ export type BestieTrackedThread = {
   lastActiveAt: number;
   lastSummary: string | null;
   lastSummaryAt: number | null;
-  /** Short preview from the message that enrolled Bestie. */
+  /** Short preview from the message that enrolled Assistant. */
   preview: string;
   rootEventId: string;
+  /** ask = Ask Assistant; agent = agent authored in thread; add = Threads +. */
+  source: BestieThreadSource;
 };
 
 export type BestieThreadPendingSummarize = {
@@ -36,4 +41,5 @@ export type BestieThreadUpsertInput = {
   channelName?: string | null;
   preview: string;
   rootEventId: string;
+  source?: BestieThreadSource;
 };

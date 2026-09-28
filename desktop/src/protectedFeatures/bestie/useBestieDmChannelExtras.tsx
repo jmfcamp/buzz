@@ -191,7 +191,13 @@ export function useBestieDmChannelExtras(
       );
     }
     if (activeKind === "thread") {
-      return <BestieDmThreadsSheet scope={scope} />;
+      return (
+        <BestieDmThreadsSheet
+          adding={adding}
+          onRequestAdd={() => setAdding(true)}
+          scope={scope}
+        />
+      );
     }
     if (activeKind === "scratch") {
       return (
@@ -231,7 +237,7 @@ export function useBestieDmChannelExtras(
           setAdding(false);
         },
       };
-      if (activeKind === "coffee" || activeKind === "thread") {
+      if (activeKind === "coffee") {
         return { ...back };
       }
       const addLabel =
@@ -241,7 +247,9 @@ export function useBestieDmChannelExtras(
             ? "Add to-do"
             : activeKind === "scratch"
               ? "Add scratch note"
-              : "Add job";
+              : activeKind === "thread"
+                ? "Add thread"
+                : "Add job";
       return {
         ...back,
         actions: (
