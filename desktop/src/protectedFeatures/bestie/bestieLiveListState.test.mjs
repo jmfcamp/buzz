@@ -137,3 +137,10 @@ ${BESTIE_JOB_TURN_HINT_MARKER}
 Job teach…`;
   assert.equal(stripBestieOutboundHints(content), body);
 });
+
+test("stripBestieOutboundHints tolerates null/undefined body (View thread)", () => {
+  assert.equal(stripBestieOutboundHints(undefined), "");
+  assert.equal(stripBestieOutboundHints(null), "");
+  assert.equal(stripBestieOutboundHints(""), "");
+});
+

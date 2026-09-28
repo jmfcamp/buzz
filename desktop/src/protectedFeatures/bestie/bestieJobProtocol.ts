@@ -43,7 +43,10 @@ ${BESTIE_JOB_TURN_HINT_MARKER}
 Job setup (chat): clarify schedule type (once|interval|daily|weekly) + needed fields, then present an exact plan (prompt text, when, concrete targets like channel/thread/recipients). Wait for explicit user approve. Only then emit a fenced ${BESTIE_JOB_FENCE_LANG} add with "confirmed":true. Do not auto-create from a casual "schedule a job…" — draft/unconfirmed fences do not create.`;
 }
 
-export function stripBestieJobTurnHint(content: string): string {
+export function stripBestieJobTurnHint(
+  content: string | null | undefined,
+): string {
+  if (typeof content !== "string") return "";
   const index = content.indexOf(`\n\n${BESTIE_JOB_TURN_HINT_MARKER}`);
   if (index >= 0) return content.slice(0, index).trimEnd();
   const alt = content.indexOf(BESTIE_JOB_TURN_HINT_MARKER);

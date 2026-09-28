@@ -456,7 +456,7 @@ export function ChannelScreen({
     );
     if (!transformDisplayedMessageBody) return formatted;
     return formatted.map((message) => {
-      const body = transformDisplayedMessageBody(message.body);
+      const body = transformDisplayedMessageBody(message.body ?? "");
       return body === message.body ? message : { ...message, body };
     });
   }, [
@@ -735,7 +735,7 @@ export function ChannelScreen({
   const mapDisplayedBody = React.useCallback(
     (message: TimelineMessage | null | undefined) => {
       if (!message || !transformDisplayedMessageBody) return message ?? null;
-      const body = transformDisplayedMessageBody(message.body);
+      const body = transformDisplayedMessageBody(message.body ?? "");
       return body === message.body ? message : { ...message, body };
     },
     [transformDisplayedMessageBody],
@@ -744,14 +744,14 @@ export function ChannelScreen({
   const displayedThreadAllMessages = React.useMemo(() => {
     if (!transformDisplayedMessageBody) return threadPanelData.messages;
     return threadPanelData.messages.map((message) => {
-      const body = transformDisplayedMessageBody(message.body);
+      const body = transformDisplayedMessageBody(message.body ?? "");
       return body === message.body ? message : { ...message, body };
     });
   }, [threadPanelData.messages, transformDisplayedMessageBody]);
   const displayedThreadMessages = React.useMemo(() => {
     if (!transformDisplayedMessageBody) return threadPanelData.visibleReplies;
     return threadPanelData.visibleReplies.map((message) => {
-      const body = transformDisplayedMessageBody(message.body);
+      const body = transformDisplayedMessageBody(message.body ?? "");
       return body === message.body ? message : { ...message, body };
     });
   }, [threadPanelData.visibleReplies, transformDisplayedMessageBody]);

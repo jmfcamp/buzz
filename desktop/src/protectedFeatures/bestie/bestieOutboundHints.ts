@@ -19,7 +19,12 @@ const OUTBOUND_HINT_MARKERS = [
  * Strip live-list / list / job turn hints (and anything after the earliest
  * marker) for UI display and for NL intent parsers.
  */
-export function stripBestieOutboundHints(content: string): string {
+export function stripBestieOutboundHints(
+  content: string | null | undefined,
+): string {
+  // View-thread / activity rows can surface events before body decrypt; never
+  // throw on undefined (content.indexOf TypeError).
+  if (typeof content !== "string") return "";
   let earliest = -1;
   for (const marker of OUTBOUND_HINT_MARKERS) {
     const withBlank = content.indexOf(`\n\n${marker}`);

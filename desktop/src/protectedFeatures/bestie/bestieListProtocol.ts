@@ -67,7 +67,10 @@ When mutating reminders/todos, emit a fenced ${BESTIE_LIST_FENCE_LANG} JSON bloc
 }
 
 /** Strip the outbound turn hint (and anything after the marker) for UI display. */
-export function stripBestieListTurnHint(content: string): string {
+export function stripBestieListTurnHint(
+  content: string | null | undefined,
+): string {
+  if (typeof content !== "string") return "";
   const index = content.indexOf(`\n\n${BESTIE_LIST_TURN_HINT_MARKER}`);
   if (index >= 0) return content.slice(0, index).trimEnd();
   const alt = content.indexOf(BESTIE_LIST_TURN_HINT_MARKER);
