@@ -33,6 +33,10 @@ import {
   useBestieJobs,
 } from "./bestieJobStore";
 import {
+  applyBestieScratchActionsFromAgentMessage,
+  applyBestieScratchIntentFromUserMessage,
+} from "./bestieScratchStore";
+import {
   BESTIE_JOB_RUN_MARKER,
   formatBestieJobRunPrompt,
 } from "./bestieJobSchedule";
@@ -205,6 +209,11 @@ export function BestieWakeController() {
           event.id,
           event.content,
         );
+        applyBestieScratchActionsFromAgentMessage(
+          listScope,
+          event.id,
+          event.content,
+        );
         continue;
       }
       if (author === ownerNorm) {
@@ -223,6 +232,11 @@ export function BestieWakeController() {
           event.content,
         );
         applyBestieJobIntentFromUserMessage(listScope, event.id, event.content);
+        applyBestieScratchIntentFromUserMessage(
+          listScope,
+          event.id,
+          event.content,
+        );
       }
     }
 

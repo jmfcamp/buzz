@@ -19,6 +19,7 @@ import {
   dueAtFromDatetimeLocal,
   presentBestieJobSchedule,
 } from "./bestieDmRhsHelpers";
+import { BestieDueCountdownChip } from "./BestieDueCountdownChip";
 
 function JobRow({
   job,
@@ -39,7 +40,17 @@ function JobRow({
     >
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium leading-snug">{job.title}</p>
+          <div className="flex items-start gap-1.5">
+            <p className="min-w-0 flex-1 text-sm font-medium leading-snug">
+              {job.title}
+            </p>
+            {job.enabled && job.nextDueAt != null ? (
+              <BestieDueCountdownChip
+                dueAt={job.nextDueAt}
+                testId={`bestie-job-due-chip-${job.id}`}
+              />
+            ) : null}
+          </div>
           <p className="mt-0.5 line-clamp-2 text-2xs text-muted-foreground">
             {job.prompt}
           </p>

@@ -13,6 +13,7 @@ test("bestieCategoryTitle labels all RHS categories", () => {
   assert.equal(bestieCategoryTitle("job"), "Jobs");
   assert.equal(bestieCategoryTitle("coffee"), "Coffee");
   assert.equal(bestieCategoryTitle("thread"), "Threads");
+  assert.equal(bestieCategoryTitle("scratch"), "Scratch");
 });
 
 test("presentBestieContextCount omits empty like Projects overview", () => {

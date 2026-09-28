@@ -1,4 +1,4 @@
-import { Bell, Briefcase, Check, Coffee, ListTodo, MessagesSquare, Plus, Trash2 } from "lucide-react";
+import { Bell, Briefcase, Check, Coffee, ListTodo, MessagesSquare, Plus, StickyNote, Trash2 } from "lucide-react";
 import * as React from "react";
 
 import { cn } from "@/shared/lib/cn";
@@ -24,6 +24,8 @@ import { enabledJobs } from "./bestieJobStorage";
 import { useBestieJobs } from "./bestieJobStore";
 import { useBestieCoffee } from "./bestieCoffeeStore";
 import { useBestieThreads } from "./bestieThreadStore";
+import { useBestieScratch } from "./bestieScratchStore";
+import { BestieDueCountdownChip } from "./BestieDueCountdownChip";
 
 export {
   bestieCategoryTitle,
@@ -127,14 +129,22 @@ function ListRow({
         <Check className={cn("size-3.5", done && "text-primary")} />
       </Button>
       <div className="min-w-0 flex-1">
-        <p
-          className={cn(
-            "text-sm leading-snug",
-            done && "line-through text-muted-foreground",
-          )}
-        >
-          {item.text}
-        </p>
+        <div className="flex items-start gap-1.5">
+          <p
+            className={cn(
+              "min-w-0 flex-1 text-sm leading-snug",
+              done && "line-through text-muted-foreground",
+            )}
+          >
+            {item.text}
+          </p>
+          {item.kind === "reminder" && item.dueAt != null && !done ? (
+            <BestieDueCountdownChip
+              dueAt={item.dueAt}
+              testId={`bestie-due-chip-${item.id}`}
+            />
+          ) : null}
+        </div>
         {item.kind === "reminder" && item.dueAt != null ? (
           <p className="mt-0.5 text-2xs text-muted-foreground">
             Due {new Date(item.dueAt * 1000).toLocaleString()}
@@ -263,6 +273,7 @@ export function BestieDmRhsPanel({
   const jobState = useBestieJobs(scope);
   const coffeeState = useBestieCoffee(scope);
   const threadState = useBestieThreads(scope);
+  const scratchState = useBestieScratch(scope);
   const openReminders = state.items.filter(
     (item) => item.kind === "reminder" && item.status === "open",
   ).length;
@@ -272,6 +283,7 @@ export function BestieDmRhsPanel({
   const openJobs = enabledJobs(jobState).length;
   const coffeeCount = coffeeState.entries.length;
   const threadCount = threadState.threads.length;
+  const scratchCount = scratchState.notes.length;
 
   return (
     <div className="space-y-1 px-2 pb-8 pt-3" data-testid="bestie-dm-rhs-panel">
@@ -319,6 +331,15 @@ export function BestieDmRhsPanel({
         testId="bestie-rhs-threads"
       >
         Threads
+      </CategoryNavButton>
+      <CategoryNavButton
+        count={presentBestieContextCount(scratchCount)}
+        icon={<StickyNote className="size-4" />}
+        onClick={() => onOpenKind("scratch")}
+        pressed={activeKind === "scratch"}
+        testId="bestie-rhs-scratch"
+      >
+        Scratch
       </CategoryNavButton>
     </div>
   );

@@ -50,8 +50,14 @@ import {
   setBestieShowActivity,
   useBestieShowActivity,
 } from "./bestieActivityPreference";
+import {
+  BESTIE_DUE_CHIP_HORIZON_OPTIONS_MINUTES,
+  setBestieDueChipHorizonMinutes,
+  useBestieDueChipHorizonMinutes,
+} from "./bestieDueChipHorizonPreference";
 import { buildBestieMessageContext } from "./bestieMessageContext";
 import { applyBestieListIntentFromUserMessage } from "./bestieListStore";
+import { applyBestieScratchIntentFromUserMessage } from "./bestieScratchStore";
 import {
   stripBestieListTurnHint,
   withBestieListTurnHint,
@@ -78,6 +84,7 @@ import {
   resolveBestieSendParentEventId,
 } from "./flattenBestieTranscript";
 import { messageLooksLikeBestieListRequest } from "./parseBestieUserListIntent";
+import { messageLooksLikeBestieScratchRequest } from "./parseBestieUserScratchIntent";
 import { BestieNudgeBanner } from "./BestieNudgeBanner";
 import { useBestie } from "./useBestie";
 
@@ -356,6 +363,7 @@ export function BestiePopover({
   const bestie = useBestie();
   const { goChannel } = useAppNavigation();
   const showActivity = useBestieShowActivity();
+  const dueChipHorizonMinutes = useBestieDueChipHorizonMinutes();
   const [draft, setDraft] = React.useState("");
   const [contextSent, setContextSent] = React.useState(false);
   // Two-step Close Thread: first click arms Confirm?, second ends the session.
@@ -683,6 +691,7 @@ export function BestiePopover({
       const parentEventId = resolveBestieSendParentEventId(sessionBoundary);
       const listIntent = messageLooksLikeBestieListRequest(trimmedDraft);
       const jobIntent = messageLooksLikeBestieJobRequest(trimmedDraft);
+      const scratchIntent = messageLooksLikeBestieScratchRequest(trimmedDraft);
       let outboundBody = withBestieListTurnHint(trimmedDraft, listIntent);
       outboundBody = withBestieJobTurnHint(outboundBody, jobIntent);
       const content =
@@ -696,7 +705,7 @@ export function BestiePopover({
       });
       // Apply NL list/job intent immediately (WakeController also applies; idempotent).
       if (
-        (listIntent || jobIntent) &&
+        (listIntent || jobIntent || scratchIntent) &&
         sessionScope &&
         bestie.ownerPubkey &&
         assignedAgentPubkey &&
@@ -716,6 +725,13 @@ export function BestiePopover({
         }
         if (jobIntent) {
           applyBestieJobIntentFromUserMessage(
+            scope,
+            sentMessage.id,
+            trimmedDraft,
+          );
+        }
+        if (scratchIntent) {
+          applyBestieScratchIntentFromUserMessage(
             scope,
             sentMessage.id,
             trimmedDraft,
@@ -871,6 +887,34 @@ export function BestiePopover({
           }}
         />
         <span>Show activity</span>
+      </label>
+
+      <label
+        className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground"
+        data-testid="bestie-due-chip-horizon"
+      >
+        <span className="shrink-0">Due chips</span>
+        <select
+          aria-label="Due chip horizon"
+          className="h-7 rounded-md border border-input bg-background px-1.5 text-xs"
+          data-testid="bestie-due-chip-horizon-select"
+          onChange={(event) => {
+            setBestieDueChipHorizonMinutes(Number(event.target.value));
+          }}
+          value={dueChipHorizonMinutes}
+        >
+          {BESTIE_DUE_CHIP_HORIZON_OPTIONS_MINUTES.map((minutes) => (
+            <option key={minutes} value={minutes}>
+              {minutes === 0
+                ? "Off"
+                : minutes < 60
+                  ? `${minutes}m`
+                  : minutes % 60 === 0
+                    ? `${minutes / 60}h`
+                    : `${minutes}m`}
+            </option>
+          ))}
+        </select>
       </label>
 
       <div className="relative shrink-0">

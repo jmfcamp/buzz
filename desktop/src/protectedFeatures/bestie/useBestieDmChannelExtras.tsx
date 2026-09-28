@@ -6,6 +6,7 @@ import { BestieDmCategorySheet, BestieDmRhsPanel } from "./BestieDmRhsPanel";
 import { BestieDmCoffeeSheet } from "./BestieDmCoffeeSheet";
 import { BestieDmJobsSheet } from "./BestieDmJobsSheet";
 import { BestieDmThreadsSheet } from "./BestieDmThreadsSheet";
+import { BestieDmScratchSheet } from "./BestieDmScratchSheet";
 import { BestieDmTodosSheet } from "./BestieDmTodosSheet";
 import { BESTIE_COFFEE_BREW_EVENT } from "./bestieCoffeeSchedule";
 import {
@@ -191,6 +192,15 @@ export function useBestieDmChannelExtras(
     if (activeKind === "thread") {
       return <BestieDmThreadsSheet scope={scope} />;
     }
+    if (activeKind === "scratch") {
+      return (
+        <BestieDmScratchSheet
+          adding={adding}
+          onRequestAdd={() => setAdding(true)}
+          scope={scope}
+        />
+      );
+    }
     if (activeKind === "todo") {
       return (
         <BestieDmTodosSheet
@@ -228,7 +238,9 @@ export function useBestieDmChannelExtras(
           ? "Add reminder"
           : activeKind === "todo"
             ? "Add to-do"
-            : "Add job";
+            : activeKind === "scratch"
+              ? "Add scratch note"
+              : "Add job";
       return {
         ...back,
         actions: (
