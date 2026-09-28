@@ -56,9 +56,10 @@ function storage(): LocalStorageLike | null {
 }
 
 /**
- * Read owner-scoped JSON state. If the new key is empty, merge/migrate any
- * legacy `prefix:relay:owner:agent` entries, write the new key, and drop
- * legacy keys.
+ * Read owner-scoped JSON state. A successfully parsed owner key is
+ * authoritative (even when collections are empty after deletes) so legacy
+ * agent-scoped blobs cannot rehydrate removed rows. Migrate only when the
+ * owner key is missing or corrupt.
  */
 export function readOwnerScopedState<T>(options: {
   empty: () => T;
@@ -75,10 +76,8 @@ export function readOwnerScopedState<T>(options: {
     const raw = store.getItem(key);
     if (raw) {
       const parsed = options.parse(JSON.parse(raw));
-      if (parsed && !options.isEmpty(parsed)) return parsed;
-      if (parsed) {
-        // Empty new key still — try migrate then return empty/merged.
-      }
+      // Parsed owner key wins — including intentional empties after delete.
+      if (parsed) return parsed;
     }
   } catch {
     // fall through to migrate
@@ -130,9 +129,28 @@ export function writeOwnerScopedState(
 ): void {
   const store = storage();
   if (!store) return;
+  const key = bestieOwnerStorageKey(prefix, scope);
   try {
-    store.setItem(bestieOwnerStorageKey(prefix, scope), JSON.stringify(state));
+    store.setItem(key, JSON.stringify(state));
   } catch {
     // Quota / private mode — callers still hold in-memory state.
+    return;
+  }
+  // Clear leftover legacy agent-scoped keys so deletes stay durable across
+  // restarts (no remigrate of removed rows from prefix:relay:owner:agent).
+  const legacyPrefix = bestieLegacyAgentStorageKeyPrefix(prefix, scope);
+  try {
+    const toRemove: string[] = [];
+    for (let i = 0; i < store.length; i += 1) {
+      const candidate = store.key(i);
+      if (candidate && candidate.startsWith(legacyPrefix)) {
+        toRemove.push(candidate);
+      }
+    }
+    for (const legacyKey of toRemove) {
+      store.removeItem(legacyKey);
+    }
+  } catch {
+    // ignore enumeration failures
   }
 }

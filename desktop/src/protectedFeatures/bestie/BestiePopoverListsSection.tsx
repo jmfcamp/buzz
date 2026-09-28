@@ -113,6 +113,7 @@ export function BestiePopoverListsSection({
     ) : activeKind === "scratch" ? (
       <BestieDmScratchSheet
         adding={adding}
+        onAdded={() => setAdding(false)}
         onRequestAdd={() => setAdding(true)}
         scope={scope}
       />

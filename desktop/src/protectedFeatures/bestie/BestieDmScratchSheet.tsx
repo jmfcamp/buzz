@@ -216,10 +216,13 @@ function AddScratchRow({
  */
 export function BestieDmScratchSheet({
   adding,
+  onAdded,
   onRequestAdd,
   scope,
 }: {
   adding: boolean;
+  /** Close the add form after a successful create — user must click Add again. */
+  onAdded?: () => void;
   onRequestAdd?: () => void;
   scope: BestieScratchScope;
 }) {
@@ -251,6 +254,7 @@ export function BestieDmScratchSheet({
             <AddScratchRow
               onAdd={(input) => {
                 addBestieScratchNoteForScope(scope, input);
+                onAdded?.();
               }}
             />
           ) : (

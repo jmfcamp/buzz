@@ -232,6 +232,7 @@ export function useBestieDmChannelExtras(
       return (
         <BestieDmScratchSheet
           adding={adding}
+          onAdded={() => setAdding(false)}
           onRequestAdd={() => setAdding(true)}
           scope={scope}
         />

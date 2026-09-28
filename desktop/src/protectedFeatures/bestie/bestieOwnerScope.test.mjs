@@ -64,3 +64,47 @@ test("readOwnerScopedState migrates and clears legacy agent keys", () => {
   writeOwnerScopedState("buzz-test.v1", SCOPE, { items: [{ id: "x" }], version: 1 });
   assert.equal(JSON.parse(memory.get(ownerKey)).items[0].id, "x");
 });
+
+test("intentional empty owner key is not remigrated from legacy", () => {
+  const memory = new Map();
+  globalThis.window = {
+    localStorage: {
+      getItem: (key) => memory.get(key) ?? null,
+      key: (index) => [...memory.keys()][index] ?? null,
+      get length() {
+        return memory.size;
+      },
+      removeItem: (key) => {
+        memory.delete(key);
+      },
+      setItem: (key, value) => {
+        memory.set(key, String(value));
+      },
+    },
+  };
+
+  const ownerKey = bestieOwnerStorageKey("buzz-test.v1", SCOPE);
+  const legacyA = `${ownerKey}:${"a".repeat(64)}`;
+  memory.set(ownerKey, JSON.stringify({ items: [], version: 1 }));
+  memory.set(legacyA, JSON.stringify({ items: [{ id: "zombie" }], version: 1 }));
+
+  const state = readOwnerScopedState({
+    empty: () => ({ items: [], version: 1 }),
+    isEmpty: (s) => s.items.length === 0,
+    merge: (into, from) => ({
+      items: [...into.items, ...from.items],
+      version: 1,
+    }),
+    parse: (value) => {
+      if (!value || typeof value !== "object") return null;
+      return value;
+    },
+    prefix: "buzz-test.v1",
+    scope: SCOPE,
+  });
+
+  assert.deepEqual(state.items, []);
+  // Write clears leftover legacy keys.
+  writeOwnerScopedState("buzz-test.v1", SCOPE, { items: [], version: 1 });
+  assert.equal(memory.has(legacyA), false);
+});

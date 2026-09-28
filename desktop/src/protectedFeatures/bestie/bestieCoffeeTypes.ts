@@ -35,6 +35,11 @@ export type BestieCoffeePendingRun = {
 
 export type BestieCoffeeState = {
   entries: BestieCoffeeEntry[];
+  /**
+   * Coffee trigger message ids the user removed from the Coffee tab.
+   * Prevents WakeController / Path C from rehydrating deleted brews from chat.
+   */
+  forgottenTriggerIds: string[];
   /** Local YYYY-MM-DD of the last successful *scheduled* run (not Brew). */
   lastScheduledDayKey: string | null;
   pendingRun: BestieCoffeePendingRun | null;

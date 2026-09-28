@@ -7,6 +7,7 @@ import {
   applyBestieCoffeeAgentReply,
   beginBestieCoffeeRunForScope,
   getBestieCoffeeState,
+  removeBestieCoffeeEntryForScope,
   setBestieCoffeePendingTriggerForScope,
 } from "./bestieCoffeeStore.ts";
 import {
@@ -183,4 +184,42 @@ test("upgrades abandoned timeout entry when real in-thread reply arrives", () =>
   assert.equal(state.entries.length, 1);
   assert.equal(state.entries[0].replyMessageId, "agent-reply-upgrade");
   assert.match(state.entries[0].fullOutput, /Morning brief/);
+});
+
+test("does not rehydrate deleted coffee from unmatched trigger reply", () => {
+  memoryWindow();
+  __resetBestieCoffeeStoreForTests();
+  beginBestieCoffeeRunForScope(SCOPE, "brew", 1_700_000_600);
+  setBestieCoffeePendingTriggerForScope(SCOPE, "coffee-trigger-deleted");
+  const ok1 = applyBestieCoffeeAgentReply(
+    SCOPE,
+    "agent-reply-del",
+    "Morning brief before delete.",
+    1_700_000_630,
+    [
+      ["e", "coffee-trigger-deleted", "", "root"],
+      ["e", "coffee-trigger-deleted", "", "reply"],
+    ],
+  );
+  assert.equal(ok1, true);
+  const entryId = getBestieCoffeeState(SCOPE).entries[0].id;
+  removeBestieCoffeeEntryForScope(SCOPE, entryId);
+  assert.equal(getBestieCoffeeState(SCOPE).entries.length, 0);
+  assert.ok(
+    getBestieCoffeeState(SCOPE).forgottenTriggerIds.includes(
+      "coffee-trigger-deleted",
+    ),
+  );
+
+  const unmatched = new Map([["coffee-trigger-deleted", "brew"]]);
+  const ok2 = applyBestieCoffeeAgentReply(
+    SCOPE,
+    "agent-reply-del-2",
+    "Should not come back.",
+    1_700_000_640,
+    [["e", "coffee-trigger-deleted", "", "reply"]],
+    unmatched,
+  );
+  assert.equal(ok2, false);
+  assert.equal(getBestieCoffeeState(SCOPE).entries.length, 0);
 });

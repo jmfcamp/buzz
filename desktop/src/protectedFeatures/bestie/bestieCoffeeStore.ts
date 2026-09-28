@@ -192,6 +192,10 @@ export function applyBestieCoffeeAgentReply(
   // abandon/timeout entry (replyMessageId null) when the real in-thread reply
   // finally arrives — channel window is roots-only so capture used to miss it.
   if (parentId && unmatchedCoffeeTriggers?.has(parentId)) {
+    // User deleted this brew — do not rehydrate from chat history.
+    if (current.forgottenTriggerIds.includes(parentId)) {
+      return false;
+    }
     const existing = current.entries.find(
       (entry) => entry.triggerMessageId === parentId,
     );

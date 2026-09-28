@@ -26,6 +26,9 @@ export const BESTIE_COFFEE_STORAGE_PREFIX = "buzz-bestie-coffee.v1";
 /** Cap stored briefings so localStorage stays bounded. */
 export const BESTIE_COFFEE_MAX_ENTRIES = 60;
 
+/** Cap forgotten coffee trigger ids (deleted rows that must not rehydrate). */
+export const BESTIE_COFFEE_MAX_FORGOTTEN_TRIGGERS = 200;
+
 /** Owner+relay key — persists across Assistant agent reassignment. */
 export function bestieCoffeeStorageKey(scope: BestieCoffeeScope): string {
   return bestieOwnerStorageKey(BESTIE_COFFEE_STORAGE_PREFIX, scope);
@@ -33,6 +36,7 @@ export function bestieCoffeeStorageKey(scope: BestieCoffeeScope): string {
 
 export const EMPTY_BESTIE_COFFEE_STATE: BestieCoffeeState = Object.freeze({
   entries: Object.freeze([]) as unknown as BestieCoffeeEntry[],
+  forgottenTriggerIds: Object.freeze([]) as unknown as string[],
   lastScheduledDayKey: null,
   pendingRun: null,
   prefs: DEFAULT_BESTIE_COFFEE_PREFS,
@@ -127,8 +131,20 @@ export function parseBestieCoffeeState(
     parsePending(record.pendingRun),
     Math.floor(Date.now() / 1000),
   );
+  const forgottenTriggerIds: string[] = [];
+  if (Array.isArray(record.forgottenTriggerIds)) {
+    for (const id of record.forgottenTriggerIds) {
+      if (typeof id !== "string" || id.length === 0) continue;
+      if (forgottenTriggerIds.includes(id)) continue;
+      forgottenTriggerIds.push(id);
+      if (forgottenTriggerIds.length >= BESTIE_COFFEE_MAX_FORGOTTEN_TRIGGERS) {
+        break;
+      }
+    }
+  }
   return {
     entries,
+    forgottenTriggerIds,
     lastScheduledDayKey,
     pendingRun,
     prefs,
@@ -158,19 +174,46 @@ function maxDayKey(a: string | null, b: string | null): string | null {
   return a >= b ? a : b;
 }
 
+function mergeForgottenTriggerIds(
+  into: readonly string[],
+  from: readonly string[],
+): string[] {
+  const merged: string[] = [];
+  for (const id of [...into, ...from]) {
+    if (typeof id !== "string" || id.length === 0) continue;
+    if (merged.includes(id)) continue;
+    merged.push(id);
+    if (merged.length >= BESTIE_COFFEE_MAX_FORGOTTEN_TRIGGERS) break;
+  }
+  return merged;
+}
+
 function mergeBestieCoffeeStates(
   into: BestieCoffeeState,
   from: BestieCoffeeState,
 ): BestieCoffeeState {
+  const forgottenTriggerIds = mergeForgottenTriggerIds(
+    into.forgottenTriggerIds,
+    from.forgottenTriggerIds,
+  );
+  const forgotten = new Set(forgottenTriggerIds);
   const byId = new Map(into.entries.map((entry) => [entry.id, entry]));
   for (const entry of from.entries) {
+    if (entry.triggerMessageId && forgotten.has(entry.triggerMessageId)) {
+      continue;
+    }
     const existing = byId.get(entry.id);
     if (!existing || entry.ranAt >= existing.ranAt) {
       byId.set(entry.id, entry);
     }
   }
+  const entries = [...byId.values()].filter(
+    (entry) =>
+      !entry.triggerMessageId || !forgotten.has(entry.triggerMessageId),
+  );
   return {
-    entries: [...byId.values()],
+    entries,
+    forgottenTriggerIds,
     lastScheduledDayKey: maxDayKey(
       into.lastScheduledDayKey,
       from.lastScheduledDayKey,
@@ -184,7 +227,11 @@ function mergeBestieCoffeeStates(
 export function readBestieCoffeeState(scope: BestieCoffeeScope): BestieCoffeeState {
   return readOwnerScopedState({
     empty: emptyBestieCoffeeState,
-    isEmpty: (state) => state.entries.length === 0 && state.pendingRun == null && state.lastScheduledDayKey == null,
+    isEmpty: (state) =>
+      state.entries.length === 0 &&
+      state.pendingRun == null &&
+      state.lastScheduledDayKey == null &&
+      state.forgottenTriggerIds.length === 0,
     merge: mergeBestieCoffeeStates,
     parse: parseBestieCoffeeState,
     prefix: BESTIE_COFFEE_STORAGE_PREFIX,
@@ -309,9 +356,16 @@ export function completeBestieCoffeeRun(
     source === "scheduled"
       ? localDayKey(nowSeconds)
       : state.lastScheduledDayKey;
+  // A fresh capture for this trigger supersedes any prior user delete tombstone.
+  const forgottenTriggerIds =
+    entry.triggerMessageId &&
+    state.forgottenTriggerIds.includes(entry.triggerMessageId)
+      ? state.forgottenTriggerIds.filter((id) => id !== entry.triggerMessageId)
+      : state.forgottenTriggerIds;
   return {
     ...state,
     entries,
+    forgottenTriggerIds,
     lastScheduledDayKey,
     pendingRun: null,
   };
@@ -321,9 +375,17 @@ export function removeBestieCoffeeEntry(
   state: BestieCoffeeState,
   id: string,
 ): BestieCoffeeState {
+  const removed = state.entries.find((entry) => entry.id === id);
+  if (!removed) return state;
   const entries = state.entries.filter((entry) => entry.id !== id);
-  if (entries.length === state.entries.length) return state;
-  return { ...state, entries };
+  let forgottenTriggerIds = state.forgottenTriggerIds;
+  if (removed.triggerMessageId) {
+    forgottenTriggerIds = mergeForgottenTriggerIds(
+      [removed.triggerMessageId],
+      state.forgottenTriggerIds,
+    );
+  }
+  return { ...state, entries, forgottenTriggerIds };
 }
 
 export function isBestieCoffeeBrewing(state: BestieCoffeeState): boolean {

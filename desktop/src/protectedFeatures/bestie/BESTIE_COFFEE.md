@@ -50,7 +50,7 @@ abandoning leftover pending so the button cannot silently no-op.
 
 ## Storage
 
-`buzz-bestie-coffee.v1:<relay>:<owner>:<agent>` — entries `{ id, ranAt, brief, fullOutput, source }`, `pendingRun` for Brewing UI, `lastScheduledDayKey`.
+`buzz-bestie-coffee.v1:<relay>:<owner>` (owner-scoped; legacy `…:agent` migrates once) — entries `{ id, ranAt, brief, fullOutput, source, triggerMessageId, replyMessageId }`, `forgottenTriggerIds` (deleted triggers must not rehydrate from chat), `pendingRun`, `lastScheduledDayKey`.
 
 ## Product rules
 

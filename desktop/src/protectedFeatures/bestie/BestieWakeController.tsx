@@ -259,6 +259,9 @@ export function BestieWakeController() {
           .map((entry) => entry.triggerMessageId)
           .filter((id): id is string => typeof id === "string" && id.length > 0),
       );
+      const forgottenCoffeeTriggerIds = new Set(
+        coffeeState.forgottenTriggerIds,
+      );
       const threadState = getBestieThreadState(listScope);
       for (const event of events) {
         if (typeof event.content !== "string" || event.content.length === 0) {
@@ -271,7 +274,10 @@ export function BestieWakeController() {
           if (livePending && !livePending.triggerMessageId) {
             setBestieCoffeePendingTriggerForScope(listScope, event.id);
           }
-          if (!matchedCoffeeTriggerIds.has(event.id)) {
+          if (
+            !matchedCoffeeTriggerIds.has(event.id) &&
+            !forgottenCoffeeTriggerIds.has(event.id)
+          ) {
             const source =
               getBestieCoffeeState(listScope).pendingRun?.source ?? "brew";
             unmatchedCoffeeTriggers.set(event.id, source);
