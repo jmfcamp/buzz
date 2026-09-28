@@ -50,11 +50,6 @@ import {
   setBestieShowActivity,
   useBestieShowActivity,
 } from "./bestieActivityPreference";
-import {
-  BESTIE_DUE_CHIP_HORIZON_OPTIONS_MINUTES,
-  setBestieDueChipHorizonMinutes,
-  useBestieDueChipHorizonMinutes,
-} from "./bestieDueChipHorizonPreference";
 import { buildBestieMessageContext } from "./bestieMessageContext";
 import { applyBestieListIntentFromUserMessage } from "./bestieListStore";
 import { applyBestieScratchIntentFromUserMessage } from "./bestieScratchStore";
@@ -86,6 +81,16 @@ import {
 import { messageLooksLikeBestieListRequest } from "./parseBestieUserListIntent";
 import { messageLooksLikeBestieScratchRequest } from "./parseBestieUserScratchIntent";
 import { BestieNudgeBanner } from "./BestieNudgeBanner";
+import { BestieDmCategorySheet, BestieDmRhsPanel } from "./BestieDmRhsPanel";
+import { BestieDmCoffeeSheet } from "./BestieDmCoffeeSheet";
+import { BestieDmJobsSheet } from "./BestieDmJobsSheet";
+import { BestieDmScratchSheet } from "./BestieDmScratchSheet";
+import { BestieDmThreadsSheet } from "./BestieDmThreadsSheet";
+import { BestieDmTodosSheet } from "./BestieDmTodosSheet";
+import {
+  bestieCategoryTitle,
+  type BestieRhsKind,
+} from "./bestieDmRhsHelpers";
 import { useBestie } from "./useBestie";
 
 /** How long Confirm? stays armed before reverting to Close Thread. */
@@ -177,18 +182,142 @@ export function BestieAgentLockup({
   );
 }
 
-function EmptyBestie() {
+function EmptyBestie({ onRequestClose }: { onRequestClose?: () => void }) {
+  const { goAgents } = useAppNavigation();
+  const bestie = useBestie();
+  const [activeKind, setActiveKind] = React.useState<BestieRhsKind | null>(
+    null,
+  );
+  const [adding, setAdding] = React.useState(false);
+  const scope =
+    bestie.ownerPubkey && bestie.relayUrl
+      ? {
+          // Persistence is owner+relay; placeholder agent id for type only.
+          agentPubkey: "unassigned",
+          ownerPubkey: bestie.ownerPubkey,
+          relayUrl: bestie.relayUrl,
+        }
+      : null;
+
+  const sheet =
+    scope == null || activeKind == null ? null : activeKind === "job" ? (
+      <BestieDmJobsSheet
+        adding={adding}
+        onRequestAdd={() => setAdding(true)}
+        scope={scope}
+      />
+    ) : activeKind === "coffee" ? (
+      <BestieDmCoffeeSheet
+        brewDisabled
+        coffeeLive={false}
+        onBrew={() => {}}
+        scope={scope}
+      />
+    ) : activeKind === "thread" ? (
+      <BestieDmThreadsSheet
+        adding={adding}
+        onRequestAdd={() => setAdding(true)}
+        scope={scope}
+      />
+    ) : activeKind === "scratch" ? (
+      <BestieDmScratchSheet
+        adding={adding}
+        onRequestAdd={() => setAdding(true)}
+        scope={scope}
+      />
+    ) : activeKind === "todo" ? (
+      <BestieDmTodosSheet
+        adding={adding}
+        onRequestAdd={() => setAdding(true)}
+        scope={scope}
+      />
+    ) : (
+      <BestieDmCategorySheet
+        adding={adding}
+        kind={activeKind}
+        onRequestAdd={() => setAdding(true)}
+        scope={scope}
+      />
+    );
+
   return (
-    <div className="flex min-h-32 flex-col items-center justify-center gap-3 px-4 text-center">
-      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
-        <Plus aria-hidden="true" className="h-5 w-5" />
+    <div
+      className="flex max-h-[min(32rem,var(--radix-popover-content-available-height,calc(100vh-2rem)))] min-h-0 flex-col gap-3"
+      data-testid="bestie-popover-empty"
+    >
+      <div className="flex shrink-0 items-center gap-2">
+        <Button
+          aria-label="Choose an Assistant agent"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+          data-testid="bestie-assign-agent"
+          onClick={() => {
+            onRequestClose?.();
+            void goAgents();
+          }}
+          size="icon"
+          type="button"
+          variant="secondary"
+        >
+          <Plus aria-hidden="true" className="h-4 w-4" />
+        </Button>
+        <div className="min-w-0 flex-1 text-left">
+          <h2 className="text-sm font-semibold">Assistant</h2>
+          <p className="text-2xs text-muted-foreground">
+            No chat yet — + chooses an agent. Lists stay available below.
+          </p>
+        </div>
       </div>
-      <div>
-        <h2 className="text-sm font-semibold">Assign an Assistant</h2>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Open one of your local agents and turn on Assistant.
-        </p>
-      </div>
+      <div className="min-h-16 flex-1 rounded-xl border border-dashed border-border/70 bg-muted/20" />
+      {scope ? (
+        <div className="min-h-0 flex-1 overflow-y-auto border-t border-border/60 pt-2">
+          {activeKind != null && sheet ? (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2 px-1">
+                <Button
+                  className="h-7 px-2 text-xs"
+                  data-testid="bestie-empty-rhs-back"
+                  onClick={() => {
+                    setActiveKind(null);
+                    setAdding(false);
+                  }}
+                  size="sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  Back
+                </Button>
+                <span className="text-xs font-medium">
+                  {bestieCategoryTitle(activeKind)}
+                </span>
+                {activeKind !== "coffee" ? (
+                  <Button
+                    aria-label={`Add ${bestieCategoryTitle(activeKind)}`}
+                    aria-pressed={adding}
+                    className="ml-auto h-7 w-7"
+                    data-testid="bestie-empty-rhs-add"
+                    onClick={() => setAdding((value) => !value)}
+                    size="icon"
+                    type="button"
+                    variant={adding ? "secondary" : "ghost"}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                ) : null}
+              </div>
+              {sheet}
+            </div>
+          ) : (
+            <BestieDmRhsPanel
+              activeKind={activeKind}
+              onOpenKind={(kind) => {
+                setAdding(false);
+                setActiveKind((current) => (current === kind ? null : kind));
+              }}
+              scope={scope}
+            />
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -368,7 +497,6 @@ export function BestiePopover({
   const bestie = useBestie();
   const { goChannel } = useAppNavigation();
   const showActivity = useBestieShowActivity();
-  const dueChipHorizonMinutes = useBestieDueChipHorizonMinutes();
   const [draft, setDraft] = React.useState("");
   const [contextSent, setContextSent] = React.useState(false);
   // Two-step Close Thread: first click arms Confirm?, second ends the session.
@@ -674,7 +802,7 @@ export function BestiePopover({
   if (bestie.isLoading) {
     return <p className="text-sm text-muted-foreground">Loading Assistant…</p>;
   }
-  if (!agent) return <EmptyBestie />;
+  if (!agent) return <EmptyBestie onRequestClose={onRequestClose} />;
 
   const presenceStatus = bestie.presenceStatus ?? "offline";
   const sendMessage = () => {
@@ -893,34 +1021,6 @@ export function BestiePopover({
           }}
         />
         <span>Show activity</span>
-      </label>
-
-      <label
-        className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground"
-        data-testid="bestie-due-chip-horizon"
-      >
-        <span className="shrink-0">Due chips</span>
-        <select
-          aria-label="Due chip horizon"
-          className="h-7 rounded-md border border-input bg-background px-1.5 text-xs"
-          data-testid="bestie-due-chip-horizon-select"
-          onChange={(event) => {
-            setBestieDueChipHorizonMinutes(Number(event.target.value));
-          }}
-          value={dueChipHorizonMinutes}
-        >
-          {BESTIE_DUE_CHIP_HORIZON_OPTIONS_MINUTES.map((minutes) => (
-            <option key={minutes} value={minutes}>
-              {minutes === 0
-                ? "Off"
-                : minutes < 60
-                  ? `${minutes}m`
-                  : minutes % 60 === 0
-                    ? `${minutes / 60}h`
-                    : `${minutes}m`}
-            </option>
-          ))}
-        </select>
       </label>
 
       <div className="relative shrink-0">

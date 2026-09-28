@@ -1,7 +1,6 @@
 import { StickyNote, Trash2 } from "lucide-react";
 import * as React from "react";
 
-import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Textarea } from "@/shared/ui/textarea";
@@ -24,20 +23,15 @@ function ScratchListRow({
   note,
   onOpen,
   onRemove,
-  selected,
 }: {
   note: BestieScratchNote;
   onOpen: () => void;
   onRemove: () => void;
-  selected: boolean;
 }) {
   const snippet = bestieScratchSnippet(note.body);
   return (
     <div
-      className={cn(
-        "group flex items-start gap-2 rounded-md border border-border/60 bg-muted/25 px-2 py-1.5",
-        selected && "border-primary/40 bg-primary/5",
-      )}
+      className="group flex items-start gap-2 rounded-md border border-border/60 bg-muted/25 px-2 py-1.5"
       data-testid={`bestie-scratch-item-${note.id}`}
     >
       <button
@@ -238,31 +232,6 @@ export function BestieDmScratchSheet({
       className="flex flex-col gap-3 py-1"
       data-testid="bestie-dm-scratch-sheet"
     >
-      {adding ? (
-        <AddScratchRow
-          onAdd={(input) => {
-            addBestieScratchNoteForScope(scope, input);
-          }}
-        />
-      ) : (
-        <p className="px-0.5 text-xs text-muted-foreground">
-          Lightweight personal pad — park a thought, not a wiki. Use + to add,
-          or ask Assistant to{" "}
-          <code className="text-2xs">park this: …</code>
-          {onRequestAdd ? (
-            <>
-              {" "}
-              <button
-                className="underline-offset-2 hover:underline"
-                onClick={onRequestAdd}
-                type="button"
-              >
-                Add one
-              </button>
-            </>
-          ) : null}
-        </p>
-      )}
       {editing ? (
         <ScratchEditor
           note={editing}
@@ -276,31 +245,53 @@ export function BestieDmScratchSheet({
             setEditingId(null);
           }}
         />
-      ) : null}
-      <div className="space-y-1.5">
-        {state.notes.length === 0 ? (
-          <p className="px-0.5 text-xs text-muted-foreground">
-            No scratch notes yet.
-          </p>
-        ) : (
-          state.notes.map((note) => (
-            <ScratchListRow
-              key={note.id}
-              note={note}
-              onOpen={() =>
-                setEditingId((current) =>
-                  current === note.id ? null : note.id,
-                )
-              }
-              onRemove={() => {
-                if (editingId === note.id) setEditingId(null);
-                removeBestieScratchNoteForScope(scope, note.id);
+      ) : (
+        <>
+          {adding ? (
+            <AddScratchRow
+              onAdd={(input) => {
+                addBestieScratchNoteForScope(scope, input);
               }}
-              selected={editingId === note.id}
             />
-          ))
-        )}
-      </div>
+          ) : (
+            <p className="px-0.5 text-xs text-muted-foreground">
+              Lightweight personal pad — park a thought, not a wiki. Use + to add,
+              or ask Assistant to{" "}
+              <code className="text-2xs">park this: …</code>
+              {onRequestAdd ? (
+                <>
+                  {" "}
+                  <button
+                    className="underline-offset-2 hover:underline"
+                    onClick={onRequestAdd}
+                    type="button"
+                  >
+                    Add one
+                  </button>
+                </>
+              ) : null}
+            </p>
+          )}
+          <div className="space-y-1.5">
+            {state.notes.length === 0 ? (
+              <p className="px-0.5 text-xs text-muted-foreground">
+                No scratch notes yet.
+              </p>
+            ) : (
+              state.notes.map((note) => (
+                <ScratchListRow
+                  key={note.id}
+                  note={note}
+                  onOpen={() => setEditingId(note.id)}
+                  onRemove={() => {
+                    removeBestieScratchNoteForScope(scope, note.id);
+                  }}
+                />
+              ))
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

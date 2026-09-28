@@ -2,7 +2,10 @@ import { isMacPlatform } from "@/shared/lib/platform";
 
 export const HUDDLE_SHORTCUT_EVENT = "buzz:huddle-shortcut";
 
-/** Toggle / focus the Assistant footer popover (⇧⌘B / Ctrl+Shift+B). */
+/** Toggle / focus the Assistant footer popover (⌘B / Ctrl+B).
+ * Collides with Bold (⌘B) only while the message composer has focus — TipTap
+ * handles formatting first and preventDefaults; elsewhere Assistant wins.
+ */
 export const BESTIE_POPOVER_SHORTCUT_EVENT = "buzz:bestie-popover-shortcut";
 
 
@@ -102,9 +105,10 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
   {
     id: "toggle-bestie",
     label: "Assistant",
-    description: "Open or close the Assistant popover chat",
-    keys: "⇧⌘B",
-    keysWindows: "Shift+Ctrl+B",
+    description:
+      "Open or close the Assistant popover (⌘B / Ctrl+B). In the message composer, the same chord still bolds selected text.",
+    keys: "⌘B",
+    keysWindows: "Ctrl+B",
     category: "Navigation",
   },
   {
@@ -221,7 +225,8 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
   {
     id: "format-bold",
     label: "Bold",
-    description: "Toggle bold formatting",
+    description:
+      "Toggle bold formatting in the message composer (same chord opens Assistant when the composer is not focused)",
     keys: "⌘B",
     keysWindows: "Ctrl+B",
     category: "Formatting",

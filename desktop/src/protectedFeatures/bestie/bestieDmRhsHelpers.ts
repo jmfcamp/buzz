@@ -1,4 +1,7 @@
-import type { BestieListKind } from "./bestieListTypes";
+import type { BestieJobState } from "./bestieJobTypes";
+import { enabledJobs } from "./bestieJobStorage";
+import { openReminders } from "./bestieListStorage";
+import type { BestieListKind, BestieListState } from "./bestieListTypes";
 
 /** Fixed RHS categories: reminders, todos, and jobs. */
 export type BestieRhsKind = BestieListKind | "job" | "coffee" | "thread" | "scratch";
@@ -78,3 +81,26 @@ export function presentBestieJobSchedule(schedule: {
   }
   return schedule.kind;
 }
+
+/** Soonest dueAt among open reminders (includes already-due). */
+export function soonestOpenReminderDueAt(
+  state: BestieListState,
+): number | null {
+  let soonest: number | null = null;
+  for (const item of openReminders(state)) {
+    if (item.dueAt == null) continue;
+    if (soonest == null || item.dueAt < soonest) soonest = item.dueAt;
+  }
+  return soonest;
+}
+
+/** Soonest nextDueAt among enabled jobs (includes already-due). */
+export function soonestEnabledJobDueAt(state: BestieJobState): number | null {
+  let soonest: number | null = null;
+  for (const job of enabledJobs(state)) {
+    if (job.nextDueAt == null) continue;
+    if (soonest == null || job.nextDueAt < soonest) soonest = job.nextDueAt;
+  }
+  return soonest;
+}
+

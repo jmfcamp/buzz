@@ -1,6 +1,5 @@
 import * as React from "react";
 
-import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { BESTIE_POPOVER_SHORTCUT_EVENT } from "@/shared/lib/keyboard-shortcuts";
 import { cn } from "@/shared/lib/cn";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
@@ -16,13 +15,13 @@ import { useBestie } from "./useBestie";
  * Anchored Bestie trigger for the sidebar profile footer.
  * Shows agent avatar at bottom; name appears beside it when assigned.
  * Left-nav label is "Assistant". Opens the Assistant popover chat.
+ * No agent: still opens Assistant (empty); + inside the popover goes to Agents.
  * Phase 2: proactive wake nudge shows a distinct badge (not a DM unread).
  * Phase 3: due-reminder nudges auto-open the popover with the nudge banner.
  * Unread agent replies (popover + DM closed) show a pulsing light ring.
  */
 export function BestieProfileTrigger({ className }: { className?: string }) {
   const bestie = useBestie();
-  const { goAgents } = useAppNavigation();
   const [open, setOpen] = React.useState(false);
   const agent = bestie.assignedAgent;
   const nudge = useBestieNudge();
@@ -44,12 +43,13 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
     setOpen(true);
   }, [agent, nudge]);
 
-  // ⇧⌘B / Ctrl+Shift+B — toggle popover (or go choose an Assistant when unset).
+  // ⌘B / Ctrl+B — toggle Assistant popover (with or without an assigned agent).
+  // detail.open === true forces open (sidebar no-agent path).
   React.useEffect(() => {
-    function onShortcut() {
-      if (!agent) {
-        void goAgents();
-        setOpen(false);
+    function onShortcut(event: Event) {
+      const detail = (event as CustomEvent<{ open?: boolean }>).detail;
+      if (detail?.open === true) {
+        setOpen(true);
         return;
       }
       setOpen((current) => !current);
@@ -57,38 +57,15 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
     window.addEventListener(BESTIE_POPOVER_SHORTCUT_EVENT, onShortcut);
     return () =>
       window.removeEventListener(BESTIE_POPOVER_SHORTCUT_EVENT, onShortcut);
-  }, [agent, goAgents]);
+  }, []);
 
-  if (!agent) {
-    return (
-      <button
-        aria-label="Assign an Assistant"
-        className={cn(
-          "relative flex max-w-[42%] shrink-0 items-center gap-1.5 rounded-full outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
-          className,
-        )}
-        data-testid="bestie-profile-trigger"
-        onClick={(event) => {
-          event.stopPropagation();
-          void goAgents();
-        }}
-        type="button"
-      >
-        <BestieTriggerVisual
-          agent={null}
-          className="h-8 w-8"
-          compact
-          imageDraggable={false}
-        />
-      </button>
-    );
-  }
-
-  const ariaLabel = hasNudge
-    ? `Open Assistant chat with ${agent.name} (check-in waiting)`
-    : hasUnread
-      ? `Open Assistant chat with ${agent.name} (new message)`
-      : `Open Assistant chat with ${agent.name}`;
+  const ariaLabel = !agent
+    ? "Open Assistant"
+    : hasNudge
+      ? `Open Assistant chat with ${agent.name} (check-in waiting)`
+      : hasUnread
+        ? `Open Assistant chat with ${agent.name} (new message)`
+        : `Open Assistant chat with ${agent.name}`;
 
   return (
     <Popover onOpenChange={setOpen} open={open}>
@@ -104,7 +81,7 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
           type="button"
         >
           <span className="relative inline-flex shrink-0">
-            {hasUnread && !hasNudge ? (
+            {agent && hasUnread && !hasNudge ? (
               <span
                 aria-hidden="true"
                 className="bestie-unread-ring pointer-events-none absolute -inset-1 rounded-full"
@@ -117,7 +94,7 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
               compact
               imageDraggable={false}
             />
-            {hasNudge ? (
+            {agent && hasNudge ? (
               <span
                 aria-hidden="true"
                 className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-amber-500 px-0.5 text-[9px] font-bold leading-none text-amber-950 ring-2 ring-sidebar"
@@ -127,12 +104,14 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
               </span>
             ) : null}
           </span>
-          <span
-            className="min-w-0 truncate text-xs font-medium text-sidebar-foreground"
-            data-testid="bestie-profile-agent-name"
-          >
-            {agent.name}
-          </span>
+          {agent ? (
+            <span
+              className="min-w-0 truncate text-xs font-medium text-sidebar-foreground"
+              data-testid="bestie-profile-agent-name"
+            >
+              {agent.name}
+            </span>
+          ) : null}
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -143,7 +122,7 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
           const content = event.currentTarget;
           if (!(content instanceof HTMLElement)) return;
           const target = content.querySelector(
-            "[data-testid='bestie-composer']",
+            "[data-testid='bestie-composer'], [data-testid='bestie-assign-agent']",
           );
           if (target instanceof HTMLElement) {
             event.preventDefault();

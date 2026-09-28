@@ -18,6 +18,8 @@ import type {
 import {
   dueAtFromDatetimeLocal,
   presentBestieContextCount,
+  soonestEnabledJobDueAt,
+  soonestOpenReminderDueAt,
   type BestieRhsKind,
 } from "./bestieDmRhsHelpers";
 import { enabledJobs } from "./bestieJobStorage";
@@ -43,10 +45,14 @@ const BESTIE_RHS_ROW_CLASS =
 function CategoryRowContent({
   children,
   count,
+  dueAt,
+  dueChipTestId,
   icon,
 }: {
   children: React.ReactNode;
   count?: number;
+  dueAt?: number | null;
+  dueChipTestId?: string;
   icon: React.ReactNode;
 }) {
   return (
@@ -55,6 +61,9 @@ function CategoryRowContent({
         {icon}
       </span>
       <span className="min-w-0 flex-1 truncate text-left">{children}</span>
+      {dueAt != null ? (
+        <BestieDueCountdownChip dueAt={dueAt} testId={dueChipTestId} />
+      ) : null}
       <span className="w-8 shrink-0 text-right tabular-nums text-current opacity-60">
         {count ?? ""}
       </span>
@@ -65,6 +74,8 @@ function CategoryRowContent({
 function CategoryNavButton({
   children,
   count,
+  dueAt,
+  dueChipTestId,
   icon,
   onClick,
   pressed,
@@ -72,6 +83,8 @@ function CategoryNavButton({
 }: {
   children: React.ReactNode;
   count?: number;
+  dueAt?: number | null;
+  dueChipTestId?: string;
   icon: React.ReactNode;
   onClick?: () => void;
   pressed?: boolean;
@@ -91,7 +104,12 @@ function CategoryNavButton({
       type="button"
       variant="ghost"
     >
-      <CategoryRowContent count={count} icon={icon}>
+      <CategoryRowContent
+        count={count}
+        dueAt={dueAt}
+        dueChipTestId={dueChipTestId}
+        icon={icon}
+      >
         {children}
       </CategoryRowContent>
     </Button>
@@ -285,6 +303,8 @@ export function BestieDmRhsPanel({
     (item) => item.kind === "todo" && item.status === "open",
   ).length;
   const openJobs = enabledJobs(jobState).length;
+  const remindersSoonestDueAt = soonestOpenReminderDueAt(state);
+  const jobsSoonestDueAt = soonestEnabledJobDueAt(jobState);
   const coffeeCount = coffeeState.entries.length;
   const threadCount = threadState.threads.length;
   const scratchCount = scratchState.notes.length;
@@ -293,6 +313,8 @@ export function BestieDmRhsPanel({
     <div className="space-y-1 px-2 pb-8 pt-3" data-testid="bestie-dm-rhs-panel">
       <CategoryNavButton
         count={presentBestieContextCount(openReminders)}
+        dueAt={remindersSoonestDueAt}
+        dueChipTestId="bestie-rhs-reminders-due-chip"
         icon={<Bell className="size-4" />}
         onClick={() => onOpenKind("reminder")}
         pressed={activeKind === "reminder"}
@@ -311,6 +333,8 @@ export function BestieDmRhsPanel({
       </CategoryNavButton>
       <CategoryNavButton
         count={presentBestieContextCount(openJobs)}
+        dueAt={jobsSoonestDueAt}
+        dueChipTestId="bestie-rhs-jobs-due-chip"
         icon={<Briefcase className="size-4" />}
         onClick={() => onOpenKind("job")}
         pressed={activeKind === "job"}

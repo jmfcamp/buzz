@@ -1,16 +1,15 @@
 import { Users } from "lucide-react";
 import { toast } from "sonner";
 
-import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { parkPlaygroundHost } from "@/features/playground/lib/sessions";
 import { leaveLeftNavBuzzTerm } from "@/features/terminal/terminalPanelStore";
+import { BESTIE_POPOVER_SHORTCUT_EVENT } from "@/shared/lib/keyboard-shortcuts";
 import { SidebarMenuButton, SidebarMenuItem } from "@/shared/ui/sidebar";
 import { SidebarMenuLabel } from "@/shared/ui/sidebar-menu-label";
 import { useBestie } from "./useBestie";
 
 export function BestieSidebarEntry() {
   const bestie = useBestie();
-  const { goAgents } = useAppNavigation();
   // Nav label is product name "Assistant"; agent identity lives in the footer.
   const label = "Assistant";
 
@@ -20,7 +19,13 @@ export function BestieSidebarEntry() {
     parkPlaygroundHost();
     leaveLeftNavBuzzTerm();
     if (!bestie.assignedAgent) {
-      void goAgents();
+      // Stay on Assistant: open empty popover (+ inside → Agents). Do not
+      // redirect to the Agents page.
+      window.dispatchEvent(
+        new CustomEvent(BESTIE_POPOVER_SHORTCUT_EVENT, {
+          detail: { open: true },
+        }),
+      );
       return;
     }
     void bestie.openConversation().catch((error) => {

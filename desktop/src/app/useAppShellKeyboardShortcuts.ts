@@ -101,10 +101,10 @@ export function useAppShellKeyboardShortcuts({
         return;
       }
 
-      // ⇧⌘B / Ctrl+Shift+B — Bestie popover toggle (window-level; avoids
-      // common Term/browser chords like ⌘T/⌘W/⌘L). Chrome bookmarks-bar uses
-      // the same chord only when Chrome is frontmost.
-      if (key === "b" && event.shiftKey) {
+      // ⌘B / Ctrl+B — Assistant popover toggle (window-level). Same chord as
+      // Bold in the message composer: TipTap handles that first and
+      // preventDefaults, so this only fires outside formatting focus.
+      if (key === "b" && !event.shiftKey) {
         event.preventDefault();
         window.dispatchEvent(new CustomEvent(BESTIE_POPOVER_SHORTCUT_EVENT));
       }

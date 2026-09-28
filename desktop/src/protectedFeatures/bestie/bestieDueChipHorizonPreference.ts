@@ -3,8 +3,10 @@ import * as React from "react";
 import { DEFAULT_BESTIE_DUE_CHIP_HORIZON_MINUTES } from "./bestieDueCountdown";
 
 /**
- * Device-level preference: how far out Reminder/Job due chips appear.
- * 0 = hide chips. Default 60 minutes.
+ * Device-level preference: how far out Reminder/Job due chips appear on RHS
+ * category rows (and item rows). 0 = hide chips. Default 60 minutes.
+ * Kept as a preference API (no popover "Due chips" control — chips belong on
+ * the Reminders / Jobs RHS menu items).
  */
 const STORAGE_KEY = "buzz-bestie-due-chip-horizon-minutes.v1";
 
