@@ -1,4 +1,4 @@
-import { Bell, Briefcase, Check, ListTodo, Plus, Trash2 } from "lucide-react";
+import { Bell, Briefcase, Check, Coffee, ListTodo, MessagesSquare, Plus, Trash2 } from "lucide-react";
 import * as React from "react";
 
 import { cn } from "@/shared/lib/cn";
@@ -22,6 +22,8 @@ import {
 } from "./bestieDmRhsHelpers";
 import { enabledJobs } from "./bestieJobStorage";
 import { useBestieJobs } from "./bestieJobStore";
+import { useBestieCoffee } from "./bestieCoffeeStore";
+import { useBestieThreads } from "./bestieThreadStore";
 
 export {
   bestieCategoryTitle,
@@ -259,6 +261,8 @@ export function BestieDmRhsPanel({
 }) {
   const state = useBestieList(scope);
   const jobState = useBestieJobs(scope);
+  const coffeeState = useBestieCoffee(scope);
+  const threadState = useBestieThreads(scope);
   const openReminders = state.items.filter(
     (item) => item.kind === "reminder" && item.status === "open",
   ).length;
@@ -266,6 +270,8 @@ export function BestieDmRhsPanel({
     (item) => item.kind === "todo" && item.status === "open",
   ).length;
   const openJobs = enabledJobs(jobState).length;
+  const coffeeCount = coffeeState.entries.length;
+  const threadCount = threadState.threads.length;
 
   return (
     <div className="space-y-1 px-2 pb-8 pt-3" data-testid="bestie-dm-rhs-panel">
@@ -295,6 +301,24 @@ export function BestieDmRhsPanel({
         testId="bestie-rhs-jobs"
       >
         Jobs
+      </CategoryNavButton>
+      <CategoryNavButton
+        count={presentBestieContextCount(coffeeCount)}
+        icon={<Coffee className="size-4" />}
+        onClick={() => onOpenKind("coffee")}
+        pressed={activeKind === "coffee"}
+        testId="bestie-rhs-coffee"
+      >
+        Coffee
+      </CategoryNavButton>
+      <CategoryNavButton
+        count={presentBestieContextCount(threadCount)}
+        icon={<MessagesSquare className="size-4" />}
+        onClick={() => onOpenKind("thread")}
+        pressed={activeKind === "thread"}
+        testId="bestie-rhs-threads"
+      >
+        Threads
       </CategoryNavButton>
     </div>
   );

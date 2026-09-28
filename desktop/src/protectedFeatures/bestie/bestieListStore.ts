@@ -6,6 +6,9 @@ import {
   markBestieListMessageProcessed,
   readBestieListState,
   removeBestieListItem,
+  reorderBestieTodos,
+  toggleBestieListItemStarred,
+  updateBestieListItem,
   updateBestieListItemStatus,
   writeBestieListState,
 } from "./bestieListStorage";
@@ -20,6 +23,7 @@ import type {
   BestieListKind,
   BestieListScope,
   BestieListState,
+  BestieListTodoUpdateInput,
 } from "./bestieListTypes";
 
 type Listener = () => void;
@@ -88,6 +92,31 @@ export function removeBestieListItemForScope(
   id: string,
 ): BestieListState {
   return commit(scope, removeBestieListItem(loadState(scope), id));
+}
+
+export function toggleBestieListItemStarredForScope(
+  scope: BestieListScope,
+  id: string,
+): BestieListState {
+  return commit(scope, toggleBestieListItemStarred(loadState(scope), id));
+}
+
+export function updateBestieListItemForScope(
+  scope: BestieListScope,
+  input: BestieListTodoUpdateInput,
+): BestieListState {
+  return commit(scope, updateBestieListItem(loadState(scope), input));
+}
+
+export function reorderBestieTodosForScope(
+  scope: BestieListScope,
+  options: {
+    dayKey?: string | null;
+    orderedIds: string[];
+    starred: boolean;
+  },
+): BestieListState {
+  return commit(scope, reorderBestieTodos(loadState(scope), options));
 }
 
 /**

@@ -12,6 +12,20 @@ import {
   markBestieAgentMessagesSeen,
 } from "./bestieAttentionStore";
 import {
+  BESTIE_COFFEE_BREW_EVENT,
+  BESTIE_COFFEE_RUN_MARKER,
+  formatBestieCoffeeRunPrompt,
+  isBestieAgentOnlineForCoffee,
+} from "./bestieCoffeeSchedule";
+import { startBestieCoffeeRunner } from "./bestieCoffeeRunner";
+import {
+  applyBestieCoffeeAgentReply,
+  beginBestieCoffeeRunForScope,
+  clearBestieCoffeePendingRunForScope,
+  getBestieCoffeeState,
+  useBestieCoffee,
+} from "./bestieCoffeeStore";
+import {
   applyBestieJobActionsFromAgentMessage,
   applyBestieJobIntentFromUserMessage,
   getBestieJobState,
@@ -33,18 +47,38 @@ import {
   clearBestieNudge,
   getBestieNudge,
   setBestieNudge,
+  type BestieNudge,
 } from "./bestieNudgeStore";
 import { findBestieDmChannel } from "./filterBestieDmChannels";
 import {
   BESTIE_WAKE_INTERVAL_MS,
   startBestieWakeScheduler,
 } from "./bestieWakeScheduler";
+import {
+  BESTIE_THREAD_SUMMARIZE_EVENT,
+  BESTIE_THREAD_SUMMARIZE_MARKER,
+  formatBestieThreadSummarizePrompt,
+} from "./bestieThreadProtocol";
+import {
+  applyBestieThreadSummarizeReply,
+  clearBestieThreadSummarizeForScope,
+  getBestieThreadState,
+} from "./bestieThreadStore";
 import { useBestie } from "./useBestie";
 
+/** Top-level DM marker for due-reminder notifications (never threaded). */
+export const BESTIE_REMINDER_NOTIFY_MARKER = "[Bestie reminder]";
+
+function formatBestieReminderNotifyPrompt(nudge: BestieNudge): string {
+  return `${BESTIE_REMINDER_NOTIFY_MARKER}\n\n${nudge.title}\n${nudge.body}`;
+}
+
 /**
- * Mounts the ~5 min autonomous wake loop (plus due-reminder one-shots),
- * Bestie Jobs due runner (sends the job prompt as a turn), and watches Bestie
- * DM messages for list/job fences + NL intents. Also drives footer unread.
+ * Mounts wake loop, Jobs runner, Coffee scheduler, and watches Bestie DM
+ * messages for list/job fences + NL intents + coffee reply capture.
+ *
+ * System turns (jobs, coffee, reminder notifies) always post as **new
+ * top-level messages** (`parentEventId: null`) — never replies in a thread.
  */
 export function BestieWakeController() {
   const bestie = useBestie();
@@ -53,6 +87,7 @@ export function BestieWakeController() {
   const ownerPubkey = identityQuery.data?.pubkey ?? "";
   const agentPubkey = bestie.assignedAgent?.pubkey ?? "";
   const relayUrl = bestie.relayUrl ?? "";
+  const presenceStatus = bestie.presenceStatus;
 
   const bestieChannel = React.useMemo(
     () =>
@@ -81,17 +116,54 @@ export function BestieWakeController() {
 
   const listState = useBestieList(listScope);
   const jobState = useBestieJobs(listScope);
+  const coffeeState = useBestieCoffee(listScope);
   const ensureAgentRunningRef = React.useRef(bestie.ensureAgentRunning);
   ensureAgentRunningRef.current = bestie.ensureAgentRunning;
   const sendMutateRef = React.useRef(sendMutation.mutateAsync);
   sendMutateRef.current = sendMutation.mutateAsync;
   const channelRef = React.useRef(bestieChannel);
   channelRef.current = bestieChannel;
+  const presenceRef = React.useRef(presenceStatus);
+  presenceRef.current = presenceStatus;
   const seededUnreadRef = React.useRef(false);
   const seededUnreadChannelRef = React.useRef<string | null>(null);
   const firingJobIdsRef = React.useRef(new Set<string>());
+  const coffeeSendingRef = React.useRef(false);
+  const postedReminderNudgeIdsRef = React.useRef(new Set<string>());
 
-  // Agent fence + user NL for lists and jobs; footer unread for agent posts.
+  const sendTopLevel = React.useCallback(async (content: string) => {
+    const channel = channelRef.current;
+    if (!channel) return;
+    await sendMutateRef.current({
+      content,
+      // Product rule: Jobs / Reminders / Coffee never parent into a thread.
+      parentEventId: null,
+      targetChannel: channel,
+    });
+  }, []);
+
+  const runCoffeeTurn = React.useCallback(
+    async (source: "scheduled" | "brew") => {
+      if (!listScope || coffeeSendingRef.current) return;
+      coffeeSendingRef.current = true;
+      try {
+        // Brew path may have already begun pending; scheduled begins here.
+        if (source === "scheduled") {
+          const begun = beginBestieCoffeeRunForScope(listScope, "scheduled");
+          if (!begun) return;
+        }
+        await ensureAgentRunningRef.current();
+        await sendTopLevel(formatBestieCoffeeRunPrompt());
+      } catch {
+        clearBestieCoffeePendingRunForScope(listScope);
+      } finally {
+        coffeeSendingRef.current = false;
+      }
+    },
+    [listScope, sendTopLevel],
+  );
+
+  // Agent fence + user NL for lists/jobs; coffee reply capture; footer unread.
   React.useEffect(() => {
     if (!listScope || !bestieChannel || !agentPubkey || !ownerPubkey) return;
     if (seededUnreadChannelRef.current !== bestieChannel.id) {
@@ -112,6 +184,17 @@ export function BestieWakeController() {
         if (typeof event.created_at === "number") {
           agentCreatedAts.push(event.created_at);
         }
+        const createdAt =
+          typeof event.created_at === "number"
+            ? event.created_at
+            : Math.floor(Date.now() / 1000);
+        applyBestieCoffeeAgentReply(
+          listScope,
+          event.id,
+          event.content,
+          createdAt,
+        );
+        applyBestieThreadSummarizeReply(listScope, event.content, createdAt);
         applyBestieListActionsFromAgentMessage(
           listScope,
           event.id,
@@ -125,8 +208,15 @@ export function BestieWakeController() {
         continue;
       }
       if (author === ownerNorm) {
-        // Job-run turns are system-injected — skip NL list/job parsers.
-        if (event.content.includes(BESTIE_JOB_RUN_MARKER)) continue;
+        // System-injected turns — skip NL list/job parsers.
+        if (
+          event.content.includes(BESTIE_JOB_RUN_MARKER) ||
+          event.content.includes(BESTIE_COFFEE_RUN_MARKER) ||
+          event.content.includes(BESTIE_REMINDER_NOTIFY_MARKER) ||
+          event.content.includes(BESTIE_THREAD_SUMMARIZE_MARKER)
+        ) {
+          continue;
+        }
         applyBestieListIntentFromUserMessage(
           listScope,
           event.id,
@@ -154,15 +244,31 @@ export function BestieWakeController() {
   const jobHandlesRef = React.useRef<ReturnType<
     typeof startBestieJobRunner
   > | null>(null);
+  const coffeeHandlesRef = React.useRef<ReturnType<
+    typeof startBestieCoffeeRunner
+  > | null>(null);
 
-  // Autonomous wake + proactive nudge (footer / popover), ~5 min + due one-shots.
+  // Autonomous wake + proactive nudge; due-reminder also posts top-level DM.
   React.useEffect(() => {
     if (!listScope) return;
     const handles = startBestieWakeScheduler({
       getListState: () => getBestieListState(listScope),
       getPreviousNudgeId: () => getBestieNudge()?.id ?? null,
       intervalMs: BESTIE_WAKE_INTERVAL_MS,
-      onNudge: (nudge) => setBestieNudge(nudge),
+      onNudge: (nudge) => {
+        setBestieNudge(nudge);
+        if (nudge.reason !== "due-reminder") return;
+        if (postedReminderNudgeIdsRef.current.has(nudge.id)) return;
+        postedReminderNudgeIdsRef.current.add(nudge.id);
+        void (async () => {
+          try {
+            await ensureAgentRunningRef.current();
+            await sendTopLevel(formatBestieReminderNotifyPrompt(nudge));
+          } catch {
+            // Best-effort notify.
+          }
+        })();
+      },
       onWakeAgent: () => {
         void ensureAgentRunningRef.current().catch(() => {
           // Best-effort wake.
@@ -174,9 +280,9 @@ export function BestieWakeController() {
       handles.stop();
       wakeHandlesRef.current = null;
     };
-  }, [listScope]);
+  }, [listScope, sendTopLevel]);
 
-  // Jobs: when due, mark fired once and send the job prompt as a user turn.
+  // Jobs: when due, mark fired once and send the job prompt as a top-level turn.
   React.useEffect(() => {
     if (!listScope) return;
     const handles = startBestieJobRunner({
@@ -190,17 +296,11 @@ export function BestieWakeController() {
           const marked = markBestieJobFiredForScope(listScope, job.id, dueAt);
           if (!marked) continue;
           firingJobIdsRef.current.add(job.id);
-          const channel = channelRef.current;
           const content = formatBestieJobRunPrompt(job.title, job.prompt);
           void (async () => {
             try {
               await ensureAgentRunningRef.current();
-              if (!channel) return;
-              await sendMutateRef.current({
-                content,
-                parentEventId: null,
-                targetChannel: channel,
-              });
+              await sendTopLevel(content);
             } catch {
               // Best-effort; slot already marked so we do not double-send.
             } finally {
@@ -215,7 +315,32 @@ export function BestieWakeController() {
       handles.stop();
       jobHandlesRef.current = null;
     };
-  }, [listScope]);
+  }, [listScope, sendTopLevel]);
+
+  // Coffee: morning schedule when online; Brew via window event.
+  React.useEffect(() => {
+    if (!listScope) return;
+    const handles = startBestieCoffeeRunner({
+      getCoffeeState: () => getBestieCoffeeState(listScope),
+      getIsAgentOnline: () =>
+        isBestieAgentOnlineForCoffee(presenceRef.current),
+      intervalMs: BESTIE_WAKE_INTERVAL_MS,
+      onDueCoffee: () => {
+        void runCoffeeTurn("scheduled");
+      },
+    });
+    coffeeHandlesRef.current = handles;
+
+    const onBrew = () => {
+      void runCoffeeTurn("brew");
+    };
+    window.addEventListener(BESTIE_COFFEE_BREW_EVENT, onBrew);
+    return () => {
+      handles.stop();
+      coffeeHandlesRef.current = null;
+      window.removeEventListener(BESTIE_COFFEE_BREW_EVENT, onBrew);
+    };
+  }, [listScope, runCoffeeTurn]);
 
   // When open reminders / todos change, re-tick wake one-shots.
   const openListSignature = React.useMemo(
@@ -246,6 +371,11 @@ export function BestieWakeController() {
     jobHandlesRef.current?.tick();
   }, [listScope, openJobSignature]);
 
+  React.useEffect(() => {
+    if (!listScope) return;
+    coffeeHandlesRef.current?.tick();
+  }, [coffeeState.pendingRun, coffeeState.lastScheduledDayKey, listScope, presenceStatus]);
+
   // Clear stale nudge when the outstanding set is emptied.
   React.useEffect(() => {
     const nudge = getBestieNudge();
@@ -255,6 +385,33 @@ export function BestieWakeController() {
     );
     if (!stillOpen) clearBestieNudge();
   }, [listState]);
+
+  // Threads: Summarize button → top-level Bestie DM turn with summarize prompt.
+  React.useEffect(() => {
+    if (!listScope) return;
+    const onSummarize = (event: Event) => {
+      const detail = (event as CustomEvent<{ threadId?: string }>).detail;
+      const threadId = detail?.threadId;
+      if (!threadId) return;
+      const state = getBestieThreadState(listScope);
+      const thread = state.threads.find((entry) => entry.id === threadId);
+      if (!thread) {
+        clearBestieThreadSummarizeForScope(listScope);
+        return;
+      }
+      void (async () => {
+        try {
+          await ensureAgentRunningRef.current();
+          await sendTopLevel(formatBestieThreadSummarizePrompt(thread));
+        } catch {
+          clearBestieThreadSummarizeForScope(listScope);
+        }
+      })();
+    };
+    window.addEventListener(BESTIE_THREAD_SUMMARIZE_EVENT, onSummarize);
+    return () =>
+      window.removeEventListener(BESTIE_THREAD_SUMMARIZE_EVENT, onSummarize);
+  }, [listScope, sendTopLevel]);
 
   return null;
 }

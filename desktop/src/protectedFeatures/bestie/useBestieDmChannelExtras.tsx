@@ -3,7 +3,15 @@ import * as React from "react";
 
 import { findBestieDmChannel } from "./filterBestieDmChannels";
 import { BestieDmCategorySheet, BestieDmRhsPanel } from "./BestieDmRhsPanel";
+import { BestieDmCoffeeSheet } from "./BestieDmCoffeeSheet";
 import { BestieDmJobsSheet } from "./BestieDmJobsSheet";
+import { BestieDmThreadsSheet } from "./BestieDmThreadsSheet";
+import { BestieDmTodosSheet } from "./BestieDmTodosSheet";
+import { BESTIE_COFFEE_BREW_EVENT } from "./bestieCoffeeSchedule";
+import {
+  beginBestieCoffeeRunForScope,
+  useBestieCoffee,
+} from "./bestieCoffeeStore";
 import {
   bestieCategoryTitle,
   bestieIdleAuxiliaryKind,
@@ -148,11 +156,44 @@ export function useBestieDmChannelExtras(
     );
   }, [activeKind, openKind, scope]);
 
+  const coffeeState = useBestieCoffee(scope);
+  const requestCoffeeBrew = React.useCallback(() => {
+    if (!scope) return;
+    const begun = beginBestieCoffeeRunForScope(scope, "brew");
+    if (!begun) return;
+    window.dispatchEvent(
+      new CustomEvent(BESTIE_COFFEE_BREW_EVENT, {
+        detail: { agentPubkey: scope.agentPubkey },
+      }),
+    );
+  }, [scope]);
+
   const idleAuxiliaryPanel = React.useMemo(() => {
     if (!scope || activeKind == null) return null;
     if (activeKind === "job") {
       return (
         <BestieDmJobsSheet
+          adding={adding}
+          onRequestAdd={() => setAdding(true)}
+          scope={scope}
+        />
+      );
+    }
+    if (activeKind === "coffee") {
+      return (
+        <BestieDmCoffeeSheet
+          brewing={coffeeState.pendingRun != null}
+          onBrew={requestCoffeeBrew}
+          scope={scope}
+        />
+      );
+    }
+    if (activeKind === "thread") {
+      return <BestieDmThreadsSheet scope={scope} />;
+    }
+    if (activeKind === "todo") {
+      return (
+        <BestieDmTodosSheet
           adding={adding}
           onRequestAdd={() => setAdding(true)}
           scope={scope}
@@ -167,11 +208,21 @@ export function useBestieDmChannelExtras(
         scope={scope}
       />
     );
-  }, [activeKind, adding, scope]);
+  }, [activeKind, adding, coffeeState.pendingRun, requestCoffeeBrew, scope]);
 
   const idleAuxiliaryHeaderActions =
     React.useMemo<IdleAuxiliaryHeaderControls | null>(() => {
       if (activeKind == null) return null;
+      const back = {
+        backLabel: "Back to Bestie list",
+        onBack: () => {
+          setActiveKind(null);
+          setAdding(false);
+        },
+      };
+      if (activeKind === "coffee" || activeKind === "thread") {
+        return { ...back };
+      }
       const addLabel =
         activeKind === "reminder"
           ? "Add reminder"
@@ -179,6 +230,7 @@ export function useBestieDmChannelExtras(
             ? "Add to-do"
             : "Add job";
       return {
+        ...back,
         actions: (
           <Tooltip disableHoverableContent>
             <TooltipTrigger asChild>
@@ -199,11 +251,6 @@ export function useBestieDmChannelExtras(
             <TooltipContent>{addLabel}</TooltipContent>
           </Tooltip>
         ),
-        backLabel: "Back to Bestie list",
-        onBack: () => {
-          setActiveKind(null);
-          setAdding(false);
-        },
       };
     }, [activeKind, adding]);
 

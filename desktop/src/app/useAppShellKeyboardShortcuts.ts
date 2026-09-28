@@ -2,6 +2,7 @@ import * as React from "react";
 
 import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
 import {
+  BESTIE_POPOVER_SHORTCUT_EVENT,
   HUDDLE_SHORTCUT_EVENT,
   type HuddleShortcutDetail,
 } from "@/shared/lib/keyboard-shortcuts";
@@ -97,6 +98,15 @@ export function useAppShellKeyboardShortcuts({
       if (key === "a" && event.shiftKey) {
         event.preventDefault();
         void onGoHome();
+        return;
+      }
+
+      // ⇧⌘B / Ctrl+Shift+B — Bestie popover toggle (window-level; avoids
+      // common Term/browser chords like ⌘T/⌘W/⌘L). Chrome bookmarks-bar uses
+      // the same chord only when Chrome is frontmost.
+      if (key === "b" && event.shiftKey) {
+        event.preventDefault();
+        window.dispatchEvent(new CustomEvent(BESTIE_POPOVER_SHORTCUT_EVENT));
       }
     }
 

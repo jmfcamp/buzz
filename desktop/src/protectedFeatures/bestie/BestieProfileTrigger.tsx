@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import { BESTIE_POPOVER_SHORTCUT_EVENT } from "@/shared/lib/keyboard-shortcuts";
 import { cn } from "@/shared/lib/cn";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { BestiePopover, BestieTriggerVisual } from "./BestiePopover";
@@ -42,6 +43,21 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
     lastAutoOpenedNudgeIdRef.current = nudge.id;
     setOpen(true);
   }, [agent, nudge]);
+
+  // ⇧⌘B / Ctrl+Shift+B — toggle popover (or go choose a Bestie when unset).
+  React.useEffect(() => {
+    function onShortcut() {
+      if (!agent) {
+        void goAgents();
+        setOpen(false);
+        return;
+      }
+      setOpen((current) => !current);
+    }
+    window.addEventListener(BESTIE_POPOVER_SHORTCUT_EVENT, onShortcut);
+    return () =>
+      window.removeEventListener(BESTIE_POPOVER_SHORTCUT_EVENT, onShortcut);
+  }, [agent, goAgents]);
 
   const ariaLabel = agent
     ? hasNudge

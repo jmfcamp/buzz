@@ -1,7 +1,7 @@
 import type { BestieListKind } from "./bestieListTypes";
 
 /** Fixed RHS categories: reminders, todos, and jobs. */
-export type BestieRhsKind = BestieListKind | "job";
+export type BestieRhsKind = BestieListKind | "job" | "coffee" | "thread";
 
 /** Omit empty counts the same way Projects overview does. */
 export function presentBestieContextCount(
@@ -13,7 +13,9 @@ export function presentBestieContextCount(
 export function bestieCategoryTitle(kind: BestieRhsKind): string {
   if (kind === "reminder") return "Reminders";
   if (kind === "todo") return "To-dos";
-  return "Jobs";
+  if (kind === "job") return "Jobs";
+  if (kind === "coffee") return "Coffee";
+  return "Threads";
 }
 
 /**

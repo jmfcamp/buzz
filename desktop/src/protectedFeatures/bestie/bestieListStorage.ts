@@ -6,7 +6,21 @@ import type {
   BestieListKind,
   BestieListScope,
   BestieListState,
+  BestieListTodoUpdateInput,
 } from "./bestieListTypes";
+
+/** Local YYYY-MM-DD for todo day grouping. */
+export function localDayKeyFromSeconds(seconds: number): string {
+  const date = new Date(seconds * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+export function todayLocalDayKey(
+  nowSeconds = Math.floor(Date.now() / 1000),
+): string {
+  return localDayKeyFromSeconds(nowSeconds);
+}
 
 export const BESTIE_LIST_STORAGE_PREFIX = "buzz-bestie-list.v1";
 
@@ -66,12 +80,25 @@ export function parseBestieListItem(value: unknown): BestieListItem | null {
     record.sourceMessageId.length > 0
       ? record.sourceMessageId
       : null;
+  const starred = record.starred === true;
+  const sortOrder = isFiniteNonNegative(record.sortOrder)
+    ? Math.floor(record.sortOrder)
+    : Math.floor(record.createdAt);
+  const dayKey =
+    typeof record.dayKey === "string" && /^\d{4}-\d{2}-\d{2}$/.test(record.dayKey)
+      ? record.dayKey
+      : record.kind === "todo"
+        ? localDayKeyFromSeconds(record.createdAt)
+        : null;
   return {
     createdAt: record.createdAt,
+    dayKey,
     dueAt,
     id: record.id,
     kind: record.kind,
+    sortOrder,
     sourceMessageId,
+    starred,
     status: record.status,
     text: record.text.trim(),
     updatedAt: record.updatedAt,
@@ -184,12 +211,29 @@ export function addBestieListItem(
   if (findDuplicateBestieListItem(state, input, nowSeconds)) {
     return state;
   }
+  const minOrder = state.items.reduce(
+    (min, item) => Math.min(min, item.sortOrder),
+    nowSeconds,
+  );
+  const sortOrder =
+    input.sortOrder != null && Number.isFinite(input.sortOrder)
+      ? Math.floor(input.sortOrder)
+      : minOrder - 1;
+  const dayKey =
+    input.kind === "todo"
+      ? input.dayKey && /^\d{4}-\d{2}-\d{2}$/.test(input.dayKey)
+        ? input.dayKey
+        : localDayKeyFromSeconds(nowSeconds)
+      : null;
   const item: BestieListItem = {
     createdAt: nowSeconds,
+    dayKey,
     dueAt: input.kind === "reminder" ? (input.dueAt ?? null) : null,
     id: createBestieListItemId(),
     kind: input.kind,
+    sortOrder,
     sourceMessageId: input.sourceMessageId ?? null,
+    starred: input.kind === "todo" ? input.starred === true : false,
     status: "open",
     text,
     updatedAt: nowSeconds,
@@ -257,4 +301,88 @@ export function dueReminders(
   return openReminders(state).filter(
     (item) => item.dueAt != null && item.dueAt <= nowSeconds,
   );
+}
+
+export function updateBestieListItem(
+  state: BestieListState,
+  input: BestieListTodoUpdateInput,
+  nowSeconds = Math.floor(Date.now() / 1000),
+): BestieListState {
+  let changed = false;
+  const items = state.items.map((item) => {
+    if (item.id !== input.id) return item;
+    changed = true;
+    const next: BestieListItem = { ...item, updatedAt: nowSeconds };
+    if (input.starred != null) next.starred = input.starred;
+    if (input.sortOrder != null && Number.isFinite(input.sortOrder)) {
+      next.sortOrder = Math.floor(input.sortOrder);
+    }
+    if (input.dayKey !== undefined) {
+      next.dayKey =
+        input.dayKey && /^\d{4}-\d{2}-\d{2}$/.test(input.dayKey)
+          ? input.dayKey
+          : item.kind === "todo"
+            ? localDayKeyFromSeconds(item.createdAt)
+            : null;
+    }
+    if (input.status != null) next.status = input.status;
+    if (typeof input.text === "string" && input.text.trim()) {
+      next.text = input.text.trim();
+    }
+    return next;
+  });
+  return changed ? { ...state, items } : state;
+}
+
+export function toggleBestieListItemStarred(
+  state: BestieListState,
+  id: string,
+  nowSeconds = Math.floor(Date.now() / 1000),
+): BestieListState {
+  const item = state.items.find((entry) => entry.id === id);
+  if (!item || item.kind !== "todo") return state;
+  return updateBestieListItem(
+    state,
+    { id, starred: !item.starred },
+    nowSeconds,
+  );
+}
+
+/**
+ * Reorder todos after a drag. `orderedIds` is the full open-todo order within
+ * the destination group (starred block or a dayKey). Updates sortOrder and
+ * optionally dayKey / starred for the moved item.
+ */
+export function reorderBestieTodos(
+  state: BestieListState,
+  options: {
+    /** Destination day for non-starred drops; ignored when starred. */
+    dayKey?: string | null;
+    orderedIds: string[];
+    /** When true, items in orderedIds become starred; when false, unstarred. */
+    starred: boolean;
+  },
+  nowSeconds = Math.floor(Date.now() / 1000),
+): BestieListState {
+  const orderIndex = new Map(
+    options.orderedIds.map((id, index) => [id, index]),
+  );
+  if (orderIndex.size === 0) return state;
+  const items = state.items.map((item) => {
+    if (item.kind !== "todo") return item;
+    const index = orderIndex.get(item.id);
+    if (index == null) return item;
+    return {
+      ...item,
+      dayKey: options.starred
+        ? item.dayKey ?? localDayKeyFromSeconds(item.createdAt)
+        : options.dayKey && /^\d{4}-\d{2}-\d{2}$/.test(options.dayKey)
+          ? options.dayKey
+          : item.dayKey ?? localDayKeyFromSeconds(nowSeconds),
+      sortOrder: index,
+      starred: options.starred,
+      updatedAt: nowSeconds,
+    };
+  });
+  return { ...state, items };
 }

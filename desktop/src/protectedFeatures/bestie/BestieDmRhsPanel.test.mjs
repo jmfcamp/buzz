@@ -7,10 +7,12 @@ import {
   presentBestieContextCount,
 } from "./bestieDmRhsHelpers.ts";
 
-test("bestieCategoryTitle labels reminder, todo, and job categories", () => {
+test("bestieCategoryTitle labels all RHS categories", () => {
   assert.equal(bestieCategoryTitle("reminder"), "Reminders");
   assert.equal(bestieCategoryTitle("todo"), "To-dos");
   assert.equal(bestieCategoryTitle("job"), "Jobs");
+  assert.equal(bestieCategoryTitle("coffee"), "Coffee");
+  assert.equal(bestieCategoryTitle("thread"), "Threads");
 });
 
 test("presentBestieContextCount omits empty like Projects overview", () => {
@@ -21,7 +23,5 @@ test("presentBestieContextCount omits empty like Projects overview", () => {
 
 test("bestieIdleAuxiliaryKind opens slide only for a drilled category", () => {
   assert.equal(bestieIdleAuxiliaryKind(null), null);
-  assert.equal(bestieIdleAuxiliaryKind("reminder"), "reminder");
-  assert.equal(bestieIdleAuxiliaryKind("todo"), "todo");
-  assert.equal(bestieIdleAuxiliaryKind("job"), "job");
+  assert.equal(bestieIdleAuxiliaryKind("thread"), "thread");
 });
