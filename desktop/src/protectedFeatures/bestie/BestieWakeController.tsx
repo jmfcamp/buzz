@@ -12,9 +12,12 @@ import { getAgentWorkingState } from "@/features/agents/agentWorkingSignal";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import {
+  clearBestieUnreadMessage,
   ingestBestieAgentMessageCreatedAt,
   markBestieAgentMessagesSeen,
+  noteBestieAgentMessageCreatedAt,
 } from "./bestieAttentionStore";
+import { isBestiePopoverSystemNoise } from "./bestiePopoverNewMessage";
 import {
   BESTIE_COFFEE_BREW_EVENT,
   BESTIE_COFFEE_RUN_MARKER,
@@ -198,6 +201,8 @@ export function BestieWakeController() {
   presenceRef.current = presenceStatus;
   const seededUnreadRef = React.useRef(false);
   const seededUnreadChannelRef = React.useRef<string | null>(null);
+  /** Agent message ids already absorbed for footer attention (hydrate + live). */
+  const seenAgentMessageIdsRef = React.useRef(new Set<string>());
   const firingJobIdsRef = React.useRef(new Set<string>());
   const coffeeSendingRef = React.useRef(false);
   const postedReminderNudgeIdsRef = React.useRef(new Set<string>());
@@ -246,6 +251,9 @@ export function BestieWakeController() {
     if (seededUnreadChannelRef.current !== bestieChannel.id) {
       seededUnreadChannelRef.current = bestieChannel.id;
       seededUnreadRef.current = false;
+      seenAgentMessageIdsRef.current = new Set();
+      // Drop any leftover glow from a prior channel / hot reload.
+      clearBestieUnreadMessage();
     }
     const agentNorm = normalizePubkey(agentPubkey);
     const ownerNorm = normalizePubkey(ownerPubkey);
@@ -362,6 +370,7 @@ export function BestieWakeController() {
     }
 
     const agentCreatedAts = [];
+    const newAgentAttentionEvents: RelayEvent[] = [];
     for (const event of eventsForAgentCapture) {
       if (typeof event.content !== "string" || event.content.length === 0) {
         continue;
@@ -370,6 +379,10 @@ export function BestieWakeController() {
       if (author === agentNorm) {
         if (typeof event.created_at === "number") {
           agentCreatedAts.push(event.created_at);
+        }
+        if (!seenAgentMessageIdsRef.current.has(event.id)) {
+          seenAgentMessageIdsRef.current.add(event.id);
+          newAgentAttentionEvents.push(event);
         }
         const createdAt =
           typeof event.created_at === "number"
@@ -432,20 +445,47 @@ export function BestieWakeController() {
       }
     }
 
-    if (agentCreatedAts.length === 0) return;
-    const maxCreated = Math.max(...agentCreatedAts);
-    if (!seededUnreadRef.current) {
-      markBestieAgentMessagesSeen(maxCreated);
-      seededUnreadRef.current = true;
+    if (agentCreatedAts.length === 0) {
+      // Still finish hydrate when the DM has no agent posts yet but reply
+      // capture for coffee/summarize roots has settled.
+      if (
+        !seededUnreadRef.current &&
+        !(captureReplyRootIds.length > 0 && captureThreadReplies.isPending)
+      ) {
+        clearBestieUnreadMessage();
+        seededUnreadRef.current = true;
+      }
       return;
     }
-    for (const createdAt of agentCreatedAts) {
-      ingestBestieAgentMessageCreatedAt(createdAt);
+    const maxCreated = Math.max(...agentCreatedAts);
+    if (!seededUnreadRef.current) {
+      // History (roots + late thread-reply hydrate) is never "new".
+      markBestieAgentMessagesSeen(maxCreated);
+      clearBestieUnreadMessage();
+      const repliesPending =
+        captureReplyRootIds.length > 0 && captureThreadReplies.isPending;
+      if (!repliesPending) {
+        seededUnreadRef.current = true;
+      }
+      return;
+    }
+    // Live path: only brand-new agent ids, and never system-noise turns
+    // (coffee / jobs / reminder / summarize / teach) — those must not pulse
+    // when the popover has no New-message banner.
+    for (const event of newAgentAttentionEvents) {
+      if (typeof event.created_at !== "number") continue;
+      if (isBestiePopoverSystemNoise(event.content)) {
+        noteBestieAgentMessageCreatedAt(event.created_at);
+        continue;
+      }
+      ingestBestieAgentMessageCreatedAt(event.created_at);
     }
   }, [
     agentPubkey,
     bestieChannel,
+    captureReplyRootIds.length,
     captureThreadReplies.events,
+    captureThreadReplies.isPending,
     listScope,
     messagesQuery.data,
     ownerPubkey,

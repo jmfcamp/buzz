@@ -33,6 +33,7 @@ import { useBestie } from "./useBestie";
  * Phase 2: proactive wake nudge shows a distinct badge (not a DM unread).
  * Phase 3: due-reminder nudges auto-open the popover with the nudge banner.
  * Unread agent replies (popover + Bestie DM closed) show a pulsing light ring.
+ * Ring clears on open/view and never pulses for stale hydrate / system noise.
  *
  * Popover is always-on-top of the React chrome (high z-index) so it stacks
  * above the app UI. Pinned / playground WKWebViews stay mounted and visible
@@ -274,7 +275,7 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
           type="button"
         >
           <span className="relative inline-flex shrink-0">
-            {agent && hasUnread && !hasNudge ? (
+            {agent && hasUnread && !open && !hasNudge ? (
               <span
                 aria-hidden="true"
                 className="bestie-unread-ring pointer-events-none absolute -inset-1 rounded-full"

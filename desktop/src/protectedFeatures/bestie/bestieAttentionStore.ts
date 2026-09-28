@@ -2,8 +2,12 @@ import * as React from "react";
 
 /**
  * Footer-avatar attention for Bestie DM replies.
- * Distinct from wake-nudge (`!` badge): this is a pulsing ring for new agent
- * messages while the popover and Bestie DM thread are both closed.
+ * Distinct from wake-nudge (`!` badge): this is a pulsing light ring for new
+ * agent messages while the popover and Bestie DM thread are both closed.
+ *
+ * Pulse only for real unread outside Bestie surfaces. Stale flags left over
+ * from history hydration or system-noise turns must not glow once the user
+ * is caught up, and never while a Bestie surface is open.
  */
 
 type Listener = () => void;
@@ -20,8 +24,12 @@ function notify() {
   for (const listener of listeners) listener();
 }
 
+/**
+ * True only when there is real unread AND no Bestie surface is open.
+ * Opening the popover / DM must never keep the footer ring glowing.
+ */
 export function getBestieHasUnreadMessage(): boolean {
-  return hasUnreadMessage;
+  return hasUnreadMessage && !popoverOpen && !viewingBestieDm;
 }
 
 export function isBestieSurfaceOpen(): boolean {
@@ -50,6 +58,18 @@ export function clearBestieUnreadMessage(): void {
   if (!hasUnreadMessage) return;
   hasUnreadMessage = false;
   notify();
+}
+
+/**
+ * Advance the seen watermark without setting (or clearing) unread.
+ * Used for hydration and system-noise agent turns that must not pulse.
+ */
+export function noteBestieAgentMessageCreatedAt(
+  createdAtSeconds: number,
+): void {
+  if (createdAtSeconds > seenAgentCreatedAt) {
+    seenAgentCreatedAt = createdAtSeconds;
+  }
 }
 
 /**
