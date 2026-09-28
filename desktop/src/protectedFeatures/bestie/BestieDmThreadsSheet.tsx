@@ -14,6 +14,7 @@ import {
   parseBestieThreadAddInput,
 } from "./bestieThreadDiscover";
 import { BESTIE_THREAD_SUMMARIZE_EVENT } from "./bestieThreadProtocol";
+import { BESTIE_THREAD_SUMMARIZE_LIVE_LABEL } from "./bestieThreadSummarizeLive";
 import { sortedBestieThreads } from "./bestieThreadStorage";
 import {
   beginBestieThreadSummarizeForScope,
@@ -31,10 +32,13 @@ import { findBestieDmChannel } from "./filterBestieDmChannels";
 function ThreadRow({
   pending,
   scope,
+  summarizeLive,
   thread,
 }: {
   pending: boolean;
   scope: BestieThreadScope;
+  /** ACP summarize turn live for this row — show 🤔… (not coffee/other). */
+  summarizeLive: boolean;
   thread: BestieTrackedThread;
 }) {
   const { goChannel } = useAppNavigation();
@@ -96,7 +100,11 @@ function ThreadRow({
           type="button"
           variant="secondary"
         >
-          {pending ? "…" : "Summarize"}
+          {summarizeLive
+            ? BESTIE_THREAD_SUMMARIZE_LIVE_LABEL
+            : pending
+              ? "…"
+              : "Summarize"}
         </Button>
         <Button
           aria-label="Stop tracking thread"
@@ -201,10 +209,18 @@ export function BestieDmThreadsSheet({
   adding,
   onRequestAdd,
   scope,
+  summarizeDisabled = false,
+  summarizeLive = false,
+  summarizeLiveThreadId = null,
 }: {
   adding: boolean;
   onRequestAdd?: () => void;
   scope: BestieThreadScope;
+  /** Disable Summarize while a summarize turn is live / in start grace. */
+  summarizeDisabled?: boolean;
+  /** True while summarize ACP turn is live — sheet header 🤔…. */
+  summarizeLive?: boolean;
+  summarizeLiveThreadId?: string | null;
 }) {
   const state = useBestieThreads(scope);
   const threads = sortedBestieThreads(state);
@@ -356,8 +372,15 @@ export function BestieDmThreadsSheet({
           threads.map((thread) => (
             <ThreadRow
               key={thread.id}
-              pending={pendingId === thread.id}
+              pending={
+                summarizeDisabled ||
+                pendingId === thread.id ||
+                summarizeLiveThreadId === thread.id
+              }
               scope={scope}
+              summarizeLive={
+                summarizeLive && summarizeLiveThreadId === thread.id
+              }
               thread={thread}
             />
           ))

@@ -18,8 +18,20 @@ Remove (trash) only drops local tracking; it does not remove channel membership.
 ## Summarize
 
 Summarize posts a **top-level Assistant DM** turn (`parentEventId: null`) with
-`[Bestie thread summarize]` and channel / root ids so the agent can call
-`buzz messages thread --channel <UUID> --event <ID>`.
+`[Bestie thread summarize]` and channel / root / tracking ids so the agent can
+call `buzz messages thread --channel <UUID> --event <ID>`.
+
+### Live UI
+
+Show **🤔…** on the Threads RHS category / row **only** while that summarize
+turn is the latest open system turn on the Assistant DM — not while Coffee,
+Jobs, or Reminder notifies own ACP. Same grace / stale-pending rules as Coffee.
+
+### Outcomes on the row
+
+Every summarize reply that parents to the summarize trigger is stored on the
+thread as `lastSummary` / `lastSummaryAt` — success briefs **and** failures /
+errors. Coffee replies cannot steal a pending summarize.
 
 ## ACL / relay rules (research)
 

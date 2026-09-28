@@ -229,6 +229,7 @@ function EmptyBestie({ onRequestClose }: { onRequestClose?: () => void }) {
       <BestieDmCoffeeSheet
         brewDisabled
         coffeeLive={false}
+        summarizeLive={false}
         onBrew={() => {}}
         scope={scope}
       />

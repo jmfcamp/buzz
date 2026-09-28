@@ -3,6 +3,7 @@ import * as React from "react";
 import { bestieOwnerScopeKey } from "./bestieOwnerScope";
 
 import { bestieThreadId } from "./bestieThreadProtocol";
+import { replyParentIdFromEventTags } from "./bestieCoffeeLive";
 import {
   beginBestieThreadSummarize,
   clearBestieThreadSummarize,
@@ -10,6 +11,7 @@ import {
   EMPTY_BESTIE_THREAD_STATE,
   readBestieThreadState,
   removeBestieTrackedThread,
+  setBestieThreadSummarizeTrigger,
   upsertBestieTrackedThread,
   writeBestieThreadState,
 } from "./bestieThreadStorage";
@@ -89,22 +91,77 @@ export function clearBestieThreadSummarizeForScope(
   return commit(scope, clearBestieThreadSummarize(loadState(scope)));
 }
 
+export function setBestieThreadSummarizeTriggerForScope(
+  scope: BestieThreadScope,
+  triggerMessageId: string | null,
+): BestieThreadState {
+  return commit(
+    scope,
+    setBestieThreadSummarizeTrigger(loadState(scope), triggerMessageId),
+  );
+}
+
+/**
+ * Capture an agent reply onto the pending Threads row (success, failures,
+ * errors). Only messages that reply to the summarize trigger parent count —
+ * Coffee / other Assistant turns must not steal or fake a summarize outcome.
+ */
 export function applyBestieThreadSummarizeReply(
   scope: BestieThreadScope,
+  messageId: string,
   content: string,
   createdAtSeconds: number,
+  tags?: readonly (readonly string[])[] | null,
+  /**
+   * Unmatched summarize prompt ids → tracked thread id (when pending was lost).
+   */
+  unmatchedSummarizeTriggers?: ReadonlyMap<string, string>,
 ): boolean {
   const current = loadState(scope);
-  const pending = current.pendingSummarize;
-  if (!pending) return false;
-  if (createdAtSeconds + 5 < pending.startedAt) return false;
   const trimmed = content.trim();
   if (!trimmed) return false;
-  commit(
-    scope,
-    completeBestieThreadSummarize(current, trimmed, createdAtSeconds),
-  );
-  return true;
+
+  const parentId = replyParentIdFromEventTags(tags);
+  const pending = current.pendingSummarize;
+
+  if (pending?.triggerMessageId) {
+    if (createdAtSeconds + 5 < pending.startedAt) return false;
+    if (parentId !== pending.triggerMessageId) return false;
+    commit(
+      scope,
+      completeBestieThreadSummarize(current, trimmed, createdAtSeconds),
+    );
+    return true;
+  }
+
+  // Wait for trigger bind so Coffee replies cannot complete summarize early.
+  if (pending && !pending.triggerMessageId) {
+    return false;
+  }
+
+  // No pending — still fold replies to unmatched summarize prompts onto the row.
+  if (parentId && unmatchedSummarizeTriggers?.has(parentId)) {
+    const threadId = unmatchedSummarizeTriggers.get(parentId);
+    if (!threadId) return false;
+    const thread = current.threads.find((entry) => entry.id === threadId);
+    if (!thread) return false;
+    // Synthesize a one-shot complete for that thread.
+    const withPending = {
+      ...current,
+      pendingSummarize: {
+        startedAt: createdAtSeconds,
+        threadId,
+        triggerMessageId: parentId,
+      },
+    };
+    commit(
+      scope,
+      completeBestieThreadSummarize(withPending, trimmed, createdAtSeconds),
+    );
+    return true;
+  }
+
+  return false;
 }
 
 
@@ -172,4 +229,10 @@ export function useBestieThreads(
     return loadState(scope);
   }, [scope]);
   return React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+/** Test helper: drop cached in-memory thread state. */
+export function __resetBestieThreadStoreForTests(): void {
+  stateByKey.clear();
+  listenersByKey.clear();
 }

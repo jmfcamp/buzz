@@ -100,9 +100,15 @@ export function parseBestieThreadState(
       typeof pending.threadId === "string" &&
       isFiniteNonNegative(pending.startedAt)
     ) {
+      const triggerMessageId =
+        typeof pending.triggerMessageId === "string" &&
+        pending.triggerMessageId.length > 0
+          ? pending.triggerMessageId
+          : null;
       pendingSummarize = {
         startedAt: Math.floor(pending.startedAt),
         threadId: pending.threadId,
+        triggerMessageId,
       };
     }
   }
@@ -214,7 +220,11 @@ export function beginBestieThreadSummarize(
   if (!state.threads.some((thread) => thread.id === threadId)) return null;
   return {
     ...state,
-    pendingSummarize: { startedAt: nowSeconds, threadId },
+    pendingSummarize: {
+      startedAt: nowSeconds,
+      threadId,
+      triggerMessageId: null,
+    },
   };
 }
 
@@ -223,6 +233,17 @@ export function clearBestieThreadSummarize(
 ): BestieThreadState {
   if (!state.pendingSummarize) return state;
   return { ...state, pendingSummarize: null };
+}
+
+export function setBestieThreadSummarizeTrigger(
+  state: BestieThreadState,
+  triggerMessageId: string | null,
+): BestieThreadState {
+  if (!state.pendingSummarize) return state;
+  return {
+    ...state,
+    pendingSummarize: { ...state.pendingSummarize, triggerMessageId },
+  };
 }
 
 export function completeBestieThreadSummarize(
@@ -238,7 +259,7 @@ export function completeBestieThreadSummarize(
       ? {
           ...thread,
           lastActiveAt: nowSeconds,
-          lastSummary: trimmed || thread.lastSummary,
+          lastSummary: trimmed || thread.lastSummary || "(empty summarize reply)",
           lastSummaryAt: nowSeconds,
         }
       : thread,

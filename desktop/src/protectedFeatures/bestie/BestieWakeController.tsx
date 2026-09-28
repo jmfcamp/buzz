@@ -68,11 +68,13 @@ import {
   BESTIE_THREAD_SUMMARIZE_EVENT,
   BESTIE_THREAD_SUMMARIZE_MARKER,
   formatBestieThreadSummarizePrompt,
+  parseBestieThreadIdFromSummarizePrompt,
 } from "./bestieThreadProtocol";
 import {
   applyBestieThreadSummarizeReply,
   clearBestieThreadSummarizeForScope,
   getBestieThreadState,
+  setBestieThreadSummarizeTriggerForScope,
 } from "./bestieThreadStore";
 import { useBestie } from "./useBestie";
 
@@ -187,30 +189,60 @@ export function BestieWakeController() {
     const ownerNorm = normalizePubkey(ownerPubkey);
     const events = messagesQuery.data ?? [];
 
-    // Pass 1: bind coffee pending → trigger id, collect unmatched coffee triggers
-    // so failure / NCP / error replies still land in the Coffee tab.
+    // Pass 1: bind coffee + summarize pending → trigger ids; collect unmatched
+    // triggers so failure / NCP / error replies still land on Coffee / Threads.
     const unmatchedCoffeeTriggers = new Map();
+    const unmatchedSummarizeTriggers = new Map();
     {
       const coffeeState = getBestieCoffeeState(listScope);
-      const matchedTriggerIds = new Set(
+      const matchedCoffeeTriggerIds = new Set(
         coffeeState.entries
           .map((entry) => entry.triggerMessageId)
           .filter((id) => typeof id === "string" && id.length > 0),
       );
+      const threadState = getBestieThreadState(listScope);
       for (const event of events) {
         if (typeof event.content !== "string" || event.content.length === 0) {
           continue;
         }
         if (normalizePubkey(event.pubkey) !== ownerNorm) continue;
-        if (!messageLooksLikeBestieCoffeeTrigger(event.content)) continue;
-        const livePending = getBestieCoffeeState(listScope).pendingRun;
-        if (livePending && !livePending.triggerMessageId) {
-          setBestieCoffeePendingTriggerForScope(listScope, event.id);
+
+        if (messageLooksLikeBestieCoffeeTrigger(event.content)) {
+          const livePending = getBestieCoffeeState(listScope).pendingRun;
+          if (livePending && !livePending.triggerMessageId) {
+            setBestieCoffeePendingTriggerForScope(listScope, event.id);
+          }
+          if (!matchedCoffeeTriggerIds.has(event.id)) {
+            const source =
+              getBestieCoffeeState(listScope).pendingRun?.source ?? "brew";
+            unmatchedCoffeeTriggers.set(event.id, source);
+          }
+          continue;
         }
-        if (matchedTriggerIds.has(event.id)) continue;
-        const source =
-          getBestieCoffeeState(listScope).pendingRun?.source ?? "brew";
-        unmatchedCoffeeTriggers.set(event.id, source);
+
+        if (event.content.includes(BESTIE_THREAD_SUMMARIZE_MARKER)) {
+          const livePending = getBestieThreadState(listScope).pendingSummarize;
+          if (livePending && !livePending.triggerMessageId) {
+            setBestieThreadSummarizeTriggerForScope(listScope, event.id);
+          }
+          const trackingId =
+            parseBestieThreadIdFromSummarizePrompt(event.content) ??
+            getBestieThreadState(listScope).pendingSummarize?.threadId ??
+            null;
+          if (!trackingId) continue;
+          // Skip if this thread already summarized after this prompt.
+          const tracked = threadState.threads.find(
+            (thread) => thread.id === trackingId,
+          );
+          if (
+            tracked?.lastSummaryAt != null &&
+            typeof event.created_at === "number" &&
+            event.created_at + 5 < tracked.lastSummaryAt
+          ) {
+            continue;
+          }
+          unmatchedSummarizeTriggers.set(event.id, trackingId);
+        }
       }
     }
 
@@ -236,7 +268,14 @@ export function BestieWakeController() {
           event.tags,
           unmatchedCoffeeTriggers,
         );
-        applyBestieThreadSummarizeReply(listScope, event.content, createdAt);
+        applyBestieThreadSummarizeReply(
+          listScope,
+          event.id,
+          event.content,
+          createdAt,
+          event.tags,
+          unmatchedSummarizeTriggers,
+        );
         applyBestieListActionsFromAgentMessage(
           listScope,
           event.id,

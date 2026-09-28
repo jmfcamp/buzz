@@ -12,6 +12,7 @@ import { BestieDmTodosSheet } from "./BestieDmTodosSheet";
 import { BESTIE_COFFEE_BREW_EVENT } from "./bestieCoffeeSchedule";
 import { beginBestieCoffeeRunForScope } from "./bestieCoffeeStore";
 import { useBestieCoffeeLive } from "./useBestieCoffeeLive";
+import { useBestieThreadSummarizeLive } from "./useBestieThreadSummarizeLive";
 import {
   bestieCategoryTitle,
   bestieIdleAuxiliaryKind,
@@ -156,6 +157,8 @@ export function useBestieDmChannelExtras(
     scope,
     bestieChannelForCoffee,
   );
+  const { summarizeDisabled, summarizeLive, summarizeLiveThreadId } =
+    useBestieThreadSummarizeLive(scope, bestieChannelForCoffee);
   const requestCoffeeBrew = React.useCallback(() => {
     if (!scope || brewDisabled) return;
     const begun = beginBestieCoffeeRunForScope(scope, "brew");
@@ -175,9 +178,10 @@ export function useBestieDmChannelExtras(
         coffeeLive={coffeeLive}
         onOpenKind={openKind}
         scope={scope}
+        summarizeLive={summarizeLive}
       />
     );
-  }, [activeKind, coffeeLive, openKind, scope]);
+  }, [activeKind, coffeeLive, openKind, scope, summarizeLive]);
 
   const idleAuxiliaryPanel = React.useMemo(() => {
     if (!scope || activeKind == null) return null;
@@ -206,6 +210,9 @@ export function useBestieDmChannelExtras(
           adding={adding}
           onRequestAdd={() => setAdding(true)}
           scope={scope}
+          summarizeDisabled={summarizeDisabled}
+          summarizeLive={summarizeLive}
+          summarizeLiveThreadId={summarizeLiveThreadId}
         />
       );
     }
@@ -235,7 +242,7 @@ export function useBestieDmChannelExtras(
         scope={scope}
       />
     );
-  }, [activeKind, adding, brewDisabled, coffeeLive, requestCoffeeBrew, scope]);
+  }, [activeKind, adding, brewDisabled, coffeeLive, requestCoffeeBrew, scope, summarizeDisabled, summarizeLive, summarizeLiveThreadId]);
 
   const idleAuxiliaryHeaderActions =
     React.useMemo<IdleAuxiliaryHeaderControls | null>(() => {

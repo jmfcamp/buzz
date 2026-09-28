@@ -30,6 +30,7 @@ import {
 import { enabledJobs } from "./bestieJobStorage";
 import { useBestieJobs } from "./bestieJobStore";
 import { BESTIE_COFFEE_LIVE_LABEL } from "./bestieCoffeeLive";
+import { BESTIE_THREAD_SUMMARIZE_LIVE_LABEL } from "./bestieThreadSummarizeLive";
 import { useBestieCoffee } from "./bestieCoffeeStore";
 import { useBestieThreads } from "./bestieThreadStore";
 import { useBestieScratch } from "./bestieScratchStore";
@@ -329,12 +330,15 @@ export function BestieDmRhsPanel({
   coffeeLive = false,
   onOpenKind,
   scope,
+  summarizeLive = false,
 }: {
   activeKind?: BestieRhsKind | null;
   /** True while /hula-coffee ACP turn is live — show 🤔… on the Coffee row. */
   coffeeLive?: boolean;
   onOpenKind: (kind: BestieRhsKind) => void;
   scope: BestieListScope;
+  /** True while thread summarize ACP turn is live — show 🤔… on Threads. */
+  summarizeLive?: boolean;
 }) {
   const state = useBestieList(scope);
   const jobState = useBestieJobs(scope);
@@ -412,13 +416,28 @@ export function BestieDmRhsPanel({
         )}
       </CategoryNavButton>
       <CategoryNavButton
-        count={presentBestieContextCount(threadCount)}
+        count={
+          summarizeLive ? undefined : presentBestieContextCount(threadCount)
+        }
         icon={<MessagesSquare className="size-4" />}
         onClick={() => onOpenKind("thread")}
         pressed={activeKind === "thread"}
         testId="bestie-rhs-threads"
       >
-        Threads
+        {summarizeLive ? (
+          <span className="inline-flex min-w-0 items-center gap-1">
+            <span className="truncate">Threads</span>
+            <span
+              aria-label="Thread summarize running"
+              className="shrink-0 tabular-nums opacity-80"
+              data-testid="bestie-rhs-threads-live"
+            >
+              {BESTIE_THREAD_SUMMARIZE_LIVE_LABEL}
+            </span>
+          </span>
+        ) : (
+          "Threads"
+        )}
       </CategoryNavButton>
       <CategoryNavButton
         count={presentBestieContextCount(scratchCount)}

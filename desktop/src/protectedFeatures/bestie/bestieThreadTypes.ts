@@ -27,6 +27,8 @@ export type BestieTrackedThread = {
 export type BestieThreadPendingSummarize = {
   startedAt: number;
   threadId: string;
+  /** Owner summarize prompt message id once posted (for in-thread capture). */
+  triggerMessageId: string | null;
 };
 
 export type BestieThreadState = {

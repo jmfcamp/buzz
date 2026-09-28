@@ -18,9 +18,11 @@ export function formatBestieThreadSummarizePrompt(thread: {
     thread.channelName?.trim() ||
     `channel ${thread.channelId.slice(0, 8)}…`;
   const who = thread.authorName?.trim() ? ` (from ${thread.authorName})` : "";
+  const trackingId = bestieThreadId(thread.channelId, thread.rootEventId);
   return `${BESTIE_THREAD_SUMMARIZE_MARKER}
 
 Summarize this thread Assistant is tracking in ${where}.
+Tracking id: ${trackingId}
 Root event: ${thread.rootEventId}
 Channel id: ${thread.channelId}
 
@@ -33,4 +35,14 @@ Cover:
 
 Starter context${who}:
 ${thread.preview.trim() || "(no preview)"}`;
+}
+
+/** Parse composite thread id from a summarize prompt body. */
+export function parseBestieThreadIdFromSummarizePrompt(
+  content: string,
+): string | null {
+  const match = content.match(/^Tracking id:\s*(.+?)\s*$/m);
+  const id = match?.[1]?.trim() ?? "";
+  if (!id || !id.includes(":")) return null;
+  return id;
 }
