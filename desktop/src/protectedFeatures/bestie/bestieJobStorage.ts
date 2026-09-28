@@ -1,4 +1,8 @@
-import { canonicalRelayUrl } from "@/features/agents/managedAgentRuntimeStatus";
+import {
+  bestieOwnerStorageKey,
+  readOwnerScopedState,
+  writeOwnerScopedState,
+} from "./bestieOwnerScope";
 
 import { computeBestieJobNextDueAt } from "./bestieJobSchedule";
 import type {
@@ -12,15 +16,9 @@ import type {
 
 export const BESTIE_JOB_STORAGE_PREFIX = "buzz-bestie-jobs.v1";
 
+/** Owner+relay key — persists across Assistant agent reassignment. */
 export function bestieJobStorageKey(scope: BestieJobScope): string {
-  const relay =
-    canonicalRelayUrl(scope.relayUrl) ?? scope.relayUrl.trim().toLowerCase();
-  return [
-    BESTIE_JOB_STORAGE_PREFIX,
-    relay,
-    scope.ownerPubkey.toLowerCase(),
-    scope.agentPubkey.toLowerCase(),
-  ].join(":");
+  return bestieOwnerStorageKey(BESTIE_JOB_STORAGE_PREFIX, scope);
 }
 
 export const EMPTY_BESTIE_JOB_STATE: BestieJobState = Object.freeze({
@@ -148,28 +146,46 @@ export function parseBestieJobState(value: unknown): BestieJobState | null {
   return { firedSlotIds, jobs, processedMessageIds, version: 1 };
 }
 
-export function readBestieJobState(scope: BestieJobScope): BestieJobState {
-  try {
-    const raw = window.localStorage.getItem(bestieJobStorageKey(scope));
-    if (!raw) return emptyBestieJobState();
-    return parseBestieJobState(JSON.parse(raw)) ?? emptyBestieJobState();
-  } catch {
-    return emptyBestieJobState();
+function mergeBestieJobStates(
+  into: BestieJobState,
+  from: BestieJobState,
+): BestieJobState {
+  const byId = new Map(into.jobs.map((job) => [job.id, job]));
+  for (const job of from.jobs) {
+    const existing = byId.get(job.id);
+    if (!existing || job.updatedAt >= existing.updatedAt) {
+      byId.set(job.id, job);
+    }
   }
+  const fired = new Set([...into.firedSlotIds, ...from.firedSlotIds]);
+  const processed = new Set([
+    ...into.processedMessageIds,
+    ...from.processedMessageIds,
+  ]);
+  return {
+    firedSlotIds: [...fired].slice(-400),
+    jobs: [...byId.values()],
+    processedMessageIds: [...processed].slice(-200),
+    version: 1,
+  };
+}
+
+export function readBestieJobState(scope: BestieJobScope): BestieJobState {
+  return readOwnerScopedState({
+    empty: emptyBestieJobState,
+    isEmpty: (state) => state.jobs.length === 0 && state.firedSlotIds.length === 0 && state.processedMessageIds.length === 0,
+    merge: mergeBestieJobStates,
+    parse: parseBestieJobState,
+    prefix: BESTIE_JOB_STORAGE_PREFIX,
+    scope,
+  });
 }
 
 export function writeBestieJobState(
   scope: BestieJobScope,
   state: BestieJobState,
 ): void {
-  try {
-    window.localStorage.setItem(
-      bestieJobStorageKey(scope),
-      JSON.stringify(state),
-    );
-  } catch {
-    // Quota / private mode.
-  }
+  writeOwnerScopedState(BESTIE_JOB_STORAGE_PREFIX, scope, state);
 }
 
 export function createBestieJobId(): string {

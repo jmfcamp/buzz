@@ -45,7 +45,7 @@ export function BestieNudgeBannerView({
         <p className="text-xs font-semibold">{nudge.title}</p>
         <p className="mt-0.5 text-xs leading-snug opacity-90">{nudge.body}</p>
         <p className="mt-1 text-2xs opacity-70">
-          Proactive Bestie check-in — not a normal DM.
+          Proactive Assistant check-in — not a normal DM.
         </p>
       </div>
       <div className="flex shrink-0 flex-col gap-1">

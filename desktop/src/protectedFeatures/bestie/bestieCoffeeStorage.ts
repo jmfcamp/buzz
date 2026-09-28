@@ -1,4 +1,8 @@
-import { canonicalRelayUrl } from "@/features/agents/managedAgentRuntimeStatus";
+import {
+  bestieOwnerStorageKey,
+  readOwnerScopedState,
+  writeOwnerScopedState,
+} from "./bestieOwnerScope";
 
 import {
   DEFAULT_BESTIE_COFFEE_PREFS,
@@ -21,15 +25,9 @@ export const BESTIE_COFFEE_STORAGE_PREFIX = "buzz-bestie-coffee.v1";
 /** Cap stored briefings so localStorage stays bounded. */
 export const BESTIE_COFFEE_MAX_ENTRIES = 60;
 
+/** Owner+relay key — persists across Assistant agent reassignment. */
 export function bestieCoffeeStorageKey(scope: BestieCoffeeScope): string {
-  const relay =
-    canonicalRelayUrl(scope.relayUrl) ?? scope.relayUrl.trim().toLowerCase();
-  return [
-    BESTIE_COFFEE_STORAGE_PREFIX,
-    relay,
-    scope.ownerPubkey.toLowerCase(),
-    scope.agentPubkey.toLowerCase(),
-  ].join(":");
+  return bestieOwnerStorageKey(BESTIE_COFFEE_STORAGE_PREFIX, scope);
 }
 
 export const EMPTY_BESTIE_COFFEE_STATE: BestieCoffeeState = Object.freeze({
@@ -133,30 +131,52 @@ export function parseBestieCoffeeState(
   };
 }
 
-export function readBestieCoffeeState(
-  scope: BestieCoffeeScope,
+
+function maxDayKey(a: string | null, b: string | null): string | null {
+  if (a == null) return b;
+  if (b == null) return a;
+  return a >= b ? a : b;
+}
+
+function mergeBestieCoffeeStates(
+  into: BestieCoffeeState,
+  from: BestieCoffeeState,
 ): BestieCoffeeState {
-  try {
-    const raw = window.localStorage.getItem(bestieCoffeeStorageKey(scope));
-    if (!raw) return emptyBestieCoffeeState();
-    return parseBestieCoffeeState(JSON.parse(raw)) ?? emptyBestieCoffeeState();
-  } catch {
-    return emptyBestieCoffeeState();
+  const byId = new Map(into.entries.map((entry) => [entry.id, entry]));
+  for (const entry of from.entries) {
+    const existing = byId.get(entry.id);
+    if (!existing || entry.ranAt >= existing.ranAt) {
+      byId.set(entry.id, entry);
+    }
   }
+  return {
+    entries: [...byId.values()],
+    lastScheduledDayKey: maxDayKey(
+      into.lastScheduledDayKey,
+      from.lastScheduledDayKey,
+    ),
+    pendingRun: into.pendingRun ?? from.pendingRun,
+    prefs: into.prefs ?? from.prefs,
+    version: 1,
+  };
+}
+
+export function readBestieCoffeeState(scope: BestieCoffeeScope): BestieCoffeeState {
+  return readOwnerScopedState({
+    empty: emptyBestieCoffeeState,
+    isEmpty: (state) => state.entries.length === 0 && state.pendingRun == null && state.lastScheduledDayKey == null,
+    merge: mergeBestieCoffeeStates,
+    parse: parseBestieCoffeeState,
+    prefix: BESTIE_COFFEE_STORAGE_PREFIX,
+    scope,
+  });
 }
 
 export function writeBestieCoffeeState(
   scope: BestieCoffeeScope,
   state: BestieCoffeeState,
 ): void {
-  try {
-    window.localStorage.setItem(
-      bestieCoffeeStorageKey(scope),
-      JSON.stringify(state),
-    );
-  } catch {
-    // Quota / private mode — callers still hold in-memory state.
-  }
+  writeOwnerScopedState(BESTIE_COFFEE_STORAGE_PREFIX, scope, state);
 }
 
 export function createBestieCoffeeEntryId(): string {

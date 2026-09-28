@@ -1,5 +1,7 @@
 import * as React from "react";
 
+import { bestieOwnerScopeKey } from "./bestieOwnerScope";
+
 import {
   addBestieScratchNote,
   EMPTY_BESTIE_SCRATCH_STATE,
@@ -29,11 +31,7 @@ const listenersByKey = new Map<string, Set<Listener>>();
 const stateByKey = new Map<string, BestieScratchState>();
 
 function scopeKey(scope: BestieScratchScope): string {
-  return [
-    scope.relayUrl.trim().toLowerCase(),
-    scope.ownerPubkey.toLowerCase(),
-    scope.agentPubkey.toLowerCase(),
-  ].join(":");
+  return bestieOwnerScopeKey(scope);
 }
 
 function notify(key: string) {

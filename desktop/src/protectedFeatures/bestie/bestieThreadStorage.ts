@@ -1,4 +1,8 @@
-import { canonicalRelayUrl } from "@/features/agents/managedAgentRuntimeStatus";
+import {
+  bestieOwnerStorageKey,
+  readOwnerScopedState,
+  writeOwnerScopedState,
+} from "./bestieOwnerScope";
 
 import { bestieThreadId } from "./bestieThreadProtocol";
 import type {
@@ -11,15 +15,9 @@ import type {
 export const BESTIE_THREAD_STORAGE_PREFIX = "buzz-bestie-threads.v1";
 export const BESTIE_THREAD_MAX = 80;
 
+/** Owner+relay key — persists across Assistant agent reassignment. */
 export function bestieThreadStorageKey(scope: BestieThreadScope): string {
-  const relay =
-    canonicalRelayUrl(scope.relayUrl) ?? scope.relayUrl.trim().toLowerCase();
-  return [
-    BESTIE_THREAD_STORAGE_PREFIX,
-    relay,
-    scope.ownerPubkey.toLowerCase(),
-    scope.agentPubkey.toLowerCase(),
-  ].join(":");
+  return bestieOwnerStorageKey(BESTIE_THREAD_STORAGE_PREFIX, scope);
 }
 
 export const EMPTY_BESTIE_THREAD_STATE: BestieThreadState = Object.freeze({
@@ -104,30 +102,44 @@ export function parseBestieThreadState(
   return { pendingSummarize, threads, version: 1 };
 }
 
-export function readBestieThreadState(
-  scope: BestieThreadScope,
+function mergeBestieThreadStates(
+  into: BestieThreadState,
+  from: BestieThreadState,
 ): BestieThreadState {
-  try {
-    const raw = window.localStorage.getItem(bestieThreadStorageKey(scope));
-    if (!raw) return emptyBestieThreadState();
-    return parseBestieThreadState(JSON.parse(raw)) ?? emptyBestieThreadState();
-  } catch {
-    return emptyBestieThreadState();
+  const byId = new Map(into.threads.map((thread) => [thread.id, thread]));
+  for (const thread of from.threads) {
+    const existing = byId.get(thread.id);
+    if (
+      !existing ||
+      thread.lastActiveAt >= existing.lastActiveAt ||
+      (thread.lastSummaryAt ?? 0) >= (existing.lastSummaryAt ?? 0)
+    ) {
+      byId.set(thread.id, thread);
+    }
   }
+  return {
+    pendingSummarize: into.pendingSummarize ?? from.pendingSummarize,
+    threads: [...byId.values()],
+    version: 1,
+  };
+}
+
+export function readBestieThreadState(scope: BestieThreadScope): BestieThreadState {
+  return readOwnerScopedState({
+    empty: emptyBestieThreadState,
+    isEmpty: (state) => state.threads.length === 0 && state.pendingSummarize == null,
+    merge: mergeBestieThreadStates,
+    parse: parseBestieThreadState,
+    prefix: BESTIE_THREAD_STORAGE_PREFIX,
+    scope,
+  });
 }
 
 export function writeBestieThreadState(
   scope: BestieThreadScope,
   state: BestieThreadState,
 ): void {
-  try {
-    window.localStorage.setItem(
-      bestieThreadStorageKey(scope),
-      JSON.stringify(state),
-    );
-  } catch {
-    // ignore quota
-  }
+  writeOwnerScopedState(BESTIE_THREAD_STORAGE_PREFIX, scope, state);
 }
 
 export function upsertBestieTrackedThread(

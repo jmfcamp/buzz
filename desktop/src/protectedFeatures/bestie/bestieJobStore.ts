@@ -1,5 +1,7 @@
 import * as React from "react";
 
+import { bestieOwnerScopeKey } from "./bestieOwnerScope";
+
 import {
   addBestieJob,
   EMPTY_BESTIE_JOB_STATE,
@@ -28,11 +30,7 @@ const listenersByKey = new Map<string, Set<Listener>>();
 const stateByKey = new Map<string, BestieJobState>();
 
 function scopeKey(scope: BestieJobScope): string {
-  return [
-    scope.relayUrl.trim().toLowerCase(),
-    scope.ownerPubkey.toLowerCase(),
-    scope.agentPubkey.toLowerCase(),
-  ].join(":");
+  return bestieOwnerScopeKey(scope);
 }
 
 function notify(key: string) {

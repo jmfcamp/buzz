@@ -38,7 +38,7 @@ test("evaluateBestieWake todos-only is check-in (no auto-open reason)", () => {
   state = addBestieListItem(state, { kind: "todo", text: "Only todo" }, 50);
   const result = evaluateBestieWake(state, 100);
   assert.equal(result.nudge?.reason, "check-in");
-  assert.equal(result.nudge?.title, "Bestie check-in");
+  assert.equal(result.nudge?.title, "Assistant check-in");
 });
 
 test("evaluateBestieWake is quiet when lists are empty", () => {

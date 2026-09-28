@@ -14,8 +14,8 @@ import { useBestie } from "./useBestie";
 
 /**
  * Anchored Bestie trigger for the sidebar profile footer.
- * Shows agent avatar + name here; left-nav label stays "Bestie".
- * Opens the Bestie popover chat. Does not navigate away.
+ * Shows agent avatar at bottom; name appears beside it when assigned.
+ * Left-nav label is "Assistant". Opens the Assistant popover chat.
  * Phase 2: proactive wake nudge shows a distinct badge (not a DM unread).
  * Phase 3: due-reminder nudges auto-open the popover with the nudge banner.
  * Unread agent replies (popover + DM closed) show a pulsing light ring.
@@ -44,7 +44,7 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
     setOpen(true);
   }, [agent, nudge]);
 
-  // ⇧⌘B / Ctrl+Shift+B — toggle popover (or go choose a Bestie when unset).
+  // ⇧⌘B / Ctrl+Shift+B — toggle popover (or go choose an Assistant when unset).
   React.useEffect(() => {
     function onShortcut() {
       if (!agent) {
@@ -59,26 +59,39 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
       window.removeEventListener(BESTIE_POPOVER_SHORTCUT_EVENT, onShortcut);
   }, [agent, goAgents]);
 
-  const ariaLabel = agent
-    ? hasNudge
-      ? `Open Bestie chat with ${agent.name} (check-in waiting)`
-      : hasUnread
-        ? `Open Bestie chat with ${agent.name} (new message)`
-        : `Open Bestie chat with ${agent.name}`
-    : "Choose a Bestie";
+  if (!agent) {
+    return (
+      <button
+        aria-label="Assign an Assistant"
+        className={cn(
+          "relative flex max-w-[42%] shrink-0 items-center gap-1.5 rounded-full outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+          className,
+        )}
+        data-testid="bestie-profile-trigger"
+        onClick={(event) => {
+          event.stopPropagation();
+          void goAgents();
+        }}
+        type="button"
+      >
+        <BestieTriggerVisual
+          agent={null}
+          className="h-8 w-8"
+          compact
+          imageDraggable={false}
+        />
+      </button>
+    );
+  }
+
+  const ariaLabel = hasNudge
+    ? `Open Assistant chat with ${agent.name} (check-in waiting)`
+    : hasUnread
+      ? `Open Assistant chat with ${agent.name} (new message)`
+      : `Open Assistant chat with ${agent.name}`;
 
   return (
-    <Popover
-      onOpenChange={(nextOpen) => {
-        if (nextOpen && !agent) {
-          void goAgents();
-          setOpen(false);
-          return;
-        }
-        setOpen(nextOpen);
-      }}
-      open={open}
-    >
+    <Popover onOpenChange={setOpen} open={open}>
       <PopoverTrigger asChild>
         <button
           aria-label={ariaLabel}
@@ -114,38 +127,34 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
               </span>
             ) : null}
           </span>
-          {agent ? (
-            <span
-              className="min-w-0 truncate text-xs font-medium text-sidebar-foreground"
-              data-testid="bestie-profile-agent-name"
-            >
-              {agent.name}
-            </span>
-          ) : null}
+          <span
+            className="min-w-0 truncate text-xs font-medium text-sidebar-foreground"
+            data-testid="bestie-profile-agent-name"
+          >
+            {agent.name}
+          </span>
         </button>
       </PopoverTrigger>
-      {agent ? (
-        <PopoverContent
-          align="end"
-          className="w-80"
-          onClick={(event) => event.stopPropagation()}
-          onOpenAutoFocus={(event) => {
-            const content = event.currentTarget;
-            if (!(content instanceof HTMLElement)) return;
-            const target = content.querySelector(
-              "[data-testid='bestie-composer']",
-            );
-            if (target instanceof HTMLElement) {
-              event.preventDefault();
-              target.focus();
-            }
-          }}
-          side="top"
-          sideOffset={10}
-        >
-          <BestiePopover onRequestClose={() => setOpen(false)} />
-        </PopoverContent>
-      ) : null}
+      <PopoverContent
+        align="end"
+        className="w-80"
+        onClick={(event) => event.stopPropagation()}
+        onOpenAutoFocus={(event) => {
+          const content = event.currentTarget;
+          if (!(content instanceof HTMLElement)) return;
+          const target = content.querySelector(
+            "[data-testid='bestie-composer']",
+          );
+          if (target instanceof HTMLElement) {
+            event.preventDefault();
+            target.focus();
+          }
+        }}
+        side="top"
+        sideOffset={10}
+      >
+        <BestiePopover onRequestClose={() => setOpen(false)} />
+      </PopoverContent>
     </Popover>
   );
 }

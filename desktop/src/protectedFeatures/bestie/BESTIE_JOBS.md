@@ -1,21 +1,20 @@
 # Bestie Jobs protocol (`bestie-job`)
 
-Jobs are scheduled prompts. When due, desktop wakes Bestie and sends the prompt
-as a user turn (not a nudge banner).
+Jobs are scheduled prompts. When due, desktop wakes the Assistant agent and
+sends the prompt as a **top-level Assistant DM user turn** (not a nudge banner,
+not a second channel).
 
-## Parallel session (not the Bestie DM)
+## Busy policy (Queue)
 
-Job fires and due-reminder agent notifies post to a dedicated private stream
-`#bestie-jobs` (lazy-created, Bestie agent as bot member), **not** the Bestie DM.
+Job fires and due-reminder notifies share the Assistant DM session with
+interactive chat. Managed agents set `BUZZ_ACP_MULTIPLE_EVENT_HANDLING=queue`
+and `BUZZ_ACP_DEDUP=queue`, so when the agent is mid-turn (thinking) a due
+notify **queues** and runs as its own top-level turn after the current turn
+finishes — it must not Drop or Steer/interrupt the in-flight turn.
 
-Buzz ACP keys provider sessions per channel; DMs are one Conversation scope with
-a single in-flight turn. Sharing the Bestie DM queue means a job mid-chat is
-dropped (Drop dedup) or steers/interrupts the chat turn (Queue/Steer). A second
-channel gives the same agent a second SessionScope so jobs run in parallel with
-interactive Bestie DM/popover chat — no second OS process, no Kiingo sidecar.
+Do **not** create a parallel `#bestie-jobs` (or any second) channel for this.
 
-Mention `p`-tags include the Bestie agent so Mentions-mode harnesses wake.
-Coffee + thread-summarize stay on the Bestie DM (user-facing chat).
+Coffee + thread-summarize also stay on the Assistant DM as top-level turns.
 
 ## Schedule kinds
 

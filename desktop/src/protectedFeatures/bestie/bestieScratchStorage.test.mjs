@@ -20,10 +20,10 @@ const SCOPE = {
   relayUrl: "wss://Example.COM/relay",
 };
 
-test("storage key is scoped by relay, owner, and agent", () => {
+test("storage key is scoped by relay and owner only (no agent)", () => {
   const key = bestieScratchStorageKey(SCOPE);
   assert.match(key, /^buzz-bestie-scratch\.v1:/);
-  assert.match(key, /a{64}/);
+  assert.doesNotMatch(key, /:a{64}$/);
   assert.match(key, /b{64}/);
 });
 

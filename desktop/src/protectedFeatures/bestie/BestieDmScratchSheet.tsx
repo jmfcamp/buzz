@@ -247,7 +247,7 @@ export function BestieDmScratchSheet({
       ) : (
         <p className="px-0.5 text-xs text-muted-foreground">
           Lightweight personal pad — park a thought, not a wiki. Use + to add,
-          or ask Bestie to{" "}
+          or ask Assistant to{" "}
           <code className="text-2xs">park this: …</code>
           {onRequestAdd ? (
             <>

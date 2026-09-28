@@ -30,6 +30,11 @@ export type BestieListState = {
   version: 1;
 };
 
+/**
+ * Runtime + persistence scope. Persistence keys use owner+relay only so
+ * reminders/todos/jobs/coffee/scratch/threads survive agent reassignment.
+ * `agentPubkey` remains for DM/wake/runtime callers.
+ */
 export type BestieListScope = {
   agentPubkey: string;
   ownerPubkey: string;

@@ -1,4 +1,8 @@
-import { canonicalRelayUrl } from "@/features/agents/managedAgentRuntimeStatus";
+import {
+  bestieOwnerStorageKey,
+  readOwnerScopedState,
+  writeOwnerScopedState,
+} from "./bestieOwnerScope";
 
 import type {
   BestieScratchAddInput,
@@ -13,15 +17,9 @@ export const BESTIE_SCRATCH_STORAGE_PREFIX = "buzz-bestie-scratch.v1";
 /** Cap stored notes so localStorage stays bounded. */
 export const BESTIE_SCRATCH_MAX_NOTES = 40;
 
+/** Owner+relay key — persists across Assistant agent reassignment. */
 export function bestieScratchStorageKey(scope: BestieScratchScope): string {
-  const relay =
-    canonicalRelayUrl(scope.relayUrl) ?? scope.relayUrl.trim().toLowerCase();
-  return [
-    BESTIE_SCRATCH_STORAGE_PREFIX,
-    relay,
-    scope.ownerPubkey.toLowerCase(),
-    scope.agentPubkey.toLowerCase(),
-  ].join(":");
+  return bestieOwnerStorageKey(BESTIE_SCRATCH_STORAGE_PREFIX, scope);
 }
 
 export const EMPTY_BESTIE_SCRATCH_STATE: BestieScratchState = Object.freeze({
@@ -104,30 +102,44 @@ export function parseBestieScratchState(
   return { notes, processedMessageIds, version: 1 };
 }
 
-export function readBestieScratchState(
-  scope: BestieScratchScope,
+function mergeBestieScratchStates(
+  into: BestieScratchState,
+  from: BestieScratchState,
 ): BestieScratchState {
-  try {
-    const raw = window.localStorage.getItem(bestieScratchStorageKey(scope));
-    if (!raw) return emptyBestieScratchState();
-    return parseBestieScratchState(JSON.parse(raw)) ?? emptyBestieScratchState();
-  } catch {
-    return emptyBestieScratchState();
+  const byId = new Map(into.notes.map((note) => [note.id, note]));
+  for (const note of from.notes) {
+    const existing = byId.get(note.id);
+    if (!existing || note.updatedAt >= existing.updatedAt) {
+      byId.set(note.id, note);
+    }
   }
+  const processed = new Set([
+    ...into.processedMessageIds,
+    ...from.processedMessageIds,
+  ]);
+  return {
+    notes: [...byId.values()],
+    processedMessageIds: [...processed].slice(-200),
+    version: 1,
+  };
+}
+
+export function readBestieScratchState(scope: BestieScratchScope): BestieScratchState {
+  return readOwnerScopedState({
+    empty: emptyBestieScratchState,
+    isEmpty: (state) => state.notes.length === 0 && state.processedMessageIds.length === 0,
+    merge: mergeBestieScratchStates,
+    parse: parseBestieScratchState,
+    prefix: BESTIE_SCRATCH_STORAGE_PREFIX,
+    scope,
+  });
 }
 
 export function writeBestieScratchState(
   scope: BestieScratchScope,
   state: BestieScratchState,
 ): void {
-  try {
-    window.localStorage.setItem(
-      bestieScratchStorageKey(scope),
-      JSON.stringify(state),
-    );
-  } catch {
-    // Quota / private mode — callers still hold in-memory state.
-  }
+  writeOwnerScopedState(BESTIE_SCRATCH_STORAGE_PREFIX, scope, state);
 }
 
 export function createBestieScratchNoteId(): string {

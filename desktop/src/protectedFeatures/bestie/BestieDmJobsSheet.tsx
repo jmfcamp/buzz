@@ -139,7 +139,7 @@ function AddJobRow({
             submit();
           }
         }}
-        placeholder="Prompt Bestie should run"
+        placeholder="Prompt Assistant should run"
         value={prompt}
       />
       <div className="flex flex-wrap items-center gap-1.5">
@@ -263,7 +263,7 @@ export function BestieDmJobsSheet({
         />
       ) : (
         <p className="px-0.5 text-xs text-muted-foreground">
-          Use + to add a job, or ask Bestie to schedule one. When due, Bestie
+          Use + to add a job, or ask Assistant to schedule one. When due, Assistant
           runs the prompt as a turn (not just a nudge).{" "}
           {onRequestAdd ? (
             <button

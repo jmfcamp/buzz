@@ -19,7 +19,7 @@ export function BestieMessageAction({
   const bestie = useBestie();
   const [open, setOpen] = React.useState(false);
 
-  // Enroll the thread whenever Ask Bestie opens on a message (start or anytime).
+  // Enroll the thread whenever Ask Assistant opens on a message (start or anytime).
   React.useEffect(() => {
     if (!open || !channelId || !bestie.assignedAgent || !bestie.ownerPubkey) {
       return;
@@ -58,7 +58,7 @@ export function BestieMessageAction({
         <TooltipTrigger asChild>
           <PopoverTrigger asChild>
             <Button
-              aria-label="Ask Bestie about this message"
+              aria-label="Ask Assistant about this message"
               className="h-8 w-8 rounded-full p-0"
               data-testid={`bestie-message-${message.id}`}
               size="sm"
@@ -69,7 +69,7 @@ export function BestieMessageAction({
             </Button>
           </PopoverTrigger>
         </TooltipTrigger>
-        <TooltipContent>Ask Bestie</TooltipContent>
+        <TooltipContent>Ask Assistant</TooltipContent>
       </Tooltip>
       <PopoverContent align="end" className="w-80" side="top" sideOffset={10}>
         <BestiePopover

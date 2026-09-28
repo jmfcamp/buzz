@@ -17,11 +17,15 @@ const SCOPE = {
   relayUrl: "wss://Example.COM/relay",
 };
 
-test("storage key is scoped by relay, owner, and agent", () => {
+test("storage key is scoped by relay and owner only (no agent)", () => {
   const key = bestieListStorageKey(SCOPE);
   assert.match(key, /^buzz-bestie-list\.v1:/);
-  assert.match(key, /a{64}/);
   assert.match(key, /b{64}/);
+  assert.doesNotMatch(key, /:a{64}$/);
+  assert.equal(
+    bestieListStorageKey({ ...SCOPE, agentPubkey: "c".repeat(64) }),
+    key,
+  );
 });
 
 test("parseBestieListState accepts valid payloads only", () => {
@@ -106,4 +110,41 @@ test("addBestieListItem dedupes recent open item even if due differs", () => {
     950,
   );
   assert.equal(again.items.length, 1);
+});
+
+test("migrates legacy agent-scoped list keys into owner scope", () => {
+  const memory = new Map();
+  globalThis.window = {
+    localStorage: {
+      getItem: (key) => memory.get(key) ?? null,
+      key: (index) => [...memory.keys()][index] ?? null,
+      get length() {
+        return memory.size;
+      },
+      removeItem: (key) => {
+        memory.delete(key);
+      },
+      setItem: (key, value) => {
+        memory.set(key, String(value));
+      },
+    },
+  };
+
+  const legacyKey = `${bestieListStorageKey(SCOPE)}:${SCOPE.agentPubkey.toLowerCase()}`;
+  let legacy = emptyBestieListState();
+  legacy = addBestieListItem(legacy, { kind: "todo", text: "Persist me" }, 10);
+  memory.set(legacyKey, JSON.stringify(legacy));
+
+  const loaded = readBestieListState(SCOPE);
+  assert.equal(loaded.items.length, 1);
+  assert.equal(loaded.items[0].text, "Persist me");
+  assert.equal(memory.has(legacyKey), false);
+  assert.ok(memory.has(bestieListStorageKey(SCOPE)));
+
+  // Different agent same owner still sees the data
+  const otherAgent = readBestieListState({
+    ...SCOPE,
+    agentPubkey: "d".repeat(64),
+  });
+  assert.equal(otherAgent.items[0].text, "Persist me");
 });

@@ -2,7 +2,7 @@ import { isMacPlatform } from "@/shared/lib/platform";
 
 export const HUDDLE_SHORTCUT_EVENT = "buzz:huddle-shortcut";
 
-/** Toggle / focus the Bestie footer popover (⇧⌘B / Ctrl+Shift+B). */
+/** Toggle / focus the Assistant footer popover (⇧⌘B / Ctrl+Shift+B). */
 export const BESTIE_POPOVER_SHORTCUT_EVENT = "buzz:bestie-popover-shortcut";
 
 
@@ -101,8 +101,8 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
   },
   {
     id: "toggle-bestie",
-    label: "Bestie",
-    description: "Open or close the Bestie popover chat",
+    label: "Assistant",
+    description: "Open or close the Assistant popover chat",
     keys: "⇧⌘B",
     keysWindows: "Shift+Ctrl+B",
     category: "Navigation",

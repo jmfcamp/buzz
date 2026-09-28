@@ -1,4 +1,8 @@
-import { canonicalRelayUrl } from "@/features/agents/managedAgentRuntimeStatus";
+import {
+  bestieOwnerStorageKey,
+  readOwnerScopedState,
+  writeOwnerScopedState,
+} from "./bestieOwnerScope";
 
 import type {
   BestieListAddInput,
@@ -24,15 +28,9 @@ export function todayLocalDayKey(
 
 export const BESTIE_LIST_STORAGE_PREFIX = "buzz-bestie-list.v1";
 
+/** Owner+relay key — persists across Assistant agent reassignment. */
 export function bestieListStorageKey(scope: BestieListScope): string {
-  const relay =
-    canonicalRelayUrl(scope.relayUrl) ?? scope.relayUrl.trim().toLowerCase();
-  return [
-    BESTIE_LIST_STORAGE_PREFIX,
-    relay,
-    scope.ownerPubkey.toLowerCase(),
-    scope.agentPubkey.toLowerCase(),
-  ].join(":");
+  return bestieOwnerStorageKey(BESTIE_LIST_STORAGE_PREFIX, scope);
 }
 
 function isFiniteNonNegative(value: unknown): value is number {
@@ -122,28 +120,45 @@ export function parseBestieListState(value: unknown): BestieListState | null {
   return { items, processedMessageIds, version: 1 };
 }
 
-export function readBestieListState(scope: BestieListScope): BestieListState {
-  try {
-    const raw = window.localStorage.getItem(bestieListStorageKey(scope));
-    if (!raw) return emptyBestieListState();
-    return parseBestieListState(JSON.parse(raw)) ?? emptyBestieListState();
-  } catch {
-    return emptyBestieListState();
+function mergeBestieListStates(
+  into: BestieListState,
+  from: BestieListState,
+): BestieListState {
+  const byId = new Map(into.items.map((item) => [item.id, item]));
+  for (const item of from.items) {
+    const existing = byId.get(item.id);
+    if (!existing || item.updatedAt >= existing.updatedAt) {
+      byId.set(item.id, item);
+    }
   }
+  const processed = new Set([
+    ...into.processedMessageIds,
+    ...from.processedMessageIds,
+  ]);
+  return {
+    items: [...byId.values()],
+    processedMessageIds: [...processed].slice(-200),
+    version: 1,
+  };
+}
+
+export function readBestieListState(scope: BestieListScope): BestieListState {
+  return readOwnerScopedState({
+    empty: emptyBestieListState,
+    isEmpty: (state) =>
+      state.items.length === 0 && state.processedMessageIds.length === 0,
+    merge: mergeBestieListStates,
+    parse: parseBestieListState,
+    prefix: BESTIE_LIST_STORAGE_PREFIX,
+    scope,
+  });
 }
 
 export function writeBestieListState(
   scope: BestieListScope,
   state: BestieListState,
 ): void {
-  try {
-    window.localStorage.setItem(
-      bestieListStorageKey(scope),
-      JSON.stringify(state),
-    );
-  } catch {
-    // Quota / private mode — callers still hold in-memory state.
-  }
+  writeOwnerScopedState(BESTIE_LIST_STORAGE_PREFIX, scope, state);
 }
 
 export function createBestieListItemId(): string {

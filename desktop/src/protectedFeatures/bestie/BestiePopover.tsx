@@ -117,11 +117,16 @@ export function BestieTriggerVisual({
   }
 
   return (
-    <Plus
-      aria-hidden="true"
-      className={cn(compact ? "h-4 w-4" : "h-5 w-5", className)}
+    <span
+      className={cn(
+        "inline-flex items-center justify-center rounded-full bg-sidebar-accent text-sidebar-foreground",
+        compact ? "h-8 w-8" : "h-10 w-10",
+        className,
+      )}
       data-testid="bestie-empty-mark"
-    />
+    >
+      <Plus aria-hidden="true" className={compact ? "h-4 w-4" : "h-5 w-5"} />
+    </span>
   );
 }
 
@@ -179,9 +184,9 @@ function EmptyBestie() {
         <Plus aria-hidden="true" className="h-5 w-5" />
       </div>
       <div>
-        <h2 className="text-sm font-semibold">Choose a Bestie</h2>
+        <h2 className="text-sm font-semibold">Assign an Assistant</h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          Open one of your local agents and turn on Bestie.
+          Open one of your local agents and turn on Assistant.
         </p>
       </div>
     </div>
@@ -311,7 +316,7 @@ function BestieConversationTranscript({
               agentPubkey={agent.pubkey}
               autoTail={false}
               channelId={channel.id}
-              emptyDescription="Activity will appear here while Bestie works."
+              emptyDescription="Activity will appear here while Assistant works."
               items={activityItems}
               profiles={profiles}
               variant="compactPreview"
@@ -460,7 +465,7 @@ export function BestiePopover({
         if (!cancelled) setConversationChannel(channel);
       })
       .catch((error) => {
-        console.warn("Couldn’t load the Bestie conversation", error);
+        console.warn("Couldn’t load the Assistant conversation", error);
       })
       .finally(() => {
         if (conversationPromiseRef.current === pending) {
@@ -655,7 +660,7 @@ export function BestiePopover({
       toast.error(
         error instanceof Error
           ? error.message
-          : "Couldn’t open Bestie conversation",
+          : "Couldn’t open Assistant conversation",
       );
     });
   }, [
@@ -667,7 +672,7 @@ export function BestiePopover({
   ]);
 
   if (bestie.isLoading) {
-    return <p className="text-sm text-muted-foreground">Loading Bestie…</p>;
+    return <p className="text-sm text-muted-foreground">Loading Assistant…</p>;
   }
   if (!agent) return <EmptyBestie />;
 
@@ -760,7 +765,7 @@ export function BestiePopover({
       if (startError) throw startError;
     })().catch((error) => {
       toast.error(
-        error instanceof Error ? error.message : "Couldn’t message Bestie",
+        error instanceof Error ? error.message : "Couldn’t message Assistant",
       );
     });
   };
@@ -802,7 +807,7 @@ export function BestiePopover({
         </Button>
         <div className="flex shrink-0 items-center gap-1">
           <Button
-            aria-label="Open Bestie thread"
+            aria-label="Open Assistant thread"
             data-testid="bestie-open-thread"
             disabled={bestie.isOpening}
             onClick={openSessionThread}
@@ -813,7 +818,7 @@ export function BestiePopover({
             <SquareArrowOutUpRight />
           </Button>
           <Button
-            aria-label="Close Bestie"
+            aria-label="Close Assistant"
             data-testid="bestie-close"
             onClick={dismissPopover}
             size="icon-xs"
@@ -942,7 +947,7 @@ export function BestiePopover({
           value={draft}
         />
         <Button
-          aria-label="Send in Bestie conversation"
+          aria-label="Send in Assistant conversation"
           className="absolute bottom-2 right-2 rounded-full"
           disabled={!draft.trim() || bestie.isOpening || sendMutation.isPending}
           onClick={sendMessage}

@@ -381,7 +381,7 @@ export function BestieDmCategorySheet({
         />
       ) : (
         <p className="px-0.5 text-xs text-muted-foreground">
-          Use + to add by hand (reminders can set a due time), or ask Bestie in
+          Use + to add by hand (reminders can set a due time), or ask Assistant in
           natural language / with a{" "}
           <code className="text-2xs">bestie-list</code> fence.
           {onRequestAdd ? (

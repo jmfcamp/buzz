@@ -11,8 +11,8 @@ import { useBestie } from "./useBestie";
 export function BestieSidebarEntry() {
   const bestie = useBestie();
   const { goAgents } = useAppNavigation();
-  // Nav label stays product name "Bestie"; agent identity lives in the footer.
-  const label = "Bestie";
+  // Nav label is product name "Assistant"; agent identity lives in the footer.
+  const label = "Assistant";
 
   const handleClick = () => {
     // Same exclusive-surface handoff as pinned websites / primary nav rows:
@@ -27,7 +27,7 @@ export function BestieSidebarEntry() {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Couldn’t open Bestie conversation",
+          : "Couldn’t open Assistant conversation",
       );
     });
   };

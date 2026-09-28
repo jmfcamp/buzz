@@ -88,7 +88,7 @@ export function evaluateBestieWake(
       id,
       itemIds,
       reason: dueFocused ? "due-reminder" : "check-in",
-      title: dueFocused ? "Reminder due" : "Bestie check-in",
+      title: dueFocused ? "Reminder due" : "Assistant check-in",
     },
     shouldWakeAgent: true,
   };

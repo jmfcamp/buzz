@@ -127,7 +127,7 @@ export function BestieDmThreadsSheet({ scope }: { scope: BestieThreadScope }) {
       <div className="space-y-1.5">
         {threads.length === 0 ? (
           <p className="px-0.5 text-xs text-muted-foreground">
-            No tracked threads yet. Use Ask Bestie on a message to enroll one.
+            No tracked threads yet. Use Ask Assistant on a message to enroll one.
           </p>
         ) : (
           threads.map((thread) => (

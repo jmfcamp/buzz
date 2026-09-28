@@ -1,5 +1,7 @@
 import * as React from "react";
 
+import { bestieOwnerScopeKey } from "./bestieOwnerScope";
+
 import {
   beginBestieThreadSummarize,
   clearBestieThreadSummarize,
@@ -22,11 +24,7 @@ const listenersByKey = new Map<string, Set<Listener>>();
 const stateByKey = new Map<string, BestieThreadState>();
 
 function scopeKey(scope: BestieThreadScope): string {
-  return [
-    scope.relayUrl.trim().toLowerCase(),
-    scope.ownerPubkey.toLowerCase(),
-    scope.agentPubkey.toLowerCase(),
-  ].join(":");
+  return bestieOwnerScopeKey(scope);
 }
 
 function notify(key: string) {

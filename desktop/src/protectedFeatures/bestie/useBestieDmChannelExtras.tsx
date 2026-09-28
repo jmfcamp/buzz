@@ -25,7 +25,6 @@ import { Button } from "@/shared/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import type { ChannelScreenProps } from "@/features/channels/ui/ChannelScreen.types";
 import type { IdleAuxiliaryHeaderControls } from "@/features/channels/ui/IdleAuxiliaryPanel";
-import { useFeatureEnabled } from "@/shared/features";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 
 type BestieChannelScreenExtras = Pick<
@@ -56,9 +55,8 @@ export type BestieChannelExtras = BestieChannelScreenExtras & {
 export function useBestieDmChannelExtras(
   activeChannel: Channel | null | undefined,
 ): BestieChannelExtras {
-  const enabled = useFeatureEnabled("bestie");
   const { assignmentQuery, ownerPubkey, relayUrl } =
-    useBestieAssignmentQuery(enabled);
+    useBestieAssignmentQuery(true);
   const [panelOpen, setPanelOpen] = React.useState(true);
   const [activeKind, setActiveKind] = React.useState<BestieRhsKind | null>(
     null,
@@ -67,7 +65,7 @@ export function useBestieDmChannelExtras(
 
   const bestiePubkey = assignmentQuery.data?.agentPubkey ?? null;
   const isBestieDm = React.useMemo(() => {
-    if (!enabled || !activeChannel || !ownerPubkey || !bestiePubkey) {
+    if (!activeChannel || !ownerPubkey || !bestiePubkey) {
       return false;
     }
     const found = findBestieDmChannel(
@@ -76,7 +74,7 @@ export function useBestieDmChannelExtras(
       bestiePubkey,
     );
     return found?.id === activeChannel.id;
-  }, [activeChannel, bestiePubkey, enabled, ownerPubkey]);
+  }, [activeChannel, bestiePubkey, ownerPubkey]);
 
   // Re-open fixed RHS (category list) when navigating into the Bestie DM.
   React.useEffect(() => {
@@ -115,7 +113,7 @@ export function useBestieDmChannelExtras(
 
   const headerToggle = React.useMemo(() => {
     if (!isBestieDm) return null;
-    const label = panelOpen ? "Hide Bestie list" : "Show Bestie list";
+    const label = panelOpen ? "Hide Assistant list" : "Show Assistant list";
     return (
       <Tooltip disableHoverableContent>
         <TooltipTrigger asChild>
@@ -224,7 +222,7 @@ export function useBestieDmChannelExtras(
     React.useMemo<IdleAuxiliaryHeaderControls | null>(() => {
       if (activeKind == null) return null;
       const back = {
-        backLabel: "Back to Bestie list",
+        backLabel: "Back to Assistant list",
         onBack: () => {
           setActiveKind(null);
           setAdding(false);
