@@ -36,6 +36,8 @@ While `/hula-coffee` is actually in flight:
 
 Every `/hula-coffee` outcome becomes a Coffee tab entry when the agent replies **in-thread to the coffee trigger** (success briefs, failures, NCP-disabled messages, other errors). Capture keys off the reply parent event id — never an arbitrary Assistant DM message (so Summarize replies cannot steal or fake a coffee entry).
 
+The Assistant DM **channel window is roots-only**; agent replies are in-thread under the coffee trigger. `BestieWakeController` therefore loads the **thread-replies** subtree for open coffee triggers (and keeps a DM subscription even when the user is elsewhere) so Brew outcomes still land in the Coffee tab.
+
 Abandoned `pendingRun` locks clear (and finalize a failure Coffee entry when a
 trigger was posted) when:
 

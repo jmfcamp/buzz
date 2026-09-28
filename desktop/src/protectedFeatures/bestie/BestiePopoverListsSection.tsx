@@ -177,13 +177,13 @@ export function BestiePopoverListsSection({
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2 px-1">
                 <Button
-                  className="h-7 px-2 text-xs"
+                  className="h-7 gap-1 rounded-full border border-border/50 bg-muted/45 px-2.5 text-xs font-medium text-foreground shadow-none hover:bg-muted/70"
                   data-testid="bestie-popover-lists-back"
                   onClick={() => {
                     setActiveKind(null);
                     setAdding(false);
                   }}
-                  size="sm"
+                  size="xs"
                   type="button"
                   variant="ghost"
                 >

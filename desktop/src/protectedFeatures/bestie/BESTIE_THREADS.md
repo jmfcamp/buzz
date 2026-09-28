@@ -36,6 +36,9 @@ Every summarize reply that parents to the summarize trigger is stored on the
 thread as `lastSummary` / `lastSummaryAt` — success briefs **and** failures /
 errors. Coffee replies cannot steal a pending summarize.
 
+Like Coffee, the channel window is roots-only — summarize outcomes are loaded
+from the **thread-replies** cache for the summarize trigger root.
+
 ## ACL / relay rules (research)
 
 Relay channel access for the **agent’s own** NIP-98 `/query` and WS REQ:

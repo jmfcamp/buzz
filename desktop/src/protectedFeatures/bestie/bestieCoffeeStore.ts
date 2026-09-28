@@ -188,12 +188,37 @@ export function applyBestieCoffeeAgentReply(
   }
 
   // Path C: no pending — capture reply to an unmatched coffee trigger so error
-  // / NCP / brief outcomes still land in the Coffee tab.
+  // / NCP / brief outcomes still land in the Coffee tab. Also upgrade a prior
+  // abandon/timeout entry (replyMessageId null) when the real in-thread reply
+  // finally arrives — channel window is roots-only so capture used to miss it.
   if (parentId && unmatchedCoffeeTriggers?.has(parentId)) {
-    if (current.entries.some((entry) => entry.triggerMessageId === parentId)) {
+    const existing = current.entries.find(
+      (entry) => entry.triggerMessageId === parentId,
+    );
+    if (existing?.replyMessageId) {
       return false;
     }
-    const source = unmatchedCoffeeTriggers.get(parentId) ?? "brew";
+    const source =
+      existing?.source ?? unmatchedCoffeeTriggers.get(parentId) ?? "brew";
+    if (existing && !existing.replyMessageId) {
+      // Replace abandoned timeout row with the real Assistant reply.
+      const without = {
+        ...current,
+        entries: current.entries.filter((entry) => entry.id !== existing.id),
+        pendingRun: null,
+      };
+      commit(
+        scope,
+        completeBestieCoffeeRun(without, {
+          brief: "",
+          fullOutput: trimmed,
+          replyMessageId: messageId,
+          source,
+          triggerMessageId: parentId,
+        }, createdAtSeconds),
+      );
+      return true;
+    }
     completeBestieCoffeeRunForScope(
       scope,
       {

@@ -122,7 +122,7 @@ export function setBestieThreadSummarizeTriggerForScope(
  */
 export function applyBestieThreadSummarizeReply(
   scope: BestieThreadScope,
-  messageId: string,
+  _messageId: string,
   content: string,
   createdAtSeconds: number,
   tags?: readonly (readonly string[])[] | null,
@@ -154,12 +154,26 @@ export function applyBestieThreadSummarizeReply(
   }
 
   // No pending — still fold replies to unmatched summarize prompts onto the row.
+  // Overwrites a prior abandon/timeout lastSummary when the real in-thread reply
+  // arrives (channel window is roots-only; replies live in thread-replies cache).
   if (parentId && unmatchedSummarizeTriggers?.has(parentId)) {
     const threadId = unmatchedSummarizeTriggers.get(parentId);
     if (!threadId) return false;
     const thread = current.threads.find((entry) => entry.id === threadId);
     if (!thread) return false;
-    // Synthesize a one-shot complete for that thread.
+    if (
+      thread.lastSummary &&
+      thread.lastSummary !== BESTIE_THREAD_SUMMARIZE_ABANDONED_OUTPUT
+    ) {
+      // Already have a real summary for this thread from a newer run — skip.
+      // (Abandoned timeout text is replaceable.)
+      if (
+        thread.lastSummaryAt != null &&
+        createdAtSeconds + 5 < thread.lastSummaryAt
+      ) {
+        return false;
+      }
+    }
     const withPending = {
       ...current,
       pendingSummarize: {

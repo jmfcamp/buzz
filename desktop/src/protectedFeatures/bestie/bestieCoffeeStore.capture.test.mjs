@@ -152,3 +152,35 @@ test("load migrates stuck pending older than start grace", () => {
   });
   assert.equal(parsed.pendingRun, null);
 });
+
+test("upgrades abandoned timeout entry when real in-thread reply arrives", () => {
+  memoryWindow();
+  __resetBestieCoffeeStoreForTests();
+  const startedAt = 1_700_000_300;
+  beginBestieCoffeeRunForScope(SCOPE, "brew", startedAt);
+  setBestieCoffeePendingTriggerForScope(SCOPE, "coffee-trigger-upgrade");
+  abandonBestieCoffeePendingForScope(SCOPE, BESTIE_COFFEE_ABANDONED_OUTPUT, startedAt + 90);
+  const abandoned = getBestieCoffeeState(SCOPE);
+  assert.equal(abandoned.pendingRun, null);
+  assert.equal(abandoned.entries.length, 1);
+  assert.equal(abandoned.entries[0].replyMessageId, null);
+  assert.match(abandoned.entries[0].fullOutput, /timed out/);
+
+  const unmatched = new Map([["coffee-trigger-upgrade", "brew"]]);
+  const ok = applyBestieCoffeeAgentReply(
+    SCOPE,
+    "agent-reply-upgrade",
+    "Morning brief: three priorities.",
+    startedAt + 120,
+    [
+      ["e", "coffee-trigger-upgrade", "", "root"],
+      ["e", "coffee-trigger-upgrade", "", "reply"],
+    ],
+    unmatched,
+  );
+  assert.equal(ok, true);
+  const state = getBestieCoffeeState(SCOPE);
+  assert.equal(state.entries.length, 1);
+  assert.equal(state.entries[0].replyMessageId, "agent-reply-upgrade");
+  assert.match(state.entries[0].fullOutput, /Morning brief/);
+});

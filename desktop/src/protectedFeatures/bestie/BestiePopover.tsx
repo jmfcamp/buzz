@@ -190,7 +190,7 @@ function EmptyBestie({ onRequestClose }: { onRequestClose?: () => void }) {
 
   return (
     <div
-      className="flex max-h-[min(32rem,var(--radix-popover-content-available-height,calc(100vh-2rem)))] min-h-0 flex-col gap-3"
+      className="flex max-h-[min(var(--bestie-popover-max-h,45rem),var(--radix-popover-content-available-height,calc(100vh-2rem)))] min-h-0 flex-col gap-3"
       data-testid="bestie-popover-empty"
     >
       <div className="flex shrink-0 items-center gap-2">
@@ -837,7 +837,7 @@ export function BestiePopover({
 
   return (
     <div
-      className="flex max-h-[min(32rem,var(--radix-popover-content-available-height,calc(100vh-2rem)))] min-h-0 flex-col gap-3"
+      className="flex max-h-[min(var(--bestie-popover-max-h,45rem),var(--radix-popover-content-available-height,calc(100vh-2rem)))] min-h-0 flex-col gap-3"
       data-testid="bestie-popover"
     >
       <div className="flex shrink-0 items-start gap-2">

@@ -261,6 +261,7 @@ export function useBestieDmChannelExtras(
       if (activeKind == null) return null;
       const back = {
         backLabel: "Back to Assistant list",
+        backVariant: "chip" as const,
         onBack: () => {
           setActiveKind(null);
           setAdding(false);

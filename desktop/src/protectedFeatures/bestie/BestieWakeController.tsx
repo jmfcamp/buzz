@@ -3,8 +3,11 @@ import * as React from "react";
 import { useChannelsQuery } from "@/features/channels/hooks";
 import {
   useChannelMessagesQuery,
+  useChannelSubscription,
   useSendMessageMutation,
 } from "@/features/messages/hooks";
+import { useThreadRepliesForRoots } from "@/features/messages/useThreadReplies";
+import type { RelayEvent } from "@/shared/api/types";
 import { getAgentWorkingState } from "@/features/agents/agentWorkingSignal";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import { normalizePubkey } from "@/shared/lib/pubkey";
@@ -78,10 +81,13 @@ import {
   clearBestieThreadSummarizeForScope,
   getBestieThreadState,
   setBestieThreadSummarizeTriggerForScope,
+  useBestieThreads,
 } from "./bestieThreadStore";
 import {
+
   isBestieThreadSummarizePendingStale,
   messageLooksLikeBestieSummarizeCompetingTrigger,
+  BESTIE_THREAD_SUMMARIZE_ABANDONED_OUTPUT,
 } from "./bestieThreadSummarizeLive";
 import { useBestie } from "./useBestie";
 
@@ -122,6 +128,9 @@ export function BestieWakeController() {
   );
 
   const messagesQuery = useChannelMessagesQuery(bestieChannel);
+  // Keep Bestie DM live even when the user is elsewhere so Brew /
+  // Summarize in-thread replies hit the thread-replies cache.
+  useChannelSubscription(bestieChannel);
   const sendMutation = useSendMessageMutation(
     bestieChannel,
     identityQuery.data,
@@ -139,6 +148,46 @@ export function BestieWakeController() {
   const listState = useBestieList(listScope);
   const jobState = useBestieJobs(listScope);
   const coffeeState = useBestieCoffee(listScope);
+  const threadCaptureState = useBestieThreads(listScope);
+
+  // Agent Brew / Summarize replies parent to the top-level trigger, so they
+  // live in the thread-replies cache — NOT the roots-only channel window.
+  // Load those subtrees or capture never sees the outcome.
+  const captureReplyRootIds = React.useMemo(() => {
+    const ids: string[] = [];
+    const seen = new Set<string>();
+    const push = (id: string | null | undefined) => {
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      ids.push(id);
+    };
+    push(coffeeState.pendingRun?.triggerMessageId);
+    push(threadCaptureState.pendingSummarize?.triggerMessageId);
+    const ownerNorm = ownerPubkey ? normalizePubkey(ownerPubkey) : null;
+    if (ownerNorm) {
+      for (const event of messagesQuery.data ?? []) {
+        if (typeof event.content !== "string") continue;
+        if (normalizePubkey(event.pubkey) !== ownerNorm) continue;
+        if (messageLooksLikeBestieCoffeeTrigger(event.content)) {
+          push(event.id);
+          continue;
+        }
+        if (event.content.includes(BESTIE_THREAD_SUMMARIZE_MARKER)) {
+          push(event.id);
+        }
+      }
+    }
+    return ids;
+  }, [
+    coffeeState.pendingRun?.triggerMessageId,
+    messagesQuery.data,
+    ownerPubkey,
+    threadCaptureState.pendingSummarize?.triggerMessageId,
+  ]);
+  const captureThreadReplies = useThreadRepliesForRoots(
+    bestieChannel,
+    captureReplyRootIds,
+  );
   const ensureAgentRunningRef = React.useRef(bestie.ensureAgentRunning);
   ensureAgentRunningRef.current = bestie.ensureAgentRunning;
   const sendMutateRef = React.useRef(sendMutation.mutateAsync);
@@ -202,10 +251,13 @@ export function BestieWakeController() {
     const unmatchedSummarizeTriggers = new Map();
     {
       const coffeeState = getBestieCoffeeState(listScope);
+      // Only real captures (with a reply id) count as matched — abandoned
+      // timeout rows keep replyMessageId null so a late reply can upgrade.
       const matchedCoffeeTriggerIds = new Set(
         coffeeState.entries
+          .filter((entry) => entry.replyMessageId)
           .map((entry) => entry.triggerMessageId)
-          .filter((id) => typeof id === "string" && id.length > 0),
+          .filter((id): id is string => typeof id === "string" && id.length > 0),
       );
       const threadState = getBestieThreadState(listScope);
       for (const event of events) {
@@ -237,14 +289,17 @@ export function BestieWakeController() {
             getBestieThreadState(listScope).pendingSummarize?.threadId ??
             null;
           if (!trackingId) continue;
-          // Skip if this thread already summarized after this prompt.
+          // Skip if this thread already has a *real* summary after this prompt.
+          // Abandoned timeout text must stay unmatched so a late in-thread
+          // reply can still upgrade the row.
           const tracked = threadState.threads.find(
             (thread) => thread.id === trackingId,
           );
           if (
             tracked?.lastSummaryAt != null &&
             typeof event.created_at === "number" &&
-            event.created_at + 5 < tracked.lastSummaryAt
+            event.created_at + 5 < tracked.lastSummaryAt &&
+            tracked.lastSummary !== BESTIE_THREAD_SUMMARIZE_ABANDONED_OUTPUT
           ) {
             continue;
           }
@@ -253,8 +308,19 @@ export function BestieWakeController() {
       }
     }
 
+    // Merge in-thread replies under coffee/summarize triggers (roots-only
+    // channel window never includes them).
+    const replyEvents = captureThreadReplies.events ?? [];
+    const eventsForAgentCapture: RelayEvent[] = [];
+    const seenEventIds = new Set<string>();
+    for (const event of [...events, ...replyEvents]) {
+      if (seenEventIds.has(event.id)) continue;
+      seenEventIds.add(event.id);
+      eventsForAgentCapture.push(event);
+    }
+
     const agentCreatedAts = [];
-    for (const event of events) {
+    for (const event of eventsForAgentCapture) {
       if (typeof event.content !== "string" || event.content.length === 0) {
         continue;
       }
@@ -334,7 +400,14 @@ export function BestieWakeController() {
     for (const createdAt of agentCreatedAts) {
       ingestBestieAgentMessageCreatedAt(createdAt);
     }
-  }, [agentPubkey, bestieChannel, listScope, messagesQuery.data, ownerPubkey]);
+  }, [
+    agentPubkey,
+    bestieChannel,
+    captureThreadReplies.events,
+    listScope,
+    messagesQuery.data,
+    ownerPubkey,
+  ]);
 
   const wakeHandlesRef = React.useRef<ReturnType<
     typeof startBestieWakeScheduler

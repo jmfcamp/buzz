@@ -9,6 +9,14 @@ import {
   useBestieHasUnreadMessage,
 } from "./bestieAttentionStore";
 import { useBestieNudge } from "./bestieNudgeStore";
+import {
+  BESTIE_POPOVER_MAX_MAX_HEIGHT_PX,
+  BESTIE_POPOVER_MAX_WIDTH_PX,
+  BESTIE_POPOVER_MIN_MAX_HEIGHT_PX,
+  BESTIE_POPOVER_MIN_WIDTH_PX,
+  setBestiePopoverSize,
+  useBestiePopoverSize,
+} from "./bestiePopoverSizePreference";
 import { useBestie } from "./useBestie";
 
 /**
@@ -19,6 +27,9 @@ import { useBestie } from "./useBestie";
  * Phase 2: proactive wake nudge shows a distinct badge (not a DM unread).
  * Phase 3: due-reminder nudges auto-open the popover with the nudge banner.
  * Unread agent replies (popover + DM closed) show a pulsing light ring.
+ *
+ * Popover is always-on-top (high z-index), drag-resizable (width + height),
+ * with persisted size.
  */
 export function BestieProfileTrigger({ className }: { className?: string }) {
   const bestie = useBestie();
@@ -28,6 +39,14 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
   const hasNudge = Boolean(nudge);
   const hasUnread = useBestieHasUnreadMessage();
   const lastAutoOpenedNudgeIdRef = React.useRef<string | null>(null);
+  const popoverSize = useBestiePopoverSize();
+  const dragRef = React.useRef<{
+    kind: "width" | "height";
+    startX: number;
+    startY: number;
+    startWidth: number;
+    startHeight: number;
+  } | null>(null);
 
   // Keep attention store in sync with popover open state.
   React.useEffect(() => {
@@ -57,6 +76,41 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
     window.addEventListener(BESTIE_POPOVER_SHORTCUT_EVENT, onShortcut);
     return () =>
       window.removeEventListener(BESTIE_POPOVER_SHORTCUT_EVENT, onShortcut);
+  }, []);
+
+  React.useEffect(() => {
+    function onMove(event: PointerEvent) {
+      const drag = dragRef.current;
+      if (!drag) return;
+      if (drag.kind === "width") {
+        // align=end: dragging the left edge leftward grows width.
+        const next = drag.startWidth + (drag.startX - event.clientX);
+        setBestiePopoverSize({
+          widthPx: Math.min(
+            BESTIE_POPOVER_MAX_WIDTH_PX,
+            Math.max(BESTIE_POPOVER_MIN_WIDTH_PX, next),
+          ),
+        });
+        return;
+      }
+      // side=top: dragging the top edge upward grows max height.
+      const next = drag.startHeight + (drag.startY - event.clientY);
+      setBestiePopoverSize({
+        maxHeightPx: Math.min(
+          BESTIE_POPOVER_MAX_MAX_HEIGHT_PX,
+          Math.max(BESTIE_POPOVER_MIN_MAX_HEIGHT_PX, next),
+        ),
+      });
+    }
+    function onUp() {
+      dragRef.current = null;
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
   }, []);
 
   const ariaLabel = !agent
@@ -116,7 +170,7 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
       </PopoverTrigger>
       <PopoverContent
         align="end"
-        className="w-80"
+        className="relative z-[200] w-auto overflow-visible p-4"
         onClick={(event) => event.stopPropagation()}
         onOpenAutoFocus={(event) => {
           const content = event.currentTarget;
@@ -131,7 +185,48 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
         }}
         side="top"
         sideOffset={10}
+        style={
+          {
+            width: popoverSize.widthPx,
+            maxWidth: "min(96vw, 720px)",
+            ["--bestie-popover-max-h" as string]: `${popoverSize.maxHeightPx}px`,
+          } as React.CSSProperties
+        }
       >
+        {/* Width drag — left edge (align end grows leftward). */}
+        <div
+          aria-label="Resize Assistant width"
+          className="absolute bottom-3 left-0 top-3 z-10 w-1.5 cursor-ew-resize rounded-full bg-transparent hover:bg-border/80"
+          data-testid="bestie-popover-resize-width"
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            dragRef.current = {
+              kind: "width",
+              startX: event.clientX,
+              startY: event.clientY,
+              startWidth: popoverSize.widthPx,
+              startHeight: popoverSize.maxHeightPx,
+            };
+          }}
+        />
+        {/* Height drag — top edge (side top grows upward). */}
+        <div
+          aria-label="Resize Assistant height"
+          className="absolute left-3 right-3 top-0 z-10 h-1.5 cursor-ns-resize rounded-full bg-transparent hover:bg-border/80"
+          data-testid="bestie-popover-resize-height"
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            dragRef.current = {
+              kind: "height",
+              startX: event.clientX,
+              startY: event.clientY,
+              startWidth: popoverSize.widthPx,
+              startHeight: popoverSize.maxHeightPx,
+            };
+          }}
+        />
         <BestiePopover onRequestClose={() => setOpen(false)} />
       </PopoverContent>
     </Popover>
