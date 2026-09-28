@@ -269,8 +269,22 @@ export function beginBestieCoffeeRun(
   nowSeconds = Math.floor(Date.now() / 1000),
 ): BestieCoffeeState | null {
   if (state.pendingRun) return null;
+  // Claim the local day *at begin* for scheduled runs so remount / wake /
+  // presence re-ticks cannot re-fire after stale pending is cleared.
+  let lastScheduledDayKey = state.lastScheduledDayKey;
+  if (source === "scheduled") {
+    const today = localDayKey(nowSeconds);
+    if (state.lastScheduledDayKey === today) return null;
+    const hasScheduledToday = state.entries.some(
+      (entry) =>
+        entry.source === "scheduled" && localDayKey(entry.ranAt) === today,
+    );
+    if (hasScheduledToday) return null;
+    lastScheduledDayKey = today;
+  }
   return {
     ...state,
+    lastScheduledDayKey,
     pendingRun: {
       source,
       startedAt: nowSeconds,

@@ -40,7 +40,7 @@ export type BestieCoffeeState = {
    * Prevents WakeController / Path C from rehydrating deleted brews from chat.
    */
   forgottenTriggerIds: string[];
-  /** Local YYYY-MM-DD of the last successful *scheduled* run (not Brew). */
+  /** Local YYYY-MM-DD claimed for the scheduled morning run (set at begin; not Brew). */
   lastScheduledDayKey: string | null;
   pendingRun: BestieCoffeePendingRun | null;
   prefs: BestieCoffeePrefs;

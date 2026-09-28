@@ -214,18 +214,24 @@ export function BestieWakeController() {
   }, []);
 
   const runCoffeeTurn = React.useCallback(
-    async (source: "scheduled" | "brew") => {
+    async (
+      source: "scheduled" | "brew",
+      options?: { alreadyBegun?: boolean },
+    ) => {
       if (!listScope || coffeeSendingRef.current) return;
       coffeeSendingRef.current = true;
       try {
-        // Brew path may have already begun pending; scheduled begins here.
-        if (source === "scheduled") {
+        // Brew begins in the sheet/popover before the brew event. Scheduled
+        // must begin synchronously in onDueCoffee (alreadyBegun) so remount
+        // ticks cannot race the async path.
+        if (source === "scheduled" && !options?.alreadyBegun) {
           const begun = beginBestieCoffeeRunForScope(listScope, "scheduled");
           if (!begun) return;
         }
         await ensureAgentRunningRef.current();
         await sendTopLevel(formatBestieCoffeeRunPrompt());
       } catch {
+        // Keep lastScheduledDayKey — day was claimed; only drop the lock.
         clearBestieCoffeePendingRunForScope(listScope);
       } finally {
         coffeeSendingRef.current = false;
@@ -263,6 +269,34 @@ export function BestieWakeController() {
         coffeeState.forgottenTriggerIds,
       );
       const threadState = getBestieThreadState(listScope);
+      // Prefer the newest owner coffee trigger at/after pending start so an
+      // older leftover /hula-coffee root cannot steal the bind (or capture).
+      {
+        const livePending = getBestieCoffeeState(listScope).pendingRun;
+        if (livePending && !livePending.triggerMessageId) {
+          let bestId: string | null = null;
+          let bestAt = -1;
+          for (const event of events) {
+            if (typeof event.content !== "string" || event.content.length === 0) {
+              continue;
+            }
+            if (normalizePubkey(event.pubkey) !== ownerNorm) continue;
+            if (!messageLooksLikeBestieCoffeeTrigger(event.content)) continue;
+            const createdAt =
+              typeof event.created_at === "number"
+                ? event.created_at
+                : livePending.startedAt;
+            if (createdAt + 5 < livePending.startedAt) continue;
+            if (createdAt >= bestAt) {
+              bestAt = createdAt;
+              bestId = event.id;
+            }
+          }
+          if (bestId) {
+            setBestieCoffeePendingTriggerForScope(listScope, bestId);
+          }
+        }
+      }
       for (const event of events) {
         if (typeof event.content !== "string" || event.content.length === 0) {
           continue;
@@ -270,16 +304,18 @@ export function BestieWakeController() {
         if (normalizePubkey(event.pubkey) !== ownerNorm) continue;
 
         if (messageLooksLikeBestieCoffeeTrigger(event.content)) {
-          const livePending = getBestieCoffeeState(listScope).pendingRun;
-          if (livePending && !livePending.triggerMessageId) {
-            setBestieCoffeePendingTriggerForScope(listScope, event.id);
-          }
           if (
             !matchedCoffeeTriggerIds.has(event.id) &&
             !forgottenCoffeeTriggerIds.has(event.id)
           ) {
+            const pendingNow = getBestieCoffeeState(listScope).pendingRun;
+            const entrySource = coffeeState.entries.find(
+              (entry) => entry.triggerMessageId === event.id,
+            )?.source;
             const source =
-              getBestieCoffeeState(listScope).pendingRun?.source ?? "brew";
+              entrySource ??
+              pendingNow?.source ??
+              (coffeeState.lastScheduledDayKey != null ? "scheduled" : "brew");
             unmatchedCoffeeTriggers.set(event.id, source);
           }
           continue;
@@ -503,7 +539,11 @@ export function BestieWakeController() {
         isBestieAgentOnlineForCoffee(presenceRef.current),
       intervalMs: BESTIE_WAKE_INTERVAL_MS,
       onDueCoffee: () => {
-        void runCoffeeTurn("scheduled");
+        // Claim day + pending *before* any await so wake/remount re-ticks
+        // cannot pass the schedule gate a second time.
+        const begun = beginBestieCoffeeRunForScope(listScope, "scheduled");
+        if (!begun) return;
+        void runCoffeeTurn("scheduled", { alreadyBegun: true });
       },
     });
     coffeeHandlesRef.current = handles;

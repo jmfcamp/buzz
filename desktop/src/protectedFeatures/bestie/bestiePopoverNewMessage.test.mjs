@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  isBestiePopoverSystemNoise,
   previewBestiePopoverMessageBody,
   resolveBestiePopoverNewMessageQueue,
   resolveBestiePopoverNewMessageTarget,
@@ -68,6 +69,7 @@ test("queue one entry per outside-session thread, newest first", () => {
       { id: "in", createdAt: 40, body: "in session" },
     ],
     sessionMessageIds: new Set(["in"]),
+    sessionRootId: "in",
     nearBottom: true,
   });
   assert.deepEqual(
@@ -86,7 +88,8 @@ test("dismissed message ids skip that entry until a newer one arrives", () => {
       { id: "t1-new", createdAt: 30, body: "new", rootId: "t1" },
       { id: "t2", createdAt: 20, body: "other", rootId: "t2" },
     ],
-    sessionMessageIds: new Set(),
+    sessionMessageIds: new Set(["session"]),
+    sessionRootId: "session",
     nearBottom: true,
     dismissedMessageIds: new Set(["t1-new"]),
   });
@@ -101,8 +104,10 @@ test("dismissed message ids skip that entry until a newer one arrives", () => {
     allMessages: [
       { id: "t1-old", createdAt: 10, body: "old", rootId: "t1" },
       { id: "t1-new", createdAt: 30, body: "new", rootId: "t1" },
+      { id: "session", createdAt: 5, body: "in" },
     ],
-    sessionMessageIds: new Set(),
+    sessionMessageIds: new Set(["session"]),
+    sessionRootId: "session",
     nearBottom: true,
     dismissedMessageIds: new Set(["t1-old"]),
   });
@@ -112,12 +117,82 @@ test("dismissed message ids skip that entry until a newer one arrives", () => {
   );
 });
 
+test("dismissed thread root stays clear", () => {
+  const queue = resolveBestiePopoverNewMessageQueue({
+    allMessages: [
+      { id: "t1-new", createdAt: 30, body: "new", rootId: "t1" },
+      { id: "session", createdAt: 5, body: "in" },
+    ],
+    sessionMessageIds: new Set(["session"]),
+    sessionRootId: "session",
+    nearBottom: true,
+    dismissedThreadRootIds: new Set(["t1"]),
+  });
+  assert.deepEqual(queue.map((item) => item.id), []);
+});
+
+test("baseline and pre-session messages are not new", () => {
+  const queue = resolveBestiePopoverNewMessageQueue({
+    allMessages: [
+      { id: "old", createdAt: 5, body: "history" },
+      { id: "base", createdAt: 8, body: "baseline" },
+      { id: "fresh", createdAt: 20, body: "job reply" },
+      { id: "session", createdAt: 10, body: "hi" },
+    ],
+    sessionMessageIds: new Set(["session"]),
+    sessionRootId: "session",
+    nearBottom: true,
+    baselineMessageIds: new Set(["base", "old"]),
+    minCreatedAt: 10,
+  });
+  assert.deepEqual(
+    queue.map((item) => item.id),
+    ["fresh"],
+  );
+});
+
+test("no active session does not flood with history", () => {
+  const queue = resolveBestiePopoverNewMessageQueue({
+    allMessages: [
+      { id: "a", createdAt: 1, body: "old1" },
+      { id: "b", createdAt: 2, body: "old2" },
+    ],
+    sessionMessageIds: new Set(),
+    nearBottom: true,
+  });
+  assert.deepEqual(queue, []);
+});
+
+test("Bestie system noise is skipped", () => {
+  assert.equal(isBestiePopoverSystemNoise("[Bestie coffee]\n\n/hula-coffee"), true);
+  assert.equal(isBestiePopoverSystemNoise("[Bestie job: x]\n\nprompt"), true);
+  assert.equal(isBestiePopoverSystemNoise("[Bestie reminder]\n\ndue"), true);
+  assert.equal(isBestiePopoverSystemNoise("normal agent reply"), false);
+
+  const queue = resolveBestiePopoverNewMessageQueue({
+    allMessages: [
+      { id: "coffee", createdAt: 30, body: "[Bestie coffee]\n\n/hula-coffee" },
+      { id: "real", createdAt: 20, body: "hey look at this" },
+      { id: "session", createdAt: 5, body: "in" },
+    ],
+    sessionMessageIds: new Set(["session"]),
+    sessionRootId: "session",
+    nearBottom: true,
+  });
+  assert.deepEqual(
+    queue.map((item) => item.id),
+    ["real"],
+  );
+});
+
 test("parentId falls back as thread root", () => {
   const target = resolveBestiePopoverNewMessageTarget({
     allMessages: [
       { id: "reply", createdAt: 5, body: "reply body", parentId: "root-1" },
+      { id: "session", createdAt: 1, body: "in" },
     ],
-    sessionMessageIds: new Set(),
+    sessionMessageIds: new Set(["session"]),
+    sessionRootId: "session",
     nearBottom: true,
   });
   assert.equal(target?.threadRootId, "root-1");

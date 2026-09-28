@@ -84,9 +84,14 @@ import { messageLooksLikeBestieScratchRequest } from "./parseBestieUserScratchIn
 import { BestieNewMessageBanner } from "./BestieNewMessageBanner";
 import { BestieNudgeBanner } from "./BestieNudgeBanner";
 import {
+  bestiePopoverNewMessageAckIds,
   resolveBestiePopoverNewMessageQueue,
   type BestiePopoverNewMessageTarget,
 } from "./bestiePopoverNewMessage";
+import {
+  ackBestiePopoverNewMessages,
+  useBestiePopoverNewMessageDismissed,
+} from "./bestiePopoverNewMessageDismissed";
 import { requestBestieRhsOpen } from "./bestieRhsOpenRequest";
 import { BestiePopoverListsSection } from "./BestiePopoverListsSection";
 import { useBestie } from "./useBestie";
@@ -649,21 +654,25 @@ export function BestiePopover({
     setTranscriptNearBottom(near);
   }, []);
   const scrollToLatestRef = React.useRef<(() => void) | null>(null);
-  const [dismissedNewMessageIds, setDismissedNewMessageIds] = React.useState(
-    () => new Set<string>(),
-  );
+  const dismissedNewMessages = useBestiePopoverNewMessageDismissed();
   const newMessageQueue = React.useMemo(
     () =>
       resolveBestiePopoverNewMessageQueue({
         allMessages: allConversationMessages,
-        dismissedMessageIds: dismissedNewMessageIds,
+        baselineMessageIds: sessionBoundary?.baselineMessageIds,
+        dismissedMessageIds: dismissedNewMessages.messageIds,
+        dismissedThreadRootIds: dismissedNewMessages.threadRootIds,
+        minCreatedAt: sessionBoundary?.firstMessageCreatedAt ?? null,
         nearBottom: transcriptNearBottom,
         sessionMessageIds,
         sessionRootId: sessionBoundary?.sessionRootId,
       }),
     [
       allConversationMessages,
-      dismissedNewMessageIds,
+      dismissedNewMessages.messageIds,
+      dismissedNewMessages.threadRootIds,
+      sessionBoundary?.baselineMessageIds,
+      sessionBoundary?.firstMessageCreatedAt,
       sessionBoundary?.sessionRootId,
       sessionMessageIds,
       transcriptNearBottom,
@@ -672,14 +681,22 @@ export function BestiePopover({
   const newMessageTarget = newMessageQueue[0] ?? null;
   const dismissNewMessage = React.useCallback(
     (target: BestiePopoverNewMessageTarget) => {
-      setDismissedNewMessageIds((prev) => {
-        const next = new Set(prev);
-        next.add(target.id);
-        return next;
+      const ack = bestiePopoverNewMessageAckIds(target);
+      ackBestiePopoverNewMessages({
+        messageIds: [ack.messageId],
+        threadRootIds: [ack.threadRootId],
       });
     },
     [],
   );
+  // Messages already scrolled into view (near bottom) stay out of the queue.
+  React.useEffect(() => {
+    if (!transcriptNearBottom) return;
+    if (sessionMessageIds.size === 0) return;
+    ackBestiePopoverNewMessages({
+      messageIds: [...sessionMessageIds],
+    });
+  }, [sessionMessageIds, transcriptNearBottom]);
   const jumpToNewMessage = React.useCallback(
     (target: BestiePopoverNewMessageTarget) => {
       dismissNewMessage(target);

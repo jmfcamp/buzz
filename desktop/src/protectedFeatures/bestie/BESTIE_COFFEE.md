@@ -18,7 +18,9 @@ RHS category that stores `/hula-coffee` briefing runs.
 - Default **08:00 local** (`Date#setHours` — America/Phoenix on JM’s machine).
 - Prefs on `BestieCoffeeState.prefs` `{ hour, minute }` for a later settings UI.
 - Fires only when relay presence is **`online`** (not away/offline).
-- At most one **scheduled** run per local calendar day.
+- At most one **scheduled** run per local calendar day — day is **claimed at begin** (not only on reply) so remount/reload/wake cannot re-fire.
+- Mutex: `pendingRun` + in-flight send lock; Brew shares the brewing lock.
+- Do **not** also run macOS `com.hula.coffee-slack` / `/hula-coffee --install` launchd — that was a second 08:00 path sharing `~/.hula-coffee` cache with Assistant.
 - Brew is manual, shares the brewing lock, and can run any time (unless a coffee turn is live).
 
 ## Brewing UI (live ACP turn)

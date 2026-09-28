@@ -45,6 +45,7 @@ test("brief+expand storage: complete appends entry and clears pending", () => {
   const begun = beginBestieCoffeeRun(state, "scheduled", 1_000);
   assert.ok(begun);
   assert.equal(isBestieCoffeeBrewing(begun), true);
+  assert.equal(begun.lastScheduledDayKey, localDayKey(1_000));
   assert.equal(beginBestieCoffeeRun(begun, "brew", 1_001), null);
 
   state = completeBestieCoffeeRun(
@@ -61,6 +62,21 @@ test("brief+expand storage: complete appends entry and clears pending", () => {
   assert.equal(state.entries[0].brief, "Morning looks calm.");
   assert.match(state.entries[0].fullOutput, /Details below/);
   assert.equal(state.lastScheduledDayKey, localDayKey(1_100));
+});
+
+test("scheduled begin claims the day so remount cannot re-fire", () => {
+  const now = Math.floor(new Date(2026, 8, 28, 8, 5, 0).getTime() / 1000);
+  let state = emptyBestieCoffeeState();
+  const begun = beginBestieCoffeeRun(state, "scheduled", now);
+  assert.ok(begun);
+  assert.equal(begun.lastScheduledDayKey, localDayKey(now));
+  // Simulate stale-pending clear on reload (pending dropped, day kept).
+  state = { ...begun, pendingRun: null };
+  assert.equal(beginBestieCoffeeRun(state, "scheduled", now + 60), null);
+  // Brew still allowed when not brewing.
+  const brew = beginBestieCoffeeRun(state, "brew", now + 60);
+  assert.ok(brew);
+  assert.equal(brew.lastScheduledDayKey, localDayKey(now));
 });
 
 test("remove coffee entry remembers trigger and writes owner key durably", () => {
