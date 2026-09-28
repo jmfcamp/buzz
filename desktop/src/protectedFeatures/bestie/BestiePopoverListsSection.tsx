@@ -168,8 +168,11 @@ export function BestiePopoverListsSection({
       {!listsCollapsed ? (
         <div
           className={cn(
-            "min-h-0 overflow-y-auto pt-1",
-            fillAvailable ? "flex-1" : "max-h-56",
+            // Category rows always fit — hide overflow so pb/padding never shows
+            // a phantom scrollbar. Drill-in sheets may need to scroll.
+            "min-h-0 pt-1",
+            activeKind != null ? "overflow-y-auto" : "overflow-hidden",
+            fillAvailable ? "flex-1" : activeKind != null ? "max-h-56" : null,
           )}
           data-testid="bestie-popover-lists-body"
           id="bestie-popover-lists-body"
@@ -214,6 +217,7 @@ export function BestiePopoverListsSection({
             <BestieDmRhsPanel
               activeKind={activeKind}
               coffeeLive={Boolean(brewEnabled && coffeeLive)}
+              compact
               onOpenKind={openKind}
               scope={scope}
               summarizeLive={Boolean(brewEnabled && summarizeLive)}

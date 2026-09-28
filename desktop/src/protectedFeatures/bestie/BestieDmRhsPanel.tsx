@@ -328,6 +328,7 @@ function AddRow({
 export function BestieDmRhsPanel({
   activeKind = null,
   coffeeLive = false,
+  compact = false,
   onOpenKind,
   scope,
   summarizeLive = false,
@@ -335,6 +336,11 @@ export function BestieDmRhsPanel({
   activeKind?: BestieRhsKind | null;
   /** True while /hula-coffee ACP turn is live — show 🤔… on the Coffee row. */
   coffeeLive?: boolean;
+  /**
+   * Popover Lists: drop the DM RHS bottom padding that otherwise forces a
+   * phantom scrollbar when every category row already fits.
+   */
+  compact?: boolean;
   onOpenKind: (kind: BestieRhsKind) => void;
   scope: BestieListScope;
   /** True while thread summarize ACP turn is live — show 🤔… on Threads. */
@@ -359,7 +365,10 @@ export function BestieDmRhsPanel({
   const scratchCount = scratchState.notes.length;
 
   return (
-    <div className="space-y-1 px-2 pb-8 pt-3" data-testid="bestie-dm-rhs-panel">
+    <div
+      className={cn("space-y-1 px-2 pt-3", compact ? "pb-1" : "pb-8")}
+      data-testid="bestie-dm-rhs-panel"
+    >
       <CategoryNavButton
         count={presentBestieContextCount(openReminders)}
         dueAt={remindersSoonestDueAt}

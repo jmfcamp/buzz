@@ -37,8 +37,9 @@ import { useBestie } from "./useBestie";
  * Popover is always-on-top of the React chrome (high z-index) so it stacks
  * above the app UI. Pinned / playground WKWebViews stay mounted and visible
  * underneath while idle — do not park on open. During edge drag we briefly
- * park natives + setPointerCapture so width/height keep tracking over
- * WKWebViews (window pointermove alone is eaten by native views).
+ * park natives and drive size from window pointermove/up (handle-only move
+ * is eaten once the pointer crosses WKWebViews). Width handle stays inset
+ * so the initial grab is on the React surface, not the native edge zone.
  * Drag-resizable (width + height) with persisted size and min/max clamps.
  * Height is explicit (empty chat space OK). Min height keeps the message
  * area visible; when Lists are open, min also includes Lists/reminders.
@@ -79,7 +80,7 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
     return () => setBestiePopoverOpen(false);
   }, [open]);
 
-  // Migrate / re-clamp persisted height to 90% viewport + gutter when open
+  // Migrate / re-clamp persisted height to 85% viewport + gutter when open
   // (and when the window resizes) so oversized stores can be dragged smaller.
   React.useEffect(() => {
     if (!open) return;
@@ -116,8 +117,21 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
       window.removeEventListener(BESTIE_POPOVER_SHORTCUT_EVENT, onShortcut);
   }, []);
 
+  const dragListenersRef = React.useRef<{
+    move: (event: PointerEvent) => void;
+    up: (event: PointerEvent) => void;
+    target: Element | null;
+  } | null>(null);
+
   const endDrag = React.useCallback((target?: Element | null) => {
     const drag = dragRef.current;
+    const listeners = dragListenersRef.current;
+    dragListenersRef.current = null;
+    if (listeners) {
+      window.removeEventListener("pointermove", listeners.move);
+      window.removeEventListener("pointerup", listeners.up);
+      target = target ?? listeners.target;
+    }
     if (!drag) return;
     dragRef.current = null;
     setIsResizing(false);
@@ -140,7 +154,7 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
     document.body.style.userSelect = "";
   }, []);
 
-  const applyDrag = React.useCallback((event: React.PointerEvent | PointerEvent) => {
+  const applyDrag = React.useCallback((event: PointerEvent) => {
     const drag = dragRef.current;
     if (!drag) return;
     if (drag.kind === "width") {
@@ -176,13 +190,16 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
     ) => {
       event.preventDefault();
       event.stopPropagation();
+      // End any prior gesture before starting a new one.
+      endDrag(event.currentTarget);
       // Park natives only for the gesture so pinned sites stay visible while
       // idle, but pointer tracking is not eaten by WKWebViews mid-drag.
       acquireNativeWebviewModalPark();
+      const target = event.currentTarget;
       try {
-        event.currentTarget.setPointerCapture(event.pointerId);
+        target.setPointerCapture(event.pointerId);
       } catch {
-        // capture unsupported — park alone still helps over natives
+        // capture unsupported — window listeners + park still help
       }
       document.body.style.cursor = kind === "width" ? "ew-resize" : "ns-resize";
       document.body.style.userSelect = "none";
@@ -197,8 +214,29 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
         parked: true,
       };
       setIsResizing(true);
+
+      const onMove = (moveEvent: PointerEvent) => {
+        if (moveEvent.pointerId !== event.pointerId) return;
+        // If the OS dropped the gesture without pointerup (native steal), stop.
+        if (moveEvent.buttons === 0) {
+          endDrag(target);
+          return;
+        }
+        applyDrag(moveEvent);
+      };
+      const onUp = (upEvent: PointerEvent) => {
+        if (upEvent.pointerId !== event.pointerId) return;
+        endDrag(target);
+      };
+      dragListenersRef.current = { move: onMove, up: onUp, target };
+      // Window listeners keep tracking after the pointer leaves the handle
+      // (and after setPointerCapture is lost when natives steal the gesture).
+      // Do NOT end on pointercancel — parking WKWebViews can synthesize cancel
+      // and would abort width drag immediately.
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
     },
-    [heightPx, minHeightPx, popoverSize.widthPx],
+    [applyDrag, endDrag, heightPx, minHeightPx, popoverSize.widthPx],
   );
 
   // Safety: if the popover closes mid-drag, release park/capture.
@@ -298,14 +336,14 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
         style={
           {
             // Keep a real viewport gutter even when Radix reports the full
-            // available client height/width. Without this, the top/left drag
-            // handles can land in the native window-resize edge zone.
+            // available client height/width. 6rem matches
+            // BESTIE_POPOVER_VIEWPORT_GUTTER_PX so short displays never fill.
             width: `min(${popoverSize.widthPx}px, calc(100vw - 2rem))`,
-            height: `min(${heightPx}px, calc(100vh - 2rem))`,
+            height: `min(${heightPx}px, calc(100vh - 6rem))`,
             minWidth: `min(${BESTIE_POPOVER_MIN_WIDTH_PX}px, calc(100vw - 2rem))`,
             maxWidth: `min(${BESTIE_POPOVER_MAX_WIDTH_PX}px, calc(100vw - 2rem))`,
-            minHeight: `min(${minHeightPx}px, calc(100vh - 2rem))`,
-            maxHeight: `min(${viewportMaxHeightPx}px, ${BESTIE_POPOVER_MAX_MAX_HEIGHT_PX}px, var(--radix-popover-content-available-height, calc(100vh - 2rem)), calc(100vh - 2rem))`,
+            minHeight: `min(${minHeightPx}px, calc(100vh - 6rem))`,
+            maxHeight: `min(${viewportMaxHeightPx}px, ${BESTIE_POPOVER_MAX_MAX_HEIGHT_PX}px, var(--radix-popover-content-available-height, calc(100vh - 6rem)), calc(100vh - 6rem))`,
             ["--bestie-popover-max-h" as string]: `${heightPx}px`,
           } as React.CSSProperties
         }
@@ -314,26 +352,21 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
           <BestiePopover onRequestClose={() => setOpen(false)} />
         </div>
         {/* Resize handles AFTER content so they stay above chat/Lists hit
-            targets. setPointerCapture on the handle + brief native park so
-            width drag keeps tracking when the pointer crosses WKWebViews.
+            targets. Width handle is inset (left-0) so the grab starts on the
+            React surface; window pointermove + brief native park keep tracking
+            after the pointer crosses WKWebViews.
             w-auto + max-w-none override PopoverContent's default w-72. */}
         <div
           aria-label="Resize Assistant width"
-          className="absolute -left-1 bottom-2 top-2 z-30 w-3 cursor-ew-resize touch-none rounded-full bg-transparent hover:bg-border/80"
+          className="absolute bottom-2 left-0 top-2 z-30 w-3 cursor-ew-resize touch-none rounded-full bg-transparent hover:bg-border/80"
           data-testid="bestie-popover-resize-width"
-          onPointerCancel={(event) => endDrag(event.currentTarget)}
           onPointerDown={(event) => startDrag(event, "width")}
-          onPointerMove={applyDrag}
-          onPointerUp={(event) => endDrag(event.currentTarget)}
         />
         <div
           aria-label="Resize Assistant height"
-          className="absolute -top-1 left-2 right-2 z-30 h-3 cursor-ns-resize touch-none rounded-full bg-transparent hover:bg-border/80"
+          className="absolute left-2 right-2 top-0 z-30 h-3 cursor-ns-resize touch-none rounded-full bg-transparent hover:bg-border/80"
           data-testid="bestie-popover-resize-height"
-          onPointerCancel={(event) => endDrag(event.currentTarget)}
           onPointerDown={(event) => startDrag(event, "height")}
-          onPointerMove={applyDrag}
-          onPointerUp={(event) => endDrag(event.currentTarget)}
         />
       </PopoverContent>
     </Popover>

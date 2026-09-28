@@ -75,18 +75,25 @@ test("setBestiePopoverSize respects Lists-open minHeightPx option", () => {
   assert.equal(next.maxHeightPx, BESTIE_POPOVER_MIN_HEIGHT_WITH_LISTS_PX);
 });
 
-test("viewport max is 90% vh and gutter, under hard cap", () => {
-  assert.equal(bestiePopoverViewportMaxHeightPx(1000), 900);
+test("viewport max is 85% vh and stronger gutter, under hard cap", () => {
+  assert.equal(BESTIE_POPOVER_VIEWPORT_GUTTER_PX, 96);
+  assert.equal(BESTIE_POPOVER_VIEWPORT_HEIGHT_RATIO, 0.85);
+  assert.equal(bestiePopoverViewportMaxHeightPx(1000), 850);
   assert.equal(
     bestiePopoverViewportMaxHeightPx(1000),
     Math.floor(1000 * BESTIE_POPOVER_VIEWPORT_HEIGHT_RATIO),
   );
-  // Gutter wins when tighter than 90%.
+  // Gutter wins when tighter than 85% (short laptop heights).
   const short = BESTIE_POPOVER_VIEWPORT_GUTTER_PX + 50;
   assert.equal(
     bestiePopoverViewportMaxHeightPx(short),
     Math.floor(short - BESTIE_POPOVER_VIEWPORT_GUTTER_PX),
   );
+  // On a 800px viewport, gutter (704) beats 85% (680)? No — 85% is tighter.
+  assert.equal(bestiePopoverViewportMaxHeightPx(800), 680);
+  // Gutter beats ratio when vh is small enough that vh-gutter < 85% vh.
+  // vh - 96 < 0.85*vh  =>  0.15*vh < 96  => vh < 640
+  assert.equal(bestiePopoverViewportMaxHeightPx(600), 504);
   // Hard cap still applies on huge viewports.
   assert.equal(
     bestiePopoverViewportMaxHeightPx(5000),
@@ -94,14 +101,14 @@ test("viewport max is 90% vh and gutter, under hard cap", () => {
   );
 });
 
-test("setBestiePopoverSize clamps to 90% viewport and persists", () => {
+test("setBestiePopoverSize clamps to 85% viewport and persists", () => {
   const memory = memoryWindow(1000);
   __resetBestiePopoverSizeForTests();
   const next = setBestiePopoverSize(
     { maxHeightPx: 9999 },
     { viewportHeightPx: 1000 },
   );
-  assert.equal(next.maxHeightPx, 900);
+  assert.equal(next.maxHeightPx, 850);
   const stored = JSON.parse(memory.get(BESTIE_POPOVER_SIZE_STORAGE_KEY));
-  assert.equal(stored.maxHeightPx, 900);
+  assert.equal(stored.maxHeightPx, 850);
 });

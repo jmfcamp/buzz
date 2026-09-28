@@ -33,9 +33,12 @@ export const BESTIE_POPOVER_MIN_HEIGHT_WITH_LISTS_PX = 520;
 export const BESTIE_POPOVER_MIN_MAX_HEIGHT_PX = BESTIE_POPOVER_MIN_HEIGHT_CHAT_PX;
 export const BESTIE_POPOVER_MAX_MAX_HEIGHT_PX = 960;
 /** Cap persisted/dragged height to this fraction of the viewport. */
-export const BESTIE_POPOVER_VIEWPORT_HEIGHT_RATIO = 0.9;
-/** Match CSS `calc(100vh - 2rem)` gutter so drag handles stay off the window edge. */
-export const BESTIE_POPOVER_VIEWPORT_GUTTER_PX = 32;
+export const BESTIE_POPOVER_VIEWPORT_HEIGHT_RATIO = 0.85;
+/**
+ * Viewport gutter (px) reserved above/below the popover so it never fills the
+ * screen on short displays. Match CSS `calc(100vh - 6rem)`.
+ */
+export const BESTIE_POPOVER_VIEWPORT_GUTTER_PX = 96;
 
 export type BestiePopoverSize = {
   maxHeightPx: number;
@@ -62,7 +65,7 @@ export function bestiePopoverMinHeightPx(listsCollapsed: boolean): number {
 }
 
 /**
- * Absolute max height for the current viewport: min(hard cap, 90% vh, vh − gutter).
+ * Absolute max height for the current viewport: min(hard cap, 85% vh, vh − gutter).
  * Falls back to the hard cap when no viewport size is available (SSR / tests).
  */
 export function bestiePopoverViewportMaxHeightPx(
@@ -114,7 +117,7 @@ function readStoredSize(): BestiePopoverSize {
     const parsed = JSON.parse(raw) as StoredSize;
     const next = normalizeSize(parsed);
     // Migrate oversized persisted heights (e.g. full-viewport / 960) down to
-    // the current 90% viewport + gutter ceiling so drag can shrink from there.
+    // the current 85% viewport + gutter ceiling so drag can shrink from there.
     if (
       typeof parsed.maxHeightPx === "number" &&
       parsed.maxHeightPx !== next.maxHeightPx
