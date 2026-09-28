@@ -32,7 +32,7 @@ If the user did not give a due time for a reminder, omit dueAt (or set null). Co
 
 The desktop may already apply the user's natural-language add before your reply. Prefer acknowledging without a second add when the list already shows the item. If you still emit add, use the same text; the client dedupes identical open items.
 
-For scheduled *jobs* (auto-run a prompt later), use a fenced bestie-job block — see Bestie job instructions.`;
+For scheduled *jobs* (auto-run a prompt later), follow the Bestie job confirmation protocol (clarify → exact plan → user approve → fenced bestie-job add with confirmed:true). Do not treat jobs like instant reminders.`;
 
 /** Compact turn hint appended to Bestie user messages that look like list intents. */
 export function bestieListTurnHint(): string {

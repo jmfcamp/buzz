@@ -3,10 +3,19 @@ import type { BestieJobAddInput, BestieJobSchedule } from "./bestieJobTypes";
 
 /**
  * Natural-language job intents from the user in Bestie DM / popover.
- * Conservative shapes only.
+ *
+ * Casual "schedule a job…" is a *request* (clarify + confirm) — it must NOT
+ * auto-create. Only cancel/disable/remove match intents mutate storage from NL.
+ * Create happens via confirmed `bestie-job` fence after the user approves an
+ * exact plan (or via RHS form-complete add).
  */
 export type BestieUserJobIntent =
-  | { job: BestieJobAddInput; op: "add" }
+  | {
+      /** Parsed shape for teach/debug; client does not create from this. */
+      job: BestieJobAddInput;
+      op: "schedule-request";
+    }
+  | { op: "approve-intent" }
   | { op: "disable-match"; title: string }
   | { op: "remove-match"; title: string };
 
@@ -16,6 +25,9 @@ const ADD_EVERY_RE =
   /^(?:please\s+)?(?:every\s+(\d+)\s*(minutes?|mins?|m|hours?|hrs?|h)|daily\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)\s*[,:]?\s*(?:run\s+)?(?:a\s+job\s+)?(?:to\s+|:\s*)?(.+)$/i;
 const CANCEL_RE =
   /^(?:please\s+)?(?:cancel|stop|disable|remove|delete)\s+(?:the\s+)?job\s+(?:called\s+|named\s+)?["']?(.+?)["']?\.?$/i;
+/** Explicit approve of a job plan the Assistant just presented — turn-hint only. */
+const APPROVE_RE =
+  /^(?:please\s+)?(?:yes[,.]?\s+)?(?:approve(?:\s+(?:the|this|that)\s+job)?|go\s+ahead(?:\s+and\s+(?:create|schedule)(?:\s+it)?)?|create\s+(?:it|the\s+job|that\s+job)|looks\s+good(?:[,.]?\s*(?:create|approve|go\s+ahead))?|confirm(?:ed)?(?:[,.]?\s*(?:create|approve))?|do\s+it)\.?$/i;
 
 function durationSeconds(amount: number, unit: string): number {
   const u = unit.toLowerCase();
@@ -60,6 +72,10 @@ export function parseBestieUserJobIntent(
     return { op: "disable-match", title };
   }
 
+  if (APPROVE_RE.test(firstLine)) {
+    return { op: "approve-intent" };
+  }
+
   const every = firstLine.match(ADD_EVERY_RE);
   if (every) {
     const prompt = trimTrailingPunctuation(every[6] ?? "");
@@ -84,7 +100,7 @@ export function parseBestieUserJobIntent(
         schedule,
         title: titleFromPrompt(prompt),
       },
-      op: "add",
+      op: "schedule-request",
     };
   }
 
@@ -111,13 +127,14 @@ export function parseBestieUserJobIntent(
         schedule: { dueAt, kind: "once" },
         title: titleFromPrompt(body),
       },
-      op: "add",
+      op: "schedule-request",
     };
   }
 
   return null;
 }
 
+/** True when outbound turn should attach the job confirm-protocol hint. */
 export function messageLooksLikeBestieJobRequest(content: string): boolean {
   return parseBestieUserJobIntent(content) != null;
 }

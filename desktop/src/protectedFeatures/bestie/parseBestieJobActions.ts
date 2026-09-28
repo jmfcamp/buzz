@@ -4,11 +4,15 @@ import type { BestieJobAddInput, BestieJobSchedule } from "./bestieJobTypes";
  * Structured Bestie job mutations in agent chat:
  *
  * ```bestie-job
- * {"op":"add","job":{"title":"Morning brief","prompt":"Summarize calendar","schedule":{"kind":"daily","hour":9,"minute":0}}}
+ * {"op":"add","confirmed":true,"job":{"title":"Morning brief","prompt":"Summarize calendar","schedule":{"kind":"daily","hour":9,"minute":0}}}
  * ```
+ *
+ * Chat creates only via `add` with `confirmed: true` (after user approval).
+ * `draft` / unconfirmed `add` parse for protocol completeness but do not create.
  */
 export type BestieJobAction =
-  | { job: BestieJobAddInput; op: "add" }
+  | { confirmed: true; job: BestieJobAddInput; op: "add" }
+  | { job: BestieJobAddInput; op: "draft" }
   | {
       enabled?: boolean;
       id: string;
@@ -88,9 +92,15 @@ export function parseBestieJobActionPayload(value: unknown): BestieJobAction[] {
   for (const payload of payloads) {
     if (typeof payload !== "object" || payload === null) continue;
     const record = payload as Record<string, unknown>;
-    if (record.op === "add") {
+    if (record.op === "add" || record.op === "draft") {
       const job = parseAddJob(record.job);
-      if (job) actions.push({ job, op: "add" });
+      if (!job) continue;
+      // Create only when add + confirmed:true. Unconfirmed add → draft (no create).
+      if (record.op === "add" && record.confirmed === true) {
+        actions.push({ confirmed: true, job, op: "add" });
+      } else {
+        actions.push({ job, op: "draft" });
+      }
       continue;
     }
     if (

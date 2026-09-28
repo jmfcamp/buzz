@@ -708,7 +708,8 @@ export function BestiePopover({
         parentEventId,
         targetChannel: channel,
       });
-      // Apply NL list/job intent immediately (WakeController also applies; idempotent).
+      // Apply NL list/job/scratch intents immediately (WakeController also applies; idempotent).
+      // Job schedule-request/approve-intent do not create — confirmed fence or RHS form does.
       if (
         (listIntent || jobIntent || scratchIntent) &&
         sessionScope &&

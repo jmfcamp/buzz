@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   __resetBestieJobStoreForTests,
+  addBestieJobForScope,
   applyBestieJobActionsFromAgentMessage,
   applyBestieJobIntentFromUserMessage,
   getBestieJobState,
@@ -29,7 +30,7 @@ function mockStorage() {
   };
 }
 
-test("job create via fence and NL; fence+NL same content dedupes", () => {
+test("casual NL schedule does not auto-create a job", () => {
   mockStorage();
   __resetBestieJobStoreForTests();
   const nowMs = Date.parse("2026-09-27T12:00:00.000-07:00");
@@ -39,12 +40,51 @@ test("job create via fence and NL; fence+NL same content dedupes", () => {
     "Schedule a job in 5 minutes to summarize my inbox",
     nowMs,
   );
-  assert.equal(nl, 1);
-  const dueAt = Math.floor(nowMs / 1000) + 5 * 60;
-  const fence = `\`\`\`bestie-job
+  assert.equal(nl, 0);
+  assert.equal(getBestieJobState(SCOPE).jobs.length, 0);
+});
+
+test("unconfirmed fence does not create; confirmed fence creates", () => {
+  mockStorage();
+  __resetBestieJobStoreForTests();
+  const dueAt = Math.floor(Date.parse("2026-09-27T12:00:00.000-07:00") / 1000) + 300;
+  const draft = `\`\`\`bestie-job
 {"op":"add","job":{"title":"summarize my inbox","prompt":"summarize my inbox","schedule":{"kind":"once","dueAt":${dueAt}}}}
 \`\`\``;
-  const agent = applyBestieJobActionsFromAgentMessage(SCOPE, "a1", fence);
-  assert.equal(agent, 0);
+  assert.equal(applyBestieJobActionsFromAgentMessage(SCOPE, "a0", draft), 0);
+  assert.equal(getBestieJobState(SCOPE).jobs.length, 0);
+
+  const confirmed = `\`\`\`bestie-job
+{"op":"add","confirmed":true,"job":{"title":"summarize my inbox","prompt":"summarize my inbox","schedule":{"kind":"once","dueAt":${dueAt}}}}
+\`\`\``;
+  assert.equal(applyBestieJobActionsFromAgentMessage(SCOPE, "a1", confirmed), 1);
   assert.equal(getBestieJobState(SCOPE).jobs.length, 1);
+});
+
+test("RHS/manual add still creates form-complete jobs directly", () => {
+  mockStorage();
+  __resetBestieJobStoreForTests();
+  addBestieJobForScope(SCOPE, {
+    prompt: "Ping channel C",
+    schedule: { everySeconds: 3600, kind: "interval" },
+    title: "Ping",
+  });
+  assert.equal(getBestieJobState(SCOPE).jobs.length, 1);
+});
+
+test("NL cancel still removes a matching job", () => {
+  mockStorage();
+  __resetBestieJobStoreForTests();
+  addBestieJobForScope(SCOPE, {
+    prompt: "x",
+    schedule: { everySeconds: 60, kind: "interval" },
+    title: "Inbox",
+  });
+  const removed = applyBestieJobIntentFromUserMessage(
+    SCOPE,
+    "u2",
+    'Cancel job "Inbox"',
+  );
+  assert.equal(removed, 1);
+  assert.equal(getBestieJobState(SCOPE).jobs.length, 0);
 });

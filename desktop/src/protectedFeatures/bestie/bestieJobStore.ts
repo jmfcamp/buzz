@@ -95,15 +95,11 @@ export function markBestieJobFiredForScope(
 function applyUserJobIntent(
   state: BestieJobState,
   intent: BestieUserJobIntent,
-  messageId: string,
+  _messageId: string,
 ): { applied: number; state: BestieJobState } {
-  if (intent.op === "add") {
-    const before = state;
-    const next = addBestieJob(state, {
-      ...intent.job,
-      sourceMessageId: messageId,
-    });
-    return { applied: next !== before ? 1 : 0, state: next };
+  // Chat path: never auto-create from NL schedule/approve — require confirmed fence.
+  if (intent.op === "schedule-request" || intent.op === "approve-intent") {
+    return { applied: 0, state };
   }
   if (intent.op === "remove-match") {
     const needle = intent.title.toLowerCase();
@@ -146,6 +142,10 @@ export function applyBestieJobActionsFromAgentMessage(
   }
   let applied = 0;
   for (const action of actions) {
+    if (action.op === "draft") {
+      // Pending/draft fence — present plan in chat; do not create until confirmed add.
+      continue;
+    }
     if (action.op === "add") {
       const before = next;
       next = addBestieJob(next, {
