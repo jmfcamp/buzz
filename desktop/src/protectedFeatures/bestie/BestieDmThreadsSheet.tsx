@@ -141,7 +141,7 @@ function ThreadRow({
         <div className="mt-1.5 border-t border-border/40 pt-1.5 pl-5">
           {thread.lastSummary ? (
             <p
-              className="whitespace-pre-wrap text-xs text-muted-foreground"
+              className="whitespace-pre-wrap text-sm leading-snug text-muted-foreground"
               data-testid={`bestie-thread-summary-${thread.id}`}
             >
               {thread.lastSummary}

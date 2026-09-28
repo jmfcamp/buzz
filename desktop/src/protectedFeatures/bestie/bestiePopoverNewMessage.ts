@@ -1,53 +1,131 @@
 /**
- * Assistant popover — detect a new message the user is not currently looking at.
+ * Assistant popover — detect new messages the user is not currently looking at.
  */
 
 export type BestiePopoverNewMessageTarget = {
-  /** Message / root id to jump to. */
+  /** Message id to jump to / dismiss. */
   id: string;
   /** True when the message is outside the active session filter. */
   outsideSession: boolean;
+  /** Truncated plain preview of the message body. */
+  preview: string;
+  /** Thread root id used to queue one banner per thread. */
+  threadRootId: string;
 };
 
+const DEFAULT_PREVIEW_MAX = 140;
+
+/** Collapse whitespace and truncate for the New message banner body. */
+export function previewBestiePopoverMessageBody(
+  body: string | null | undefined,
+  max = DEFAULT_PREVIEW_MAX,
+): string {
+  const compact = (body ?? "").replace(/\s+/g, " ").trim();
+  if (!compact) return "";
+  if (compact.length <= max) return compact;
+  return `${compact.slice(0, Math.max(1, max - 1)).trimEnd()}…`;
+}
+
+function threadRootIdFor(message: {
+  id: string;
+  parentId?: string | null;
+  rootId?: string | null;
+}): string {
+  return message.rootId ?? message.parentId ?? message.id;
+}
+
+function toTarget(
+  message: {
+    id: string;
+    body?: string | null;
+    parentId?: string | null;
+    rootId?: string | null;
+  },
+  outsideSession: boolean,
+): BestiePopoverNewMessageTarget {
+  return {
+    id: message.id,
+    outsideSession,
+    preview: previewBestiePopoverMessageBody(message.body),
+    threadRootId: threadRootIdFor(message),
+  };
+}
+
 /**
- * Pick the newest message the popover should offer a jump target for.
+ * Build the New message banner queue (newest first).
  *
- * - Prefer the newest channel message that is *outside* the active session
- *   (another top-level thread / response the filter hides). View navigates to
- *   the Assistant DM and opens that thread; the popover session stays put.
- * - Otherwise, when the user has scrolled away from the bottom, the newest
- *   in-session message is the jump target ("New message" → scroll to it).
+ * - Outside-session messages: one entry per thread (newest message in that
+ *   thread). View opens the Assistant DM on that thread; popover session stays.
+ * - Otherwise, when scrolled away from the bottom: a single in-session entry
+ *   (View scrolls within the popover transcript).
+ * - `dismissedMessageIds` skips those message ids until a newer one arrives.
  */
-export function resolveBestiePopoverNewMessageTarget(input: {
+export function resolveBestiePopoverNewMessageQueue(input: {
   /** Newest-first or any order; we pick by createdAt then id. */
-  allMessages: readonly { id: string; createdAt: number; parentId?: string | null }[];
+  allMessages: readonly {
+    id: string;
+    createdAt: number;
+    body?: string | null;
+    parentId?: string | null;
+    rootId?: string | null;
+  }[];
   sessionMessageIds: ReadonlySet<string>;
-  sessionRootId: string | null | undefined;
+  sessionRootId?: string | null;
   /** User is scrolled near the transcript bottom. */
   nearBottom: boolean;
   /** Ignore the user's own outbound id so sending doesn't flash the banner. */
   ignoreMessageId?: string | null;
-}): BestiePopoverNewMessageTarget | null {
+  /** Message ids the user dismissed from the banner queue. */
+  dismissedMessageIds?: ReadonlySet<string>;
+}): BestiePopoverNewMessageTarget[] {
   const ignore = input.ignoreMessageId?.trim() || null;
+  const dismissed = input.dismissedMessageIds ?? new Set<string>();
   const sorted = [...input.allMessages].sort((a, b) => {
     if (a.createdAt !== b.createdAt) return b.createdAt - a.createdAt;
     return b.id.localeCompare(a.id);
   });
 
+  const seenThreads = new Set<string>();
+  const outsideQueue: BestiePopoverNewMessageTarget[] = [];
   for (const message of sorted) {
     if (ignore && message.id === ignore) continue;
-    if (!input.sessionMessageIds.has(message.id)) {
-      // Outside the active session — always offer jump (even if near bottom
-      // of the *other* transcript, since this thread isn't shown).
-      return { id: message.id, outsideSession: true };
-    }
+    if (input.sessionMessageIds.has(message.id)) continue;
+    const rootId = threadRootIdFor(message);
+    // Newest message claims the thread slot first. If that newest id was
+    // dismissed, skip the whole thread until a newer message arrives.
+    if (seenThreads.has(rootId)) continue;
+    seenThreads.add(rootId);
+    if (dismissed.has(message.id)) continue;
+    outsideQueue.push(toTarget(message, true));
   }
+  if (outsideQueue.length > 0) return outsideQueue;
 
-  if (input.nearBottom) return null;
-  const newestInSession = sorted.find((message) =>
-    input.sessionMessageIds.has(message.id),
-  );
-  if (!newestInSession) return null;
-  if (ignore && newestInSession.id === ignore) return null;
-  return { id: newestInSession.id, outsideSession: false };
+  if (input.nearBottom) return [];
+  const newestInSession = sorted.find((message) => {
+    if (ignore && message.id === ignore) return false;
+    if (dismissed.has(message.id)) return false;
+    return input.sessionMessageIds.has(message.id);
+  });
+  if (!newestInSession) return [];
+  return [toTarget(newestInSession, false)];
+}
+
+/**
+ * Pick the front of the New message queue (or null when empty).
+ */
+export function resolveBestiePopoverNewMessageTarget(input: {
+  allMessages: readonly {
+    id: string;
+    createdAt: number;
+    body?: string | null;
+    parentId?: string | null;
+    rootId?: string | null;
+  }[];
+  sessionMessageIds: ReadonlySet<string>;
+  sessionRootId?: string | null;
+  nearBottom: boolean;
+  ignoreMessageId?: string | null;
+  dismissedMessageIds?: ReadonlySet<string>;
+}): BestiePopoverNewMessageTarget | null {
+  return resolveBestiePopoverNewMessageQueue(input)[0] ?? null;
 }

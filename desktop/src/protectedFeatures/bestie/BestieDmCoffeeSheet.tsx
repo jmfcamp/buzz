@@ -59,7 +59,7 @@ function CoffeeRow({
           className="border-t border-border/50 px-2 py-2"
           data-testid={`bestie-coffee-expand-${entry.id}`}
         >
-          <pre className="whitespace-pre-wrap break-words font-sans text-xs leading-relaxed text-foreground/90">
+          <pre className="overflow-x-auto whitespace-pre font-mono text-sm leading-normal text-foreground/90">
             {entry.fullOutput}
           </pre>
           <div className="mt-2 flex justify-end">
