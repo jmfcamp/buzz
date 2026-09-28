@@ -48,19 +48,35 @@ function parseRepeat(value: unknown): BestieReminderRepeat | null {
   return null;
 }
 
-function coerceDueAt(value: unknown): number | null {
+/**
+ * Normalize fence dueAt to unix **seconds** for storage.
+ *
+ * Teach agents unix **milliseconds** (Date.now()-style). On apply:
+ * - ms-scale (≥ 1e12) → divide to seconds
+ * - seconds-scale (< 1e12, e.g. 1790611740) → keep as seconds (coerce path
+ *   that used to store raw ms broke fire time vs nowSeconds)
+ * ISO strings parse to seconds.
+ */
+export function coerceDueAt(value: unknown): number | null {
+  let raw: number | null = null;
   if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.floor(value);
-  }
-  if (typeof value === "string" && value.trim().length > 0) {
+    raw = value;
+  } else if (typeof value === "string" && value.trim().length > 0) {
     const asNumber = Number(value);
     if (Number.isFinite(asNumber) && String(asNumber) === value.trim()) {
-      return Math.floor(asNumber);
+      raw = asNumber;
+    } else {
+      const parsed = Date.parse(value);
+      if (Number.isFinite(parsed)) return Math.floor(parsed / 1000);
     }
-    const parsed = Date.parse(value);
-    if (Number.isFinite(parsed)) return Math.floor(parsed / 1000);
   }
-  return null;
+  if (raw == null || !Number.isFinite(raw) || raw < 0) return null;
+  // Ms → seconds when agent followed "teach fence ms".
+  if (raw >= 1_000_000_000_000) {
+    return Math.floor(raw / 1000);
+  }
+  // Seconds (legacy / mistaken unit) — keep; do not *1000 into storage.
+  return Math.floor(raw);
 }
 
 function parseAddItems(value: unknown): BestieListAddInput[] {

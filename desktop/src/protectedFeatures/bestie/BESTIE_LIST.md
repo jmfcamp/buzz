@@ -16,10 +16,10 @@ relay / owner / agent). Mutations happen three ways:
 3. **Agent fence** — Bestie agent replies may include:
 
 ```bestie-list
-{"op":"add","items":[{"kind":"reminder","text":"Run the nightly report","dueAt":1735689600}]}
+{"op":"add","items":[{"kind":"reminder","text":"Run the nightly report","dueAt":1735689600000}]}
 ```
 
-`dueAt` is unix seconds (ISO-8601 strings also accepted). Optional
+`dueAt` is unix **milliseconds** (Date.now()-style; seconds-scale values are coerced on apply; ISO-8601 strings also accepted). Optional
 `repeat: {"kind":"daily"}` or `{"kind":"weekly","weekday":1}` (0=Sun). Ops:
 `add`, `complete`, `remove`. Completing a recurring reminder advances `dueAt`
 instead of marking done.
@@ -38,7 +38,7 @@ the Reminders RHS/sheet.
 Client dedupe: open items with the same kind and **core text** (time phrases
 stripped) are not added twice when due times match within 120s, or when the
 first item was created in the last 10 minutes; close dueAt + similar wording
-also matches. Prefers keeping/upgrading the row that has `dueAt` (covers NL +
+also matches. Prefers a **near** client-NL `dueAt` over a far fence epoch, and keeping/upgrading the row that has `dueAt` (covers NL +
 agent fence on one ask even when wording differs).
 
 ## Live list state (each user turn)

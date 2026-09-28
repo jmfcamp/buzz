@@ -26,6 +26,7 @@ import {
   logBestieCoffeeFire,
 } from "./bestieCoffeeSchedule";
 import {
+  isBestieCoffeeCaptureMessageKind,
   isBestieCoffeePendingStale,
   messageLooksLikeBestieCoffeeTrigger,
   messageLooksLikeBestieCompetingSystemTrigger,
@@ -454,12 +455,20 @@ export function BestieWakeController() {
       }
       const author = normalizePubkey(event.pubkey);
       if (author === agentNorm) {
-        if (typeof event.created_at === "number") {
+        // Capture + attention only for chat message rows — channel windows also
+        // carry kind:7 ACP 👀/💬 reactions on the coffee trigger. Writing the
+        // capture from this same observation loop must skip those or Coffee
+        // finalizes as 👀 and never upgrades when the real reply lands.
+        const isCaptureMessage = isBestieCoffeeCaptureMessageKind(event.kind);
+        if (typeof event.created_at === "number" && isCaptureMessage) {
           agentCreatedAts.push(event.created_at);
         }
-        if (!seenAgentMessageIdsRef.current.has(event.id)) {
+        if (isCaptureMessage && !seenAgentMessageIdsRef.current.has(event.id)) {
           seenAgentMessageIdsRef.current.add(event.id);
           newAgentAttentionEvents.push(event);
+        }
+        if (!isCaptureMessage) {
+          continue;
         }
         const createdAt =
           typeof event.created_at === "number"

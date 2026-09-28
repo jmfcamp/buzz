@@ -21,11 +21,11 @@ export const BESTIE_LIST_AGENT_INSTRUCTIONS = `You are the user's Bestie. When t
 Fence format (one JSON object or an array of objects):
 
 \`\`\`${BESTIE_LIST_FENCE_LANG}
-{"op":"add","items":[{"kind":"reminder","text":"Call mom","dueAt":1735689600}]}
+{"op":"add","items":[{"kind":"reminder","text":"Call mom","dueAt":1735689600000}]}
 \`\`\`
 
 Ops:
-- add: items[] with kind "todo" | "reminder", text (required), dueAt unix seconds (optional; reminders only; prefer an absolute unix timestamp)
+- add: items[] with kind "todo" | "reminder", text (required), dueAt unix **milliseconds** (optional; reminders only; Date.now()-style absolute. Seconds-scale values are coerced on apply)
 - complete: {"op":"complete","id":"<item-id>"}
 - remove: {"op":"remove","id":"<item-id>"}
 
@@ -61,9 +61,9 @@ Reminder text: crystallize as a clean imperative (capitalize; drop leading "to")
 ${BESTIE_LIST_TURN_HINT_MARKER}
 When mutating reminders/todos, emit a fenced ${BESTIE_LIST_FENCE_LANG} JSON block, e.g.
 \`\`\`${BESTIE_LIST_FENCE_LANG}
-{"op":"add","items":[{"kind":"reminder","text":"Run the nightly report","dueAt":1735689600}]}
+{"op":"add","items":[{"kind":"reminder","text":"Run the nightly report","dueAt":1735689600000}]}
 \`\`\`
-(dueAt = unix seconds; omit if unknown). Also support complete/remove by id.${bare}`;
+(dueAt = unix milliseconds; seconds also accepted and coerced. Omit if unknown). Also support complete/remove by id.${bare}`;
 }
 
 /** Strip the outbound turn hint (and anything after the marker) for UI display. */

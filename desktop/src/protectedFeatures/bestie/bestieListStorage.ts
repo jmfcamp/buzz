@@ -372,9 +372,40 @@ export function findDuplicateBestieListItem(
   return null;
 }
 
+/** Due within this window of now counts as a "near" client NL time. */
+export const BESTIE_LIST_NEAR_DUE_SECONDS = 2 * 60 * 60;
+
+function isNearDueAt(
+  dueAt: number | null,
+  nowSeconds: number,
+): boolean {
+  if (dueAt == null) return false;
+  const delta = dueAt - nowSeconds;
+  return delta >= -60 && delta <= BESTIE_LIST_NEAR_DUE_SECONDS;
+}
+
 /**
- * When NL and agent fence both add the same intent, keep one row. Prefer the
- * dueAt (fill null from incoming) and the cleaner display text.
+ * Prefer a near dueAt (typical client NL "in 5 minutes") over a far fence
+ * absolute. Fill null from the other side; otherwise keep existing.
+ */
+export function preferNearDueAt(
+  existing: number | null,
+  incoming: number | null,
+  nowSeconds: number,
+): number | null {
+  if (existing == null) return incoming;
+  if (incoming == null) return existing;
+  const existingNear = isNearDueAt(existing, nowSeconds);
+  const incomingNear = isNearDueAt(incoming, nowSeconds);
+  if (incomingNear && !existingNear) return incoming;
+  if (existingNear && !incomingNear) return existing;
+  return existing;
+}
+
+/**
+ * When NL and agent fence both add the same intent, keep one row. Prefer a
+ * near dueAt (client NL) over a far fence epoch, fill null from incoming, and
+ * keep the cleaner display text.
  */
 function mergeDuplicateBestieListAdd(
   state: BestieListState,
@@ -384,10 +415,7 @@ function mergeDuplicateBestieListAdd(
 ): BestieListState {
   const incomingText = input.text.trim();
   const incomingDue = input.kind === "reminder" ? (input.dueAt ?? null) : null;
-  const nextDue =
-    existing.dueAt == null && incomingDue != null
-      ? incomingDue
-      : existing.dueAt;
+  const nextDue = preferNearDueAt(existing.dueAt, incomingDue, nowSeconds);
   const preferIncomingText =
     listTextQualityScore(incomingText) > listTextQualityScore(existing.text);
   const nextText = preferIncomingText ? incomingText : existing.text;

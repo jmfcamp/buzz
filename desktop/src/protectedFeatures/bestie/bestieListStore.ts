@@ -185,7 +185,11 @@ export function applyBestieListActionsFromAgentMessage(
           }
         }
         const before = next;
-        next = addBestieListItem(next, addInput);
+        next = addBestieListItem(
+          next,
+          addInput,
+          Math.floor(nowMs / 1000),
+        );
         if (next !== before) applied += 1;
         // Clear pending when a matching reminder lands (fence or reconciled).
         if (
@@ -275,12 +279,17 @@ function applyUserIntent(
   if (intent.op === "add") {
     let next = state;
     let applied = 0;
+    const nowSeconds = Math.floor(nowMs / 1000);
     for (const item of intent.items) {
       const before = next;
-      next = addBestieListItem(next, {
-        ...item,
-        sourceMessageId: messageId,
-      });
+      next = addBestieListItem(
+        next,
+        {
+          ...item,
+          sourceMessageId: messageId,
+        },
+        nowSeconds,
+      );
       if (next !== before) applied += 1;
     }
     // A fully-specified add clears any stale pending for the same text.
@@ -339,12 +348,16 @@ function applyPendingMeridiemConfirm(
     pendingReminderConfirm: null,
   };
   const before = next;
-  next = addBestieListItem(next, {
-    dueAt,
-    kind: "reminder",
-    sourceMessageId: messageId,
-    text: pending.text,
-  });
+  next = addBestieListItem(
+    next,
+    {
+      dueAt,
+      kind: "reminder",
+      sourceMessageId: messageId,
+      text: pending.text,
+    },
+    Math.floor(nowMs / 1000),
+  );
   return {
     applied: next !== before ? 1 : 0,
     state: next,

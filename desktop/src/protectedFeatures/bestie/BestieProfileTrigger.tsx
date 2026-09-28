@@ -13,7 +13,10 @@ import {
   useBestieHasUnreadMessage,
 } from "./bestieAttentionStore";
 import { useBestieNudge } from "./bestieNudgeStore";
-import { useBestiePopoverListsCollapsed } from "./bestiePopoverListsPreference";
+import {
+  setBestiePopoverListsCollapsed,
+  useBestiePopoverListsCollapsed,
+} from "./bestiePopoverListsPreference";
 import {
   BESTIE_POPOVER_MAX_MAX_HEIGHT_PX,
   BESTIE_POPOVER_MAX_WIDTH_PX,
@@ -80,6 +83,13 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
   React.useEffect(() => {
     setBestiePopoverOpen(open);
     return () => setBestiePopoverOpen(false);
+  }, [open]);
+
+  // Lists must start collapsed on every open — ignore a persisted expand from
+  // the previous session (toggle still works while open).
+  React.useEffect(() => {
+    if (!open) return;
+    setBestiePopoverListsCollapsed(true);
   }, [open]);
 
   // Migrate / re-clamp persisted height to 85% viewport + gutter when open

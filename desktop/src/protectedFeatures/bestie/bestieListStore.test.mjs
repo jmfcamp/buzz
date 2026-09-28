@@ -168,6 +168,7 @@ test("NL + agent fence different wording still one reminder (screenshot)", () =>
     SCOPE,
     "agent-nightly",
     fence,
+    nowMs,
   );
   assert.equal(fromAgent, 0);
   assert.equal(getBestieListState(SCOPE).items.length, 1);
@@ -329,3 +330,47 @@ test("live list turn hint does not block NL reminder apply", () => {
   assert.match(items[0].text, /stretch/i);
 });
 
+
+
+test("dedupe prefers near client NL dueAt over far fence epoch", () => {
+  const memory = new Map();
+  globalThis.window = {
+    localStorage: {
+      getItem: (key) => memory.get(key) ?? null,
+      removeItem: (key) => {
+        memory.delete(key);
+      },
+      setItem: (key, value) => {
+        memory.set(key, String(value));
+      },
+    },
+  };
+  __resetBestieListStoreForTests();
+  const nowMs = Date.parse("2026-09-28T09:00:00.000-07:00");
+  const nearDue = Math.floor(nowMs / 1000) + 5 * 60;
+  const farDue = nearDue + 30 * 24 * 60 * 60;
+  // Fence lands first with a far absolute epoch.
+  applyBestieListActionsFromAgentMessage(
+    SCOPE,
+    "fence-far",
+    "```bestie-list\n" +
+      JSON.stringify({
+        op: "add",
+        items: [{ kind: "reminder", text: "Stretch", dueAt: farDue }],
+      }) +
+      "\n```",
+    nowMs,
+  );
+  // Client NL "in 5 minutes" should win the near dueAt on dedupe merge.
+  applyBestieListIntentFromUserMessage(
+    SCOPE,
+    "nl-near",
+    "Remind me to stretch in 5 minutes",
+    nowMs,
+  );
+  const items = getBestieListState(SCOPE).items.filter(
+    (item) => item.kind === "reminder" && item.status === "open",
+  );
+  assert.equal(items.length, 1);
+  assert.equal(items[0].dueAt, nearDue);
+});

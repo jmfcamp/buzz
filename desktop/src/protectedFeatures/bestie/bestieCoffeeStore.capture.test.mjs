@@ -416,3 +416,89 @@ test("Path D captures top-level agent reply while pending brew is open", () => {
   assert.equal(state.entries[0].triggerMessageId, "coffee-trigger-toplevel");
   assert.match(state.entries[0].fullOutput, /without --reply-to/);
 });
+
+test("rejects ACP 👀 status reaction so Path A cannot finalize as eyes", () => {
+  memoryWindow();
+  __resetBestieCoffeeStoreForTests();
+  const startedAt = 1_700_001_400;
+  beginBestieCoffeeRunForScope(SCOPE, "brew", startedAt);
+  setBestieCoffeePendingTriggerForScope(SCOPE, "coffee-trigger-eyes");
+  const rejected = applyBestieCoffeeAgentReply(
+    SCOPE,
+    "reaction-seen",
+    "👀",
+    startedAt + 2,
+    [
+      ["e", "coffee-trigger-eyes", "", "root"],
+      ["e", "coffee-trigger-eyes", "", "reply"],
+    ],
+  );
+  assert.equal(rejected, false);
+  assert.ok(getBestieCoffeeState(SCOPE).pendingRun);
+  assert.equal(getBestieCoffeeState(SCOPE).entries.length, 0);
+
+  const ok = applyBestieCoffeeAgentReply(
+    SCOPE,
+    "agent-real-brief",
+    "Morning priorities: ship the coffee capture fix.",
+    startedAt + 45,
+    [
+      ["e", "coffee-trigger-eyes", "", "root"],
+      ["e", "coffee-trigger-eyes", "", "reply"],
+    ],
+  );
+  assert.equal(ok, true);
+  const state = getBestieCoffeeState(SCOPE);
+  assert.equal(state.pendingRun, null);
+  assert.match(state.entries[0].fullOutput, /Morning priorities/);
+  assert.notEqual(state.entries[0].fullOutput.trim(), "👀");
+});
+
+test("Path C upgrades a prior 👀 false capture when the real reply lands", () => {
+  memoryWindow();
+  __resetBestieCoffeeStoreForTests();
+  const startedAt = 1_700_001_500;
+  writeBestieCoffeeState(SCOPE, {
+    version: 1,
+    entries: [
+      {
+        id: "stub-eyes",
+        ranAt: startedAt,
+        brief: "👀",
+        fullOutput: "👀",
+        source: "brew",
+        triggerMessageId: "coffee-trigger-eyes-stub",
+        replyMessageId: "reaction-seen-id",
+      },
+    ],
+    forgottenTriggerIds: [],
+    lastScheduledDayKey: null,
+    pendingRun: null,
+    prefs: { hour: 8, minute: 0 },
+  });
+  __resetBestieCoffeeStoreForTests();
+  assert.equal(
+    isBestieCoffeeStubEntry(getBestieCoffeeState(SCOPE).entries[0]),
+    true,
+  );
+  const ok = applyBestieCoffeeAgentReply(
+    SCOPE,
+    "agent-real-after-eyes",
+    "Full brew after eyes reaction.",
+    startedAt + 60,
+    [
+      ["e", "coffee-trigger-eyes-stub", "", "root"],
+      ["e", "coffee-trigger-eyes-stub", "", "reply"],
+    ],
+    new Map([["coffee-trigger-eyes-stub", "brew"]]),
+  );
+  assert.equal(ok, true);
+  assert.match(
+    getBestieCoffeeState(SCOPE).entries[0].fullOutput,
+    /Full brew after eyes/,
+  );
+  assert.equal(
+    isBestieCoffeeStubEntry(getBestieCoffeeState(SCOPE).entries[0]),
+    false,
+  );
+});

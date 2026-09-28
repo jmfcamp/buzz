@@ -2,8 +2,10 @@ import * as React from "react";
 
 /**
  * Device-level preference: whether the Assistant popover Lists section
- * (Reminders / To-dos / Jobs / Coffee / Threads / Scratch) starts collapsed.
- * Shared by no-agent and agent-assigned popovers. Defaults collapsed.
+ * (Reminders / To-dos / Jobs / Coffee / Threads / Scratch) is collapsed while
+ * the popover is open. Shared by no-agent and agent-assigned popovers.
+ * Defaults collapsed. BestieProfileTrigger forces collapsed on each open so a
+ * prior expand does not stick across sessions.
  */
 const STORAGE_KEY = "buzz-bestie-popover-lists-collapsed.v1";
 

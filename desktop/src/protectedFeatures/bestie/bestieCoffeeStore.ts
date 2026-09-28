@@ -17,6 +17,7 @@ import {
 } from "./bestieCoffeeStorage";
 import {
   BESTIE_COFFEE_ABANDONED_OUTPUT,
+  isBestieAcpStatusReactionContent,
   replyParentIdFromEventTags,
 } from "./bestieCoffeeLive";
 import type {
@@ -160,6 +161,9 @@ export function isBestieCoffeeStubEntry(entry: {
   if (!entry.fullOutput.trim()) return true;
   if (!entry.brief.trim()) return true;
   if (entry.fullOutput.trim() === BESTIE_COFFEE_ABANDONED_OUTPUT) return true;
+  // Prior bug: kind:7 👀/💬 was captured as the brew — still treat as open stub.
+  if (isBestieAcpStatusReactionContent(entry.fullOutput)) return true;
+  if (isBestieAcpStatusReactionContent(entry.brief)) return true;
   return false;
 }
 
@@ -178,6 +182,8 @@ export function applyBestieCoffeeAgentReply(
   const current = loadState(scope);
   const trimmed = content.trim();
   if (!trimmed) return false;
+  // Never finalize Coffee from ACP seen/working reactions (kind:7 👀/💬).
+  if (isBestieAcpStatusReactionContent(trimmed)) return false;
 
   // Already captured this agent message.
   if (current.entries.some((entry) => entry.replyMessageId === messageId)) {

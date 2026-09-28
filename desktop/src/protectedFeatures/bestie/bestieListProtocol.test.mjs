@@ -12,6 +12,7 @@ test("agent instructions document the bestie-list fence", () => {
   assert.match(BESTIE_LIST_AGENT_INSTRUCTIONS, /bestie-list/);
   assert.match(BESTIE_LIST_AGENT_INSTRUCTIONS, /"op":"add"/);
   assert.match(BESTIE_LIST_AGENT_INSTRUCTIONS, /dueAt/);
+  assert.match(BESTIE_LIST_AGENT_INSTRUCTIONS, /milliseconds/);
 });
 
 test("agent instructions teach crystallize + bare clock confirm", () => {

@@ -68,6 +68,26 @@ export function messageLooksLikeBestieCompetingSystemTrigger(
   return false;
 }
 
+/**
+ * ACP "seen" / "working" reactions are kind:7 with content 👀 / 💬.
+ * They share e-tags with the coffee trigger but must NEVER finalize a Coffee
+ * row — otherwise Path A/D captures 👀 and the real kind:9 brief cannot upgrade.
+ */
+const BESTIE_ACP_STATUS_EMOJI = new Set(["👀", "💬"]);
+
+export function isBestieAcpStatusReactionContent(
+  content: string | null | undefined,
+): boolean {
+  if (typeof content !== "string") return false;
+  const trimmed = content.trim();
+  return BESTIE_ACP_STATUS_EMOJI.has(trimmed);
+}
+
+/** True when an event kind is a chat message row (not reaction/aux). */
+export function isBestieCoffeeCaptureMessageKind(kind: number | null | undefined): boolean {
+  return kind === 9 || kind === 40002;
+}
+
 /** NIP-10 reply parent from kind:9 tags (explicit reply marker, else last e). */
 export function replyParentIdFromEventTags(
   tags: readonly (readonly string[])[] | null | undefined,

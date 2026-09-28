@@ -38,7 +38,7 @@ While `/hula-coffee` is actually in flight:
 
 ## Coffee tab capture
 
-Every `/hula-coffee` outcome becomes a Coffee tab entry when the agent replies **in-thread to the coffee trigger** (success briefs, failures, NCP-disabled messages, other errors). Capture keys off the reply parent event id — never an arbitrary Assistant DM message (so Summarize replies cannot steal or fake a coffee entry).
+Every `/hula-coffee` outcome becomes a Coffee tab entry when the agent replies **in-thread to the coffee trigger** (success briefs, failures, NCP-disabled messages, other errors). Capture keys off the reply parent event id — never an arbitrary Assistant DM message (so Summarize replies cannot steal or fake a coffee entry). **Never** capture ACP kind:7 status reactions (`👀` / `💬`) — they share the trigger e-tag but are not the brew brief; writing capture from the same message loop that observes replies must filter to kind:9 / 40002 only.
 
 The Assistant DM **channel window is roots-only**; agent replies are in-thread under the coffee trigger. `BestieWakeController` therefore loads the **thread-replies** subtree for open coffee triggers (and keeps a DM subscription even when the user is elsewhere) so Brew outcomes still land in the Coffee tab.
 
