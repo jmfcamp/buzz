@@ -49,8 +49,7 @@ export type BestieChannelExtras = BestieChannelScreenExtras & {
 /**
  * When the active channel is the Bestie DM, attach project-home-style RHS:
  * fixed category rows in the native right column; idleAuxiliary slide only
- * when drilling into a category’s items (+ add). Empty otherwise (and always
- * when Bestie is disabled).
+ * when drilling into a category’s items (+ add). Empty otherwise.
  */
 export function useBestieDmChannelExtras(
   activeChannel: Channel | null | undefined,
@@ -265,7 +264,7 @@ export function useBestieDmChannelExtras(
     }, [activeKind, adding]);
 
   return React.useMemo(() => {
-    if (!enabled || !isBestieDm || !scope) {
+    if (!isBestieDm || !scope) {
       return {
         contextColumn: null,
         contextColumnOpen: false,
@@ -295,7 +294,6 @@ export function useBestieDmChannelExtras(
   }, [
     activeKind,
     contextColumn,
-    enabled,
     headerToggle,
     idleAuxiliaryHeaderActions,
     idleAuxiliaryPanel,
