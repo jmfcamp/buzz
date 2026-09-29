@@ -301,8 +301,14 @@ export function HuddleParticipantsControl({
   const participantStrip = (
     <div
       className={cn(
-        "relative flex max-w-full shrink items-center justify-start overflow-x-auto px-1",
-        appearance === "room" ? "gap-2 py-2" : "h-12 gap-1",
+        // Bar: overflow-visible so speaking rings/glow are not clipped and so
+        // overflow-x-auto cannot force a vertical scrollbar (CSS makes the
+        // other axis compute to auto when one is scroll/auto). Room tiles
+        // still scroll horizontally when the roster is wide.
+        "relative flex max-w-full shrink items-center justify-start px-1",
+        appearance === "room"
+          ? "gap-2 overflow-x-auto py-2"
+          : "h-12 gap-1 overflow-visible",
         className,
       )}
       data-testid="huddle-participant-strip"

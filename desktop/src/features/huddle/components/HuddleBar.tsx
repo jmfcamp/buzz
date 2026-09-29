@@ -745,8 +745,10 @@ export function HuddleBar({
           {screenShare.error}
         </div>
       ) : null}
-      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3">
-        <div className="flex min-w-0 items-center gap-3 overflow-hidden">
+      {/* Dock: avatars get the flexible left; react/captions/agent/share
+          sit with Leave on the right so the strip never needs a scrollbar. */}
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           {/* Error banner */}
           {huddleError && (
             <div
@@ -823,53 +825,56 @@ export function HuddleBar({
             open={showAddAgent}
           />
 
-          <div className="flex shrink-0 items-center gap-2">
-            <HuddleDockChatControl
-              channelId={barState?.ephemeral_channel_id ?? null}
-              visible={Boolean(shareExpanded && spotlightStream)}
-            />
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2">
+              <HuddleDockChatControl
+                channelId={barState?.ephemeral_channel_id ?? null}
+                visible={Boolean(shareExpanded && spotlightStream)}
+              />
 
-            <MicControls
-              isMuted={isMuted}
-              onToggleMute={toggleMute}
-              isPttMode={isPttMode}
-              micConnected={hasAvailableMic}
-              micLevel={micLevel}
-              onSelectVoiceInputMode={setVoiceInputMode}
-              audioDevices={audioDevices}
-              selectedDeviceId={selectedDeviceId}
-              onSelectDevice={setSelectedDeviceId}
-              micGain={micGain}
-              onGainChange={setMicGain}
-            />
+              <MicControls
+                isMuted={isMuted}
+                onToggleMute={toggleMute}
+                isPttMode={isPttMode}
+                micConnected={hasAvailableMic}
+                micLevel={micLevel}
+                onSelectVoiceInputMode={setVoiceInputMode}
+                audioDevices={audioDevices}
+                selectedDeviceId={selectedDeviceId}
+                onSelectDevice={setSelectedDeviceId}
+                micGain={micGain}
+                onGainChange={setMicGain}
+              />
 
-            <SpeakerControls
-              ttsEnabled={ttsEnabled}
-              showHeadphonesHint={
-                mode === "main" &&
-                aecMissing &&
-                !headphonesHintDismissed &&
-                !isDrawerClosing
-              }
-              onHeadphonesHintDismiss={dismissHeadphonesHint}
-              onToggleTts={async () => {
-                try {
-                  await invoke("set_tts_enabled", { enabled: !ttsEnabled });
-                  const s = await invoke<HuddleState>("get_huddle_state");
-                  setState(s);
-                } catch (e) {
-                  console.error("Failed to toggle TTS:", e);
+              <SpeakerControls
+                ttsEnabled={ttsEnabled}
+                showHeadphonesHint={
+                  mode === "main" &&
+                  aecMissing &&
+                  !headphonesHintDismissed &&
+                  !isDrawerClosing
                 }
-              }}
-              outputDevices={outputDevices}
-              selectedOutputDevice={selectedOutputDevice}
-              onSelectOutputDevice={setSelectedOutputDevice}
-            />
+                onHeadphonesHintDismiss={dismissHeadphonesHint}
+                onToggleTts={async () => {
+                  try {
+                    await invoke("set_tts_enabled", { enabled: !ttsEnabled });
+                    const s = await invoke<HuddleState>("get_huddle_state");
+                    setState(s);
+                  } catch (e) {
+                    console.error("Failed to toggle TTS:", e);
+                  }
+                }}
+                outputDevices={outputDevices}
+                selectedOutputDevice={selectedOutputDevice}
+                onSelectOutputDevice={setSelectedOutputDevice}
+              />
+            </div>
 
             {/* Keep member/agent avatars in the dock while share fills the
                 stage (room header is covered). Main mode always shows them. */}
             {mode === "main" || shareExpanded ? (
               <HuddleParticipantsControl
+                className="min-w-0 flex-1"
                 participants={lifecycleParticipants}
                 activeSpeakers={activeSpeakers}
                 speakerLevels={participantSpeakerLevels}
@@ -921,7 +926,7 @@ export function HuddleBar({
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2 justify-self-center">
+        <div className="flex shrink-0 items-center gap-2 justify-self-end">
           <div className="flex items-center gap-2">
             <Popover
               onOpenChange={setIsReactionPickerOpen}
@@ -1036,9 +1041,7 @@ export function HuddleBar({
               </Tooltip>
             ) : null}
           </div>
-        </div>
 
-        <div className="flex shrink-0 items-center gap-2 justify-self-end">
           {spotlightStream ? (
             <Tooltip>
               <TooltipTrigger asChild>

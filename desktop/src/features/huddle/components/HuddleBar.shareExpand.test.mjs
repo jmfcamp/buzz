@@ -10,6 +10,10 @@ const css = fs.readFileSync(
   new URL("../../../shared/styles/globals/components.css", import.meta.url),
   "utf8",
 );
+const participantListSrc = fs.readFileSync(
+  new URL("./ParticipantList.tsx", import.meta.url),
+  "utf8",
+);
 
 test("HuddleBar expands share into a shell stage portal, not OS fullscreen", () => {
   assert.match(src, /createPortal/);
@@ -64,4 +68,26 @@ test("expanded share shows dock Chat button and keeps participant avatars", () =
   assert.match(src, /mode === "main" \|\| shareExpanded/);
   assert.match(src, /HuddleParticipantsControl/);
   assert.match(src, /setHuddleShareExpanded/);
+});
+
+test("dock puts react/captions/agent/share beside Leave so avatars get the left", () => {
+  // Preferred layout: no centered middle column squeezing the avatar strip.
+  assert.match(src, /grid-cols-\[minmax\(0,1fr\)_auto\]/);
+  assert.doesNotMatch(
+    src,
+    /grid-cols-\[minmax\(0,1fr\)_auto_minmax\(0,1fr\)\]/,
+  );
+  assert.doesNotMatch(src, /justify-self-center/);
+  assert.match(src, /justify-self-end/);
+  // Avatar strip sits in the flexible left cluster.
+  assert.match(src, /className="min-w-0 flex-1"/);
+});
+
+test("bar avatar strip avoids overflow-x-auto scrollbars", () => {
+  // overflow-x-auto makes overflow-y compute to auto, which paints scrollbars
+  // when speaking rings/glow extend past the strip height.
+  assert.match(
+    participantListSrc,
+    /appearance === "room"[\s\S]*?overflow-x-auto[\s\S]*?: "h-12 gap-1 overflow-visible"/,
+  );
 });
