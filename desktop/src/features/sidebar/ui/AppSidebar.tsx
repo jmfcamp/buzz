@@ -50,6 +50,7 @@ import {
   preferredUnreadTarget,
 } from "@/features/sidebar/ui/MoreUnreadButton";
 import { SidebarSection } from "@/features/sidebar/ui/SidebarSection";
+import { ArchivedHuddlesSection } from "@/features/sidebar/ui/ArchivedHuddlesSection";
 import {
   ChannelGroupSection,
   CustomChannelSection,
@@ -922,24 +923,23 @@ export function AppSidebar({
                     onMuteChannel={onMuteChannel}
                     onUnmuteChannel={onUnmuteChannel}
                   />
-                  <SidebarSection
+                  <ArchivedHuddlesSection
                     isActiveChannel={selectedView === "channel"}
                     isCollapsed={collapsedGroups.archivedHuddles}
                     items={archivedHuddleChannels}
+                    mutedChannelIds={mutedChannelIds}
                     onMarkChannelRead={onMarkChannelRead}
                     onMarkChannelUnread={onMarkChannelUnread}
+                    onMuteChannel={onMuteChannel}
                     onSelectChannel={onSelectChannel}
                     onToggleCollapsed={() =>
                       toggleCollapsedGroup("archivedHuddles")
                     }
+                    onUnmuteChannel={onUnmuteChannel}
+                    parentChannels={channels}
                     selectedChannelId={selectedChannelId}
-                    testId="archived-huddles-list"
-                    title="Archived Huddles"
                     unreadChannelCounts={unreadChannelCounts}
                     unreadChannelIds={unreadChannelIds}
-                    mutedChannelIds={mutedChannelIds}
-                    onMuteChannel={onMuteChannel}
-                    onUnmuteChannel={onUnmuteChannel}
                   />
                 </>
               ) : null}
