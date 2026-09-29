@@ -4,7 +4,6 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Bot,
   Captions,
-  ChevronDown,
   Maximize2,
   Minimize2,
   MonitorUp,
@@ -29,13 +28,6 @@ import { rewriteRelayUrl } from "@/shared/lib/mediaUrl";
 import { useDocumentVisible } from "@/shared/lib/useDocumentVisible";
 import { Button } from "@/shared/ui/button";
 import { useEmojiBurst } from "@/shared/ui/EmojiBurstProvider";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from "@/shared/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { useHuddle, useHuddleLevels } from "../HuddleContext";
@@ -67,8 +59,6 @@ type HuddleState = {
   transcription_enabled: boolean;
   is_creator: boolean;
   voice_input_mode: "push_to_talk" | "voice_activity";
-  /** Spoken wake keyword; default "hey". */
-  activation_keyword?: string;
 };
 
 type HuddleBarProps = {
@@ -86,45 +76,6 @@ const HUDDLE_STATE_FALLBACK_INTERVAL_MS = 30_000;
 const HUDDLE_MODEL_STATUS_INTERVAL_MS = 10_000;
 const HUDDLE_REACTION_NAME_MAX = 48;
 const HEADPHONES_HINT_SEEN_STORAGE_KEY = "buzz.huddle.headphones-hint-seen";
-const ACTIVATION_KEYWORD_STORAGE_KEY = "buzz.huddle.activation-keyword";
-const ACTIVATION_KEYWORD_PRESETS = [
-  "hey",
-  "at",
-  "agent",
-  "bot",
-  "robo",
-  "ok",
-  "yo",
-  "okay",
-] as const;
-type ActivationKeyword = (typeof ACTIVATION_KEYWORD_PRESETS)[number];
-const DEFAULT_ACTIVATION_KEYWORD: ActivationKeyword = "hey";
-
-function readStoredActivationKeyword(): ActivationKeyword {
-  try {
-    const raw = window.localStorage.getItem(ACTIVATION_KEYWORD_STORAGE_KEY);
-    if (
-      raw &&
-      (ACTIVATION_KEYWORD_PRESETS as readonly string[]).includes(
-        raw.toLowerCase(),
-      )
-    ) {
-      return raw.toLowerCase() as ActivationKeyword;
-    }
-  } catch {
-    /* ignore */
-  }
-  return DEFAULT_ACTIVATION_KEYWORD;
-}
-
-function persistActivationKeyword(keyword: ActivationKeyword) {
-  try {
-    window.localStorage.setItem(ACTIVATION_KEYWORD_STORAGE_KEY, keyword);
-  } catch {
-    /* ignore */
-  }
-}
-
 function hasSeenHeadphonesHint() {
   return window.localStorage.getItem(HEADPHONES_HINT_SEEN_STORAGE_KEY) === "1";
 }
@@ -241,8 +192,6 @@ export function HuddleBar({
   const [headphonesHintDismissed, setHeadphonesHintDismissed] = React.useState(
     hasSeenHeadphonesHint,
   );
-  const [activationKeyword, setActivationKeyword] =
-    React.useState<ActivationKeyword>(readStoredActivationKeyword);
   const [isLeaving, setIsLeaving] = React.useState(false);
   const [showAddAgent, setShowAddAgent] = React.useState(false);
   const [agentAddError, setAgentAddError] = React.useState<string | null>(null);
@@ -255,39 +204,6 @@ export function HuddleBar({
     stt: string;
     tts: string;
   } | null>(null);
-  const pushActivationKeyword = React.useCallback(
-    (keyword: ActivationKeyword) => {
-      void invoke<string>("set_huddle_activation_keyword", { keyword }).catch(
-        (error) => {
-          console.error("Failed to set huddle activation keyword:", error);
-        },
-      );
-    },
-    [],
-  );
-
-  // Push the persisted keyword into Rust whenever a huddle becomes active so
-  // the STT wake matcher uses the user's choice (not only the in-memory default).
-  React.useEffect(() => {
-    if (!isVisibleHuddleState(state)) return;
-    pushActivationKeyword(activationKeyword);
-    // Intentionally only re-push when the huddle session identity changes —
-    // dropdown changes call pushActivationKeyword directly.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state?.phase, state?.ephemeral_channel_id, pushActivationKeyword]);
-
-  const handleActivationKeywordChange = React.useCallback(
-    (next: string) => {
-      if (!(ACTIVATION_KEYWORD_PRESETS as readonly string[]).includes(next)) {
-        return;
-      }
-      const keyword = next as ActivationKeyword;
-      setActivationKeyword(keyword);
-      persistActivationKeyword(keyword);
-      pushActivationKeyword(keyword);
-    },
-    [pushActivationKeyword],
-  );
 
   const applyIncomingState = React.useCallback((nextState: HuddleState) => {
     const leavingChannelId = locallyLeavingChannelRef.current;
@@ -1042,52 +958,6 @@ export function HuddleBar({
               </TooltipContent>
             </Tooltip>
 
-            <DropdownMenu>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      aria-label={`Activation word: ${activationKeyword}`}
-                      className="buzz-huddle-control-button h-12 shrink-0 gap-1 rounded-md px-2.5"
-                      data-testid="huddle-activation-keyword"
-                      size="sm"
-                      type="button"
-                      variant="ghost"
-                    >
-                      <span className="max-w-[4.5rem] truncate text-xs font-medium capitalize">
-                        {activationKeyword}
-                      </span>
-                      <ChevronDown className="h-3.5 w-3.5 opacity-70" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <TooltipContent className="buzz-huddle-tooltip" side="top">
-                  Spoken wake word — say &ldquo;{activationKeyword}{" "}
-                  AgentName&rdquo;
-                </TooltipContent>
-              </Tooltip>
-              <DropdownMenuContent
-                align="center"
-                className="buzz-huddle-drawer buzz-huddle-popover w-40 text-foreground"
-                side="top"
-                sideOffset={10}
-              >
-                <DropdownMenuRadioGroup
-                  onValueChange={handleActivationKeywordChange}
-                  value={activationKeyword}
-                >
-                  {ACTIVATION_KEYWORD_PRESETS.map((keyword) => (
-                    <DropdownMenuRadioItem
-                      className="capitalize"
-                      key={keyword}
-                      value={keyword}
-                    >
-                      {keyword}
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
 
             <Tooltip>
               <TooltipTrigger asChild>
