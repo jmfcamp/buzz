@@ -1,24 +1,42 @@
 //! Native companion-window lifecycle for an active Huddle.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 use crate::app_state::AppState;
 
-/// When true, the next huddle `Destroyed` must not restore the drawer —
-/// used while docking (manual emit) or while `open_huddle_window` destroys a
-/// zombie companion to recreate it.
-static SUPPRESS_COMPANION_RETURN: AtomicBool = AtomicBool::new(false);
+/// Count of companion destroys that must not restore the drawer.
+///
+/// Dock (`close_huddle_companion`) and zombie-recreate each note one expected
+/// `Destroyed`. A boolean suppress flag was wrong: `open_huddle_window` cleared
+/// it before a late `Destroyed` from the prior dock/recreate, so the main app
+/// flipped back to the drawer while the new companion window was still up
+/// (drawer ⊕ window both visible).
+static PENDING_SUPPRESSED_DESTROYS: AtomicU32 = AtomicU32::new(0);
+
+/// Note that the next matching `Destroyed` must not restore the drawer.
+fn note_suppress_companion_return() {
+    PENDING_SUPPRESSED_DESTROYS.fetch_add(1, Ordering::SeqCst);
+}
 
 /// Returns true once when a destroy intentionally should not dock the huddle.
 pub(crate) fn take_suppress_companion_return() -> bool {
-    SUPPRESS_COMPANION_RETURN.swap(false, Ordering::SeqCst)
-}
-
-/// Clear any leftover suppress so a later real close can restore the drawer.
-pub(crate) fn clear_suppress_companion_return() {
-    SUPPRESS_COMPANION_RETURN.store(false, Ordering::SeqCst);
+    let mut current = PENDING_SUPPRESSED_DESTROYS.load(Ordering::SeqCst);
+    loop {
+        if current == 0 {
+            return false;
+        }
+        match PENDING_SUPPRESSED_DESTROYS.compare_exchange(
+            current,
+            current - 1,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        ) {
+            Ok(_) => return true,
+            Err(observed) => current = observed,
+        }
+    }
 }
 
 /// Close the companion belonging to an ended huddle. The native lifecycle is
@@ -39,7 +57,7 @@ fn destroy_huddle_window(app: &tauri::AppHandle, label: &str, suppress_return: b
         return;
     };
     if suppress_return {
-        SUPPRESS_COMPANION_RETURN.store(true, Ordering::SeqCst);
+        note_suppress_companion_return();
     }
     // Hide first so the user does not see a lingering frame if destroy is slow.
     if let Err(error) = window.hide() {
@@ -52,9 +70,9 @@ fn destroy_huddle_window(app: &tauri::AppHandle, label: &str, suppress_return: b
         if let Err(close_error) = window.close() {
             eprintln!("buzz-desktop: failed to close huddle companion: {close_error}");
             if suppress_return {
-                // close also failed — clear the suppress flag so a later real
+                // close also failed — drop the pending suppress so a later real
                 // dock still restores the drawer.
-                SUPPRESS_COMPANION_RETURN.store(false, Ordering::SeqCst);
+                let _ = take_suppress_companion_return();
             }
         }
     }
@@ -78,11 +96,10 @@ pub fn huddle_companion_window_exists(
 /// this to restore its drawer presentation while retaining the audio session.
 ///
 /// Drawer ⊕ window: destroy must succeed before the drawer is restored so both
-/// never remain visible. Destroyed is suppressed during the intentional
-/// destroy so we emit `huddle-companion-returned` exactly once after teardown.
-/// Suppress stays set until Destroyed consumes it (or the next open clears it)
-/// so a late Destroyed cannot flip the main app back to the drawer after a
-/// subsequent expand.
+/// never remain visible. Destroyed is suppressed for this intentional teardown
+/// so we emit `huddle-companion-returned` exactly once after teardown. The
+/// pending suppress count is left for Destroyed to consume — open must never
+/// clear it, or a late Destroyed can re-open the drawer after expand.
 #[tauri::command]
 pub fn close_huddle_companion(
     app: tauri::AppHandle,
@@ -94,17 +111,17 @@ pub fn close_huddle_companion(
         .clone()
         .ok_or("no active huddle")?;
     let label = format!("huddle-{ephemeral_channel_id}");
+    // Note suppress once for the eventual Destroyed; retries must not stack.
     destroy_huddle_window(&app, &label, true);
     if app.get_webview_window(&label).is_some() {
-        // destroy() can leave a zombie on macOS; one more hide+destroy+close pass.
-        destroy_huddle_window(&app, &label, true);
+        // destroy() can leave a zombie on macOS; one more hide+destroy+close pass
+        // without another suppress note (Destroyed still consumes the one above).
+        destroy_huddle_window(&app, &label, false);
     }
     if app.get_webview_window(&label).is_some() {
-        SUPPRESS_COMPANION_RETURN.store(false, Ordering::SeqCst);
+        let _ = take_suppress_companion_return();
         return Err("failed to destroy huddle companion window".to_string());
     }
-    // Leave SUPPRESS set so a late Destroyed from this teardown does not emit
-    // again (and cannot race a later expand). open_huddle_window clears it.
     app.emit("huddle-companion-returned", ())
         .map_err(|error| error.to_string())?;
     Ok(())
@@ -125,9 +142,9 @@ pub async fn open_huddle_window(
         .ok_or("no active huddle")?;
     let label = format!("huddle-{ephemeral_channel_id}");
 
-    // A prior dock/recreate may have left suppress set; clear so a later close
-    // of this companion can restore the drawer.
-    clear_suppress_companion_return();
+    // Do NOT clear pending suppressed destroys here. A late Destroyed from a
+    // prior dock/recreate must still be consumed; clearing early was the XOR
+    // race that restored the drawer while this companion stayed open.
 
     if let Some(window) = app.get_webview_window(&label) {
         match window.show().and_then(|_| window.set_focus()) {
@@ -147,8 +164,5 @@ pub async fn open_huddle_window(
         .min_inner_size(720.0, 520.0)
         .build()
         .map_err(|error| error.to_string())?;
-    // Recreate's Destroyed may not have run yet; keep suppress only until the
-    // replacement is up, then clear so the new companion's close restores drawer.
-    clear_suppress_companion_return();
     Ok(())
 }

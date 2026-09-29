@@ -30,12 +30,20 @@ type HuddleTranscriptRouteState = {
   huddle_thread_event_id: string | null;
 };
 
+/** Main-app huddle chrome: drawer bar XOR native companion OS window. */
+type HuddlePresentation = "none" | "drawer" | "window";
+
 export function useHuddlePresentation() {
   const huddleRoomChannelId = huddleWindowChannelId();
   const isHuddleRoom = huddleRoomChannelId !== null;
-  const [isHuddleDrawerOpen, setIsHuddleDrawerOpen] = React.useState(false);
-  const [isHuddleCompanionOpen, setIsHuddleCompanionOpen] =
-    React.useState(false);
+  // Single source of truth: main app mounts the drawer bar XOR the companion
+  // OS window — never both. "window" means the native huddle companion, not an
+  // in-app expanded panel.
+  const [presentation, setPresentation] =
+    React.useState<HuddlePresentation>("none");
+  const isHuddleDrawerOpen = presentation === "drawer";
+  const isHuddleCompanionOpen = presentation === "window";
+  const presentationEpochRef = React.useRef(0);
   const [isHuddleStartPending, setIsHuddleStartPending] = React.useState(false);
   const [revealedHuddleChannelIds, setRevealedHuddleChannelIds] =
     React.useState<ReadonlySet<string>>(() => new Set());
@@ -140,17 +148,25 @@ export function useHuddlePresentation() {
   const handleHuddleStartPendingChange = React.useCallback(
     (pending: boolean) => {
       setIsHuddleStartPending(pending);
-      if (pending) setIsHuddleDrawerOpen(false);
+      if (pending) {
+        presentationEpochRef.current += 1;
+        setPresentation("none");
+      }
     },
     [],
   );
   const handleHuddleVisibilityChange = React.useCallback(
     (visible: boolean) => {
-      setIsHuddleDrawerOpen(
-        visible && !isHuddleStartPending && !isHuddleCompanionOpen,
-      );
+      // Visibility may only open the drawer. Window presentation is owned by
+      // open/dock commands so a remounted bar cannot fight an active companion.
+      if (presentation === "window" || isHuddleStartPending) return;
+      if (visible) {
+        setPresentation("drawer");
+      } else if (presentation === "drawer") {
+        setPresentation("none");
+      }
     },
-    [isHuddleCompanionOpen, isHuddleStartPending],
+    [isHuddleStartPending, presentation],
   );
   const hideHuddleChannel = React.useCallback(
     (ephemeralChannelId: string | null | undefined) => {
@@ -240,8 +256,11 @@ export function useHuddlePresentation() {
         huddleCompanionOpenPromiseRef.current = null;
       }
       hideHuddleChannel(ephemeralChannelId);
-      setIsHuddleDrawerOpen(false);
-      setIsHuddleCompanionOpen(true);
+      // Bump epoch before flipping to window so in-flight companion-returned
+      // handlers (late Destroyed after dock) cannot restore the drawer.
+      const openEpoch = presentationEpochRef.current + 1;
+      presentationEpochRef.current = openEpoch;
+      setPresentation("window");
 
       if (
         huddleCompanionChannelIdRef.current === ephemeralChannelId &&
@@ -251,16 +270,24 @@ export function useHuddlePresentation() {
       }
 
       huddleCompanionChannelIdRef.current = ephemeralChannelId;
-      const openPromise = invoke<void>("open_huddle_window").catch((error) => {
-        if (huddleCompanionChannelIdRef.current === ephemeralChannelId) {
-          huddleCompanionChannelIdRef.current = null;
-          huddleCompanionOpenPromiseRef.current = null;
-          setIsHuddleCompanionOpen(false);
-          // Failed expand must restore the drawer so neither surface is lost.
-          setIsHuddleDrawerOpen(true);
-        }
-        throw error;
-      });
+      const openPromise = invoke<void>("open_huddle_window")
+        .then(() => {
+          // Open settled — keep window presentation if this expand is current.
+          if (presentationEpochRef.current !== openEpoch) return;
+          setPresentation("window");
+        })
+        .catch((error) => {
+          if (
+            huddleCompanionChannelIdRef.current === ephemeralChannelId &&
+            presentationEpochRef.current === openEpoch
+          ) {
+            huddleCompanionChannelIdRef.current = null;
+            huddleCompanionOpenPromiseRef.current = null;
+            // Failed expand must restore the drawer so neither surface is lost.
+            setPresentation("drawer");
+          }
+          throw error;
+        });
       huddleCompanionOpenPromiseRef.current = openPromise;
       return openPromise;
     },
@@ -358,7 +385,8 @@ export function useHuddlePresentation() {
       huddleCompanionChannelIdRef.current = null;
       huddleCompanionDismissedChannelIdRef.current = null;
       huddleCompanionOpenPromiseRef.current = null;
-      setIsHuddleCompanionOpen(false);
+      presentationEpochRef.current += 1;
+      setPresentation("none");
       void queryClient.invalidateQueries({ queryKey: channelsQueryKey });
     },
     [hideHuddleChannel, queryClient, returnToHuddleParentAfterEnd],
@@ -371,29 +399,45 @@ export function useHuddlePresentation() {
     let unlisten: (() => void) | null = null;
     void listen("huddle-companion-returned", () => {
       if (cancelled) return;
-      // Ignore stale returns that race a later expand (drawer ⊕ window XOR).
-      void invoke<boolean>("huddle_companion_window_exists")
-        .catch(() => false)
-        .then((stillOpen) => {
-          if (cancelled || stillOpen) return;
-          huddleCompanionDismissedChannelIdRef.current =
-            activeHuddleChannelIdRef.current;
-          huddleCompanionChannelIdRef.current = null;
-          huddleCompanionOpenPromiseRef.current = null;
-          setIsHuddleCompanionOpen(false);
-          setIsHuddleDrawerOpen(true);
-          void invoke<HuddleTranscriptRouteState>("get_huddle_state")
-            .then((state) => {
-              if (!state.ephemeral_channel_id) return;
-              if (state.parent_channel_id) {
-                activeHuddleParentChannelIdRef.current = state.parent_channel_id;
-              }
-              showHuddleInMainApp(state.ephemeral_channel_id);
-            })
-            .catch((error) => {
-              console.error("Failed to open huddle in the main app:", error);
-            });
-        });
+      // Capture epoch at event time. An expand that starts after this bumps the
+      // epoch and must win over a late Destroyed from the prior dock/recreate.
+      const epochAtEvent = presentationEpochRef.current;
+      const settleThenDock = () => {
+        if (cancelled) return;
+        if (presentationEpochRef.current !== epochAtEvent) return;
+        void invoke<boolean>("huddle_companion_window_exists")
+          .catch(() => false)
+          .then((stillOpen) => {
+            if (cancelled || stillOpen) return;
+            if (presentationEpochRef.current !== epochAtEvent) return;
+            huddleCompanionDismissedChannelIdRef.current =
+              activeHuddleChannelIdRef.current;
+            huddleCompanionChannelIdRef.current = null;
+            huddleCompanionOpenPromiseRef.current = null;
+            presentationEpochRef.current += 1;
+            setPresentation("drawer");
+            void invoke<HuddleTranscriptRouteState>("get_huddle_state")
+              .then((state) => {
+                if (!state.ephemeral_channel_id) return;
+                if (state.parent_channel_id) {
+                  activeHuddleParentChannelIdRef.current =
+                    state.parent_channel_id;
+                }
+                showHuddleInMainApp(state.ephemeral_channel_id);
+              })
+              .catch((error) => {
+                console.error("Failed to open huddle in the main app:", error);
+              });
+          });
+      };
+      // If an expand is in flight, wait until open settles so exists() is not
+      // checked against a half-built companion (false negative → drawer+window).
+      const openPromise = huddleCompanionOpenPromiseRef.current;
+      if (openPromise) {
+        void openPromise.then(settleThenDock, settleThenDock);
+        return;
+      }
+      settleThenDock();
     }).then((cleanup) => {
       if (cancelled) cleanup();
       else unlisten = cleanup;
@@ -450,8 +494,8 @@ export function useHuddlePresentation() {
         huddleCompanionChannelIdRef.current = null;
         huddleCompanionDismissedChannelIdRef.current = null;
         huddleCompanionOpenPromiseRef.current = null;
-        setIsHuddleDrawerOpen(false);
-        setIsHuddleCompanionOpen(false);
+        presentationEpochRef.current += 1;
+        setPresentation("none");
         setIsHuddleStartPending(false);
         void queryClient.invalidateQueries({ queryKey: channelsQueryKey });
       }

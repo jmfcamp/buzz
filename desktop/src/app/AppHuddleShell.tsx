@@ -91,6 +91,9 @@ export function AppHuddleShell({
               <BuzzTheme.GradientLayer />
               {children}
             </div>
+            {/* Drawer ⊕ window XOR: main mounts the drawer bar only when the
+                companion OS window is not the active presentation. The room
+                webview always owns its own control dock. */}
             {isRoom || !isCompanionOpen ? (
               <div className="buzz-huddle-drawer-slot absolute inset-x-0 bottom-0 z-[2] min-h-(--buzz-huddle-drawer-height)">
                 <AppHuddleBar
