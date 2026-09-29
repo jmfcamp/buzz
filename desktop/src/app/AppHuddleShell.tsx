@@ -16,7 +16,7 @@ type AppHuddleShellProps = {
   isCompanionOpen: boolean;
   isDrawerOpen: boolean;
   isRoom: boolean;
-  /** Main-app presentation enum; gate mounts on `presentation === "drawer"`. */
+  /** Main-app presentation enum; main never mounts drawer (companion-only). */
   presentation: HuddlePresentation;
   onCompanionOpen: () => void | Promise<void>;
   onHuddleStartPendingChange: (pending: boolean) => void;
@@ -99,8 +99,8 @@ export function AppHuddleShell({
               <BuzzTheme.GradientLayer />
               {children}
             </div>
-            {/* Strict XOR: main mounts HuddleBar/drawer only when
-                presentation === "drawer". Companion room always keeps its bar. */}
+            {/* Companion-only: main never mounts HuddleBar. Room webview
+                always keeps its bar (`isRoom`). */}
             {isRoom || shouldMountMainHuddleDrawerBar(presentation) ? (
               <div className="buzz-huddle-drawer-slot absolute inset-x-0 bottom-0 z-[2] min-h-(--buzz-huddle-drawer-height)">
                 <AppHuddleBar

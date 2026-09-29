@@ -121,3 +121,9 @@ test("stopShare restores Share availability and clears sharing state", () => {
     /setAvailable\(\(prev\) => \(prev === false \? false : true\)\)/,
   );
 });
+
+test("permanent disconnect schedules soft resubscribe without setError", () => {
+  assert.match(src, /softResubscribeRef/);
+  assert.match(src, /onDisconnected:/);
+  assert.match(src, /screen-share soft-resubscribe/);
+});

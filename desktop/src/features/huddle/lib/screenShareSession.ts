@@ -1,4 +1,5 @@
 import {
+  ConnectionState,
   Room,
   RoomEvent,
   Track,
@@ -34,6 +35,8 @@ export class HuddleScreenShareSession {
   private localStream: MediaStream | null = null;
   private remote: ScreenShareRemote | null = null;
   private disposed = false;
+  /** True while LiveKit is mid-reconnect — do not clear remote UI. */
+  private reconnecting = false;
   /** Serialize connect/reconnect so subscribe and publish never interleave. */
   private connectTail: Promise<void> = Promise.resolve();
 
@@ -79,23 +82,54 @@ export class HuddleScreenShareSession {
     });
     room.on(RoomEvent.TrackUnsubscribed, (track) => {
       if (track.kind !== Track.Kind.Video) return;
+      // During LiveKit reconnect, tracks briefly unsubscribe then return —
+      // clearing here causes a false drop/reconnect flicker in the UI.
+      if (this.reconnecting) return;
       if (this.remote?.track === track.mediaStreamTrack) {
         this.clearRemote();
       }
     });
     room.on(RoomEvent.ParticipantDisconnected, (participant) => {
+      if (this.reconnecting) return;
       if (this.remote?.participantIdentity === participant.identity) {
         this.clearRemote();
       }
     });
+    room.on(RoomEvent.Reconnecting, () => {
+      this.reconnecting = true;
+    });
+    room.on(RoomEvent.Reconnected, () => {
+      this.reconnecting = false;
+      // Re-attach any remote screen tracks that survived the blip.
+      this.attachExistingRemoteTracks(room);
+    });
+    room.on(RoomEvent.ConnectionStateChanged, (state) => {
+      const stateName = String(state);
+      if (
+        state === ConnectionState.Reconnecting ||
+        stateName === "signalReconnecting" ||
+        stateName === "reconnecting"
+      ) {
+        this.reconnecting = true;
+        return;
+      }
+      if (state === ConnectionState.Connected || stateName === "connected") {
+        this.reconnecting = false;
+      }
+    });
     room.on(RoomEvent.Disconnected, () => {
+      // Intentionally disconnected (or permanent failure) — not a blip.
+      this.reconnecting = false;
       this.clearRemote();
       this.callbacks.onDisconnected?.();
     });
 
     await room.connect(url, token);
+    this.reconnecting = false;
+    this.attachExistingRemoteTracks(room);
+  }
 
-    // Attach any already-published remote screen tracks.
+  private attachExistingRemoteTracks(room: Room) {
     for (const participant of room.remoteParticipants.values()) {
       for (const publication of participant.trackPublications.values()) {
         if (
@@ -168,6 +202,7 @@ export class HuddleScreenShareSession {
     await this.stopShare();
     const room = this.room;
     this.room = null;
+    this.reconnecting = false;
     this.clearRemote();
     if (room) {
       try {

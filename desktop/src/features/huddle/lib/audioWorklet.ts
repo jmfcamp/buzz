@@ -122,27 +122,56 @@ export async function setupAudioWorklet(
   }
 
   // WebKit may suspend the AudioContext when the main window loses focus
-  // (e.g. companion stage). Resume on visibility / statechange so continuous
-  // captions keep receiving PCM without a manual mic toggle.
+  // (e.g. companion stage). Keep a zero-gain oscillator in the graph and
+  // aggressively resume so STT keeps receiving PCM while the companion is
+  // frontmost — visibility/focus alone was not enough (intermittent "deaf").
+  const keepAliveGain = audioContext.createGain();
+  keepAliveGain.gain.value = 0;
+  const keepAliveOsc = audioContext.createOscillator();
+  keepAliveOsc.frequency.value = 20;
+  keepAliveOsc.connect(keepAliveGain);
+  keepAliveGain.connect(audioContext.destination);
+  try {
+    keepAliveOsc.start();
+  } catch {
+    /* already started */
+  }
+
   const resumeIfNeeded = () => {
-    if (audioContext.state === "suspended") {
+    if (audioContext.state === "suspended" || audioContext.state === "interrupted") {
       void audioContext.resume().catch(() => {});
     }
   };
   const onVisibility = () => {
-    if (document.visibilityState === "visible") resumeIfNeeded();
+    // Resume even when hidden — companion focus must not starve STT.
+    resumeIfNeeded();
   };
   audioContext.addEventListener("statechange", resumeIfNeeded);
   document.addEventListener("visibilitychange", onVisibility);
   window.addEventListener("focus", resumeIfNeeded);
+  window.addEventListener("blur", resumeIfNeeded);
+  const keepAliveInterval = window.setInterval(resumeIfNeeded, 1000);
 
   return {
     stop: () => {
       workletNode.port.onmessage = null;
       pttUnlisten?.();
+      window.clearInterval(keepAliveInterval);
       audioContext.removeEventListener("statechange", resumeIfNeeded);
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", resumeIfNeeded);
+      window.removeEventListener("blur", resumeIfNeeded);
+      try {
+        keepAliveOsc.stop();
+      } catch {
+        /* already stopped */
+      }
+      try {
+        keepAliveOsc.disconnect();
+        keepAliveGain.disconnect();
+      } catch {
+        /* best-effort */
+      }
       source.disconnect();
       gainNode.disconnect();
       workletNode.disconnect();

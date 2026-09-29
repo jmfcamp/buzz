@@ -139,3 +139,17 @@ test("screenShareSession serializes reconnects", async () => {
   assert.match(src, /connectTail/);
 });
 
+
+test("screenShareSession suppresses remote clear while reconnecting", async () => {
+  const src = await import("node:fs").then((fs) =>
+    fs.readFileSync(
+      new URL("./screenShareSession.ts", import.meta.url),
+      "utf8",
+    ),
+  );
+  assert.match(src, /reconnecting/);
+  assert.match(src, /RoomEvent\.Reconnecting/);
+  assert.match(src, /RoomEvent\.Reconnected/);
+  assert.match(src, /if \(this\.reconnecting\) return/);
+  assert.match(src, /attachExistingRemoteTracks/);
+});

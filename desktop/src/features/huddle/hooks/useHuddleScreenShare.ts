@@ -76,6 +76,7 @@ function makeSessionCallbacks(setters: {
   setLocalPreviewStream: (stream: MediaStream | null) => void;
   setSharing: (sharing: boolean) => void;
   setCurrentSharer: (pubkey: string | null) => void;
+  onDisconnected?: () => void;
 }): ConstructorParameters<typeof HuddleScreenShareSession>[0] {
   return {
     onRemoteChanged: (remote: ScreenShareRemote | null) => {
@@ -92,6 +93,7 @@ function makeSessionCallbacks(setters: {
     onCurrentSharerChanged: (pubkey) => {
       setters.setCurrentSharer(pubkey);
     },
+    onDisconnected: setters.onDisconnected,
   };
 }
 
@@ -130,6 +132,8 @@ export function useHuddleScreenShare(args: {
   const parentRef = React.useRef(parentChannelId);
   parentRef.current = parentChannelId;
 
+  const softResubscribeRef = React.useRef<(() => void) | null>(null);
+
   const sessionCallbacks = React.useMemo(
     () =>
       makeSessionCallbacks({
@@ -137,6 +141,11 @@ export function useHuddleScreenShare(args: {
         setLocalPreviewStream,
         setSharing,
         setCurrentSharer,
+        onDisconnected: () => {
+          // Permanent LiveKit disconnect (not reconnect blip). Keep Share
+          // available and schedule a quiet resubscribe — no red banner.
+          softResubscribeRef.current?.();
+        },
       }),
     [],
   );
@@ -226,9 +235,50 @@ export function useHuddleScreenShare(args: {
       }
     }
 
+    softResubscribeRef.current = () => {
+      if (cancelled) return;
+      // Drop the dead session handle without flipping available/sharing UI
+      // into an error state, then reconnect the subscriber quietly.
+      const dead = sessionRef.current;
+      sessionRef.current = null;
+      if (dead) {
+        void dead.disconnect();
+      }
+      const gen = ++connectGenRef.current;
+      void (async () => {
+        if (!channelRef.current) return;
+        try {
+          const minted = await mintScreenShareToken({
+            channelId: channelRef.current,
+            parentChannelId: parentRef.current,
+            intent: "subscribe",
+          });
+          if (cancelled || gen !== connectGenRef.current) return;
+          if ("unavailable" in minted && minted.unavailable) {
+            setAvailable(false);
+            return;
+          }
+          setAvailable(true);
+          if (sessionRef.current) return;
+          const token = minted as ScreenTokenResponse;
+          const session = new HuddleScreenShareSession(sessionCallbacks);
+          sessionRef.current = session;
+          await session.connect(token.url, token.token);
+        } catch (e) {
+          if (cancelled || gen !== connectGenRef.current) return;
+          if (shouldSuppressScreenShareError(e)) {
+            console.debug("[huddle] screen-share soft-resubscribe blip", e);
+            return;
+          }
+          console.debug("[huddle] screen-share soft-resubscribe failed", e);
+        }
+      })();
+    };
+
     void connectSubscriber();
     return () => {
       cancelled = true;
+      softResubscribeRef.current = null;
       connectGenRef.current += 1;
       void teardown();
     };

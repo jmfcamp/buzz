@@ -668,6 +668,18 @@ export function HuddleProvider({
         const msg = e instanceof Error ? e.message : String(e);
         if (isRedundantHuddlePhaseError(msg)) {
           setHuddleError(null);
+          // Already in this huddle — re-present UI (companion may have been
+          // closed while presentation stayed on "window" with a stale open).
+          try {
+            const state = await invoke<{
+              ephemeral_channel_id: string | null;
+            }>("get_huddle_state");
+            if (state.ephemeral_channel_id) {
+              await onHuddleStarted?.(state.ephemeral_channel_id);
+            }
+          } catch (presentError) {
+            console.error("Failed to re-present active huddle:", presentError);
+          }
           return;
         }
 
@@ -747,6 +759,17 @@ export function HuddleProvider({
         const msg = e instanceof Error ? e.message : String(e);
         if (isRedundantHuddlePhaseError(msg)) {
           setHuddleError(null);
+          // Already joined — reopen companion / drawer instead of silent no-op.
+          try {
+            const state = await invoke<{
+              ephemeral_channel_id: string | null;
+            }>("get_huddle_state");
+            if (state.ephemeral_channel_id) {
+              await onHuddleStarted?.(state.ephemeral_channel_id);
+            }
+          } catch (presentError) {
+            console.error("Failed to re-present active huddle:", presentError);
+          }
           return;
         }
 

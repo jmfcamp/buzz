@@ -1,16 +1,18 @@
-/** Main-app huddle chrome: drawer bar XOR native companion OS window. */
+/** Main-app huddle chrome: companion OS window only (drawer type retained for compat). */
 export type HuddlePresentation = "none" | "drawer" | "window";
 
 /**
- * Main webview only: mount the drawer / HuddleBar when presentation is
- * explicitly `"drawer"`. `"none"` stays unmounted (no always-on bar before
- * dock). `"window"` stays unmounted so the companion owns chrome (XOR).
- * The companion room webview always mounts its own bar separately (`isRoom`).
+ * Main webview must NEVER mount the drawer / HuddleBar.
+ *
+ * Product: huddle UI lives only on the companion (or dedicated huddle surface).
+ * Mounting on main caused a dock flash on start/join and briefly connected a
+ * second LiveKit share session. `"drawer"` remains in the presentation enum for
+ * legacy callers but is not a mount path.
  */
 export function shouldMountMainHuddleDrawerBar(
-  presentation: HuddlePresentation,
+  _presentation: HuddlePresentation,
 ): boolean {
-  return presentation === "drawer";
+  return false;
 }
 
 type ReconcileOptions = {
@@ -23,8 +25,10 @@ type ReconcileOptions = {
 /**
  * Reconcile React presentation with native `huddle_companion_window_exists`.
  * Native existence wins: if the companion webview is in the window map, main
- * must be `"window"` so the drawer bar unmounts (XOR). Returns null when the
- * current presentation already matches.
+ * must be `"window"` so drawer chrome stays unmounted (XOR). Returns null when
+ * the current presentation already matches.
+ *
+ * When the companion is gone, demote to `"none"` — never `"drawer"` on main.
  */
 export function reconcilePresentationWithNativeExists(
   presentation: HuddlePresentation,
@@ -37,29 +41,35 @@ export function reconcilePresentationWithNativeExists(
   if (options.openInFlight) {
     return null;
   }
-  if (presentation !== "window") {
+  if (presentation !== "window" && presentation !== "drawer") {
     return null;
   }
-  return options.huddleActive ? "drawer" : "none";
+  // Companion gone (or legacy drawer): keep main chrome unmounted.
+  return "none";
 }
 
 /**
- * Main may mount the drawer bar only after companion open is no longer the
- * active path. During start/join (pending) or while open_huddle_window is
- * in flight, stay on `"none"` so the main dock never flashes before the
- * companion loads. Promote when the user docked (dismissed) or when start
- * settled with no companion and no open in flight.
+ * Main must never promote to drawer. Kept as a named gate so call sites stay
+ * explicit; always false under the companion-only product rule.
  */
-export function shouldPromoteNoneToDrawer(options: {
+export function shouldPromoteNoneToDrawer(_options: {
   presentation: HuddlePresentation;
   companionExists: boolean;
   openInFlight: boolean;
   startPending: boolean;
 }): boolean {
-  if (options.presentation !== "none") return false;
-  if (options.companionExists) return false;
-  if (options.openInFlight) return false;
-  if (options.startPending) return false;
-  // Settled fallback / dismissed dock — caller also requires active phase.
-  return true;
+  return false;
+}
+
+/**
+ * Coalesce `open_huddle_window` only while an invoke is in flight for the same
+ * channel. A settled prior open must not skip native open — the OS companion
+ * may already be gone, and flipping presentation to "window" without a real
+ * window leaves the session with no huddle surface.
+ */
+export function shouldCoalesceHuddleCompanionOpen(options: {
+  sameChannel: boolean;
+  openInFlight: boolean;
+}): boolean {
+  return options.sameChannel && options.openInFlight;
 }
