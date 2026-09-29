@@ -1,9 +1,11 @@
 //! Drive browser viewport recording (WKWebView snapshots → MP4 → grant chat).
 //!
-//! v1: agents start/stop via MCP `record-request.json`. Desktop captures the
-//! Drive WKWebView with the same snapshot path as Drive stills, encodes H.264
-//! MP4 (no audio), uploads, and posts as the grant agent into the bound
-//! channel/thread.
+//! Opt-in only: agents start/stop via MCP `record-request.json` when a runbook
+//! step or the user asks for a section clip. Never auto-starts on Drive grant.
+//! Desktop captures the Drive WKWebView with the same snapshot path as Drive
+//! stills, encodes H.264 MP4 (no audio), uploads, and posts as the grant agent
+//! into the bound channel/thread. `stop` ends early; max duration is a safety
+//! cap only.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -19,10 +21,11 @@ use super::BrowserAgentState;
 
 /// Snapshot cadence while recording (~4 fps).
 pub const RECORD_FRAME_INTERVAL_MS: u64 = 250;
-/// Hard stop so a forgotten recording cannot fill disk.
-pub const RECORD_MAX_DURATION_MS: u64 = 60_000;
-/// Cap frames independently of duration (250ms × 240 ≈ 60s).
-pub const RECORD_MAX_FRAMES: u32 = 240;
+/// Safety hard stop if the agent forgets `browser_record_stop_and_post`.
+/// Sized for a multi-step “record this section” clip; stop ends early.
+pub const RECORD_MAX_DURATION_MS: u64 = 180_000;
+/// Cap frames independently of duration (250ms × 720 ≈ 180s).
+pub const RECORD_MAX_FRAMES: u32 = 720;
 /// Encode framerate passed to ffmpeg (matches capture cadence).
 pub const RECORD_FPS: u32 = 4;
 
@@ -724,8 +727,9 @@ mod tests {
     #[test]
     fn record_limits_are_sane_for_v1() {
         assert!(RECORD_FRAME_INTERVAL_MS >= 100);
-        assert!(RECORD_MAX_DURATION_MS <= 120_000);
-        assert!(RECORD_MAX_FRAMES >= 8);
+        assert_eq!(RECORD_MAX_DURATION_MS, 180_000);
+        assert!(RECORD_MAX_DURATION_MS <= 300_000);
+        assert_eq!(RECORD_MAX_FRAMES, 720);
         assert_eq!(RECORD_FPS, 4);
     }
 }

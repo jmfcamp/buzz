@@ -392,7 +392,7 @@ pub fn observe_poll(p: ObservePollParams) -> Result<CallToolResult, ErrorData> {
                 "browser_runbook_propose"
             ]
         },
-        "runbookNote": "runbook.agentBrief + active procedures + driveProtocol. Prefer surfaceId. browser_snapshot waits inline. browser_record_start/stop_and_post for Drive viewport MP4 to grant channel/thread. browser_fill_field for forms. browser_runbook_propose auto-activates unless the title is human-persisted. Agent brief is human-owned."
+        "runbookNote": "runbook.agentBrief + active procedures + driveProtocol. Prefer surfaceId. browser_snapshot waits inline. browser_record_start/stop_and_post are OPT-IN section clips only — call when the runbook/user asks for that section; never auto-start on Drive grant. browser_fill_field for forms. browser_runbook_propose auto-activates unless the title is human-persisted. Agent brief is human-owned."
     });
     Ok(CallToolResult::success(vec![Content::text(
         body.to_string(),
@@ -1462,7 +1462,7 @@ pub fn record_start(p: RecordStartParams) -> Result<CallToolResult, ErrorData> {
             "surfaceId": grant_surface_id(&grant),
             "grant": grant,
             "result": payload,
-            "note": "Recording Drive WKWebView viewport (~4 fps, max 60s). Call browser_record_stop_and_post to encode MP4 and post to the grant channel/thread."
+            "note": "Opt-in section recording (~4 fps; safety max ~180s). Call browser_record_stop_and_post when the section is done (ends early) to encode MP4 and post to the grant channel/thread. Do not start unless the runbook/user asked for this clip."
         })
         .to_string(),
     )]))

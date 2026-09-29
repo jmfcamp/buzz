@@ -165,7 +165,7 @@ impl DevMcp {
 
     #[tool(
         name = "browser_record_start",
-        description = "Start Drive viewport recording for a Buzz browser you hold in Drive mode. Prefer surface_id. Desktop captures the WKWebView (~4 fps, max 60s, no audio) with the same snapshot path as Drive stills. Returns {ok, requestId, surfaceId, result}. Call browser_record_stop_and_post to encode MP4 and post to the grant channel/thread. Requires BUZZ_AGENT_PUBKEY."
+        description = "Opt-in: start Drive viewport recording ONLY when a runbook step or the user asks for a section clip — never on Drive grant begin. Prefer surface_id. Desktop captures the WKWebView (~4 fps, no audio; safety max ~180s; stop_and_post ends early) with the same snapshot path as Drive stills. Returns {ok, requestId, surfaceId, result}. Call browser_record_stop_and_post after the section. Requires BUZZ_AGENT_PUBKEY."
     )]
     async fn browser_record_start(
         &self,
@@ -176,7 +176,7 @@ impl DevMcp {
 
     #[tool(
         name = "browser_record_stop_and_post",
-        description = "Stop Drive viewport recording, encode H.264 MP4, upload, and post as the grant agent into the bound channel/thread. Prefer surface_id. Optional caption. Waits for record_posted|record_error (default 90s). Returns {ok, requestId, channelId, threadRoot, result}. Requires Drive grant + BUZZ_AGENT_PUBKEY."
+        description = "Stop the current opt-in Drive viewport recording early (does not wait for the ~180s safety cap), encode H.264 MP4, upload, and post as the grant agent into the bound channel/thread. Prefer surface_id. Optional caption. Waits for record_posted|record_error (default 90s). Returns {ok, requestId, channelId, threadRoot, result}. Requires Drive grant + BUZZ_AGENT_PUBKEY."
     )]
     async fn browser_record_stop_and_post(
         &self,
