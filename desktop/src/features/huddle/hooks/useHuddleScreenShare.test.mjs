@@ -30,3 +30,49 @@ test("startShare clears preview on failure after acquire", () => {
   assert.match(body, /setLocalPreviewStream\(null\)/);
   assert.match(body, /stopMediaStreamTracks\(acquired\)/);
 });
+
+test("PC connect failure does not set available false", () => {
+  // Only relay unavailable may hide Share. Catch paths must not demote
+  // available after a mint that proved LiveKit is configured.
+  const catchBlocks = [...src.matchAll(/\} catch \(e\) \{([\s\S]*?)\n      \}/g)].map(
+    (m) => m[1],
+  );
+  assert.ok(catchBlocks.length >= 2, "expected subscriber + startShare catches");
+  for (const block of catchBlocks) {
+    assert.doesNotMatch(
+      block,
+      /setAvailable\(false\)/,
+      "connect/share catch must not hide Share",
+    );
+  }
+  assert.match(src, /setAvailable\(false\)/);
+  assert.match(src, /unavailable/);
+});
+
+test("connect generation invalidates stale subscriber after startShare", () => {
+  assert.match(src, /connectGenRef/);
+  const start = src.indexOf("const startShare");
+  const body = src.slice(start, src.indexOf("const stopShare", start));
+  assert.match(body, /connectGenRef\.current \+= 1/);
+  assert.match(src, /gen !== connectGenRef\.current/);
+});
+
+test("subscriber effect does not reconnect when parentChannelId changes", () => {
+  const effect = src.slice(
+    src.indexOf("React.useEffect(() => {"),
+    src.indexOf("const startShare"),
+  );
+  assert.match(
+    effect,
+    /\[active, channelId, sessionCallbacks, teardown\]/,
+  );
+  assert.doesNotMatch(
+    effect,
+    /\[active, channelId, parentChannelId/,
+  );
+  assert.match(effect, /parentRef\.current/);
+});
+
+test("subscriber skips installing a session when startShare already owns one", () => {
+  assert.match(src, /if \(sessionRef\.current\) \{\s*return;/);
+});
