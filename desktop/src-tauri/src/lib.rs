@@ -82,6 +82,7 @@ use huddle::{
     reconnect::reconnect_huddle_audio,
     remove_agent_from_huddle, set_huddle_manual_mic_unmuted, set_huddle_transcription_enabled,
     set_tts_enabled, set_voice_input_mode, speak_agent_message, start_huddle, start_stt_pipeline,
+    huddle_screen_stop, huddle_screen_token,
     HuddlePhase,
 };
 use initial_window::*;
@@ -808,6 +809,8 @@ pub fn run() {
             get_liked_notes,
             start_huddle,
             join_huddle,
+            huddle_screen_token,
+            huddle_screen_stop,
             leave_huddle,
             end_huddle,
             get_huddle_state,
