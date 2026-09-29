@@ -87,6 +87,7 @@ import { useProtectedVisibleDirectMessages } from "@protected-feature-components
 export function AppSidebar({
   addCommunityPrefill,
   activeCommunity,
+  archivedHuddleChannels = [],
   channels,
   currentPubkey,
   fallbackDisplayName,
@@ -255,6 +256,7 @@ export function AppSidebar({
     channels: false,
     forums: false,
     directMessages: false,
+    archivedHuddles: true,
   });
 
   const toggleCollapsedGroup = React.useCallback(
@@ -668,13 +670,17 @@ export function AppSidebar({
                         communityChannelsById,
                         starredChannelIds,
                       ),
-                      sortModeFor(sectionSortGroupKey(`community:${section.id}`)),
+                      sortModeFor(
+                        sectionSortGroupKey(`community:${section.id}`),
+                      ),
                     );
                     return (
                       <SidebarSection
                         activeWorkingByChannelId={activeWorkingByChannelId}
                         isActiveChannel={selectedView === "channel"}
-                        isCollapsed={collapsedSections[`community:${section.id}`] ?? false}
+                        isCollapsed={
+                          collapsedSections[`community:${section.id}`] ?? false
+                        }
                         items={sectionChannels}
                         key={`community-section-${section.id}`}
                         mutedChannelIds={mutedChannelIds}
@@ -872,6 +878,25 @@ export function AppSidebar({
                     testId="dm-list"
                     title="Direct messages"
                     sectionActionsOpen={dmActionsMenuOpen}
+                    unreadChannelCounts={unreadChannelCounts}
+                    unreadChannelIds={unreadChannelIds}
+                    mutedChannelIds={mutedChannelIds}
+                    onMuteChannel={onMuteChannel}
+                    onUnmuteChannel={onUnmuteChannel}
+                  />
+                  <SidebarSection
+                    isActiveChannel={selectedView === "channel"}
+                    isCollapsed={collapsedGroups.archivedHuddles}
+                    items={archivedHuddleChannels}
+                    onMarkChannelRead={onMarkChannelRead}
+                    onMarkChannelUnread={onMarkChannelUnread}
+                    onSelectChannel={onSelectChannel}
+                    onToggleCollapsed={() =>
+                      toggleCollapsedGroup("archivedHuddles")
+                    }
+                    selectedChannelId={selectedChannelId}
+                    testId="archived-huddles-list"
+                    title="Archived Huddles"
                     unreadChannelCounts={unreadChannelCounts}
                     unreadChannelIds={unreadChannelIds}
                     mutedChannelIds={mutedChannelIds}

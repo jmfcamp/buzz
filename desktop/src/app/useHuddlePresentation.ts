@@ -57,6 +57,16 @@ export function useHuddlePresentation() {
     ReadonlySet<string>
   >(loadHuddleBackingChannelIds);
   const activeHuddleChannelIdRef = React.useRef<string | null>(null);
+  const [activeHuddleChannelId, setActiveHuddleChannelId] = React.useState<
+    string | null
+  >(null);
+  const setActiveHuddleChannel = React.useCallback(
+    (channelId: string | null) => {
+      activeHuddleChannelIdRef.current = channelId;
+      setActiveHuddleChannelId(channelId);
+    },
+    [],
+  );
   const huddleCompanionChannelIdRef = React.useRef<string | null>(null);
   const huddleCompanionDismissedChannelIdRef = React.useRef<string | null>(
     null,
@@ -170,16 +180,13 @@ export function useHuddlePresentation() {
     },
     [],
   );
-  const handleHuddleVisibilityChange = React.useCallback(
-    (visible: boolean) => {
-      // Companion-only product: visibility must never mount main drawer chrome.
-      // Opening the companion is owned by start/join / indicator / PIP.
-      if (!visible && presentationRef.current === "drawer") {
-        setPresentation("none");
-      }
-    },
-    [],
-  );
+  const handleHuddleVisibilityChange = React.useCallback((visible: boolean) => {
+    // Companion-only product: visibility must never mount main drawer chrome.
+    // Opening the companion is owned by start/join / indicator / PIP.
+    if (!visible && presentationRef.current === "drawer") {
+      setPresentation("none");
+    }
+  }, []);
   const hideHuddleChannel = React.useCallback(
     (ephemeralChannelId: string | null | undefined) => {
       if (!ephemeralChannelId) return;
@@ -247,7 +254,7 @@ export function useHuddlePresentation() {
 
   const openHuddleCompanion = React.useCallback(
     (ephemeralChannelId: string, options?: { force?: boolean }) => {
-      activeHuddleChannelIdRef.current = ephemeralChannelId;
+      setActiveHuddleChannel(ephemeralChannelId);
       trackHuddleBackingChannel(ephemeralChannelId);
 
       // Auto-open (huddle start / creating phase) must not fight an explicit
@@ -340,7 +347,7 @@ export function useHuddlePresentation() {
       huddleCompanionOpenPromiseRef.current = openPromise;
       return openPromise;
     },
-    [hideHuddleChannel, trackHuddleBackingChannel],
+    [hideHuddleChannel, setActiveHuddleChannel, trackHuddleBackingChannel],
   );
   const handleHuddleCompanionOpen = React.useCallback(async () => {
     const ephemeralChannelId = activeHuddleChannelIdRef.current;
@@ -400,11 +407,11 @@ export function useHuddlePresentation() {
   );
   const showHuddleInMainApp = React.useCallback(
     (ephemeralChannelId: string) => {
-      activeHuddleChannelIdRef.current = ephemeralChannelId;
+      setActiveHuddleChannel(ephemeralChannelId);
       trackHuddleBackingChannel(ephemeralChannelId);
       viewHuddleChannel(ephemeralChannelId);
     },
-    [trackHuddleBackingChannel, viewHuddleChannel],
+    [setActiveHuddleChannel, trackHuddleBackingChannel, viewHuddleChannel],
   );
   const handleSidebarChannelSelect = React.useCallback(
     (channelId: string) => {
@@ -429,7 +436,7 @@ export function useHuddlePresentation() {
         activeHuddleParentChannelIdRef.current,
       );
       hideHuddleChannel(endedChannelId);
-      activeHuddleChannelIdRef.current = null;
+      setActiveHuddleChannel(null);
       activeHuddleParentChannelIdRef.current = null;
       huddleCompanionChannelIdRef.current = null;
       huddleCompanionDismissedChannelIdRef.current = null;
@@ -440,7 +447,12 @@ export function useHuddlePresentation() {
       setPresentation("none");
       void queryClient.invalidateQueries({ queryKey: channelsQueryKey });
     },
-    [hideHuddleChannel, queryClient, returnToHuddleParentAfterEnd],
+    [
+      hideHuddleChannel,
+      queryClient,
+      returnToHuddleParentAfterEnd,
+      setActiveHuddleChannel,
+    ],
   );
 
   // Heal React↔native desync: if the companion OS window exists, main must
@@ -544,7 +556,10 @@ export function useHuddlePresentation() {
                 returnMainWindowToHuddleParent(state);
               })
               .catch((error) => {
-                console.error("Failed to restore parent after companion close:", error);
+                console.error(
+                  "Failed to restore parent after companion close:",
+                  error,
+                );
               });
           });
       };
@@ -552,7 +567,10 @@ export function useHuddlePresentation() {
       // checked against a half-built companion (false negative → drawer+window).
       const openPromise = huddleCompanionOpenPromiseRef.current;
       if (openPromise) {
-        void openPromise.then(settleAfterCompanionClose, settleAfterCompanionClose);
+        void openPromise.then(
+          settleAfterCompanionClose,
+          settleAfterCompanionClose,
+        );
         return;
       }
       settleAfterCompanionClose();
@@ -572,7 +590,7 @@ export function useHuddlePresentation() {
     void invoke<HuddleTranscriptRouteState>("get_huddle_state")
       .then((state) => {
         if (cancelled || !state.ephemeral_channel_id) return;
-        activeHuddleChannelIdRef.current = state.ephemeral_channel_id;
+        setActiveHuddleChannel(state.ephemeral_channel_id);
         trackHuddleBackingChannel(state.ephemeral_channel_id);
         if (state.parent_channel_id) {
           activeHuddleParentChannelIdRef.current = state.parent_channel_id;
@@ -584,7 +602,7 @@ export function useHuddlePresentation() {
     listen<HuddleTranscriptRouteState>("huddle-state-changed", (event) => {
       if (cancelled) return;
       if (event.payload.ephemeral_channel_id) {
-        activeHuddleChannelIdRef.current = event.payload.ephemeral_channel_id;
+        setActiveHuddleChannel(event.payload.ephemeral_channel_id);
         trackHuddleBackingChannel(event.payload.ephemeral_channel_id);
       }
       if (event.payload.parent_channel_id) {
@@ -618,7 +636,10 @@ export function useHuddlePresentation() {
       ) {
         void openHuddleCompanion(event.payload.ephemeral_channel_id).catch(
           (error) => {
-            console.error("Failed to open huddle companion for active session:", error);
+            console.error(
+              "Failed to open huddle companion for active session:",
+              error,
+            );
           },
         );
       }
@@ -627,7 +648,7 @@ export function useHuddlePresentation() {
         const parentChannelId = activeHuddleParentChannelIdRef.current;
         returnToHuddleParentAfterEnd(endedChannelId, parentChannelId);
         hideHuddleChannel(endedChannelId);
-        activeHuddleChannelIdRef.current = null;
+        setActiveHuddleChannel(null);
         activeHuddleParentChannelIdRef.current = null;
         huddleCompanionChannelIdRef.current = null;
         huddleCompanionDismissedChannelIdRef.current = null;
@@ -653,10 +674,12 @@ export function useHuddlePresentation() {
     openHuddleCompanion,
     queryClient,
     returnToHuddleParentAfterEnd,
+    setActiveHuddleChannel,
     trackHuddleBackingChannel,
   ]);
 
   return {
+    activeHuddleChannelId,
     handleHuddleCompanionOpen,
     handleHuddleEnded,
     handleHuddleStartPendingChange,
