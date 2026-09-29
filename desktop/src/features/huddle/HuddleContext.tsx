@@ -5,6 +5,7 @@ import * as React from "react";
 import { setupAudioWorklet, type AudioWorkletHandle } from "./lib/audioWorklet";
 import {
   shouldClaimHuddleMedia,
+  shouldEndRustSessionOnAudioOwnerUnmount,
   shouldSetupMediaOnHuddleStart,
 } from "./lib/huddleAudioSession";
 import { type AudioInputDevice, useAudioDevices } from "./lib/useAudioDevices";
@@ -25,11 +26,12 @@ import type {
 /**
  * Huddle lifecycle (React context):
  *   Main (ownsAudioSession=false): startHuddle/joinHuddle → invoke(start/join_huddle)
- *     → confirm_huddle_active → open companion (no getUserMedia on main).
+ *     → open companion (no getUserMedia; do not confirm Active yet).
  *   Companion (ownsAudioSession=true): claim getUserMedia + AudioWorklet when Rust
- *     reports connected/active so PCM survives companion focus (main AudioContext
- *     is suspended by WKWebView → deaf STT).
+ *     reports connected/active → confirm_huddle_active so PCM survives companion
+ *     focus (main AudioContext is suspended by WKWebView → deaf STT).
  *   TTS subscription: only on the audio owner (companion) → speak_agent_message
+ *   Audio-owner unmount: release mic only — never leave_huddle (reopen / remount).
  *   leaveHuddle: stop worklet → stop mic track → invoke(leave_huddle)
  *   Active speakers: Tauri "huddle-active-speakers" event (Rust backend emits)
  */
@@ -672,9 +674,10 @@ export function HuddleProvider({
             throw e;
           }
         } else {
-          // Companion owns capture — confirm Active so room can claim mic.
+          // Companion owns capture + confirms Active after mic claim. Main must
+          // not confirm here: Creating-phase companion open can remount/leave and
+          // race this into `cannot confirm active: phase is Idle`.
           setEphemeralChannelId(joinInfo.ephemeral_channel_id);
-          await invoke("confirm_huddle_active");
         }
         try {
           await onHuddleStarted?.(joinInfo.ephemeral_channel_id);
@@ -770,8 +773,8 @@ export function HuddleProvider({
             throw e;
           }
         } else {
+          // Same as start: companion confirms Active after claiming mic.
           setEphemeralChannelId(joinInfo.ephemeral_channel_id);
-          await invoke("confirm_huddle_active");
         }
         try {
           await onHuddleStarted?.(joinInfo.ephemeral_channel_id);
@@ -988,13 +991,22 @@ export function HuddleProvider({
     };
   }, [ownsAudioSession]);
 
-  // Cleanup on unmount only — stable ref prevents re-firing mid-startup.
+  // Stable refs for async/unmount paths (avoid re-firing mid-startup).
   const leaveHuddleRef = React.useRef(leaveHuddle);
   leaveHuddleRef.current = leaveHuddle;
+  const disconnectMediaRef = React.useRef(disconnectMedia);
+  disconnectMediaRef.current = disconnectMedia;
+  // Audio-owner unmount releases mic only. Ending the Rust session here races
+  // Creating-phase companion remount/recreate against main start/join and was
+  // the `cannot confirm active: phase is Idle` crash after companion-owns-audio.
   React.useEffect(() => {
     if (!ownsAudioSession) return;
     return () => {
-      void leaveHuddleRef.current();
+      if (shouldEndRustSessionOnAudioOwnerUnmount()) {
+        void leaveHuddleRef.current();
+        return;
+      }
+      void disconnectMediaRef.current();
     };
   }, [ownsAudioSession]);
 

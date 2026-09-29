@@ -24,6 +24,16 @@ export function shouldSetupMediaOnHuddleStart(
 }
 
 /**
+ * Audio-owner unmount (companion remount / close / Strict Mode / zombie recreate)
+ * must release mic but must NOT end the Rust session. Ending is Leave only —
+ * otherwise Creating-phase early open races main's start and yields
+ * `cannot confirm active: phase is Idle`.
+ */
+export function shouldEndRustSessionOnAudioOwnerUnmount(): boolean {
+  return false;
+}
+
+/**
  * Companion (or any audio owner) should claim mic once Rust is live and local
  * capture is not already running.
  */

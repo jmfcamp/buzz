@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 
 import {
   shouldClaimHuddleMedia,
+  shouldEndRustSessionOnAudioOwnerUnmount,
   shouldOwnHuddleAudioSession,
   shouldSetupMediaOnHuddleStart,
 } from "./huddleAudioSession.ts";
@@ -16,6 +17,10 @@ describe("huddleAudioSession", () => {
   test("only the audio owner sets up media on start/join", () => {
     assert.equal(shouldSetupMediaOnHuddleStart(true), true);
     assert.equal(shouldSetupMediaOnHuddleStart(false), false);
+  });
+
+  test("audio-owner unmount releases mic but does not end Rust session", () => {
+    assert.equal(shouldEndRustSessionOnAudioOwnerUnmount(), false);
   });
 
   test("companion claims media for connected/active sessions once", () => {
