@@ -1,6 +1,10 @@
 import * as React from "react";
 import { AppHuddleBar } from "@/app/AppHuddleBar";
 import * as BuzzTheme from "@/app/BuzzThemeSurfaces";
+import {
+  type HuddlePresentation,
+  shouldMountMainHuddleDrawerBar,
+} from "@/app/huddlePresentation";
 import { HuddleProvider, useHuddle } from "@/features/huddle";
 import { HUDDLE_SHORTCUT_EVENT } from "@/shared/lib/keyboard-shortcuts";
 import { RemindMeLaterProvider } from "@/features/reminders/ui/RemindMeLaterProvider";
@@ -12,6 +16,8 @@ type AppHuddleShellProps = {
   isCompanionOpen: boolean;
   isDrawerOpen: boolean;
   isRoom: boolean;
+  /** Main-app presentation enum; gate mounts on `presentation !== "window"`. */
+  presentation: HuddlePresentation;
   onCompanionOpen: () => void | Promise<void>;
   onHuddleStartPendingChange: (pending: boolean) => void;
   onHuddleStarted: (ephemeralChannelId: string) => void | Promise<void>;
@@ -48,6 +54,7 @@ export function AppHuddleShell({
   isCompanionOpen,
   isDrawerOpen,
   isRoom,
+  presentation,
   onCompanionOpen,
   onHuddleStartPendingChange,
   onHuddleStarted,
@@ -70,6 +77,7 @@ export function AppHuddleShell({
           <div
             className="buzz-huddle-shell relative h-dvh overflow-hidden overscroll-none"
             data-huddle-open={isDrawerOpen}
+            data-huddle-companion={isCompanionOpen || presentation === "window"}
             data-huddle-window={isRoom}
           >
             <div
@@ -91,10 +99,9 @@ export function AppHuddleShell({
               <BuzzTheme.GradientLayer />
               {children}
             </div>
-            {/* Drawer ⊕ window XOR: main mounts the drawer bar only when the
-                companion OS window is not the active presentation. The room
-                webview always owns its own control dock. */}
-            {isRoom || !isCompanionOpen ? (
+            {/* Strict XOR: main mounts HuddleBar/drawer only when
+                presentation !== "window". Companion room always keeps its bar. */}
+            {isRoom || shouldMountMainHuddleDrawerBar(presentation) ? (
               <div className="buzz-huddle-drawer-slot absolute inset-x-0 bottom-0 z-[2] min-h-(--buzz-huddle-drawer-height)">
                 <AppHuddleBar
                   mode={isRoom ? "room" : "main"}
