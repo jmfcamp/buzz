@@ -12,7 +12,7 @@ type AppHuddleShellProps = {
   isCompanionOpen: boolean;
   isDrawerOpen: boolean;
   isRoom: boolean;
-  onCompanionOpen: () => void;
+  onCompanionOpen: () => void | Promise<void>;
   onHuddleStartPendingChange: (pending: boolean) => void;
   onHuddleStarted: (ephemeralChannelId: string) => void | Promise<void>;
   onShowHuddleInMainApp: (ephemeralChannelId: string) => void;

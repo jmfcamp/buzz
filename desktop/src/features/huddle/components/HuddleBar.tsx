@@ -74,7 +74,7 @@ type HuddleBarProps = {
   /** The companion window owns the full controls; the main app only opens it. */
   mode?: "main" | "room";
   /** Called after the companion window has been opened successfully. */
-  onOpenHuddleWindow?: () => void;
+  onOpenHuddleWindow?: () => void | Promise<void>;
   onOpenThread?: (channelId: string, messageId: string) => void;
   onVisibilityChange?: (visible: boolean) => void;
 };
@@ -668,10 +668,9 @@ export function HuddleBar({
 
   async function handleOpenHuddleWindow() {
     try {
-      // Mark companion presentation first so a dismissed-to-drawer guard cannot
-      // swallow a later auto-open, then ask native to show/create the window.
-      onOpenHuddleWindow?.();
-      await invoke("open_huddle_window");
+      // Presentation owns native open so drawer ⊕ window stay exclusive and a
+      // failed open can revert the main shell without a second invoke here.
+      await onOpenHuddleWindow?.();
       dismissHeadphonesHint();
     } catch (error) {
       console.error("Failed to open huddle window:", error);

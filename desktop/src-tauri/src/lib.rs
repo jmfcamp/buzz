@@ -76,7 +76,7 @@ use deep_link::{
 use huddle::{
     add_agent_to_huddle,
     audio_output::{get_audio_output_device, list_audio_output_devices, set_audio_output_device},
-    check_pipeline_hotstart, close_huddle_companion, confirm_huddle_active, download_voice_models,
+    check_pipeline_hotstart, close_huddle_companion, confirm_huddle_active, huddle_companion_window_exists, download_voice_models,
     end_huddle, get_huddle_agent_pubkeys, get_huddle_state, get_model_status, get_voice_input_mode,
     interrupt_huddle_speech, join_huddle, leave_huddle, open_huddle_window, push_audio_pcm,
     reconnect::reconnect_huddle_audio,
@@ -817,6 +817,7 @@ pub fn run() {
             end_huddle,
             get_huddle_state,
             close_huddle_companion,
+            huddle_companion_window_exists,
             open_huddle_window,
             popout_window::open_popout_window,
             popout_window::list_popout_windows,
@@ -988,8 +989,21 @@ pub fn run() {
             event: WindowEvent::CloseRequested { .. },
             ..
         } if label.starts_with("huddle-") => {
-            // open_huddle_window may destroy a zombie companion to recreate it;
-            // that CloseRequested must not flip the main app back to the drawer.
+            // Hide immediately so the OS frame is gone before Destroyed fires and
+            // the main window restores the drawer (drawer ⊕ window exclusivity).
+            if let Some(window) = app_handle.get_webview_window(&label) {
+                if let Err(error) = window.hide() {
+                    eprintln!("buzz-desktop: failed to hide huddle companion on close: {error}");
+                }
+            }
+        }
+        RunEvent::WindowEvent {
+            label,
+            event: WindowEvent::Destroyed,
+            ..
+        } if label.starts_with("huddle-") => {
+            // Dock / zombie-recreate destroy paths set suppress so they can emit
+            // (or skip) deliberately. Only a real companion teardown restores drawer.
             if huddle::window::take_suppress_companion_return() {
                 // consumed
             } else {

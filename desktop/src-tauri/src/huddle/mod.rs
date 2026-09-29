@@ -89,7 +89,7 @@ pub use transcription::{
     set_huddle_activation_keyword, set_huddle_transcription_enabled, start_stt_pipeline,
 };
 pub use tts_settings::set_tts_enabled;
-pub use window::{close_huddle_companion, open_huddle_window};
+pub use window::{close_huddle_companion, huddle_companion_window_exists, open_huddle_window};
 
 // ── Imports ───────────────────────────────────────────────────────────────────
 

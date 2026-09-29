@@ -6,13 +6,19 @@ use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 use crate::app_state::AppState;
 
-/// When true, the next huddle `CloseRequested` must not restore the drawer —
-/// used while `open_huddle_window` destroys a zombie companion to recreate it.
+/// When true, the next huddle `Destroyed` must not restore the drawer —
+/// used while docking (manual emit) or while `open_huddle_window` destroys a
+/// zombie companion to recreate it.
 static SUPPRESS_COMPANION_RETURN: AtomicBool = AtomicBool::new(false);
 
 /// Returns true once when a destroy intentionally should not dock the huddle.
 pub(crate) fn take_suppress_companion_return() -> bool {
     SUPPRESS_COMPANION_RETURN.swap(false, Ordering::SeqCst)
+}
+
+/// Clear any leftover suppress so a later real close can restore the drawer.
+pub(crate) fn clear_suppress_companion_return() {
+    SUPPRESS_COMPANION_RETURN.store(false, Ordering::SeqCst);
 }
 
 /// Close the companion belonging to an ended huddle. The native lifecycle is
@@ -54,12 +60,29 @@ fn destroy_huddle_window(app: &tauri::AppHandle, label: &str, suppress_return: b
     }
 }
 
+/// Whether the active huddle still has a companion webview in the window map.
+#[tauri::command]
+pub fn huddle_companion_window_exists(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let ephemeral_channel_id = match state.huddle()?.ephemeral_channel_id.clone() {
+        Some(id) if !id.is_empty() => id,
+        _ => return Ok(false),
+    };
+    let label = format!("huddle-{ephemeral_channel_id}");
+    Ok(app.get_webview_window(&label).is_some())
+}
+
 /// Close the active companion without leaving the huddle. The main window uses
 /// this to restore its drawer presentation while retaining the audio session.
 ///
 /// Drawer ⊕ window: destroy must succeed before the drawer is restored so both
-/// never remain visible. CloseRequested is suppressed during the intentional
+/// never remain visible. Destroyed is suppressed during the intentional
 /// destroy so we emit `huddle-companion-returned` exactly once after teardown.
+/// Suppress stays set until Destroyed consumes it (or the next open clears it)
+/// so a late Destroyed cannot flip the main app back to the drawer after a
+/// subsequent expand.
 #[tauri::command]
 pub fn close_huddle_companion(
     app: tauri::AppHandle,
@@ -80,9 +103,8 @@ pub fn close_huddle_companion(
         SUPPRESS_COMPANION_RETURN.store(false, Ordering::SeqCst);
         return Err("failed to destroy huddle companion window".to_string());
     }
-    // destroy() may not deliver CloseRequested; clear any unused suppress so a
-    // later companion close still restores the drawer.
-    let _ = take_suppress_companion_return();
+    // Leave SUPPRESS set so a late Destroyed from this teardown does not emit
+    // again (and cannot race a later expand). open_huddle_window clears it.
     app.emit("huddle-companion-returned", ())
         .map_err(|error| error.to_string())?;
     Ok(())
@@ -103,6 +125,10 @@ pub async fn open_huddle_window(
         .ok_or("no active huddle")?;
     let label = format!("huddle-{ephemeral_channel_id}");
 
+    // A prior dock/recreate may have left suppress set; clear so a later close
+    // of this companion can restore the drawer.
+    clear_suppress_companion_return();
+
     if let Some(window) = app.get_webview_window(&label) {
         match window.show().and_then(|_| window.set_focus()) {
             Ok(()) => return Ok(()),
@@ -121,5 +147,8 @@ pub async fn open_huddle_window(
         .min_inner_size(720.0, 520.0)
         .build()
         .map_err(|error| error.to_string())?;
+    // Recreate's Destroyed may not have run yet; keep suppress only until the
+    // replacement is up, then clear so the new companion's close restores drawer.
+    clear_suppress_companion_return();
     Ok(())
 }

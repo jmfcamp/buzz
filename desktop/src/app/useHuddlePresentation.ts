@@ -216,37 +216,8 @@ export function useHuddlePresentation() {
     },
     [goChannel, location.pathname],
   );
-  const handleHuddleCompanionOpen = React.useCallback(() => {
-    const ephemeralChannelId = activeHuddleChannelIdRef.current;
-    huddleCompanionDismissedChannelIdRef.current = null;
-    // Clear stale open promise so drawer→window after dock always invokes native open.
-    huddleCompanionChannelIdRef.current = null;
-    huddleCompanionOpenPromiseRef.current = null;
-    hideHuddleChannel(ephemeralChannelId);
-    setIsHuddleDrawerOpen(false);
-    setIsHuddleCompanionOpen(true);
 
-    const parentChannelId = activeHuddleParentChannelIdRef.current;
-    if (
-      ephemeralChannelId &&
-      parentChannelId &&
-      location.pathname === `/channels/${ephemeralChannelId}`
-    ) {
-      void goChannel(parentChannelId, { replace: true });
-      return;
-    }
 
-    void invoke<HuddleTranscriptRouteState>("get_huddle_state")
-      .then(returnMainWindowToHuddleParent)
-      .catch((error) => {
-        console.error("Failed to restore the huddle parent channel:", error);
-      });
-  }, [
-    goChannel,
-    hideHuddleChannel,
-    location.pathname,
-    returnMainWindowToHuddleParent,
-  ]);
   const openHuddleCompanion = React.useCallback(
     (ephemeralChannelId: string, options?: { force?: boolean }) => {
       activeHuddleChannelIdRef.current = ephemeralChannelId;
@@ -263,6 +234,11 @@ export function useHuddlePresentation() {
       }
 
       huddleCompanionDismissedChannelIdRef.current = null;
+      // Clear stale open promise so drawer→window after dock always invokes native open.
+      if (options?.force) {
+        huddleCompanionChannelIdRef.current = null;
+        huddleCompanionOpenPromiseRef.current = null;
+      }
       hideHuddleChannel(ephemeralChannelId);
       setIsHuddleDrawerOpen(false);
       setIsHuddleCompanionOpen(true);
@@ -280,6 +256,8 @@ export function useHuddlePresentation() {
           huddleCompanionChannelIdRef.current = null;
           huddleCompanionOpenPromiseRef.current = null;
           setIsHuddleCompanionOpen(false);
+          // Failed expand must restore the drawer so neither surface is lost.
+          setIsHuddleDrawerOpen(true);
         }
         throw error;
       });
@@ -288,6 +266,37 @@ export function useHuddlePresentation() {
     },
     [hideHuddleChannel, trackHuddleBackingChannel],
   );
+  const handleHuddleCompanionOpen = React.useCallback(async () => {
+    const ephemeralChannelId = activeHuddleChannelIdRef.current;
+    if (!ephemeralChannelId) return;
+    try {
+      await openHuddleCompanion(ephemeralChannelId, { force: true });
+    } catch (error) {
+      console.error("Failed to open huddle window:", error);
+      return;
+    }
+
+    const parentChannelId = activeHuddleParentChannelIdRef.current;
+    if (
+      parentChannelId &&
+      location.pathname === `/channels/${ephemeralChannelId}`
+    ) {
+      void goChannel(parentChannelId, { replace: true });
+      return;
+    }
+
+    void invoke<HuddleTranscriptRouteState>("get_huddle_state")
+      .then(returnMainWindowToHuddleParent)
+      .catch((error) => {
+        console.error("Failed to restore the huddle parent channel:", error);
+      });
+  }, [
+    goChannel,
+    location.pathname,
+    openHuddleCompanion,
+    returnMainWindowToHuddleParent,
+  ]);
+
   const handleHuddleStarted = React.useCallback(
     async (ephemeralChannelId: string) => {
       try {
@@ -362,22 +371,28 @@ export function useHuddlePresentation() {
     let unlisten: (() => void) | null = null;
     void listen("huddle-companion-returned", () => {
       if (cancelled) return;
-      huddleCompanionDismissedChannelIdRef.current =
-        activeHuddleChannelIdRef.current;
-      huddleCompanionChannelIdRef.current = null;
-      huddleCompanionOpenPromiseRef.current = null;
-      setIsHuddleCompanionOpen(false);
-      setIsHuddleDrawerOpen(true);
-      void invoke<HuddleTranscriptRouteState>("get_huddle_state")
-        .then((state) => {
-          if (!state.ephemeral_channel_id) return;
-          if (state.parent_channel_id) {
-            activeHuddleParentChannelIdRef.current = state.parent_channel_id;
-          }
-          showHuddleInMainApp(state.ephemeral_channel_id);
-        })
-        .catch((error) => {
-          console.error("Failed to open huddle in the main app:", error);
+      // Ignore stale returns that race a later expand (drawer ⊕ window XOR).
+      void invoke<boolean>("huddle_companion_window_exists")
+        .catch(() => false)
+        .then((stillOpen) => {
+          if (cancelled || stillOpen) return;
+          huddleCompanionDismissedChannelIdRef.current =
+            activeHuddleChannelIdRef.current;
+          huddleCompanionChannelIdRef.current = null;
+          huddleCompanionOpenPromiseRef.current = null;
+          setIsHuddleCompanionOpen(false);
+          setIsHuddleDrawerOpen(true);
+          void invoke<HuddleTranscriptRouteState>("get_huddle_state")
+            .then((state) => {
+              if (!state.ephemeral_channel_id) return;
+              if (state.parent_channel_id) {
+                activeHuddleParentChannelIdRef.current = state.parent_channel_id;
+              }
+              showHuddleInMainApp(state.ephemeral_channel_id);
+            })
+            .catch((error) => {
+              console.error("Failed to open huddle in the main app:", error);
+            });
         });
     }).then((cleanup) => {
       if (cancelled) cleanup();
