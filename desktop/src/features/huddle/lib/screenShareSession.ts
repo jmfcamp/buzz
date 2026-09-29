@@ -21,7 +21,15 @@ export type ScreenShareSessionCallbacks = {
   onRemoteChanged: (remote: ScreenShareRemote | null) => void;
   onLocalPreviewChanged: (stream: MediaStream | null) => void;
   onCurrentSharerChanged: (pubkey: string | null) => void;
+  /** Subscriber-only permanent disconnect (no local capture held). */
   onDisconnected?: () => void;
+  /**
+   * Local capture is still live but LiveKit dropped. Hook should remint a
+   * publish token and republish — do not tear down "You are sharing" UI.
+   */
+  onPublishInterrupted?: () => void;
+  /** True while LiveKit reconnects or while we wait to republish. */
+  onReconnectingChanged?: (reconnecting: boolean) => void;
 };
 
 /**
@@ -47,7 +55,12 @@ export class HuddleScreenShareSession {
   }
 
   get isSharing(): boolean {
-    return this.localPublication != null;
+    return this.localStream != null;
+  }
+
+  /** Live local capture held for preview / republish (tracks may still be live). */
+  get heldLocalStream(): MediaStream | null {
+    return this.localStream;
   }
 
   async connect(url: string, token: string): Promise<void> {
@@ -63,7 +76,8 @@ export class HuddleScreenShareSession {
   private async connectExclusive(url: string, token: string): Promise<void> {
     if (this.disposed) return;
     if (this.room) {
-      await this.disconnectRoomOnly();
+      // Keep local capture across token/room swaps so Share UI stays up.
+      await this.detachRoomKeepLocal();
     }
     // livekit-client ≥2.17 defaults singlePeerConnection=true (/rtc/v1).
     // Hula LiveKit was on v1.8.4 which only serves legacy /rtc — force dual-PC
@@ -96,10 +110,10 @@ export class HuddleScreenShareSession {
       }
     });
     room.on(RoomEvent.Reconnecting, () => {
-      this.reconnecting = true;
+      this.setReconnecting(true);
     });
     room.on(RoomEvent.Reconnected, () => {
-      this.reconnecting = false;
+      this.setReconnecting(false);
       // Re-attach any remote screen tracks that survived the blip.
       this.attachExistingRemoteTracks(room);
     });
@@ -110,22 +124,32 @@ export class HuddleScreenShareSession {
         stateName === "signalReconnecting" ||
         stateName === "reconnecting"
       ) {
-        this.reconnecting = true;
+        this.setReconnecting(true);
         return;
       }
       if (state === ConnectionState.Connected || stateName === "connected") {
-        this.reconnecting = false;
+        this.setReconnecting(false);
       }
     });
     room.on(RoomEvent.Disconnected, () => {
       // Intentionally disconnected (or permanent failure) — not a blip.
-      this.reconnecting = false;
+      this.setReconnecting(false);
+      this.localPublication = null;
+      // Room is dead; drop the handle so disconnect()/republish can proceed.
+      if (this.room === room) {
+        this.room = null;
+      }
       this.clearRemote();
-      this.callbacks.onDisconnected?.();
+      if (this.localStream) {
+        // Keep capture + preview; ask the hook to remint + republish.
+        this.callbacks.onPublishInterrupted?.();
+      } else {
+        this.callbacks.onDisconnected?.();
+      }
     });
 
     await room.connect(url, token);
-    this.reconnecting = false;
+    this.setReconnecting(false);
     this.attachExistingRemoteTracks(room);
   }
 
@@ -150,24 +174,33 @@ export class HuddleScreenShareSession {
    * Publish a pre-acquired display MediaStream.
    * Call {@link acquireDisplayMedia} first (inside the user-gesture handler)
    * so WebKit/WKWebView keeps the gesture chain intact.
+   *
+   * Safe to call again after {@link detachRoomKeepLocal} / publish interrupt
+   * with the same live stream — republishes without re-prompting the picker.
    */
   async startShare(stream: MediaStream): Promise<void> {
     if (!this.room || this.disposed) {
       throw new Error("screen share room is not connected");
     }
     if (this.localPublication) {
-      stopMediaStreamTracks(stream);
+      // Already publishing — drop a duplicate acquire if any.
+      if (stream !== this.localStream) {
+        stopMediaStreamTracks(stream);
+      }
       return;
     }
 
     const [videoTrack] = stream.getVideoTracks();
-    if (!videoTrack) {
+    if (!videoTrack || videoTrack.readyState === "ended") {
       stopMediaStreamTracks(stream);
       throw new Error("no screen video track from getDisplayMedia");
     }
-    videoTrack.addEventListener("ended", () => {
-      void this.stopShare();
-    });
+    // OS picker "Stop sharing" ends the track — only then tear down UI.
+    if (!this.localStream || this.localStream !== stream) {
+      videoTrack.addEventListener("ended", () => {
+        void this.stopShare();
+      });
+    }
 
     this.localStream = stream;
     this.callbacks.onLocalPreviewChanged(stream);
@@ -178,6 +211,7 @@ export class HuddleScreenShareSession {
         name: "screen",
       },
     );
+    this.setReconnecting(false);
   }
 
   async stopShare(): Promise<void> {
@@ -191,18 +225,31 @@ export class HuddleScreenShareSession {
       }
     }
     this.stopLocalTracks();
+    this.setReconnecting(false);
   }
 
   async disconnect(): Promise<void> {
-    await this.disconnectRoomOnly();
+    await this.stopShare();
+    await this.detachRoomKeepLocal();
   }
 
-  /** Stop local publish (if any) and drop the LiveKit room. */
-  private async disconnectRoomOnly(): Promise<void> {
-    await this.stopShare();
+  /**
+   * Drop the LiveKit room without stopping local capture — used when reminting
+   * a publish token or when the SFU dies mid-share. Preview stays up.
+   */
+  async detachRoomKeepLocal(): Promise<void> {
+    const publication = this.localPublication;
+    this.localPublication = null;
+    if (publication && this.room) {
+      try {
+        await this.room.localParticipant.unpublishTrack(publication.track!);
+      } catch {
+        /* best-effort — room may already be dead */
+      }
+    }
     const room = this.room;
     this.room = null;
-    this.reconnecting = false;
+    this.setReconnecting(false);
     this.clearRemote();
     if (room) {
       try {
@@ -216,6 +263,12 @@ export class HuddleScreenShareSession {
   dispose(): void {
     this.disposed = true;
     void this.disconnect();
+  }
+
+  private setReconnecting(active: boolean) {
+    if (this.reconnecting === active) return;
+    this.reconnecting = active;
+    this.callbacks.onReconnectingChanged?.(active);
   }
 
   private attachRemote(
@@ -240,7 +293,7 @@ export class HuddleScreenShareSession {
     if (!this.remote) return;
     this.remote = null;
     this.callbacks.onRemoteChanged(null);
-    if (!this.localPublication) {
+    if (!this.localStream) {
       this.callbacks.onCurrentSharerChanged(null);
     }
   }

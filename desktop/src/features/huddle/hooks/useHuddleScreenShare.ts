@@ -18,6 +18,11 @@ export type HuddleScreenShareState = {
   available: boolean | null;
   connecting: boolean;
   sharing: boolean;
+  /**
+   * True while LiveKit is down mid-share and we are reminting/republishing.
+   * Local preview / "You are sharing" stay up; show a spinner overlay.
+   */
+  republishing: boolean;
   remoteStream: MediaStream | null;
   localPreviewStream: MediaStream | null;
   currentSharer: string | null;
@@ -71,31 +76,11 @@ function shouldSuppressScreenShareError(error: unknown): boolean {
   return isBenignScreenShareAbort(error) || isTransientPcConnectionError(error);
 }
 
-function makeSessionCallbacks(setters: {
-  setRemoteStream: (stream: MediaStream | null) => void;
-  setLocalPreviewStream: (stream: MediaStream | null) => void;
-  setSharing: (sharing: boolean) => void;
-  setCurrentSharer: (pubkey: string | null) => void;
-  onDisconnected?: () => void;
-}): ConstructorParameters<typeof HuddleScreenShareSession>[0] {
-  return {
-    onRemoteChanged: (remote: ScreenShareRemote | null) => {
-      setters.setRemoteStream(remote?.stream ?? null);
-    },
-    onLocalPreviewChanged: (stream) => {
-      // Non-null: session owns a published local track. Null during
-      // reconnect must not clear an early pre-connect preview.
-      if (stream) {
-        setters.setLocalPreviewStream(stream);
-        setters.setSharing(true);
-      }
-    },
-    onCurrentSharerChanged: (pubkey) => {
-      setters.setCurrentSharer(pubkey);
-    },
-    onDisconnected: setters.onDisconnected,
-  };
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+const REPUBLISH_BACKOFF_MS = [500, 1000, 2000, 4000, 8000] as const;
 
 /**
  * Connects a LiveKit subscriber when a huddle is active and LiveKit is
@@ -106,6 +91,10 @@ function makeSessionCallbacks(setters: {
  * rejects stale subscriber errors when startShare takes over the room.
  * Benign AbortErrors and transient PC/ICE blips are logged only; never
  * shown via setError. stopShare always restores Share availability.
+ *
+ * Mid-share LiveKit outages keep local preview / "You are sharing" and
+ * loop remint+republish until success or the user Stops — never force a
+ * second Share click as the primary recovery.
  */
 export function useHuddleScreenShare(args: {
   active: boolean;
@@ -117,6 +106,7 @@ export function useHuddleScreenShare(args: {
   const [available, setAvailable] = React.useState<boolean | null>(null);
   const [connecting, setConnecting] = React.useState(false);
   const [sharing, setSharing] = React.useState(false);
+  const [republishing, setRepublishing] = React.useState(false);
   const [remoteStream, setRemoteStream] = React.useState<MediaStream | null>(
     null,
   );
@@ -127,30 +117,141 @@ export function useHuddleScreenShare(args: {
   const sessionRef = React.useRef<HuddleScreenShareSession | null>(null);
   /** Bumped on effect cleanup and when startShare claims the room. */
   const connectGenRef = React.useRef(0);
+  /** Bumped to cancel an in-flight republish loop (stopShare / unmount). */
+  const republishGenRef = React.useRef(0);
+  const wantShareRef = React.useRef(false);
+  const heldStreamRef = React.useRef<MediaStream | null>(null);
   const channelRef = React.useRef(channelId);
   channelRef.current = channelId;
   const parentRef = React.useRef(parentChannelId);
   parentRef.current = parentChannelId;
+  const selfPubkeyRef = React.useRef(selfPubkey);
+  selfPubkeyRef.current = selfPubkey;
 
   const softResubscribeRef = React.useRef<(() => void) | null>(null);
+  const scheduleRepublishRef = React.useRef<(() => void) | null>(null);
+
+  const clearHeldShare = React.useCallback(() => {
+    wantShareRef.current = false;
+    heldStreamRef.current = null;
+    setRepublishing(false);
+  }, []);
 
   const sessionCallbacks = React.useMemo(
-    () =>
-      makeSessionCallbacks({
-        setRemoteStream,
-        setLocalPreviewStream,
-        setSharing,
-        setCurrentSharer,
-        onDisconnected: () => {
-          // Permanent LiveKit disconnect (not reconnect blip). Keep Share
-          // available and schedule a quiet resubscribe — no red banner.
-          softResubscribeRef.current?.();
-        },
-      }),
+    () => ({
+      onRemoteChanged: (remote: ScreenShareRemote | null) => {
+        setRemoteStream(remote?.stream ?? null);
+      },
+      onLocalPreviewChanged: (stream: MediaStream | null) => {
+        // Non-null: session owns a published/held local track. Null during
+        // reconnect must not clear an early pre-connect preview — only
+        // stopShare / failed acquire clears React preview state.
+        if (stream) {
+          heldStreamRef.current = stream;
+          wantShareRef.current = true;
+          setLocalPreviewStream(stream);
+          setSharing(true);
+        }
+      },
+      onCurrentSharerChanged: (pubkey: string | null) => {
+        setCurrentSharer(pubkey);
+      },
+      onDisconnected: () => {
+        // Permanent LiveKit disconnect with no local capture — quiet
+        // subscriber resubscribe; no red banner.
+        softResubscribeRef.current?.();
+      },
+      onPublishInterrupted: () => {
+        // SFU died mid-share: keep preview, spin overlay, remint+republish.
+        scheduleRepublishRef.current?.();
+      },
+      onReconnectingChanged: (active: boolean) => {
+        if (!wantShareRef.current) return;
+        setRepublishing(active);
+      },
+    }),
     [],
   );
 
+  const runRepublishLoop = React.useCallback(async () => {
+    const gen = ++republishGenRef.current;
+    setRepublishing(true);
+    let attempt = 0;
+    while (
+      gen === republishGenRef.current &&
+      wantShareRef.current &&
+      heldStreamRef.current &&
+      channelRef.current
+    ) {
+      const stream = heldStreamRef.current;
+      const [track] = stream.getVideoTracks();
+      if (!track || track.readyState === "ended") {
+        // OS picker ended capture — abandon without forcing Share again UI
+        // (stopShare path / track ended already clears).
+        break;
+      }
+      try {
+        const minted = await mintScreenShareToken({
+          channelId: channelRef.current,
+          parentChannelId: parentRef.current,
+          intent: "publish",
+        });
+        if (gen !== republishGenRef.current || !wantShareRef.current) return;
+        if ("unavailable" in minted && minted.unavailable) {
+          setAvailable(false);
+          setError(minted.reason);
+          break;
+        }
+        const token = minted as ScreenTokenResponse;
+        setAvailable(true);
+        setCurrentSharer(token.current_sharer ?? selfPubkeyRef.current ?? null);
+        connectGenRef.current += 1;
+        let session = sessionRef.current;
+        if (!session) {
+          session = new HuddleScreenShareSession(sessionCallbacks);
+          sessionRef.current = session;
+        } else {
+          await session.detachRoomKeepLocal();
+        }
+        if (gen !== republishGenRef.current || !wantShareRef.current) return;
+        await session.connect(token.url, token.token);
+        if (gen !== republishGenRef.current || !wantShareRef.current) return;
+        await session.startShare(stream);
+        if (gen !== republishGenRef.current || !wantShareRef.current) return;
+        setSharing(true);
+        setLocalPreviewStream(stream);
+        setError(null);
+        setRepublishing(false);
+        return;
+      } catch (e) {
+        if (gen !== republishGenRef.current || !wantShareRef.current) return;
+        console.debug("[huddle] screen-share republish attempt failed", e);
+        const delay =
+          REPUBLISH_BACKOFF_MS[
+            Math.min(attempt, REPUBLISH_BACKOFF_MS.length - 1)
+          ]!;
+        attempt += 1;
+        await sleep(delay);
+      }
+    }
+    if (gen === republishGenRef.current) {
+      setRepublishing(false);
+    }
+  }, [sessionCallbacks]);
+
+  React.useEffect(() => {
+    scheduleRepublishRef.current = () => {
+      if (!wantShareRef.current || !heldStreamRef.current) return;
+      void runRepublishLoop();
+    };
+    return () => {
+      scheduleRepublishRef.current = null;
+    };
+  }, [runRepublishLoop]);
+
   const teardown = React.useCallback(async () => {
+    republishGenRef.current += 1;
+    clearHeldShare();
     const session = sessionRef.current;
     sessionRef.current = null;
     if (session) {
@@ -168,7 +269,8 @@ export function useHuddleScreenShare(args: {
     setLocalPreviewStream(null);
     setCurrentSharer(null);
     setConnecting(false);
-  }, []);
+    setRepublishing(false);
+  }, [clearHeldShare]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -237,6 +339,11 @@ export function useHuddleScreenShare(args: {
 
     softResubscribeRef.current = () => {
       if (cancelled) return;
+      // Never clobber an in-progress local share / republish.
+      if (wantShareRef.current || heldStreamRef.current) {
+        scheduleRepublishRef.current?.();
+        return;
+      }
       // Drop the dead session handle without flipping available/sharing UI
       // into an error state, then reconnect the subscriber quietly.
       const dead = sessionRef.current;
@@ -280,6 +387,7 @@ export function useHuddleScreenShare(args: {
       cancelled = true;
       softResubscribeRef.current = null;
       connectGenRef.current += 1;
+      republishGenRef.current += 1;
       void teardown();
     };
     // parentChannelId is read via parentRef so parent filling in after join
@@ -294,7 +402,9 @@ export function useHuddleScreenShare(args: {
     try {
       acquired = await acquireDisplayMedia();
       // Local preview is independent of LiveKit publish — show it immediately
-      // even if mint/connect later fails.
+      // even if mint/connect later fails / needs republish.
+      heldStreamRef.current = acquired;
+      wantShareRef.current = true;
       setLocalPreviewStream(acquired);
       setSharing(true);
       const minted = await mintScreenShareToken({
@@ -305,6 +415,8 @@ export function useHuddleScreenShare(args: {
       if ("unavailable" in minted && minted.unavailable) {
         stopMediaStreamTracks(acquired);
         acquired = null;
+        heldStreamRef.current = null;
+        wantShareRef.current = false;
         setLocalPreviewStream(null);
         setSharing(false);
         setAvailable(false);
@@ -329,28 +441,47 @@ export function useHuddleScreenShare(args: {
       setSharing(true);
       // Publish succeeded — drop any stale subscriber PC banner.
       setError(null);
+      setRepublishing(false);
     } catch (e) {
-      try {
-        await sessionRef.current?.stopShare();
-      } catch {
-        /* best-effort */
-      }
-      stopMediaStreamTracks(acquired);
-      setLocalPreviewStream(null);
-      setSharing(false);
-      // Picker dismiss / superseded connect / PC blip — not blocking.
-      if (shouldSuppressScreenShareError(e)) {
-        console.debug("[huddle] screen-share start soft-fail", e);
-        // Mint proved LiveKit is configured; keep Share for retry.
-        setAvailable(true);
+      // Picker dismiss before we held a stream — quiet exit.
+      if (!heldStreamRef.current || !wantShareRef.current) {
+        stopMediaStreamTracks(acquired);
+        if (shouldSuppressScreenShareError(e)) {
+          console.debug("[huddle] screen-share start soft-fail", e);
+          setAvailable(true);
+          return;
+        }
+        setError(e instanceof Error ? e.message : String(e));
+        setLocalPreviewStream(null);
+        setSharing(false);
         return;
       }
-      setError(e instanceof Error ? e.message : String(e));
+      // Capture is live but mint/connect/publish failed — keep "You are
+      // sharing" preview and continually republish until Stop or success.
+      acquired = null;
+      if (shouldSuppressScreenShareError(e)) {
+        console.debug(
+          "[huddle] screen-share start soft-fail → republish loop",
+          e,
+        );
+      } else {
+        console.debug(
+          "[huddle] screen-share start failed → republish loop",
+          e,
+        );
+      }
+      setAvailable(true);
+      setSharing(true);
+      scheduleRepublishRef.current?.();
     }
   }, [channelId, selfPubkey, sessionCallbacks]);
 
   const stopShare = React.useCallback(async () => {
     setError(null);
+    republishGenRef.current += 1;
+    wantShareRef.current = false;
+    heldStreamRef.current = null;
+    setRepublishing(false);
     try {
       await sessionRef.current?.stopShare();
       if (channelId) {
@@ -370,6 +501,7 @@ export function useHuddleScreenShare(args: {
       setCurrentSharer(null);
       setLocalPreviewStream(null);
       setSharing(false);
+      setRepublishing(false);
       // After stop, Share must return unless relay reported true unavailable.
       setAvailable((prev) => (prev === false ? false : true));
     }
@@ -384,6 +516,7 @@ export function useHuddleScreenShare(args: {
     available,
     connecting,
     sharing,
+    republishing,
     remoteStream,
     localPreviewStream,
     currentSharer,

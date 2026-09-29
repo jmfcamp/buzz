@@ -24,11 +24,15 @@ test("startShare sets local preview before mint/connect", () => {
   assert.match(body, /setSharing\(true\)/);
 });
 
-test("startShare clears preview on failure after acquire", () => {
+test("startShare clears preview only on unavailable or pre-hold failure", () => {
   const start = src.indexOf("const startShare");
   const body = src.slice(start, src.indexOf("const stopShare", start));
-  assert.match(body, /setLocalPreviewStream\(null\)/);
+  // True unavailable still tears down capture.
+  assert.match(body, /unavailable/);
   assert.match(body, /stopMediaStreamTracks\(acquired\)/);
+  // After hold, mint/connect failure enters republish — must not clear preview.
+  assert.match(body, /republish loop/);
+  assert.match(body, /scheduleRepublishRef/);
 });
 
 test("PC connect failure does not set available false", () => {
@@ -126,4 +130,39 @@ test("permanent disconnect schedules soft resubscribe without setError", () => {
   assert.match(src, /softResubscribeRef/);
   assert.match(src, /onDisconnected:/);
   assert.match(src, /screen-share soft-resubscribe/);
+});
+
+test("exposes republishing and schedules publish reconnect loop", () => {
+  assert.match(src, /republishing/);
+  assert.match(src, /runRepublishLoop/);
+  assert.match(src, /onPublishInterrupted/);
+  assert.match(src, /scheduleRepublishRef/);
+  assert.match(src, /REPUBLISH_BACKOFF_MS/);
+  assert.match(src, /intent: "publish"/);
+  // Soft resubscribe must not clobber an active local share.
+  assert.match(src, /wantShareRef\.current \|\| heldStreamRef\.current/);
+});
+
+test("startShare keeps preview and sharing on connect failure after acquire", () => {
+  const start = src.indexOf("const startShare");
+  const body = src.slice(start, src.indexOf("const stopShare", start));
+  assert.match(body, /heldStreamRef\.current = acquired/);
+  assert.match(body, /wantShareRef\.current = true/);
+  // Catch path after hold schedules republish instead of clearing sharing.
+  const catchIdx = body.lastIndexOf("} catch (e) {");
+  const catchBody = body.slice(catchIdx);
+  assert.match(catchBody, /scheduleRepublishRef/);
+  assert.match(catchBody, /setSharing\(true\)/);
+  assert.doesNotMatch(
+    catchBody.slice(catchBody.indexOf("heldStreamRef.current")),
+    /setLocalPreviewStream\(null\);\s*setSharing\(false\);\s*return;\s*\}\s*setError/,
+  );
+});
+
+test("stopShare cancels republish generation", () => {
+  const stop = src.indexOf("const stopShare");
+  const body = src.slice(stop, src.indexOf("const shareBlocked", stop));
+  assert.match(body, /republishGenRef\.current \+= 1/);
+  assert.match(body, /wantShareRef\.current = false/);
+  assert.match(body, /setRepublishing\(false\)/);
 });

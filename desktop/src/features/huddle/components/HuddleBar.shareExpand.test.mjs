@@ -51,3 +51,7 @@ test("share stage sits above app-surface so expand is visible", () => {
   assert.match(stageBlock[0], /z-index:\s*15/);
   assert.match(stageBlock[0], /bottom:\s*var\(--buzz-huddle-drawer-height\)/);
 });
+
+test("HuddleBar passes republishing overlay while local share is reconnecting", () => {
+  assert.match(src, /republishing=\{screenShare\.sharing && screenShare\.republishing\}/);
+});

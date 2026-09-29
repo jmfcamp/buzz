@@ -673,6 +673,7 @@ export function HuddleBar({
             stream={spotlightStream}
             label={screenShare.sharing ? "You are sharing" : "Screen share"}
             className="h-full w-full"
+            republishing={screenShare.sharing && screenShare.republishing}
           />
           <Tooltip>
             <TooltipTrigger asChild>
@@ -703,6 +704,7 @@ export function HuddleBar({
                 stream={spotlightStream}
                 label={screenShare.sharing ? "You are sharing" : "Screen share"}
                 className="h-full w-full rounded-none border-0"
+                republishing={screenShare.sharing && screenShare.republishing}
               />
               <Tooltip>
                 <TooltipTrigger asChild>
