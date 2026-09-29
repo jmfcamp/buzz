@@ -158,11 +158,47 @@ pub async fn open_huddle_window(
         }
     }
 
-    WebviewWindowBuilder::new(&app, label, WebviewUrl::App("index.html".into()))
+    // destroy() removes the OS window asynchronously. Brief poll so Builder
+    // does not race the still-registered label ("already exists").
+    for _ in 0..20 {
+        if app.get_webview_window(&label).is_none() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+
+    // Surviving window after a failed-focus destroy: focus it — never error
+    // with "already exists" while the companion is still on stage (that path
+    // demoted React to drawer and left drawer ⊕ window both visible).
+    if let Some(window) = app.get_webview_window(&label) {
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+
+    match WebviewWindowBuilder::new(&app, label.clone(), WebviewUrl::App("index.html".into()))
         .title("Huddle")
         .inner_size(960.0, 720.0)
         .min_inner_size(720.0, 520.0)
         .build()
-        .map_err(|error| error.to_string())?;
-    Ok(())
+    {
+        Ok(_) => Ok(()),
+        Err(error) => {
+            let message = error.to_string();
+            if message.to_ascii_lowercase().contains("already exists") {
+                if let Some(window) = app.get_webview_window(&label) {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                    return Ok(());
+                }
+                // Label reserved but get_webview_window missed it — still treat
+                // as open success so the frontend keeps presentation "window".
+                eprintln!(
+                    "buzz-desktop: huddle companion label {label} already exists; treating open as success"
+                );
+                return Ok(());
+            }
+            Err(message)
+        }
+    }
 }

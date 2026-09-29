@@ -2,14 +2,15 @@
 export type HuddlePresentation = "none" | "drawer" | "window";
 
 /**
- * Main webview only: mount the drawer / HuddleBar unless the companion OS
- * window is the active presentation. The companion room webview always mounts
- * its own bar separately (`isRoom`).
+ * Main webview only: mount the drawer / HuddleBar when presentation is
+ * explicitly `"drawer"`. `"none"` stays unmounted (no always-on bar before
+ * dock). `"window"` stays unmounted so the companion owns chrome (XOR).
+ * The companion room webview always mounts its own bar separately (`isRoom`).
  */
 export function shouldMountMainHuddleDrawerBar(
   presentation: HuddlePresentation,
 ): boolean {
-  return presentation !== "window";
+  return presentation === "drawer";
 }
 
 type ReconcileOptions = {

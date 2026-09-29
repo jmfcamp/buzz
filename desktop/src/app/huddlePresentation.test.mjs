@@ -10,9 +10,10 @@ test("main must not mount drawer bar when presentation is window", () => {
   assert.equal(shouldMountMainHuddleDrawerBar("window"), false);
 });
 
-test("main mounts drawer bar for drawer and none presentations", () => {
+test("main mounts drawer bar only for drawer presentation", () => {
   assert.equal(shouldMountMainHuddleDrawerBar("drawer"), true);
-  assert.equal(shouldMountMainHuddleDrawerBar("none"), true);
+  assert.equal(shouldMountMainHuddleDrawerBar("none"), false);
+  assert.equal(shouldMountMainHuddleDrawerBar("window"), false);
 });
 
 test("native companion existence forces window presentation (heals desync)", () => {

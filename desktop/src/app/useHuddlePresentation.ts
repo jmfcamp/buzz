@@ -258,6 +258,12 @@ export function useHuddlePresentation() {
         !options?.force &&
         huddleCompanionDismissedChannelIdRef.current === ephemeralChannelId
       ) {
+        // User docked this huddle — keep drawer chrome, do not re-expand.
+        if (presentationRef.current !== "drawer") {
+          presentationEpochRef.current += 1;
+          companionExistsRef.current = false;
+          setPresentation("drawer");
+        }
         return Promise.resolve();
       }
 
@@ -293,18 +299,36 @@ export function useHuddlePresentation() {
           companionExistsRef.current = true;
           setPresentation("window");
         })
-        .catch((error) => {
+        .catch(async (error) => {
           huddleCompanionOpenPendingRef.current = false;
           if (
-            huddleCompanionChannelIdRef.current === ephemeralChannelId &&
-            presentationEpochRef.current === openEpoch
+            huddleCompanionChannelIdRef.current !== ephemeralChannelId ||
+            presentationEpochRef.current !== openEpoch
           ) {
-            huddleCompanionChannelIdRef.current = null;
-            huddleCompanionOpenPromiseRef.current = null;
-            companionExistsRef.current = false;
-            // Failed expand must restore the drawer so neither surface is lost.
-            setPresentation("drawer");
+            throw error;
           }
+          // Native may still hold the companion after an "already exists" race.
+          // Probe before demoting — demoting while the OS window lives mounts
+          // the main drawer beside it (dual bar + dual LiveKit PC).
+          const exists = await invoke<boolean>("huddle_companion_window_exists")
+            .catch(() => false);
+          if (exists) {
+            companionExistsRef.current = true;
+            setPresentation("window");
+            return;
+          }
+          const message =
+            error instanceof Error ? error.message : String(error ?? "");
+          if (message.toLowerCase().includes("already exists")) {
+            companionExistsRef.current = true;
+            setPresentation("window");
+            return;
+          }
+          huddleCompanionChannelIdRef.current = null;
+          huddleCompanionOpenPromiseRef.current = null;
+          companionExistsRef.current = false;
+          // True failed expand — restore the drawer so neither surface is lost.
+          setPresentation("drawer");
           throw error;
         });
       huddleCompanionOpenPromiseRef.current = openPromise;
@@ -559,6 +583,20 @@ export function useHuddlePresentation() {
             console.error("Failed to open starting huddle window:", error);
           },
         );
+      }
+      // Strict mount gate is presentation === "drawer". If companion open was
+      // skipped (dismissed) or failed closed, promote none → drawer so the bar
+      // can appear without requiring a remounted visibility effect.
+      if (
+        !isHuddleRoom &&
+        (event.payload.phase === "active" ||
+          event.payload.phase === "connected") &&
+        presentationRef.current === "none" &&
+        !companionExistsRef.current &&
+        !huddleCompanionOpenPendingRef.current
+      ) {
+        presentationEpochRef.current += 1;
+        setPresentation("drawer");
       }
       if (event.payload.phase === "idle") {
         const endedChannelId = activeHuddleChannelIdRef.current;

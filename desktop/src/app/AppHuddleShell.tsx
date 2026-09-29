@@ -16,7 +16,7 @@ type AppHuddleShellProps = {
   isCompanionOpen: boolean;
   isDrawerOpen: boolean;
   isRoom: boolean;
-  /** Main-app presentation enum; gate mounts on `presentation !== "window"`. */
+  /** Main-app presentation enum; gate mounts on `presentation === "drawer"`. */
   presentation: HuddlePresentation;
   onCompanionOpen: () => void | Promise<void>;
   onHuddleStartPendingChange: (pending: boolean) => void;
@@ -100,7 +100,7 @@ export function AppHuddleShell({
               {children}
             </div>
             {/* Strict XOR: main mounts HuddleBar/drawer only when
-                presentation !== "window". Companion room always keeps its bar. */}
+                presentation === "drawer". Companion room always keeps its bar. */}
             {isRoom || shouldMountMainHuddleDrawerBar(presentation) ? (
               <div className="buzz-huddle-drawer-slot absolute inset-x-0 bottom-0 z-[2] min-h-(--buzz-huddle-drawer-height)">
                 <AppHuddleBar
