@@ -219,6 +219,9 @@ export function useHuddlePresentation() {
   const handleHuddleCompanionOpen = React.useCallback(() => {
     const ephemeralChannelId = activeHuddleChannelIdRef.current;
     huddleCompanionDismissedChannelIdRef.current = null;
+    // Clear stale open promise so drawer→window after dock always invokes native open.
+    huddleCompanionChannelIdRef.current = null;
+    huddleCompanionOpenPromiseRef.current = null;
     hideHuddleChannel(ephemeralChannelId);
     setIsHuddleDrawerOpen(false);
     setIsHuddleCompanionOpen(true);

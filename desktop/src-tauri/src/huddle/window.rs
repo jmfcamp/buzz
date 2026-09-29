@@ -56,6 +56,10 @@ fn destroy_huddle_window(app: &tauri::AppHandle, label: &str, suppress_return: b
 
 /// Close the active companion without leaving the huddle. The main window uses
 /// this to restore its drawer presentation while retaining the audio session.
+///
+/// Drawer ⊕ window: destroy must succeed before the drawer is restored so both
+/// never remain visible. CloseRequested is suppressed during the intentional
+/// destroy so we emit `huddle-companion-returned` exactly once after teardown.
 #[tauri::command]
 pub fn close_huddle_companion(
     app: tauri::AppHandle,
@@ -66,7 +70,19 @@ pub fn close_huddle_companion(
         .ephemeral_channel_id
         .clone()
         .ok_or("no active huddle")?;
-    close_huddle_window(&app, &ephemeral_channel_id);
+    let label = format!("huddle-{ephemeral_channel_id}");
+    destroy_huddle_window(&app, &label, true);
+    if app.get_webview_window(&label).is_some() {
+        // destroy() can leave a zombie on macOS; one more hide+destroy+close pass.
+        destroy_huddle_window(&app, &label, true);
+    }
+    if app.get_webview_window(&label).is_some() {
+        SUPPRESS_COMPANION_RETURN.store(false, Ordering::SeqCst);
+        return Err("failed to destroy huddle companion window".to_string());
+    }
+    // destroy() may not deliver CloseRequested; clear any unused suppress so a
+    // later companion close still restores the drawer.
+    let _ = take_suppress_companion_return();
     app.emit("huddle-companion-returned", ())
         .map_err(|error| error.to_string())?;
     Ok(())

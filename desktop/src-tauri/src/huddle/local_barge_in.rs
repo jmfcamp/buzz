@@ -1,4 +1,9 @@
 //! Local VAD barge-in policy and coupled-output debounce.
+//!
+//! Hard-cancel of agent TTS via this path is disabled in the STT worker
+//! (`track_local_floor = false`). TTS stops only on addressed wake
+//! (`{activation} {agent}`) or the UI Stop button. The helpers remain for
+//! tests and any future opt-in floor tracking.
 
 use super::human_floor::HumanFloor;
 

@@ -25,6 +25,7 @@
 
 mod agent_tts_publisher;
 mod agent_tts_routing;
+mod agent_barge;
 pub mod agent_voice;
 pub mod agents;
 pub mod audio_output;

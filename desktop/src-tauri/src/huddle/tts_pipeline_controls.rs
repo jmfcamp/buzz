@@ -87,10 +87,11 @@ impl TtsPipeline {
         cancelled
     }
 
-    /// Cancel whoever currently owns playback (spoken "stop" / Stop for all).
+    /// Cancel whoever currently owns playback (UI Stop-for-all / programmatic).
     ///
     /// Returns `true` when an active speaker was cancelled. Broadcast cancel
-    /// stops relay audio for every participant in the huddle.
+    /// stops relay audio for every participant in the huddle. Spoken STT no
+    /// longer calls this — only addressed wake and interrupt_huddle_speech do.
     pub(crate) fn cancel_current_speech(&self) -> bool {
         let active = self
             .active_speaker

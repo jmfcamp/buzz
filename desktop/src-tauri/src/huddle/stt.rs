@@ -569,12 +569,14 @@ fn stt_worker(
             }
             SttLoopInput::Batch(batch) => {
                 for input in batch {
+                    // Local VAD must not hard-cancel agent TTS. Only an addressed
+                    // wake (`{keyword} {agent}`) or the UI Stop button stops speech.
                     let (stream, ptt_gate, manual_gate, track_local_floor) = match input.origin {
                         SttAudioOrigin::Local => (
                             &mut local_stream,
                             ptt_active.as_ref(),
                             manual_mic_unmuted.as_ref(),
-                            true,
+                            false,
                         ),
                         SttAudioOrigin::RemoteHuman => (&mut remote_stream, None, None, false),
                     };

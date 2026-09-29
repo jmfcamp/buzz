@@ -887,6 +887,8 @@ pub fn run() {
             huddle::agent_voice::ensure_huddle_agent_voice_settings,
             huddle::agent_voice::set_huddle_agent_tts_enabled,
             huddle::agent_voice::set_huddle_agent_voice,
+            huddle::agent_voice::set_huddle_agent_addressable,
+            huddle::agent_voice::set_huddle_agent_barge,
             speak_agent_message,
             interrupt_huddle_speech,
             add_agent_to_huddle,

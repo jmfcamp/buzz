@@ -407,9 +407,10 @@ pub(crate) async fn maybe_start_stt_pipeline(
         channel_uuid,
         agent_pubkeys_arc,
         activation_keyword_arc,
-        session_gen,
+        session_gen.clone(),
         state,
     );
+    super::agent_barge::spawn_agent_barge_task(channel_uuid, session_gen, state);
     Ok(true)
 }
 
@@ -732,24 +733,6 @@ pub(crate) fn spawn_transcription_task(
                 break; // Exit the loop entirely — no more posts from this task.
             }
 
-            // Spoken stop — hard-cancel active agent speech for the whole huddle.
-            if super::stt_wake::is_spoken_stop_command(&t) {
-                if let Some(handle) = app_handle.as_ref() {
-                    use tauri::Manager;
-                    if let Some(app_state) = handle.try_state::<AppState>() {
-                        if let Ok(huddle) = app_state.huddle() {
-                            if let Some(pipeline) = huddle.tts_pipeline.as_ref() {
-                                if pipeline.cancel_current_speech() {
-                                    eprintln!(
-                                        "buzz-desktop: spoken stop cancelled active agent TTS"
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
             // Fix 1: read current agent pubkeys at post time.
             let agent_pubkeys: Vec<String> = agent_pubkeys_arc
                 .lock()
@@ -767,11 +750,49 @@ pub(crate) fn spawn_transcription_task(
                 .clone();
 
             // Wake only agents addressed as "{keyword} <Name>"; still post transcript always.
-            let wake_pubkeys = super::stt_wake::addressed_agent_pubkeys(
+            let mut wake_pubkeys = super::stt_wake::addressed_agent_pubkeys(
                 &t,
                 &cached_aliases,
                 &activation_keyword,
             );
+            // Addressable toggle (default on): OFF agents ignore spoken wakes.
+            if !wake_pubkeys.is_empty() {
+                if let Some(handle) = app_handle.as_ref() {
+                    use tauri::Manager;
+                    if let Some(app_state) = handle.try_state::<AppState>() {
+                        if let Ok(huddle) = app_state.huddle() {
+                            wake_pubkeys.retain(|pk| {
+                                huddle
+                                    .agent_voice_settings
+                                    .get(pk)
+                                    .map(|s| s.addressable)
+                                    .unwrap_or(true)
+                            });
+                        }
+                    }
+                }
+            }
+            // Addressed wake is the only STT path that stops agent TTS. Bare
+            // "stop", punctuation, and VAD barge-in must not interrupt speech;
+            // the UI Stop button still uses interrupt_huddle_speech.
+            if !wake_pubkeys.is_empty() {
+                if let Some(handle) = app_handle.as_ref() {
+                    use tauri::Manager;
+                    if let Some(app_state) = handle.try_state::<AppState>() {
+                        if let Ok(huddle) = app_state.huddle() {
+                            if let Some(pipeline) = huddle.tts_pipeline.as_ref() {
+                                for pubkey in &wake_pubkeys {
+                                    pipeline.cancel_speaker(pubkey);
+                                }
+                                eprintln!(
+                                    "buzz-desktop: addressed wake cancelled TTS for {} agent(s)",
+                                    wake_pubkeys.len()
+                                );
+                            }
+                        }
+                    }
+                }
+            }
             let content = if wake_pubkeys.is_empty() {
                 t.clone()
             } else {
@@ -864,7 +885,7 @@ pub(crate) fn spawn_transcription_task(
 ///
 /// Best-effort: failures return an empty list so the local STT session buffer
 /// still supplies prior spoken context.
-async fn fetch_huddle_transcript_lines(
+pub(crate) async fn fetch_huddle_transcript_lines(
     http_client: &reqwest::Client,
     keys: &nostr::Keys,
     relay_base_url: &str,

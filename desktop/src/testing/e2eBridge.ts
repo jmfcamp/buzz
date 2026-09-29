@@ -3900,6 +3900,8 @@ function refreshMockHuddleMembership(config?: E2eConfig | null) {
       mockHuddle.state.agent_voice_settings[pubkey] = {
         enabled: true,
         voice_key: voiceKey,
+        addressable: true,
+        agent_barge: false,
       };
     }
   });
@@ -12268,6 +12270,42 @@ export function maybeInstallE2eTauriMocks() {
           mockHuddle.state.agent_voice_settings[request.agentPubkey];
         if (!settings) throw new Error("Agent is not in the active huddle.");
         settings.voice_key = request.voiceKey;
+        persistMockHuddle();
+        await emitMockHuddleState();
+        return structuredClone(settings);
+      }
+      case "set_huddle_agent_addressable": {
+        if (!mockHuddle) throw new Error("No active mock huddle.");
+        const request = payload as {
+          agentPubkey?: string;
+          addressable?: boolean;
+        };
+        if (!request.agentPubkey || typeof request.addressable !== "boolean") {
+          throw new Error("Missing agent addressable setting.");
+        }
+        refreshMockHuddleMembership(activeConfig);
+        const settings =
+          mockHuddle.state.agent_voice_settings[request.agentPubkey];
+        if (!settings) throw new Error("Agent is not in the active huddle.");
+        settings.addressable = request.addressable;
+        persistMockHuddle();
+        await emitMockHuddleState();
+        return structuredClone(settings);
+      }
+      case "set_huddle_agent_barge": {
+        if (!mockHuddle) throw new Error("No active mock huddle.");
+        const request = payload as {
+          agentPubkey?: string;
+          agentBarge?: boolean;
+        };
+        if (!request.agentPubkey || typeof request.agentBarge !== "boolean") {
+          throw new Error("Missing agent barge setting.");
+        }
+        refreshMockHuddleMembership(activeConfig);
+        const settings =
+          mockHuddle.state.agent_voice_settings[request.agentPubkey];
+        if (!settings) throw new Error("Agent is not in the active huddle.");
+        settings.agent_barge = request.agentBarge;
         persistMockHuddle();
         await emitMockHuddleState();
         return structuredClone(settings);
