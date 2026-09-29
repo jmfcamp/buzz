@@ -452,15 +452,17 @@ function ParticipantAvatar({
   return (
     <span
       className={cn(
-        // Fixed square box + overflow clip: after the taller share spotlight
-        // drawer, unconstrained h-full/w-full avatars were stretching into a
-        // wide pill across neighboring tiles.
-        "buzz-huddle-speaking-avatar relative z-0 inline-flex aspect-square shrink-0 overflow-hidden",
+        // Fixed square box keeps dock avatars from stretching after share
+        // expand; overflow stays visible so the speaking ring/glow can pulse
+        // outside the avatar bounds.
+        "buzz-huddle-speaking-avatar relative z-0 inline-flex aspect-square shrink-0 overflow-visible",
         participant.isAgent
           ? "buzz-huddle-speaking-avatar-agent"
           : "rounded-full",
+        participant.isActive && "buzz-huddle-speaking-avatar-active",
         sizeClass,
       )}
+      data-speaking={participant.isActive ? "true" : undefined}
       data-testid="huddle-participant-avatar"
       style={speakerStyle}
     >
@@ -480,12 +482,18 @@ function ParticipantAvatar({
             vectorEffect="non-scaling-stroke"
           />
         </svg>
-      ) : null}
+      ) : (
+        <span
+          aria-hidden="true"
+          className="buzz-huddle-speaking-ring pointer-events-none rounded-full"
+          data-testid="huddle-member-speaking-ring"
+        />
+      )}
       <ProfileAvatar
         avatarUrl={participant.avatarUrl}
         label={participant.displayName}
         initialsLabel={participant.initialsLabel}
-        className={cn(sizeClass, "border-2 border-black text-2xs")}
+        className={cn(sizeClass, "relative z-0 border-2 border-black text-2xs")}
         shape={participant.isAgent ? "squircle" : "circle"}
       />
     </span>
