@@ -114,7 +114,9 @@
   }
 
   /* Expanded screen share: fill the shell content above the bottom dock bar.
-   * Not OS fullscreen — the huddle window stays; transcript is covered. */
+   * Not OS fullscreen — the huddle window stays; transcript is covered.
+   * z-index must sit above .buzz-huddle-app-surface (z-10); z-3 hid the
+   * stage behind the transcript so expand looked like the share vanished. */
   .buzz-huddle-share-stage {
     background: #000;
     bottom: var(--buzz-huddle-drawer-height);
@@ -122,7 +124,7 @@
     position: absolute;
     right: 0;
     top: 0;
-    z-index: 3;
+    z-index: 15;
   }
 
   .buzz-huddle-shell[data-huddle-window="false"] .buzz-huddle-share-stage {

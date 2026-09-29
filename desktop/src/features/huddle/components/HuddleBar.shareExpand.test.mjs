@@ -6,6 +6,10 @@ const src = fs.readFileSync(
   new URL("./HuddleBar.tsx", import.meta.url),
   "utf8",
 );
+const css = fs.readFileSync(
+  new URL("../../../shared/styles/globals/components.css", import.meta.url),
+  "utf8",
+);
 
 test("HuddleBar expands share into a shell stage portal, not OS fullscreen", () => {
   assert.match(src, /createPortal/);
@@ -24,4 +28,26 @@ test("HuddleBar removes dock-to-main / return-to-drawer affordance", () => {
   // Open companion from main remains; room no longer docks back.
   assert.match(src, /Open huddle window/);
   assert.match(src, /mode === "main"/);
+});
+
+test("expand remounts drawer-height sync without min-height ratchet", () => {
+  // Clearing the CSS var before measuring prevents min-h-(--buzz-huddle-drawer-height)
+  // from holding the dock at the pre-expand (preview-in-bar) height.
+  assert.match(src, /removeProperty\("--buzz-huddle-drawer-height"\)/);
+  assert.match(src, /scrollHeight/);
+  assert.match(
+    src,
+    /\[shareStageHost, shareExpanded, spotlightStream\]/,
+  );
+});
+
+test("share stage sits above app-surface so expand is visible", () => {
+  // .buzz-huddle-app-surface uses z-10; stage must be higher or the share
+  // is painted behind the transcript and appears to vanish on expand.
+  const stageBlock = css.match(
+    /\.buzz-huddle-share-stage\s*\{[^}]+\}/,
+  );
+  assert.ok(stageBlock, "expected .buzz-huddle-share-stage rule");
+  assert.match(stageBlock[0], /z-index:\s*15/);
+  assert.match(stageBlock[0], /bottom:\s*var\(--buzz-huddle-drawer-height\)/);
 });

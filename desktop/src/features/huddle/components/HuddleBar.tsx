@@ -514,14 +514,33 @@ export function HuddleBar({
   // screen-share preview is not clipped by the fixed 5rem drawer slot.
   // When expanded, the preview leaves the bar (portal stage) so height is
   // the dock controls only.
+  //
+  // Critical: clear the synced var before measuring. AppHuddleBar and the
+  // drawer slot use min-h-(--buzz-huddle-drawer-height), so writing the
+  // measured height back into that same var ratchets the dock tall. After
+  // expand portals the preview out, a stuck tall min-height leaves an
+  // oversized empty dock and collapses the stage (bottom uses the var).
   React.useEffect(() => {
     const el = drawerRootRef.current;
     const shell = shareStageHost;
     if (!el || !shell) return;
     const apply = () => {
-      const height = Math.ceil(el.getBoundingClientRect().height);
-      if (height > 0) {
-        shell.style.setProperty("--buzz-huddle-drawer-height", `${height}px`);
+      const previous = shell.style.getPropertyValue(
+        "--buzz-huddle-drawer-height",
+      );
+      // Drop the synced var so min-height cannot hold a prior taller size
+      // while we read natural content height (preview gone after expand).
+      shell.style.removeProperty("--buzz-huddle-drawer-height");
+      const height = Math.ceil(el.scrollHeight);
+      const next = height > 0 ? `${height}px` : "";
+      if (next === previous) {
+        if (previous) {
+          shell.style.setProperty("--buzz-huddle-drawer-height", previous);
+        }
+        return;
+      }
+      if (next) {
+        shell.style.setProperty("--buzz-huddle-drawer-height", next);
       }
     };
     apply();
@@ -530,7 +549,7 @@ export function HuddleBar({
     return () => {
       ro.disconnect();
     };
-  }, [shareStageHost]);
+  }, [shareStageHost, shareExpanded, spotlightStream]);
 
   React.useEffect(() => {
     const shell = shareStageHost;
