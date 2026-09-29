@@ -5,6 +5,8 @@ import { KIND_COMMUNITY_SECTIONS } from "@/shared/constants/kinds.ts";
 
 import {
   COMMUNITY_SECTIONS_D_TAG,
+  COMMUNITY_SECTIONS_RELAY_UNSUPPORTED_MESSAGE,
+  isUnknownCommunitySectionsKindError,
   parseCommunitySectionsPayload,
   selectLatestCommunitySections,
 } from "./catalogParse.ts";
@@ -79,4 +81,18 @@ test("selectLatestCommunitySections picks newest event", () => {
 test("KIND_COMMUNITY_SECTIONS is 30625", () => {
   assert.equal(KIND_COMMUNITY_SECTIONS, 30625);
   assert.equal(COMMUNITY_SECTIONS_D_TAG, "buzz:community-sections");
+});
+
+test("isUnknownCommunitySectionsKindError matches relay OK message", () => {
+  assert.equal(
+    isUnknownCommunitySectionsKindError(
+      new Error("restricted: unknown event kind"),
+    ),
+    true,
+  );
+  assert.equal(
+    isUnknownCommunitySectionsKindError(new Error("permission denied")),
+    false,
+  );
+  assert.match(COMMUNITY_SECTIONS_RELAY_UNSUPPORTED_MESSAGE, /kind 30625/);
 });

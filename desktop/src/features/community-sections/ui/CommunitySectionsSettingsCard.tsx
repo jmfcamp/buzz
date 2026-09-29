@@ -46,6 +46,8 @@ export function CommunitySectionsSettingsCard() {
     deleteSection,
     setSubscribed,
     isSubscribed,
+    communitySectionsEnabled,
+    setCommunitySectionsEnabled,
   } = useCommunitySections();
   const [createOpen, setCreateOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<CommunitySection | null>(null);
@@ -74,6 +76,32 @@ export function CommunitySectionsSettingsCard() {
         title="Community sections"
       />
 
+      <SettingsOptionGroup title="Preference">
+        <div
+          className="flex items-center gap-3 px-4 py-3"
+          data-testid="community-sections-master-toggle-row"
+        >
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium">Use Community Sections</div>
+            <p
+              className="text-sm font-normal text-muted-foreground/70"
+              data-settings-subcopy
+            >
+              When on, subscribed community sections appear on your left nav and
+              their channels stay locked in those sections. When off, those
+              sections hide from the nav and channels can move into personal
+              sections again — personal sections are never deleted.
+            </p>
+          </div>
+          <Switch
+            aria-label="Use Community Sections"
+            checked={communitySectionsEnabled}
+            data-testid="community-sections-master-toggle"
+            onCheckedChange={setCommunitySectionsEnabled}
+          />
+        </div>
+      </SettingsOptionGroup>
+
       {isLoading ? (
         <SettingsOptionGroup title="Catalog">
           <p className="px-4 py-6 text-center text-sm text-muted-foreground">
@@ -101,6 +129,7 @@ export function CommunitySectionsSettingsCard() {
                 setSubscribed(section.id, subscribed)
               }
               section={section}
+              subscribeDisabled={!communitySectionsEnabled}
               subscribed={isSubscribed(section.id)}
             />
           ))}
@@ -188,6 +217,7 @@ function SectionRow({
   onEdit,
   onSubscribeChange,
   section,
+  subscribeDisabled = false,
   subscribed,
 }: {
   canManage: boolean;
@@ -196,6 +226,7 @@ function SectionRow({
   onEdit: () => void;
   onSubscribeChange: (subscribed: boolean) => void;
   section: CommunitySection;
+  subscribeDisabled?: boolean;
   subscribed: boolean;
 }) {
   const channelNames = section.channelIds
@@ -227,6 +258,7 @@ function SectionRow({
           aria-label={`Subscribe to ${section.name}`}
           checked={subscribed}
           data-testid={`community-section-subscribe-${section.id}`}
+          disabled={subscribeDisabled}
           onCheckedChange={onSubscribeChange}
         />
         {canManage ? (
@@ -370,9 +402,7 @@ function SectionFormDialog({
                       onClick={() => toggleChannel(channel.id)}
                       type="button"
                     >
-                      <span className="truncate">
-                        {channel.name}
-                      </span>
+                      <span className="truncate">{channel.name}</span>
                       <span className="text-xs text-muted-foreground">
                         {checked ? "Selected" : "Add"}
                       </span>

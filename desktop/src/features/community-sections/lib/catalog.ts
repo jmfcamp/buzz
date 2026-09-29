@@ -4,10 +4,7 @@ import { signRelayEvent } from "@/shared/api/tauri";
 import { getStorageItem, setStorageItem } from "@/shared/lib/safeStorage";
 import { normalizeRelayUrl } from "@/shared/lib/normalizeRelayUrl";
 
-import type {
-  CommunitySection,
-  CommunitySectionsPayload,
-} from "./types";
+import type { CommunitySection, CommunitySectionsPayload } from "./types";
 import {
   MAX_COMMUNITY_SECTIONS,
   MAX_SECTION_CHANNELS,
@@ -15,7 +12,9 @@ import {
 } from "./types";
 import {
   COMMUNITY_SECTIONS_D_TAG,
+  COMMUNITY_SECTIONS_RELAY_UNSUPPORTED_MESSAGE,
   isSafeCommunitySectionId,
+  isUnknownCommunitySectionsKindError,
   mergeCommunitySections,
   parseCommunitySectionsPayload,
   selectLatestCommunitySections,
@@ -23,6 +22,8 @@ import {
 
 export {
   COMMUNITY_SECTIONS_D_TAG,
+  COMMUNITY_SECTIONS_RELAY_UNSUPPORTED_MESSAGE,
+  isUnknownCommunitySectionsKindError,
   mergeCommunitySections,
   parseCommunitySectionsPayload,
   selectLatestCommunitySections,
@@ -118,13 +119,19 @@ export async function publishCommunitySections(
     content: JSON.stringify(payload),
     tags: [["d", COMMUNITY_SECTIONS_D_TAG]],
   });
-  await relayClient.publishEvent(
-    event,
-    "Timed out while saving community sections.",
-    "Failed to save community sections.",
-  );
+  try {
+    await relayClient.publishEvent(
+      event,
+      "Timed out while saving community sections.",
+      "Failed to save community sections.",
+    );
+  } catch (error) {
+    if (isUnknownCommunitySectionsKindError(error)) {
+      throw new Error(COMMUNITY_SECTIONS_RELAY_UNSUPPORTED_MESSAGE);
+    }
+    throw error;
+  }
   if (relayUrl) {
     saveLocalCommunitySections(relayUrl, payload.sections);
   }
 }
-

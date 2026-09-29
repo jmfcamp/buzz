@@ -1,5 +1,6 @@
 // biome-ignore format: keep compact to stay within file size limit
 import * as React from "react";
+import { LayoutList } from "lucide-react";
 import { FeatureGate } from "@/shared/features";
 import { SidebarDndContext } from "@/features/sidebar/ui/SidebarDnd";
 
@@ -292,11 +293,20 @@ export function AppSidebar({
     unassignChannel,
   } = useChannelSections(currentPubkey, activeCommunity?.relayUrl);
 
-  const { subscribedSections: communitySubscribedSections } =
-    useCommunitySections();
+  const {
+    navSubscribedSections: communitySubscribedSections,
+    lockedChannelIds: communityLockedChannelIds,
+    communitySectionsEnabled,
+  } = useCommunitySections();
+  // Only occupy / lock channels while the master toggle is on. When off,
+  // channels return to personal sections / Channels; personal section rows
+  // (including empty ones) are never deleted.
   const communityOccupiedChannelIds = React.useMemo(
-    () => communitySectionChannelIds(communitySubscribedSections),
-    [communitySubscribedSections],
+    () =>
+      communitySectionsEnabled
+        ? communitySectionChannelIds(communitySubscribedSections)
+        : new Set<string>(),
+    [communitySectionsEnabled, communitySubscribedSections],
   );
   const communityChannelsById = React.useMemo(() => {
     const map = new Map<string, Channel>();
@@ -305,6 +315,21 @@ export function AppSidebar({
     }
     return map;
   }, [channels]);
+
+  const assignChannelGuarded = React.useCallback(
+    (channelId: string, sectionId: string) => {
+      if (communityLockedChannelIds.has(channelId)) return;
+      assignChannel(channelId, sectionId);
+    },
+    [assignChannel, communityLockedChannelIds],
+  );
+  const unassignChannelGuarded = React.useCallback(
+    (channelId: string) => {
+      if (communityLockedChannelIds.has(channelId)) return;
+      unassignChannel(channelId);
+    },
+    [unassignChannel, communityLockedChannelIds],
+  );
 
   const sectionIds = React.useMemo(
     () => channelSections.map((s) => s.id),
@@ -398,11 +423,11 @@ export function AppSidebar({
         return;
       }
       if (createSectionState.pendingChannelId) {
-        assignChannel(createSectionState.pendingChannelId, section.id);
+        assignChannelGuarded(createSectionState.pendingChannelId, section.id);
       }
       setCreateSectionState({ open: false, pendingChannelId: null });
     },
-    [createSection, assignChannel, createSectionState.pendingChannelId],
+    [createSection, assignChannelGuarded, createSectionState.pendingChannelId],
   );
 
   const forumChannels = React.useMemo(
@@ -528,9 +553,12 @@ export function AppSidebar({
 
   const handleCreateChannelInSection = React.useCallback(
     (sectionId: string) => {
-      onBrowseChannels?.((channelId) => assignChannel(channelId, sectionId));
+      onBrowseChannels?.((channelId) => {
+        if (communityLockedChannelIds.has(channelId)) return;
+        assignChannelGuarded(channelId, sectionId);
+      });
     },
-    [assignChannel, onBrowseChannels],
+    [assignChannelGuarded, communityLockedChannelIds, onBrowseChannels],
   );
 
   return (
@@ -695,6 +723,13 @@ export function AppSidebar({
                         selectedChannelId={selectedChannelId}
                         testId={`community-section-${section.id}`}
                         title={section.name}
+                        titleIcon={
+                          <LayoutList
+                            aria-hidden="true"
+                            className="size-3.5 shrink-0 text-sidebar-foreground/70"
+                            data-testid="community-section-nav-icon"
+                          />
+                        }
                         unreadChannelCounts={unreadChannelCounts}
                         unreadChannelIds={unreadChannelIds}
                       />
@@ -704,9 +739,10 @@ export function AppSidebar({
                     channels={channels}
                     sections={channelSections}
                     sectionIds={sectionIds}
-                    onAssignChannel={assignChannel}
-                    onUnassignChannel={unassignChannel}
+                    onAssignChannel={assignChannelGuarded}
+                    onUnassignChannel={unassignChannelGuarded}
                     onReorderSections={reorderSections}
+                    lockedChannelIds={communityLockedChannelIds}
                   >
                     {channelSections.map((section, idx) => (
                       <CustomChannelSection
@@ -748,8 +784,9 @@ export function AppSidebar({
                             );
                           }
                         }}
-                        onAssignChannel={assignChannel}
-                        onUnassignChannel={unassignChannel}
+                        onAssignChannel={assignChannelGuarded}
+                        onUnassignChannel={unassignChannelGuarded}
+                        lockedChannelIds={communityLockedChannelIds}
                         onCreateSectionForChannel={
                           handleCreateSectionForChannel
                         }
@@ -797,8 +834,9 @@ export function AppSidebar({
                       unreadChannelCounts={unreadChannelCounts}
                       sections={channelSections}
                       assignments={channelAssignments}
-                      onAssignChannel={assignChannel}
-                      onUnassignChannel={unassignChannel}
+                      onAssignChannel={assignChannelGuarded}
+                      onUnassignChannel={unassignChannelGuarded}
+                      lockedChannelIds={communityLockedChannelIds}
                       onCreateSectionForChannel={handleCreateSectionForChannel}
                       mutedChannelIds={mutedChannelIds}
                       onMuteChannel={onMuteChannel}

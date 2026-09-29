@@ -12,9 +12,7 @@ export const COMMUNITY_SECTIONS_D_TAG = "buzz:community-sections";
 
 export function isSafeCommunitySectionId(value: string): boolean {
   return (
-    value.length > 0 &&
-    value.length <= 80 &&
-    /^[A-Za-z0-9_-]+$/.test(value)
+    value.length > 0 && value.length <= 80 && /^[A-Za-z0-9_-]+$/.test(value)
   );
 }
 
@@ -115,3 +113,23 @@ export function createCommunitySectionId(): string {
   }
   return `section-${Date.now().toString(36)}`;
 }
+
+/**
+ * Official Buzz relays that predate kind:30625 reject with
+ * `restricted: unknown event kind` (same gap as community bots 30624 /
+ * pins 30623). Surface a deploy-oriented message instead of the raw OK.
+ */
+export function isUnknownCommunitySectionsKindError(error: unknown): boolean {
+  const message = (
+    error instanceof Error ? error.message : String(error)
+  ).toLowerCase();
+  return (
+    message.includes("unknown event kind") ||
+    message.includes("unknown kind") ||
+    message.includes("kind-not-allowed") ||
+    message.includes("kind not allowed")
+  );
+}
+
+export const COMMUNITY_SECTIONS_RELAY_UNSUPPORTED_MESSAGE =
+  "This community relay does not accept community sections yet (kind 30625). Deploy a relay build that includes KIND_COMMUNITY_SECTIONS — see docs/community-sections.md (Deploy).";

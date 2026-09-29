@@ -21,3 +21,8 @@ test("dock chat is gated on visible prop for expand-only rendering", () => {
   assert.match(src, /if \(!visible\) return null/);
   assert.match(src, /visible: boolean/);
 });
+
+test("dock chat filters channel_created system rows from the transcript", () => {
+  assert.match(src, /isChannelCreatedSystemMessage/);
+  assert.match(src, /channel_created/);
+});

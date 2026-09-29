@@ -26,6 +26,13 @@ import {
   writeCommunitySectionSubs,
   type CommunitySectionSubsChange,
 } from "./lib/subscriptions";
+import {
+  COMMUNITY_SECTIONS_ENABLED_EVENT,
+  notifyCommunitySectionsEnabledChange,
+  readCommunitySectionsEnabled,
+  writeCommunitySectionsEnabled,
+  type CommunitySectionsEnabledChange,
+} from "./lib/featurePreference";
 import type {
   CommunitySection,
   CommunitySectionDraft,
@@ -109,6 +116,58 @@ export function useCommunitySectionSubscriptions(
   return { store, subscribedIds, setSubscribed };
 }
 
+export function useCommunitySectionsEnabled(
+  pubkey: string,
+  relayUrl: string,
+): {
+  enabled: boolean;
+  setEnabled: (enabled: boolean) => void;
+} {
+  const [enabled, setEnabledState] = React.useState(() =>
+    readCommunitySectionsEnabled(pubkey, relayUrl),
+  );
+
+  React.useEffect(() => {
+    setEnabledState(readCommunitySectionsEnabled(pubkey, relayUrl));
+  }, [pubkey, relayUrl]);
+
+  React.useEffect(() => {
+    const onChange = (event: Event) => {
+      const detail = (event as CustomEvent<CommunitySectionsEnabledChange>)
+        .detail;
+      if (!detail) return;
+      if (detail.pubkey !== pubkey || detail.relayUrl !== relayUrl) return;
+      setEnabledState(detail.enabled);
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (!event.key) return;
+      setEnabledState(readCommunitySectionsEnabled(pubkey, relayUrl));
+    };
+    window.addEventListener(COMMUNITY_SECTIONS_ENABLED_EVENT, onChange);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener(COMMUNITY_SECTIONS_ENABLED_EVENT, onChange);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [pubkey, relayUrl]);
+
+  const setEnabled = React.useCallback(
+    (next: boolean) => {
+      if (!pubkey || !relayUrl) return;
+      writeCommunitySectionsEnabled(pubkey, relayUrl, next);
+      setEnabledState(next);
+      notifyCommunitySectionsEnabledChange({
+        pubkey,
+        relayUrl,
+        enabled: next,
+      });
+    },
+    [pubkey, relayUrl],
+  );
+
+  return { enabled, setEnabled };
+}
+
 export function useCommunitySections() {
   const queryClient = useQueryClient();
   const { pubkey, relayUrl } = useCommunitySectionsScope();
@@ -118,6 +177,10 @@ export function useCommunitySections() {
   const channelsQuery = useChannelsQuery({ enabled: Boolean(relayUrl) });
   const { store, subscribedIds, setSubscribed } =
     useCommunitySectionSubscriptions(pubkey, relayUrl);
+  const {
+    enabled: communitySectionsEnabled,
+    setEnabled: setCommunitySectionsEnabled,
+  } = useCommunitySectionsEnabled(pubkey, relayUrl);
 
   React.useEffect(() => {
     if (!relayUrl) return;
@@ -256,13 +319,33 @@ export function useCommunitySections() {
     return map;
   }, [streamChannels]);
 
+  const navSubscribedSections = React.useMemo(() => {
+    return communitySectionsEnabled ? subscribedSections : [];
+  }, [communitySectionsEnabled, subscribedSections]);
+
+  const lockedChannelIds = React.useMemo(() => {
+    if (!communitySectionsEnabled) return new Set<string>();
+    const ids = new Set<string>();
+    for (const section of subscribedSections) {
+      for (const channelId of section.channelIds) {
+        ids.add(channelId);
+      }
+    }
+    return ids;
+  }, [communitySectionsEnabled, subscribedSections]);
+
   return {
     sections,
     subscribedSections,
+    /** Subscribed sections to render in the left nav (empty when master toggle is off). */
+    navSubscribedSections,
     subscribedIds,
     streamChannels,
     channelsById,
     canManage,
+    communitySectionsEnabled,
+    setCommunitySectionsEnabled,
+    lockedChannelIds,
     isLoading: catalogQuery.isLoading,
     isSaving: saveMutation.isPending,
     createSection,

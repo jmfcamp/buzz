@@ -8,12 +8,16 @@ import {
   useChannelSubscription,
   useSendMessageMutation,
 } from "@/features/messages/hooks";
+import { isChannelCreatedSystemMessage } from "@/features/channels/ui/ChannelPane.helpers";
 import { formatTimelineMessages } from "@/features/messages/lib/formatTimelineMessages";
 import { MessageComposer } from "@/features/messages/ui/MessageComposer";
 import { MessageThreadTranscript } from "@/features/messages/ui/MessageThreadTranscript";
 import { useProfileQuery, useUsersBatchQuery } from "@/features/profile/hooks";
 import { useIdentityQuery } from "@/shared/api/hooks";
-import { CHANNEL_TIMELINE_CONTENT_KINDS } from "@/shared/constants/kinds";
+import {
+  CHANNEL_TIMELINE_CONTENT_KINDS,
+  KIND_SYSTEM_MESSAGE,
+} from "@/shared/constants/kinds";
 import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
@@ -67,9 +71,19 @@ export function HuddleDockChatControl({
 
   const contentEvents = React.useMemo(
     () =>
-      (messagesQuery.data ?? []).filter((event) =>
-        CONTENT_KIND_SET.has(event.kind),
-      ),
+      (messagesQuery.data ?? []).filter((event) => {
+        if (!CONTENT_KIND_SET.has(event.kind)) return false;
+        // Don't badge or attribute the relay-owner channel_created row.
+        if (event.kind !== KIND_SYSTEM_MESSAGE) return true;
+        try {
+          return (
+            (JSON.parse(event.content) as { type?: string }).type !==
+            "channel_created"
+          );
+        } catch {
+          return true;
+        }
+      }),
     [messagesQuery.data],
   );
 
@@ -87,23 +101,27 @@ export function HuddleDockChatControl({
     enabled: visible && authorPubkeys.length > 0,
   });
 
-  const timelineMessages = React.useMemo(
-    () =>
-      formatTimelineMessages(
-        messagesQuery.data ?? [],
-        channel,
-        identityQuery.data?.pubkey,
-        profileQuery.data?.avatarUrl ?? null,
-        profilesQuery.data?.profiles,
-      ),
-    [
+  const timelineMessages = React.useMemo(() => {
+    const formatted = formatTimelineMessages(
+      messagesQuery.data ?? [],
       channel,
       identityQuery.data?.pubkey,
-      messagesQuery.data,
-      profileQuery.data?.avatarUrl,
+      profileQuery.data?.avatarUrl ?? null,
       profilesQuery.data?.profiles,
-    ],
-  );
+    );
+    // Huddle create always posts kind:40099 channel_created from the relay
+    // owner. Dock chat uses MessageThreadRow (not SystemMessageRow), so without
+    // this filter the raw JSON shows as a chat bubble every huddle.
+    return formatted.filter(
+      (message) => !isChannelCreatedSystemMessage(message),
+    );
+  }, [
+    channel,
+    identityQuery.data?.pubkey,
+    messagesQuery.data,
+    profileQuery.data?.avatarUrl,
+    profilesQuery.data?.profiles,
+  ]);
 
   // Watermark unread while the stage covers chat and the popover is closed.
   const seenThroughRef = React.useRef<number>(0);
