@@ -73,7 +73,8 @@
   .buzz-huddle-shell[data-huddle-window="false"] .buzz-huddle-app-surface-open {
     bottom: calc(
       var(--buzz-huddle-drawer-height) +
-      2 * var(--buzz-huddle-drawer-inset)
+      2 *
+      var(--buzz-huddle-drawer-inset)
     );
   }
 
@@ -97,7 +98,8 @@
   .buzz-huddle-shell[data-huddle-window="false"] .buzz-huddle-drawer-backdrop {
     height: calc(
       var(--buzz-huddle-drawer-height) +
-      2 * var(--buzz-huddle-drawer-inset)
+      2 *
+      var(--buzz-huddle-drawer-inset)
     );
   }
 
@@ -109,6 +111,26 @@
    * transcript look like a raised card. */
   .buzz-huddle-app-surface-room-open {
     bottom: var(--buzz-huddle-drawer-height);
+  }
+
+  /* Expanded screen share: fill the shell content above the bottom dock bar.
+   * Not OS fullscreen — the huddle window stays; transcript is covered. */
+  .buzz-huddle-share-stage {
+    background: #000;
+    bottom: var(--buzz-huddle-drawer-height);
+    left: 0;
+    position: absolute;
+    right: 0;
+    top: 0;
+    z-index: 3;
+  }
+
+  .buzz-huddle-shell[data-huddle-window="false"] .buzz-huddle-share-stage {
+    bottom: calc(
+      var(--buzz-huddle-drawer-height) +
+      2 *
+      var(--buzz-huddle-drawer-inset)
+    );
   }
 
   .buzz-huddle-drawer {
@@ -151,7 +173,8 @@
   .buzz-huddle-shell[data-huddle-window="false"] .buzz-huddle-drawer-slot {
     min-height: calc(
       var(--buzz-huddle-drawer-height) +
-      2 * var(--buzz-huddle-drawer-inset)
+      2 *
+      var(--buzz-huddle-drawer-inset)
     );
     padding: var(--buzz-huddle-drawer-inset);
   }

@@ -5,13 +5,15 @@ import {
   Bot,
   Captions,
   ChevronDown,
+  Maximize2,
+  Minimize2,
   MonitorUp,
   PhoneOff,
-  PictureInPicture,
   PictureInPicture2,
   SmilePlus,
 } from "lucide-react";
 import * as React from "react";
+import { createPortal } from "react-dom";
 
 import { useCustomEmoji } from "@/features/custom-emoji/hooks";
 import { EmojiPicker } from "@/features/custom-emoji/ui/EmojiPicker";
@@ -480,14 +482,42 @@ export function HuddleBar({
   const spotlightStream =
     screenShare.localPreviewStream ?? screenShare.remoteStream;
   const drawerRootRef = React.useRef<HTMLDivElement | null>(null);
+  const [shareExpanded, setShareExpanded] = React.useState(false);
+  const [shareStageHost, setShareStageHost] =
+    React.useState<HTMLElement | null>(null);
+
+  // Collapse expanded share when the stream ends.
+  React.useEffect(() => {
+    if (!spotlightStream) setShareExpanded(false);
+  }, [spotlightStream]);
+
+  // Resolve the huddle shell once the bar mounts so expand can portal the
+  // share stage into the content area above the dock.
+  React.useEffect(() => {
+    const el = drawerRootRef.current;
+    if (!el || !isHuddleVisible) {
+      setShareStageHost(null);
+      return;
+    }
+    const shell = el.closest(".buzz-huddle-shell") as HTMLElement | null;
+    setShareStageHost(shell);
+    return () => {
+      if (shell) {
+        shell.removeAttribute("data-huddle-share-expanded");
+        shell.style.removeProperty("--buzz-huddle-drawer-height");
+      }
+      setShareStageHost((current) => (current === shell ? null : current));
+    };
+  }, [isHuddleVisible]);
 
   // Keep --buzz-huddle-drawer-height in sync with real bar content so a
   // screen-share preview is not clipped by the fixed 5rem drawer slot.
+  // When expanded, the preview leaves the bar (portal stage) so height is
+  // the dock controls only.
   React.useEffect(() => {
     const el = drawerRootRef.current;
-    if (!el) return;
-    const shell = el.closest(".buzz-huddle-shell") as HTMLElement | null;
-    if (!shell) return;
+    const shell = shareStageHost;
+    if (!el || !shell) return;
     const apply = () => {
       const height = Math.ceil(el.getBoundingClientRect().height);
       if (height > 0) {
@@ -499,9 +529,18 @@ export function HuddleBar({
     ro.observe(el);
     return () => {
       ro.disconnect();
-      shell.style.removeProperty("--buzz-huddle-drawer-height");
     };
-  }, [spotlightStream, isHuddleVisible]);
+  }, [shareStageHost]);
+
+  React.useEffect(() => {
+    const shell = shareStageHost;
+    if (!shell) return;
+    if (shareExpanded && spotlightStream) {
+      shell.setAttribute("data-huddle-share-expanded", "true");
+    } else {
+      shell.removeAttribute("data-huddle-share-expanded");
+    }
+  }, [shareExpanded, shareStageHost, spotlightStream]);
   const participantSpeakerLevels = React.useMemo(() => {
     const levels = { ...speakerLevels };
     if (currentPubkey) {
@@ -682,14 +721,6 @@ export function HuddleBar({
     }
   }
 
-  async function handleReturnToDrawer() {
-    try {
-      await invoke("close_huddle_companion");
-    } catch (error) {
-      console.error("Failed to return huddle to drawer:", error);
-    }
-  }
-
   return (
     <div
       ref={drawerRootRef}
@@ -701,13 +732,64 @@ export function HuddleBar({
         className,
       )}
     >
-      {spotlightStream ? (
-        <ScreenShareSpotlight
-          stream={spotlightStream}
-          label={screenShare.sharing ? "You are sharing" : "Screen share"}
-          className="mx-auto h-56 w-full max-w-3xl shrink-0"
-        />
+      {spotlightStream && !shareExpanded ? (
+        <div className="relative mx-auto h-56 w-full max-w-3xl shrink-0">
+          <ScreenShareSpotlight
+            stream={spotlightStream}
+            label={screenShare.sharing ? "You are sharing" : "Screen share"}
+            className="h-full w-full"
+          />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                aria-label="Expand shared screen"
+                className="buzz-huddle-control-button absolute right-2 top-2 h-8 w-8 rounded-md"
+                onClick={() => setShareExpanded(true)}
+                size="icon"
+                type="button"
+                variant="secondary"
+              >
+                <Maximize2 className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="buzz-huddle-tooltip" side="top">
+              Expand shared screen
+            </TooltipContent>
+          </Tooltip>
+        </div>
       ) : null}
+      {shareExpanded && spotlightStream && shareStageHost
+        ? createPortal(
+            <div
+              className="buzz-huddle-share-stage"
+              data-testid="huddle-share-stage"
+            >
+              <ScreenShareSpotlight
+                stream={spotlightStream}
+                label={screenShare.sharing ? "You are sharing" : "Screen share"}
+                className="h-full w-full rounded-none border-0"
+              />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    aria-label="Collapse shared screen"
+                    className="buzz-huddle-control-button absolute right-3 top-3 z-[1] h-10 w-10 rounded-md"
+                    onClick={() => setShareExpanded(false)}
+                    size="icon"
+                    type="button"
+                    variant="secondary"
+                  >
+                    <Minimize2 className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent className="buzz-huddle-tooltip" side="bottom">
+                  Collapse shared screen
+                </TooltipContent>
+              </Tooltip>
+            </div>,
+            shareStageHost,
+          )
+        : null}
       {screenShare.error ? (
         <div
           className="mx-auto max-w-3xl truncate rounded-md bg-destructive/15 px-2 py-1 text-xs text-destructive"
@@ -1045,6 +1127,37 @@ export function HuddleBar({
         </div>
 
         <div className="flex shrink-0 items-center gap-2 justify-self-end">
+          {spotlightStream ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  aria-label={
+                    shareExpanded
+                      ? "Collapse shared screen"
+                      : "Expand shared screen"
+                  }
+                  aria-pressed={shareExpanded}
+                  className="buzz-huddle-control-button h-12 w-12 shrink-0 rounded-md"
+                  onClick={() => setShareExpanded((open) => !open)}
+                  size="icon"
+                  type="button"
+                  variant={shareExpanded ? "secondary" : "ghost"}
+                >
+                  {shareExpanded ? (
+                    <Minimize2 className="h-4 w-4" />
+                  ) : (
+                    <Maximize2 className="h-4 w-4" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent className="buzz-huddle-tooltip" side="top">
+                {shareExpanded
+                  ? "Collapse shared screen"
+                  : "Expand shared screen"}
+              </TooltipContent>
+            </Tooltip>
+          ) : null}
+
           {mode === "main" ? (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -1063,25 +1176,7 @@ export function HuddleBar({
                 Open huddle window
               </TooltipContent>
             </Tooltip>
-          ) : (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  aria-label="Return huddle to drawer"
-                  className="buzz-huddle-control-button h-12 w-12 shrink-0 rounded-md"
-                  onClick={() => void handleReturnToDrawer()}
-                  size="icon"
-                  type="button"
-                  variant="secondary"
-                >
-                  <PictureInPicture className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent className="buzz-huddle-tooltip" side="top">
-                Return huddle to drawer
-              </TooltipContent>
-            </Tooltip>
-          )}
+          ) : null}
 
           <Button
             aria-label="Leave huddle"
