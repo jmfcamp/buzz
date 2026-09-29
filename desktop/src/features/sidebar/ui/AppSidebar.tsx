@@ -10,6 +10,11 @@ import {
   useChannelSections,
   type ChannelSection,
 } from "@/features/sidebar/lib/useChannelSections";
+import { useCommunitySections } from "@/features/community-sections/hooks";
+import {
+  channelsForCommunitySection,
+  communitySectionChannelIds,
+} from "@/features/community-sections/lib/sidebarBuckets";
 import { useActiveWorkingChannelsById } from "@/features/sidebar/lib/useActiveWorkingChannelsById";
 import { useThreadStars } from "@/features/sidebar/lib/useThreadStars";
 import { SidebarStarredThreadsSection } from "@/features/sidebar/ui/SidebarStarredThreadsSection";
@@ -285,6 +290,20 @@ export function AppSidebar({
     unassignChannel,
   } = useChannelSections(currentPubkey, activeCommunity?.relayUrl);
 
+  const { subscribedSections: communitySubscribedSections } =
+    useCommunitySections();
+  const communityOccupiedChannelIds = React.useMemo(
+    () => communitySectionChannelIds(communitySubscribedSections),
+    [communitySubscribedSections],
+  );
+  const communityChannelsById = React.useMemo(() => {
+    const map = new Map<string, Channel>();
+    for (const channel of channels) {
+      if (channel.channelType === "stream") map.set(channel.id, channel);
+    }
+    return map;
+  }, [channels]);
+
   const sectionIds = React.useMemo(
     () => channelSections.map((s) => s.id),
     [channelSections],
@@ -323,6 +342,7 @@ export function AppSidebar({
 
     for (const channel of streamChannels) {
       if (starredChannelIds?.has(channel.id)) continue;
+      if (communityOccupiedChannelIds.has(channel.id)) continue;
       const sectionId = channelAssignments[channel.id];
       if (sectionId && sectionIds.has(sectionId)) {
         if (!bySection[sectionId]) {
@@ -349,6 +369,7 @@ export function AppSidebar({
     streamChannels,
     channelSections,
     channelAssignments,
+    communityOccupiedChannelIds,
     starredChannelIds,
     sortModeFor,
   ]);
@@ -640,6 +661,39 @@ export function AppSidebar({
                     }
                     onUnstarThread={unstarThread}
                   />
+                  {communitySubscribedSections.map((section) => {
+                    const sectionChannels = sortChannelsForSidebar(
+                      channelsForCommunitySection(
+                        section,
+                        communityChannelsById,
+                        starredChannelIds,
+                      ),
+                      sortModeFor(sectionSortGroupKey(`community:${section.id}`)),
+                    );
+                    return (
+                      <SidebarSection
+                        activeWorkingByChannelId={activeWorkingByChannelId}
+                        isActiveChannel={selectedView === "channel"}
+                        isCollapsed={collapsedSections[`community:${section.id}`] ?? false}
+                        items={sectionChannels}
+                        key={`community-section-${section.id}`}
+                        mutedChannelIds={mutedChannelIds}
+                        onMarkChannelRead={onMarkChannelRead}
+                        onMarkChannelUnread={onMarkChannelUnread}
+                        onMuteChannel={onMuteChannel}
+                        onSelectChannel={onSelectChannel}
+                        onToggleCollapsed={() =>
+                          toggleCollapsedSection(`community:${section.id}`)
+                        }
+                        onUnmuteChannel={onUnmuteChannel}
+                        selectedChannelId={selectedChannelId}
+                        testId={`community-section-${section.id}`}
+                        title={section.name}
+                        unreadChannelCounts={unreadChannelCounts}
+                        unreadChannelIds={unreadChannelIds}
+                      />
+                    );
+                  })}
                   <SidebarDndContext
                     channels={channels}
                     sections={channelSections}
