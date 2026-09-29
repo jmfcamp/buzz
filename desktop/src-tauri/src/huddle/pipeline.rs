@@ -619,14 +619,45 @@ pub(crate) fn sign_and_guard_stt_body(
     Ok(body_bytes)
 }
 
+
+fn resolve_stt_agent_aliases(
+    app_handle: &Option<tauri::AppHandle>,
+    agent_pubkeys: &[String],
+) -> Vec<super::stt_wake::AgentNameAlias> {
+    let Some(app) = app_handle else {
+        return Vec::new();
+    };
+    let Ok(records) = crate::managed_agents::load_managed_agents(app) else {
+        return Vec::new();
+    };
+    let mapped: Vec<(String, Vec<String>)> = records
+        .iter()
+        .map(|r| {
+            (
+                r.pubkey.clone(),
+                super::stt_wake::collect_record_aliases(
+                    &r.name,
+                    r.display_name.as_deref(),
+                ),
+            )
+        })
+        .collect();
+    super::stt_wake::aliases_from_managed_records(agent_pubkeys, &mapped)
+}
+
 /// Spawn a tokio task that reads text_rx and posts kind:9 events.
 ///
 /// Fix 1: `agent_pubkeys_arc` is an `Arc<Mutex<Vec<String>>>` cloned from
-///        `HuddleState` — the task reads it at post time so p-tags are always
+///        `HuddleState` — the task reads it at post time so the roster is
 ///        current, not a stale snapshot.
 /// Fix 3: no `.unwrap()` on mutex — poisoned locks are recovered gracefully.
 /// Fix 4: `text_rx` is a `tokio::sync::mpsc::Receiver` — fully async `.recv().await`
 ///        never blocks a Tokio worker thread (unlike std `recv_timeout`).
+///
+/// Wake gate: every STT final is logged as kind:9. Agent p-tags are attached
+/// **only** when speech uses the explicit phrase `At <agent name>` (see
+/// [`super::stt_wake`]). Bare names and ordinary transcript lines do not wake
+/// agents. Explicit chat @mentions still wake via the composer send path.
 pub(crate) fn spawn_transcription_task(
     mut text_rx: tokio::sync::mpsc::Receiver<String>,
     channel_uuid: Uuid,
@@ -643,8 +674,16 @@ pub(crate) fn spawn_transcription_task(
         Err(_) => return,
     };
     let relay_base_url = crate::relay::relay_api_base_url_with_override(state);
+    let app_handle = state
+        .app_handle
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
 
     tauri::async_runtime::spawn(async move {
+        let mut cached_roster: Vec<String> = Vec::new();
+        let mut cached_aliases: Vec<super::stt_wake::AgentNameAlias> = Vec::new();
+
         // recv().await yields (not blocks) until text arrives or sender is dropped.
         // When the STT worker exits and drops its Sender, recv() returns None → loop ends.
         while let Some(t) = text_rx.recv().await {
@@ -664,7 +703,14 @@ pub(crate) fn spawn_transcription_task(
                 .unwrap_or_else(|e| e.into_inner())
                 .clone();
 
-            let p_tags: Vec<&str> = agent_pubkeys.iter().map(|s| s.as_str()).collect();
+            if agent_pubkeys != cached_roster {
+                cached_aliases = resolve_stt_agent_aliases(&app_handle, &agent_pubkeys);
+                cached_roster = agent_pubkeys;
+            }
+
+            // Wake only agents addressed as "At <Name>"; still post transcript always.
+            let wake_pubkeys = super::stt_wake::addressed_agent_pubkeys(&t, &cached_aliases);
+            let p_tags: Vec<&str> = wake_pubkeys.iter().map(|s| s.as_str()).collect();
             let builder = match events::build_message(
                 channel_uuid,
                 &t,

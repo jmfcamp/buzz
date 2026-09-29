@@ -1,7 +1,9 @@
 import * as React from "react";
 
 import {
+  acquireDisplayMedia,
   HuddleScreenShareSession,
+  stopMediaStreamTracks,
   type ScreenShareRemote,
 } from "../lib/screenShareSession";
 import { isShareBlockedByOther } from "../lib/screenSharePolicy";
@@ -133,13 +135,18 @@ export function useHuddleScreenShare(args: {
   const startShare = React.useCallback(async () => {
     if (!channelId) return;
     setError(null);
+    // First await MUST be getDisplayMedia — WebKit/WKWebView needs a user gesture.
+    let acquired: MediaStream | null = null;
     try {
+      acquired = await acquireDisplayMedia();
       const minted = await mintScreenShareToken({
         channelId,
         parentChannelId,
         intent: "publish",
       });
       if ("unavailable" in minted && minted.unavailable) {
+        stopMediaStreamTracks(acquired);
+        acquired = null;
         setAvailable(false);
         setError(minted.reason);
         return;
@@ -160,9 +167,11 @@ export function useHuddleScreenShare(args: {
         sessionRef.current = session;
       }
       await session.connect(token.url, token.token);
-      await session.startShare();
+      await session.startShare(acquired);
+      acquired = null; // ownership transferred to session
       setSharing(true);
     } catch (e) {
+      stopMediaStreamTracks(acquired);
       setError(e instanceof Error ? e.message : String(e));
       setSharing(false);
     }

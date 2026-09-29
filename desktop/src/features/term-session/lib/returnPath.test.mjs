@@ -96,16 +96,20 @@ test("buildTermSessionReturnPathSection fills origin + mention + triggers", () =
     originChannelId: CHANNEL,
     originThreadId: THREAD,
     mention: "Fable",
+    mentionPubkey: "pk-fable",
   });
   assert.match(section, /^## Return path \(Buzz\)/);
   assert.match(section, new RegExp(`origin channelId: ${CHANNEL}`));
   assert.match(section, new RegExp(`origin threadId:  ${THREAD}`));
   assert.match(section, /mention to use:   @Fable/);
+  assert.match(section, /mention pubkey:   pk-fable/);
   assert.match(section, /report back/);
   assert.match(section, /hand back/);
   assert.match(section, /I'm done/);
   assert.match(section, /buzz_draft_message/);
-  assert.match(section, /Content = "@Fable <text JM asked for>"/);
+  assert.match(section, /content starting with "@Fable <text JM asked for>"/);
+  assert.match(section, /mentions: \[\{ displayName: "Fable", pubkey: "pk-fable", isAgent: true \}\]/);
+  assert.match(section, /Plain @Name alone is NOT enough/);
   assert.match(section, /Draft only\. JM clicks Send/);
   assert.match(section, /Never draft to any other channel/);
   assert.match(section, /Never auto-draft progress/);

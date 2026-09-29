@@ -36,6 +36,15 @@ const TIMELINE_KINDS: [u32; 11] = [
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct DraftMentionRef {
+    display_name: String,
+    pubkey: String,
+    #[serde(default)]
+    is_agent: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct SignerRequest {
     id: String,
     op: String,
@@ -47,6 +56,16 @@ struct SignerRequest {
     content: Option<String>,
     #[serde(default)]
     limit: Option<u32>,
+    #[serde(default)]
+    mentions: Option<Vec<DraftMentionRef>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DraftEventMentionRef {
+    display_name: String,
+    pubkey: String,
+    is_agent: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -58,6 +77,8 @@ struct DraftEventPayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     thread_id: Option<String>,
     request_id: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    mention_refs: Vec<DraftEventMentionRef>,
 }
 
 fn now_ms() -> u64 {
@@ -262,12 +283,30 @@ async fn handle_request(app: &AppHandle, state: &AppState, root: &PathBuf, req: 
                 Some(tid) => format!("thread:{tid}"),
                 None => channel_id.to_string(),
             };
+            let mention_refs: Vec<DraftEventMentionRef> = req
+                .mentions
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|m| {
+                    let display_name = m.display_name.trim().to_string();
+                    let pubkey = m.pubkey.trim().to_string();
+                    if display_name.is_empty() || pubkey.is_empty() {
+                        return None;
+                    }
+                    Some(DraftEventMentionRef {
+                        display_name,
+                        pubkey,
+                        is_agent: m.is_agent.unwrap_or(true),
+                    })
+                })
+                .collect();
             let payload = DraftEventPayload {
                 channel_id: channel_id.to_string(),
                 draft_key: draft_key.clone(),
                 content,
                 thread_id: thread_id.clone(),
                 request_id: id.clone(),
+                mention_refs,
             };
             if let Err(e) = app.emit(DRAFT_EVENT, &payload) {
                 write_response(
@@ -396,5 +435,43 @@ mod tests {
             None => "chan".to_string(),
         };
         assert_eq!(draft_key, "thread:root-xyz");
+    }
+
+    #[test]
+    fn signer_request_parses_mentions() {
+        let raw = r#"{
+            "id": "req-1",
+            "op": "draft_message",
+            "channelId": "ch",
+            "content": "@Fable hi",
+            "threadId": "th",
+            "mentions": [{ "displayName": "Fable", "pubkey": "abc", "isAgent": true }]
+        }"#;
+        let req: SignerRequest = serde_json::from_str(raw).unwrap();
+        let m = req.mentions.unwrap();
+        assert_eq!(m.len(), 1);
+        assert_eq!(m[0].display_name, "Fable");
+        assert_eq!(m[0].pubkey, "abc");
+        assert_eq!(m[0].is_agent, Some(true));
+    }
+
+    #[test]
+    fn draft_event_payload_serializes_mention_refs() {
+        let payload = DraftEventPayload {
+            channel_id: "ch".into(),
+            draft_key: "thread:th".into(),
+            content: "@Fable hi".into(),
+            thread_id: Some("th".into()),
+            request_id: "r1".into(),
+            mention_refs: vec![DraftEventMentionRef {
+                display_name: "Fable".into(),
+                pubkey: "abc".into(),
+                is_agent: true,
+            }],
+        };
+        let v = serde_json::to_value(&payload).unwrap();
+        assert_eq!(v["mentionRefs"][0]["displayName"], "Fable");
+        assert_eq!(v["mentionRefs"][0]["pubkey"], "abc");
+        assert_eq!(v["mentionRefs"][0]["isAgent"], true);
     }
 }

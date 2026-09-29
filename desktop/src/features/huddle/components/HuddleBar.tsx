@@ -702,40 +702,6 @@ export function HuddleBar({
             onGainChange={setMicGain}
           />
 
-          {screenShare.available ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant={screenShare.sharing ? "secondary" : "ghost"}
-                  size="sm"
-                  className="gap-1.5"
-                  disabled={
-                    screenShare.connecting ||
-                    (!screenShare.sharing && screenShare.shareBlocked)
-                  }
-                  aria-label={
-                    screenShare.sharing ? "Stop sharing screen" : "Share screen"
-                  }
-                  onClick={() => {
-                    if (screenShare.sharing) void screenShare.stopShare();
-                    else void screenShare.startShare();
-                  }}
-                >
-                  <MonitorUp className="h-4 w-4" />
-                  {screenShare.sharing ? "Stop share" : "Share"}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {screenShare.shareBlocked && !screenShare.sharing
-                  ? "Someone else is sharing"
-                  : screenShare.sharing
-                    ? "Stop screen share"
-                    : "Share your screen"}
-              </TooltipContent>
-            </Tooltip>
-          ) : null}
-
           <SpeakerControls
             ttsEnabled={ttsEnabled}
             showHeadphonesHint={
@@ -883,6 +849,40 @@ export function HuddleBar({
               Add agent
             </TooltipContent>
           </Tooltip>
+
+          {screenShare.available ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  aria-label={
+                    screenShare.sharing ? "Stop sharing screen" : "Share screen"
+                  }
+                  aria-pressed={screenShare.sharing}
+                  className="buzz-huddle-control-button h-12 w-12 shrink-0 rounded-md"
+                  disabled={
+                    screenShare.connecting ||
+                    (!screenShare.sharing && screenShare.shareBlocked)
+                  }
+                  onClick={() => {
+                    if (screenShare.sharing) void screenShare.stopShare();
+                    else void screenShare.startShare();
+                  }}
+                  size="icon"
+                  type="button"
+                  variant={screenShare.sharing ? "secondary" : "ghost"}
+                >
+                  <MonitorUp className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent className="buzz-huddle-tooltip" side="top">
+                {screenShare.shareBlocked && !screenShare.sharing
+                  ? "Someone else is sharing"
+                  : screenShare.sharing
+                    ? "Stop screen share"
+                    : "Share your screen"}
+              </TooltipContent>
+            </Tooltip>
+          ) : null}
         </div>
       </div>
 

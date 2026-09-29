@@ -149,15 +149,32 @@ pub struct ReadChannelParams {
     pub limit: Option<u32>,
 }
 
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftMentionParam {
+    /// Display name as it appears after `@` in content (no leading `@`).
+    #[serde(alias = "display_name")]
+    pub display_name: String,
+    /// Hex pubkey for the mention chip.
+    pub pubkey: String,
+    /// True when the mention is an agent (default true for Term hand-back).
+    #[serde(default, alias = "is_agent")]
+    pub is_agent: Option<bool>,
+}
+
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct DraftMessageParams {
     pub channel_id: String,
     /// Message body the human asked to prepare for them to Send (not published;
-    /// not for agent progress/status).
+    /// not for agent progress/status). Keep `@DisplayName` in content for rendering.
     pub content: String,
     /// When set, draft key is `thread:{thread_id}` and UI opens that thread.
     #[serde(default)]
     pub thread_id: Option<String>,
+    /// Mention chips for the Desktop composer. Plain `@Name` in content alone is
+    /// not enough — pass `{ displayName, pubkey, isAgent }` (camelCase on wire).
+    #[serde(default)]
+    pub mentions: Option<Vec<DraftMentionParam>>,
 }
 
 pub fn read_thread(p: ReadThreadParams) -> Result<CallToolResult, ErrorData> {
@@ -199,15 +216,35 @@ pub fn draft_message(p: DraftMessageParams) -> Result<CallToolResult, ErrorData>
     if p.content.trim().is_empty() {
         return Err(ErrorData::invalid_params("content required", None));
     }
-    call_op(
-        "draft_message",
-        json!({
-            "channelId": channel_id,
-            "content": p.content,
-            "threadId": p.thread_id.as_deref().map(str::trim).filter(|s| !s.is_empty()),
-        }),
-        DEFAULT_WAIT_MS,
-    )
+    let mentions: Vec<serde_json::Value> = p
+        .mentions
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|m| {
+            let display_name = m.display_name.trim();
+            let pubkey = m.pubkey.trim();
+            if display_name.is_empty() || pubkey.is_empty() {
+                return None;
+            }
+            Some(json!({
+                "displayName": display_name,
+                "pubkey": pubkey,
+                "isAgent": m.is_agent.unwrap_or(true),
+            }))
+        })
+        .collect();
+    let mut body = json!({
+        "channelId": channel_id,
+        "content": p.content,
+        "threadId": p.thread_id.as_deref().map(str::trim).filter(|s| !s.is_empty()),
+    });
+    if !mentions.is_empty() {
+        body
+            .as_object_mut()
+            .expect("object")
+            .insert("mentions".into(), json!(mentions));
+    }
+    call_op("draft_message", body, DEFAULT_WAIT_MS)
 }
 
 #[cfg(test)]
@@ -262,6 +299,7 @@ mod tests {
             channel_id: "chan-1".into(),
             content: "hello from term".into(),
             thread_id: Some("abc".into()),
+            mentions: None,
         });
         TEST_DIR.with(|c| *c.borrow_mut() = None);
         let ok = result.expect("draft ok");
@@ -282,5 +320,89 @@ mod tests {
         .unwrap_err();
         let msg = format!("{err:?}");
         assert!(msg.contains(DIR_ENV) || msg.contains("BUZZ_USER_SIGNER"));
+    }
+
+    #[test]
+    fn draft_params_accept_camel_case_mentions() {
+        let p: DraftMessageParams = serde_json::from_str(
+            r#"{
+              "channel_id": "ch",
+              "content": "@Fable done",
+              "thread_id": "th",
+              "mentions": [{
+                "displayName": "Fable",
+                "pubkey": "abc123",
+                "isAgent": true
+              }]
+            }"#,
+        )
+        .unwrap();
+        let m = p.mentions.unwrap();
+        assert_eq!(m.len(), 1);
+        assert_eq!(m[0].display_name, "Fable");
+        assert_eq!(m[0].pubkey, "abc123");
+        assert_eq!(m[0].is_agent, Some(true));
+    }
+
+    #[test]
+    fn draft_writes_mentions_camel_case_on_wire() {
+        let _g = env_lock().lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        create_dir_all(dir.path().join("inbox")).unwrap();
+        create_dir_all(dir.path().join("outbox")).unwrap();
+        TEST_DIR.with(|c| *c.borrow_mut() = Some(dir.path().to_path_buf()));
+
+        let root = dir.path().to_path_buf();
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(None::<String>));
+        let captured_bg = captured.clone();
+        std::thread::spawn(move || {
+            let inbox = root.join("inbox");
+            for _ in 0..200 {
+                if let Ok(entries) = std::fs::read_dir(&inbox) {
+                    for entry in entries.flatten() {
+                        let name = entry.file_name().to_string_lossy().to_string();
+                        if !name.ends_with(".request.json") {
+                            continue;
+                        }
+                        let raw = std::fs::read_to_string(entry.path()).unwrap();
+                        *captured_bg.lock().unwrap() = Some(raw.clone());
+                        let id = name.trim_end_matches(".request.json").to_string();
+                        let _ = std::fs::remove_file(entry.path());
+                        let resp = json!({
+                            "id": id,
+                            "ok": true,
+                            "op": "draft_message",
+                            "draftOnly": true,
+                            "draftKey": "thread:abc",
+                            "channelId": "chan-1",
+                        });
+                        let path = root.join("outbox").join(format!("{id}.response.json"));
+                        std::fs::write(path, serde_json::to_string_pretty(&resp).unwrap()).unwrap();
+                        return;
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        });
+
+        let result = draft_message(DraftMessageParams {
+            channel_id: "chan-1".into(),
+            content: "@Fable shipped".into(),
+            thread_id: Some("abc".into()),
+            mentions: Some(vec![DraftMentionParam {
+                display_name: "Fable".into(),
+                pubkey: "deadbeef".into(),
+                is_agent: Some(true),
+            }]),
+        });
+        TEST_DIR.with(|c| *c.borrow_mut() = None);
+        result.expect("draft ok");
+        let raw = captured.lock().unwrap().clone().expect("captured request");
+        assert!(
+            raw.contains(r#""displayName": "Fable""#)
+                || raw.contains(r#""displayName":"Fable""#)
+        );
+        assert!(raw.contains("deadbeef"));
+        assert!(raw.contains(r#""isAgent""#));
     }
 }

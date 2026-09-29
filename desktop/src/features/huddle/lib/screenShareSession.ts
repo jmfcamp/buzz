@@ -6,6 +6,12 @@ import {
   type RemoteTrack,
   type RoomOptions,
 } from "livekit-client";
+import {
+  acquireDisplayMedia,
+  stopMediaStreamTracks,
+} from "./screenShareMedia";
+
+export { acquireDisplayMedia, stopMediaStreamTracks } from "./screenShareMedia";
 
 export type ScreenShareRemote = {
   participantIdentity: string;
@@ -24,6 +30,7 @@ export type ScreenShareSessionCallbacks = {
  * Thin LiveKit session for one huddle screen track.
  * Audio stays on the Opus WebSocket path — this only handles video.
  */
+
 export class HuddleScreenShareSession {
   private room: Room | null = null;
   private localPublication: LocalTrackPublication | null = null;
@@ -95,19 +102,23 @@ export class HuddleScreenShareSession {
     }
   }
 
-  async startShare(): Promise<void> {
+  /**
+   * Publish a pre-acquired display MediaStream.
+   * Call {@link acquireDisplayMedia} first (inside the user-gesture handler)
+   * so WebKit/WKWebView keeps the gesture chain intact.
+   */
+  async startShare(stream: MediaStream): Promise<void> {
     if (!this.room || this.disposed) {
       throw new Error("screen share room is not connected");
     }
-    if (this.localPublication) return;
+    if (this.localPublication) {
+      stopMediaStreamTracks(stream);
+      return;
+    }
 
-    const stream = await navigator.mediaDevices.getDisplayMedia({
-      video: true,
-      audio: false,
-    });
     const [videoTrack] = stream.getVideoTracks();
     if (!videoTrack) {
-      stream.getTracks().forEach((t) => t.stop());
+      stopMediaStreamTracks(stream);
       throw new Error("no screen video track from getDisplayMedia");
     }
     videoTrack.addEventListener("ended", () => {

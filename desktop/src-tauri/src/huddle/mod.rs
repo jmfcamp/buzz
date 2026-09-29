@@ -36,6 +36,7 @@ mod latency_bench;
 mod local_barge_in;
 pub mod models;
 pub mod pipeline;
+mod stt_wake;
 pub mod playout;
 pub mod pocket;
 pub mod preprocessing;

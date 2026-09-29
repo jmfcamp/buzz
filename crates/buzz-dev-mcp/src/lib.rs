@@ -235,7 +235,7 @@ impl DevMcp {
 
     #[tool(
         name = "buzz_draft_message",
-        description = "Prepare a Desktop composer draft of content the **human asked you to write for them to send** (draft-only — never auto-publishes; JM clicks Send). Do NOT use for agent progress/status, acknowledgements, or chatting with the user — those belong in the Term TUI. Pass channel_id, content, optional thread_id. Requires BUZZ_USER_SIGNER_DIR."
+        description = "Prepare a Desktop composer draft of content the **human asked you to write for them to send** (draft-only — never auto-publishes; JM clicks Send). Do NOT use for agent progress/status, acknowledgements, or chatting with the user — those belong in the Term TUI. Pass channel_id, content, optional thread_id, and optional mentions: [{ displayName, pubkey, isAgent }] (camelCase) so Desktop creates real @mention chips — plain @Name in content alone is NOT enough. Requires BUZZ_USER_SIGNER_DIR."
     )]
     async fn buzz_draft_message(
         &self,
@@ -246,7 +246,7 @@ impl DevMcp {
 
     #[tool(
         name = "term_session_card",
-        description = "Standing instructions: summarize the thread into a Buzz Term handoff. Reply in chat with ONLY a short one-line ack plus this tool’s returned fenced card. Put the full handoff prompt ONLY in JSON `prompt` (UI hides it). Never dump the prompt as plain markdown. Never put tokens/JWTs in the card. Set `openclawWorkspace` true (boolean only) when the agent uses OpenClaw; otherwise omit or false. Pass originChannelId + originThreadId + mentionToUse (the Buzz agent to @ on hand-back, e.g. the agent that built this card) so the tool appends a Return path (Buzz) section: Term must buzz_draft_message only to that origin on report back / hand back / I'm done — never to a summarized/source thread."
+        description = "Standing instructions: summarize the thread into a Buzz Term handoff. Reply in chat with ONLY a short one-line ack plus this tool’s returned fenced card. Put the full handoff prompt ONLY in JSON `prompt` (UI hides it). Never dump the prompt as plain markdown. Never put tokens/JWTs in the card. Set `openclawWorkspace` true (boolean only) when the agent uses OpenClaw; otherwise omit or false. Pass originChannelId + originThreadId + mentionToUse + mentionPubkey (hex pubkey of the Buzz agent to @ on hand-back) so the tool appends a Return path (Buzz) section: Term must buzz_draft_message to that origin with content `@DisplayName …` AND mentions: [{ displayName, pubkey, isAgent: true }] — plain @Name alone is not enough — on report back / hand back / I'm done; never to a summarized/source thread."
     )]
     async fn term_session_card(
         &self,

@@ -5,6 +5,10 @@ import {
   isShareBlockedByOther,
   livekitRoomName,
 } from "./screenSharePolicy.ts";
+import {
+  acquireDisplayMedia,
+  stopMediaStreamTracks,
+} from "./screenShareMedia.ts";
 
 test("livekitRoomName matches relay format", () => {
   assert.equal(
@@ -32,4 +36,86 @@ test("isShareBlockedByOther allows self sharer", () => {
     isShareBlockedByOther({ selfPubkey: "Aa", currentSharer: "aa" }),
     false,
   );
+});
+
+function fakeTrack(kind = "video") {
+  let stopped = false;
+  return {
+    kind,
+    stop() {
+      stopped = true;
+    },
+    get stopped() {
+      return stopped;
+    },
+    addEventListener() {},
+  };
+}
+
+test("stopMediaStreamTracks stops every track", () => {
+  const a = fakeTrack("video");
+  const b = fakeTrack("audio");
+  stopMediaStreamTracks({ getTracks: () => [a, b] });
+  assert.equal(a.stopped, true);
+  assert.equal(b.stopped, true);
+});
+
+test("stopMediaStreamTracks tolerates null", () => {
+  stopMediaStreamTracks(null);
+  stopMediaStreamTracks(undefined);
+});
+
+test("acquireDisplayMedia returns stream with video track", async () => {
+  const track = fakeTrack("video");
+  const stream = {
+    getVideoTracks: () => [track],
+    getTracks: () => [track],
+  };
+  const original = globalThis.navigator;
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      mediaDevices: {
+        getDisplayMedia: async (opts) => {
+          assert.deepEqual(opts, { video: true, audio: false });
+          return stream;
+        },
+      },
+    },
+  });
+  try {
+    const got = await acquireDisplayMedia();
+    assert.equal(got, stream);
+  } finally {
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: original,
+    });
+  }
+});
+
+test("acquireDisplayMedia stops tracks when no video", async () => {
+  const audio = fakeTrack("audio");
+  const stream = {
+    getVideoTracks: () => [],
+    getTracks: () => [audio],
+  };
+  const original = globalThis.navigator;
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      mediaDevices: {
+        getDisplayMedia: async () => stream,
+      },
+    },
+  });
+  try {
+    await assert.rejects(() => acquireDisplayMedia(), /no screen video track/);
+    assert.equal(audio.stopped, true);
+  } finally {
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: original,
+    });
+  }
 });
