@@ -164,6 +164,7 @@ export function HuddleBar({
     micConnected,
     isMuted,
     toggleMute,
+    pttActive,
     voiceInputMode,
     setVoiceInputMode,
     huddleError,
@@ -836,6 +837,7 @@ export function HuddleBar({
                 isMuted={isMuted}
                 onToggleMute={toggleMute}
                 isPttMode={isPttMode}
+                pttActive={pttActive}
                 micConnected={hasAvailableMic}
                 micLevel={micLevel}
                 onSelectVoiceInputMode={setVoiceInputMode}

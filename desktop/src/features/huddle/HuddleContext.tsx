@@ -233,22 +233,64 @@ export function HuddleProvider({
   micGainRef.current = micGain;
 
   // Toggle voice input mode — persists to Rust backend and updates worklet gating.
+  // Entering Push to Talk always starts gated (hold key to transmit). Non-owners
+  // must not read the unused local isMutedRef (stays false) or they reopen the
+  // Rust STT / relay gate and leave the companion mic continuously hot.
   const setVoiceInputMode = React.useCallback(
     async (mode: VoiceInputMode) => {
       await invoke("set_voice_input_mode", { mode });
       setVoiceInputModeState(mode);
-      // Re-sync the PTT-only STT gate with the visible mute state (best-effort).
-      void invoke("set_huddle_manual_mic_unmuted", {
-        enabled: !isMutedRef.current,
-      }).catch(() => {});
+      const enteringPtt = mode === "push_to_talk";
+
       if (ownsAudioSession) {
-        workletRef.current?.setMode(mode);
-      } else {
+        if (enteringPtt) {
+          isMutedRef.current = true;
+          setIsMuted(true);
+          void invoke("set_huddle_manual_mic_unmuted", {
+            enabled: false,
+          }).catch(() => {});
+          workletRef.current?.setMode(mode);
+          workletRef.current?.setTransmitting(false);
+        } else {
+          void invoke("set_huddle_manual_mic_unmuted", {
+            enabled: !isMutedRef.current,
+          }).catch(() => {});
+          workletRef.current?.setMode(mode);
+        }
+        return;
+      }
+
+      if (enteringPtt) {
+        void invoke("set_huddle_manual_mic_unmuted", {
+          enabled: false,
+        }).catch(() => {});
+        setMirroredAudioState((previous) =>
+          previous
+            ? { ...previous, isMuted: true, voiceInputMode: mode }
+            : previous,
+        );
         void emit(HUDDLE_AUDIO_COMMAND_EVENT, {
           type: "set-voice-input-mode",
           mode,
         } satisfies HuddleAudioCommand);
+        void emit(HUDDLE_AUDIO_COMMAND_EVENT, {
+          type: "set-muted",
+          isMuted: true,
+        } satisfies HuddleAudioCommand);
+        return;
       }
+
+      setMirroredAudioState((previous) => {
+        const muted = previous?.isMuted ?? true;
+        void invoke("set_huddle_manual_mic_unmuted", {
+          enabled: !muted,
+        }).catch(() => {});
+        return previous ? { ...previous, voiceInputMode: mode } : previous;
+      });
+      void emit(HUDDLE_AUDIO_COMMAND_EVENT, {
+        type: "set-voice-input-mode",
+        mode,
+      } satisfies HuddleAudioCommand);
     },
     [ownsAudioSession, setVoiceInputModeState],
   );
@@ -383,8 +425,19 @@ export function HuddleProvider({
         return;
       }
       if (event.payload.type === "set-voice-input-mode") {
-        setVoiceInputModeState(event.payload.mode);
-        workletRef.current?.setMode(event.payload.mode);
+        const nextMode = event.payload.mode;
+        setVoiceInputModeState(nextMode);
+        workletRef.current?.setMode(nextMode);
+        // Defense in depth: companion capture must gate when PTT is enabled
+        // from the main window, even if set-muted races behind this command.
+        if (nextMode === "push_to_talk") {
+          isMutedRef.current = true;
+          setIsMuted(true);
+          workletRef.current?.setTransmitting(false);
+          void invoke("set_huddle_manual_mic_unmuted", {
+            enabled: false,
+          }).catch(() => {});
+        }
         return;
       }
       void emit(HUDDLE_AUDIO_STATE_EVENT, {
@@ -866,16 +919,15 @@ export function HuddleProvider({
       const myToken = tokenRef.current;
       const mode = state.voice_input_mode ?? getVoiceInputMode();
       setVoiceInputModeState(mode);
-      // PTT default is muted; agent auto-transcription opens VAD + mic in Rust.
-      const startMuted =
-        mode === "push_to_talk" && state.transcription_enabled !== true;
+      // PTT always starts gated. Agent auto-transcription flips mode to VAD in
+      // Rust before claiming; do not treat transcription_enabled as a reason to
+      // leave PTT continuously hot.
+      const startMuted = mode === "push_to_talk";
       isMutedRef.current = startMuted;
       setIsMuted(startMuted);
-      if (!startMuted) {
-        void invoke("set_huddle_manual_mic_unmuted", { enabled: true }).catch(
-          () => {},
-        );
-      }
+      void invoke("set_huddle_manual_mic_unmuted", {
+        enabled: !startMuted,
+      }).catch(() => {});
       try {
         await connectAndSetupMedia(
           { ephemeral_channel_id: ephemeral as string },
