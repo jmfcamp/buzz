@@ -3,6 +3,10 @@ import { emit, listen } from "@tauri-apps/api/event";
 import * as React from "react";
 
 import { setupAudioWorklet, type AudioWorkletHandle } from "./lib/audioWorklet";
+import {
+  shouldClaimHuddleMedia,
+  shouldSetupMediaOnHuddleStart,
+} from "./lib/huddleAudioSession";
 import { type AudioInputDevice, useAudioDevices } from "./lib/useAudioDevices";
 import { usePipelineHotstart } from "./lib/usePipelineHotstart";
 import { formatHuddleActionError } from "./lib/huddleError";
@@ -20,9 +24,12 @@ import type {
 
 /**
  * Huddle lifecycle (React context):
- *   startHuddle/joinHuddle → invoke(start/join_huddle) → getUserMedia + setupAudioWorklet
- *     → confirm_huddle_active
- *   TTS subscription: subscribeToChannelLive → filter agent pubkeys → speak_agent_message
+ *   Main (ownsAudioSession=false): startHuddle/joinHuddle → invoke(start/join_huddle)
+ *     → confirm_huddle_active → open companion (no getUserMedia on main).
+ *   Companion (ownsAudioSession=true): claim getUserMedia + AudioWorklet when Rust
+ *     reports connected/active so PCM survives companion focus (main AudioContext
+ *     is suspended by WKWebView → deaf STT).
+ *   TTS subscription: only on the audio owner (companion) → speak_agent_message
  *   leaveHuddle: stop worklet → stop mic track → invoke(leave_huddle)
  *   Active speakers: Tauri "huddle-active-speakers" event (Rust backend emits)
  */
@@ -71,7 +78,7 @@ export function HuddleProvider({
   onViewHuddleChannel,
 }: {
   children: React.ReactNode;
-  /** A companion huddle window mirrors the session but must not end it on close. */
+  /** When true, this webview owns getUserMedia + AudioWorklet (companion room). */
   ownsAudioSession?: boolean;
   /** Keeps the main-app drawer suppressed while a new huddle is handed to its companion window. */
   onHuddleStartPendingChange?: (pending: boolean) => void;
@@ -425,14 +432,10 @@ export function HuddleProvider({
     resetSpeakerActivity();
   }, [resetSpeakerActivity]); // Stable — reads track from ref, not state.
 
-  // Keep the browser-owned session keyed to Rust across provider remounts. A
-  // restored main window has not called connectAndSetupMedia, so without this
-  // hydration its active Huddle channel is mistaken for a normal channel.
-  // The companion can also end the native Huddle while the main window still
-  // owns capture; release that shared capture as soon as Rust announces Idle.
+  // Keep ephemeral channel + capture keyed to Rust across remounts.
+  // Audio owner releases mic on Idle. Non-owner (main) still tracks the
+  // ephemeral id for leave shortcuts while companion owns capture.
   React.useEffect(() => {
-    if (!ownsAudioSession) return;
-
     type HuddleBackendState = {
       phase?: string;
       ephemeral_channel_id?: string | null;
@@ -440,7 +443,11 @@ export function HuddleProvider({
 
     const applyBackendState = (state: HuddleBackendState) => {
       if (state.phase === "idle") {
-        void disconnectMedia();
+        if (ownsAudioSession) {
+          void disconnectMedia();
+        } else {
+          setEphemeralChannelId(null);
+        }
         return;
       }
       if (state.ephemeral_channel_id) {
@@ -549,6 +556,10 @@ export function HuddleProvider({
     async (
       joinInfo: HuddleJoinInfo,
       myToken: number,
+      options?: {
+        mode?: VoiceInputMode;
+        manuallyUnmuted?: boolean;
+      },
     ): Promise<{
       worklet: AudioWorkletHandle;
       stream: MediaStream;
@@ -592,10 +603,12 @@ export function HuddleProvider({
 
         // Setup AudioWorklet — PCM goes to Rust via push_audio_pcm
         audioTrack.enabled = !locallyMutedRef.current;
+        const mode = options?.mode ?? getVoiceInputMode();
+        const manuallyUnmuted = options?.manuallyUnmuted ?? !isMutedRef.current;
         const worklet = await setupAudioWorklet(
           audioTrack,
-          getVoiceInputMode(),
-          !isMutedRef.current,
+          mode,
+          manuallyUnmuted,
         );
         worklet.setGain(micGainRef.current);
 
@@ -648,14 +661,20 @@ export function HuddleProvider({
           channelName,
         });
         rustActiveRef.current = true;
-        try {
-          await connectAndSetupMedia(joinInfo, myToken);
-        } catch (e) {
-          if (e instanceof Error && e.message === "superseded") {
-            cleanupSupersededStart(workletRef.current);
-            return;
+        if (shouldSetupMediaOnHuddleStart(ownsAudioSession)) {
+          try {
+            await connectAndSetupMedia(joinInfo, myToken);
+          } catch (e) {
+            if (e instanceof Error && e.message === "superseded") {
+              cleanupSupersededStart(workletRef.current);
+              return;
+            }
+            throw e;
           }
-          throw e;
+        } else {
+          // Companion owns capture — confirm Active so room can claim mic.
+          setEphemeralChannelId(joinInfo.ephemeral_channel_id);
+          await invoke("confirm_huddle_active");
         }
         try {
           await onHuddleStarted?.(joinInfo.ephemeral_channel_id);
@@ -702,6 +721,7 @@ export function HuddleProvider({
       getVoiceInputMode,
       onHuddleStartPendingChange,
       onHuddleStarted,
+      ownsAudioSession,
     ],
   );
 
@@ -739,14 +759,19 @@ export function HuddleProvider({
         });
         rustActiveRef.current = true;
 
-        try {
-          await connectAndSetupMedia(joinInfo, myToken);
-        } catch (e) {
-          if (e instanceof Error && e.message === "superseded") {
-            cleanupSupersededStart(workletRef.current);
-            return;
+        if (shouldSetupMediaOnHuddleStart(ownsAudioSession)) {
+          try {
+            await connectAndSetupMedia(joinInfo, myToken);
+          } catch (e) {
+            if (e instanceof Error && e.message === "superseded") {
+              cleanupSupersededStart(workletRef.current);
+              return;
+            }
+            throw e;
           }
-          throw e;
+        } else {
+          setEphemeralChannelId(joinInfo.ephemeral_channel_id);
+          await invoke("confirm_huddle_active");
         }
         try {
           await onHuddleStarted?.(joinInfo.ephemeral_channel_id);
@@ -792,16 +817,102 @@ export function HuddleProvider({
       getVoiceInputMode,
       onHuddleStartPendingChange,
       onHuddleStarted,
+      ownsAudioSession,
     ],
   );
 
-  // The main window owns the browser audio session and therefore the one TTS
-  // subscription. Companion windows receive native playback activity events,
-  // but must not enqueue the same reply a second time.
+  // Companion (audio owner) owns the one TTS subscription. Main must not
+  // enqueue the same reply — it no longer captures PCM under companion focus.
   useTtsSubscription(
     ownsAudioSession ? ephemeralChannelId : null,
     selfPubkeyRef,
   );
+
+  // Companion claims mic/worklet when Rust is already Connected/Active (main
+  // start/join skipped getUserMedia). Re-claim after companion reopen.
+  React.useEffect(() => {
+    if (!ownsAudioSession) return;
+
+    type HuddleBackendState = {
+      phase?: string;
+      ephemeral_channel_id?: string | null;
+      voice_input_mode?: VoiceInputMode;
+      transcription_enabled?: boolean;
+    };
+
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+    let claimInFlight = false;
+
+    const claimMediaIfNeeded = async (state: HuddleBackendState) => {
+      const ephemeral = state.ephemeral_channel_id ?? null;
+      if (
+        !shouldClaimHuddleMedia({
+          ownsAudioSession: true,
+          phase: state.phase,
+          ephemeralChannelId: ephemeral,
+          alreadyConnected:
+            Boolean(workletRef.current) || micConnectedRef.current,
+          claimInFlight,
+        })
+      ) {
+        return;
+      }
+      claimInFlight = true;
+      tokenRef.current += 1;
+      const myToken = tokenRef.current;
+      const mode = state.voice_input_mode ?? getVoiceInputMode();
+      setVoiceInputModeState(mode);
+      // PTT default is muted; agent auto-transcription opens VAD + mic in Rust.
+      const startMuted =
+        mode === "push_to_talk" && state.transcription_enabled !== true;
+      isMutedRef.current = startMuted;
+      setIsMuted(startMuted);
+      if (!startMuted) {
+        void invoke("set_huddle_manual_mic_unmuted", { enabled: true }).catch(
+          () => {},
+        );
+      }
+      try {
+        await connectAndSetupMedia(
+          { ephemeral_channel_id: ephemeral as string },
+          myToken,
+          { mode, manuallyUnmuted: !startMuted },
+        );
+        rustActiveRef.current = true;
+      } catch (e) {
+        if (e instanceof Error && e.message === "superseded") {
+          cleanupSupersededStart(workletRef.current);
+          return;
+        }
+        console.error("Failed to claim huddle mic in companion:", e);
+      } finally {
+        claimInFlight = false;
+      }
+    };
+
+    void invoke<HuddleBackendState>("get_huddle_state")
+      .then((state) => {
+        if (!cancelled && state) void claimMediaIfNeeded(state);
+      })
+      .catch(() => {});
+    void listen<HuddleBackendState>("huddle-state-changed", (event) => {
+      if (!cancelled) void claimMediaIfNeeded(event.payload);
+    }).then((cleanup) => {
+      if (cancelled) cleanup();
+      else unlisten = cleanup;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [
+    cleanupSupersededStart,
+    connectAndSetupMedia,
+    getVoiceInputMode,
+    ownsAudioSession,
+    setVoiceInputModeState,
+  ]);
 
   usePipelineHotstart(ephemeralChannelId);
 

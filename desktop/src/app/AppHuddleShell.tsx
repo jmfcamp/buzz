@@ -66,9 +66,11 @@ export function AppHuddleShell({
   // dock. Main never does — do not gate companion chrome on presentation/drawer.
   const showDockChrome = shouldShowHuddleDockChrome({ isRoom, presentation });
 
+  // Companion-only: room webview owns mic/AudioWorklet. Main-owned capture goes
+  // deaf when WKWebView suspends the background AudioContext under companion focus.
   return (
     <HuddleProvider
-      ownsAudioSession={!isRoom}
+      ownsAudioSession={isRoom}
       onHuddleStartPendingChange={
         isRoom ? undefined : onHuddleStartPendingChange
       }

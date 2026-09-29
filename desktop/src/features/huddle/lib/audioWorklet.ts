@@ -121,10 +121,10 @@ export async function setupAudioWorklet(
     // for PTT mode (user won't be able to transmit, but audio won't leak).
   }
 
-  // WebKit may suspend the AudioContext when the main window loses focus
-  // (e.g. companion stage). Keep a zero-gain oscillator in the graph and
-  // aggressively resume so STT keeps receiving PCM while the companion is
-  // frontmost — visibility/focus alone was not enough (intermittent "deaf").
+  // Defense in depth: even when capture runs in the focused companion webview,
+  // WKWebView may still suspend AudioContext on brief blur (main focus steal,
+  // OS overlays). Keep a zero-gain oscillator + resume poll so PCM to
+  // push_audio_pcm does not stall.
   const keepAliveGain = audioContext.createGain();
   keepAliveGain.gain.value = 0;
   const keepAliveOsc = audioContext.createOscillator();
@@ -138,7 +138,10 @@ export async function setupAudioWorklet(
   }
 
   const resumeIfNeeded = () => {
-    if (audioContext.state === "suspended" || audioContext.state === "interrupted") {
+    if (
+      audioContext.state === "suspended" ||
+      audioContext.state === "interrupted"
+    ) {
       void audioContext.resume().catch(() => {});
     }
   };
