@@ -137,10 +137,9 @@ pub(crate) fn sync_agent_voice_assignments(
         };
         if let Some(voice_key) = preferred {
             used.insert(voice_key.clone());
-            huddle.agent_voice_settings.insert(
-                pubkey.clone(),
-                AgentVoiceSettings::new(voice_key),
-            );
+            huddle
+                .agent_voice_settings
+                .insert(pubkey.clone(), AgentVoiceSettings::new(voice_key));
         }
     }
     huddle.agent_voice_settings != previous

@@ -826,7 +826,6 @@ export function HuddleProvider({
     };
   }, [getVoiceInputMode, ownsAudioSession, setVoiceInputModeState]);
 
-
   // Mic level analyser — drives the voice activity indicator
   const micLevel = useMicLevelAnalyser(localAudioTrack, micConnected);
 

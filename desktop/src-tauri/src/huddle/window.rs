@@ -150,9 +150,7 @@ pub async fn open_huddle_window(
         match window.show().and_then(|_| window.set_focus()) {
             Ok(()) => return Ok(()),
             Err(error) => {
-                eprintln!(
-                    "buzz-desktop: existing huddle companion unusable ({error}); recreating"
-                );
+                eprintln!("buzz-desktop: existing huddle companion unusable ({error}); recreating");
                 destroy_huddle_window(&app, &label, true);
             }
         }

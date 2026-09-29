@@ -23,7 +23,7 @@ export function PersonaActionsMenu({
   onDuplicate,
   onEdit,
   onShare,
-  onDeactivate,
+  onDeactivate: _onDeactivate,
   onDelete,
 }: {
   isActionPending: boolean;

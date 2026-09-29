@@ -183,10 +183,7 @@ fn sort_personas(records: &mut [AgentDefinition]) {
     });
 }
 
-fn merge_personas(
-    stored: Vec<AgentDefinition>,
-    now: &str,
-) -> (Vec<AgentDefinition>, bool) {
+fn merge_personas(stored: Vec<AgentDefinition>, now: &str) -> (Vec<AgentDefinition>, bool) {
     merge_personas_with_deleted(stored, now, &std::collections::HashSet::new())
 }
 

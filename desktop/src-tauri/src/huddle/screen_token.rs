@@ -6,7 +6,7 @@
 //! in the JS client.
 
 use reqwest::Method;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use tauri::State;
 
 use crate::app_state::AppState;

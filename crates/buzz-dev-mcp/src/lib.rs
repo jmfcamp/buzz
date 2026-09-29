@@ -18,9 +18,9 @@ mod shell;
 mod shim;
 mod str_replace;
 mod term_session_card;
-mod user_signer;
 mod todo;
 mod tree;
+mod user_signer;
 mod view_image;
 
 #[derive(Clone)]
@@ -63,7 +63,6 @@ impl DevMcp {
         read_file::run(&self.state, p)
     }
 
-
     #[tool(
         name = "browser_observe_poll",
         description = "Poll Observe events for a Buzz in-app browser you hold Observe or Drive on. Console + network (headers/status/bodies) flow under Observe alone — Drive is not required. Event kinds include: grant, nav, console, network, snapshot, tab_opened, tab_switched, drive, drive_error, drive_started. Prefer surface_id (stable across popout/detach); webview_label also works. Omit both when you have exactly one grant. Pass after_id from the last event id to advance. Requires BUZZ_AGENT_PUBKEY. Returns JSON {grant, webviewLabel, surfaceId, webviewHidden, parked, driveContext, runbook?, events}. driveContext lists live surfaceId + browser_* tools. webviewHidden/parked when WKWebView is hide()d. Use browser_runbook_get / browser_runbook_propose (auto-activates unless persisted). Not OpenClaw Chromium."
@@ -86,7 +85,6 @@ impl DevMcp {
         let _ = p;
         browser_agent::grants(browser_agent::GrantsParams {})
     }
-
 
     #[tool(
         name = "browser_tabs",
@@ -208,8 +206,6 @@ impl DevMcp {
     ) -> Result<String, ErrorData> {
         str_replace::run(&self.state, p)
     }
-
-
 
     #[tool(
         name = "buzz_read_thread",

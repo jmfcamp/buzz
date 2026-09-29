@@ -286,9 +286,7 @@ export function buildMentionCandidates({
     if (candidate.isActiveAgent === true) {
       return true;
     }
-    const pubkey = candidate.pubkey
-      ? normalizePubkey(candidate.pubkey)
-      : null;
+    const pubkey = candidate.pubkey ? normalizePubkey(candidate.pubkey) : null;
     if (pubkey && presenceExemptAgentPubkeys?.has(pubkey)) {
       return true;
     }

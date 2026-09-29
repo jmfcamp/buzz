@@ -73,7 +73,6 @@ pub async fn set_huddle_transcription_enabled(
     Ok(())
 }
 
-
 /// Preset activation keywords for the huddle STT wake dropdown.
 #[tauri::command]
 pub fn list_huddle_activation_keywords() -> Vec<String> {

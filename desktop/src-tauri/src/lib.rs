@@ -2,8 +2,8 @@
 mod app_menu;
 mod app_state;
 mod archive;
-mod build_identity;
 mod browser_agent;
+mod build_identity;
 mod builderlab;
 mod channel_head_cache;
 mod commands;
@@ -52,12 +52,12 @@ mod shutdown;
 mod team_catalog;
 mod templates;
 mod terminal_runtime;
-mod user_signer;
 #[cfg_attr(not(test), allow(dead_code))]
 mod terminal_transport;
 #[cfg(target_os = "macos")]
 mod tray_menu;
 mod unread_catch_up;
+mod user_signer;
 mod util;
 #[cfg(target_os = "linux")]
 pub mod webkit_rendering;
@@ -76,16 +76,15 @@ use deep_link::{
 use huddle::{
     add_agent_to_huddle,
     audio_output::{get_audio_output_device, list_audio_output_devices, set_audio_output_device},
-    check_pipeline_hotstart, close_huddle_companion, confirm_huddle_active, huddle_companion_window_exists, download_voice_models,
-    end_huddle, get_huddle_agent_pubkeys, get_huddle_state, get_model_status, get_voice_input_mode,
-    interrupt_huddle_speech, join_huddle, leave_huddle, open_huddle_window, push_audio_pcm,
+    check_pipeline_hotstart, close_huddle_companion, confirm_huddle_active, download_voice_models,
+    end_huddle, get_huddle_activation_keyword, get_huddle_agent_pubkeys, get_huddle_state,
+    get_model_status, get_voice_input_mode, huddle_companion_window_exists, huddle_screen_stop,
+    huddle_screen_token, interrupt_huddle_speech, join_huddle, leave_huddle,
+    list_huddle_activation_keywords, open_huddle_window, push_audio_pcm,
     reconnect::reconnect_huddle_audio,
     remove_agent_from_huddle, set_huddle_activation_keyword, set_huddle_manual_mic_unmuted,
-    set_huddle_transcription_enabled, get_huddle_activation_keyword,
-    list_huddle_activation_keywords,
-    set_tts_enabled, set_voice_input_mode, speak_agent_message, start_huddle, start_stt_pipeline,
-    huddle_screen_stop, huddle_screen_token,
-    HuddlePhase,
+    set_huddle_transcription_enabled, set_tts_enabled, set_voice_input_mode, speak_agent_message,
+    start_huddle, start_stt_pipeline, HuddlePhase,
 };
 use initial_window::*;
 use managed_agents::{
@@ -1007,20 +1006,17 @@ pub fn run() {
             if huddle::window::take_suppress_companion_return() {
                 // consumed
             } else {
-                let is_active_huddle_window =
-                    app_handle
-                        .state::<AppState>()
-                        .huddle()
-                        .ok()
-                        .is_some_and(|huddle| {
-                            !matches!(huddle.phase, HuddlePhase::Idle | HuddlePhase::Leaving)
-                                && huddle
-                                    .ephemeral_channel_id
-                                    .as_deref()
-                                    .is_some_and(|channel_id| {
-                                        label == format!("huddle-{channel_id}")
-                                    })
-                        });
+                let is_active_huddle_window = app_handle
+                    .state::<AppState>()
+                    .huddle()
+                    .ok()
+                    .is_some_and(|huddle| {
+                        !matches!(huddle.phase, HuddlePhase::Idle | HuddlePhase::Leaving)
+                            && huddle
+                                .ephemeral_channel_id
+                                .as_deref()
+                                .is_some_and(|channel_id| label == format!("huddle-{channel_id}"))
+                    });
                 if is_active_huddle_window {
                     if let Err(error) = app_handle.emit("huddle-companion-returned", ()) {
                         eprintln!("buzz-desktop: failed to restore huddle drawer: {error}");

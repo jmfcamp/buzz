@@ -30,7 +30,16 @@ pub const DRAFT_EVENT: &str = "user-signer-draft";
 
 /// Timeline kinds mirrored from `commands::messages` (channel/thread reads).
 const TIMELINE_KINDS: [u32; 11] = [
-    9, 40002, 40008, 40099, 43001, 43002, 43003, 43004, 43005, 43006,
+    9,
+    40002,
+    40008,
+    40099,
+    43001,
+    43002,
+    43003,
+    43004,
+    43005,
+    43006,
     buzz_core_pkg::kind::KIND_HUDDLE_STARTED,
 ];
 
@@ -165,7 +174,11 @@ async fn handle_request(app: &AppHandle, state: &AppState, root: &PathBuf, req: 
 
     match op.as_str() {
         "read_thread" => {
-            let Some(thread_id) = req.thread_id.as_deref().map(str::trim).filter(|s| !s.is_empty())
+            let Some(thread_id) = req
+                .thread_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
             else {
                 write_response(
                     root,

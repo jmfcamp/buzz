@@ -5,7 +5,10 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const src = fs.readFileSync(
-  path.join(path.dirname(fileURLToPath(import.meta.url)), "useHuddleScreenShare.ts"),
+  path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "useHuddleScreenShare.ts",
+  ),
   "utf8",
 );
 

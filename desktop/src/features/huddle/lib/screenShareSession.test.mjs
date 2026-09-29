@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  isShareBlockedByOther,
-  livekitRoomName,
-} from "./screenSharePolicy.ts";
+import { isShareBlockedByOther, livekitRoomName } from "./screenSharePolicy.ts";
 import {
   acquireDisplayMedia,
   stopMediaStreamTracks,
@@ -122,9 +119,11 @@ test("acquireDisplayMedia stops tracks when no video", async () => {
 
 test("screenShareSession source forces dual peer connection", async () => {
   const src = await import("node:fs").then((fs) =>
-    fs.readFileSync(new URL("./screenShareSession.ts", import.meta.url), "utf8"),
+    fs.readFileSync(
+      new URL("./screenShareSession.ts", import.meta.url),
+      "utf8",
+    ),
   );
   assert.match(src, /singlePeerConnection:\s*false/);
   assert.match(src, /acquireDisplayMedia/);
 });
-

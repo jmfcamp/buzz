@@ -137,8 +137,7 @@ fn is_keyword_token_start(lower: &str, idx: usize, keyword_len: usize) -> bool {
 
 fn is_name_boundary(s: &str) -> bool {
     s.chars().next().is_none_or(|c| {
-        c.is_ascii_whitespace()
-            || matches!(c, ',' | ';' | '.' | '!' | '?' | ':' | ')' | ']' | '}')
+        c.is_ascii_whitespace() || matches!(c, ',' | ';' | '.' | '!' | '?' | ':' | ')' | ']' | '}')
     })
 }
 
@@ -152,9 +151,7 @@ pub fn compose_wake_content(prior_transcript_lines: &[String], wake_text: &str) 
     if prior_transcript_lines.is_empty() {
         return wake.to_string();
     }
-    let mut body = String::from(
-        "[Huddle transcript — full meeting context so far]\n",
-    );
+    let mut body = String::from("[Huddle transcript — full meeting context so far]\n");
     for line in prior_transcript_lines {
         let trimmed = line.trim();
         if trimmed.is_empty() {
@@ -392,10 +389,7 @@ mod tests {
 
     #[test]
     fn normalize_activation_keyword_allow_list() {
-        assert_eq!(
-            normalize_activation_keyword(" Hey "),
-            Some("hey".into())
-        );
+        assert_eq!(normalize_activation_keyword(" Hey "), Some("hey".into()));
         assert_eq!(normalize_activation_keyword("AT"), Some("at".into()));
         assert_eq!(normalize_activation_keyword("nope"), None);
         assert_eq!(normalize_activation_keyword(""), None);
@@ -417,10 +411,7 @@ mod tests {
 
     #[test]
     fn compose_wake_content_without_prior_is_plain() {
-        assert_eq!(
-            compose_wake_content(&[], "Hey Fable hi"),
-            "Hey Fable hi"
-        );
+        assert_eq!(compose_wake_content(&[], "Hey Fable hi"), "Hey Fable hi");
     }
 
     #[test]
@@ -443,5 +434,4 @@ mod tests {
         );
         assert_eq!(with_wake_dup, vec!["earlier".to_string()]);
     }
-
 }

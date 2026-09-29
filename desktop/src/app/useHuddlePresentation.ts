@@ -310,8 +310,9 @@ export function useHuddlePresentation() {
           // Native may still hold the companion after an "already exists" race.
           // Probe before demoting — demoting while the OS window lives mounts
           // the main drawer beside it (dual bar + dual LiveKit PC).
-          const exists = await invoke<boolean>("huddle_companion_window_exists")
-            .catch(() => false);
+          const exists = await invoke<boolean>(
+            "huddle_companion_window_exists",
+          ).catch(() => false);
           if (exists) {
             companionExistsRef.current = true;
             setPresentation("window");

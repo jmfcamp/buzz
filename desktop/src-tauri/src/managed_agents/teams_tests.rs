@@ -5,8 +5,7 @@
 
 use super::{
     agents_referencing_team, deactivate_catalog_member_copies_with_ref_check, load_teams_readonly,
-    merge_teams, merge_teams_impl, sort_teams, validate_team_deletion, BuiltInTeam,
-    BUILT_IN_TEAMS,
+    merge_teams, merge_teams_impl, sort_teams, validate_team_deletion, BuiltInTeam, BUILT_IN_TEAMS,
 };
 use crate::managed_agents::{
     AgentDefinition, ManagedAgentRecord, TeamMemberCatalogSource, TeamRecord,
@@ -65,8 +64,13 @@ fn merge_teams_adds_missing_built_ins() {
         persona_ids: &["builtin:test-persona"],
     };
 
-    let (records, changed) =
-        merge_teams_impl(&[synthetic], &[], Vec::new(), "2026-05-07T00:00:00Z", &std::collections::HashSet::new());
+    let (records, changed) = merge_teams_impl(
+        &[synthetic],
+        &[],
+        Vec::new(),
+        "2026-05-07T00:00:00Z",
+        &std::collections::HashSet::new(),
+    );
 
     assert!(changed);
     assert_eq!(records.len(), 1);
@@ -86,8 +90,13 @@ fn merge_teams_preserves_user_customizations_to_builtin() {
     customized.is_builtin = true;
     customized.persona_ids = vec!["builtin:test-persona".to_string()];
 
-    let (records, _changed) =
-        merge_teams_impl(&[synthetic], &[], vec![customized], "2026-05-07T00:00:00Z", &std::collections::HashSet::new());
+    let (records, _changed) = merge_teams_impl(
+        &[synthetic],
+        &[],
+        vec![customized],
+        "2026-05-07T00:00:00Z",
+        &std::collections::HashSet::new(),
+    );
 
     let found = records
         .iter()
@@ -108,8 +117,13 @@ fn merge_teams_preserves_unrelated_user_teams() {
     };
     let user_team = team("user-uuid", "My Team");
 
-    let (records, _changed) =
-        merge_teams_impl(&[synthetic], &[], vec![user_team], "2026-05-07T00:00:00Z", &std::collections::HashSet::new());
+    let (records, _changed) = merge_teams_impl(
+        &[synthetic],
+        &[],
+        vec![user_team],
+        "2026-05-07T00:00:00Z",
+        &std::collections::HashSet::new(),
+    );
 
     assert!(records.iter().any(|t| t.id == "user-uuid"));
     assert!(records.iter().any(|t| t.id == "builtin-team:test"));
@@ -144,8 +158,13 @@ fn merge_teams_repromotes_existing_builtin_marked_as_custom() {
     let mut downgraded = team("builtin-team:test", "Test Team");
     downgraded.is_builtin = false;
 
-    let (records, changed) =
-        merge_teams_impl(&[synthetic], &[], vec![downgraded], "2026-05-07T00:00:00Z", &std::collections::HashSet::new());
+    let (records, changed) = merge_teams_impl(
+        &[synthetic],
+        &[],
+        vec![downgraded],
+        "2026-05-07T00:00:00Z",
+        &std::collections::HashSet::new(),
+    );
 
     assert!(changed);
     let found = records

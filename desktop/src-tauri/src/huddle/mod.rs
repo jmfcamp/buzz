@@ -23,9 +23,9 @@
 //!    takes `stt_pipeline`/`tts_pipeline` out of the lock, then calls `shutdown()`
 //!    and drops them outside the lock (thread joins can block ~200ms).
 
+mod agent_barge;
 mod agent_tts_publisher;
 mod agent_tts_routing;
-mod agent_barge;
 pub mod agent_voice;
 pub mod agents;
 pub mod audio_output;
@@ -37,15 +37,15 @@ mod latency_bench;
 mod local_barge_in;
 pub mod models;
 pub mod pipeline;
-mod stt_wake;
 pub mod playout;
 pub mod pocket;
 pub mod preprocessing;
 pub mod reconnect;
-mod screen_token;
 pub mod relay_api;
+mod screen_token;
 pub mod state;
 pub mod stt;
+mod stt_wake;
 pub mod transcription;
 pub mod tts;
 #[path = "tts_playback.rs"]
@@ -85,8 +85,8 @@ pub use commands::{
 pub use screen_token::{huddle_screen_stop, huddle_screen_token};
 pub use state::{HuddleJoinInfo, HuddlePhase, HuddleState, VoiceInputMode};
 pub use transcription::{
-    get_huddle_activation_keyword, list_huddle_activation_keywords,
-    set_huddle_activation_keyword, set_huddle_transcription_enabled, start_stt_pipeline,
+    get_huddle_activation_keyword, list_huddle_activation_keywords, set_huddle_activation_keyword,
+    set_huddle_transcription_enabled, start_stt_pipeline,
 };
 pub use tts_settings::set_tts_enabled;
 pub use window::{close_huddle_companion, huddle_companion_window_exists, open_huddle_window};

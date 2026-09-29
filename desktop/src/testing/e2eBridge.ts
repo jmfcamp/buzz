@@ -3819,7 +3819,15 @@ type MockHuddleState = {
   huddle_thread_event_id: string | null;
   participants: string[];
   agent_pubkeys: string[];
-  agent_voice_settings: Record<string, { enabled: boolean; voice_key: string }>;
+  agent_voice_settings: Record<
+    string,
+    {
+      enabled: boolean;
+      voice_key: string;
+      addressable?: boolean;
+      agent_barge?: boolean;
+    }
+  >;
   tts_enabled: boolean;
   transcription_enabled: boolean;
   is_creator: boolean;
@@ -9319,7 +9327,6 @@ async function handleUpdateTeam(args: {
 }
 
 async function handleDeleteTeam(args: { id: string }): Promise<void> {
-  const team = mockTeams.find((candidate) => candidate.id === args.id);
   // Built-in teams are deletable; production records the id in deleted-seed-ids.json.
   mockTeams = mockTeams.filter((candidate) => candidate.id !== args.id);
 }

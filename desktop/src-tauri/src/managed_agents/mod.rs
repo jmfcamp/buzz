@@ -28,7 +28,6 @@ pub(crate) mod parallelism;
 mod persona_avatars;
 pub(crate) mod persona_events;
 mod personas;
-pub(crate) mod seed_opt_out;
 #[cfg(windows)]
 mod process_lifecycle;
 pub(crate) mod readiness;
@@ -41,6 +40,7 @@ pub mod retention;
 mod runtime;
 mod runtime_commands;
 mod runtime_types;
+pub(crate) mod seed_opt_out;
 mod session_policy;
 pub(crate) mod snapshot_avatar;
 pub(crate) mod spawn_snapshot;

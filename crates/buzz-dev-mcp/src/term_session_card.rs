@@ -112,8 +112,12 @@ pub fn build_return_path_section(
         lines.push(format!("- mention pubkey:   {pk}"));
     }
 
-    let sc = summarized_channel_id.map(str::trim).filter(|s| !s.is_empty());
-    let st = summarized_thread_id.map(str::trim).filter(|s| !s.is_empty());
+    let sc = summarized_channel_id
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let st = summarized_thread_id
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
     if let (Some(sc), Some(st)) = (sc, st) {
         if sc != origin_channel_id || st != origin_thread_id {
             lines.push(format!("- summarized/source channelId: {sc}"));
@@ -122,30 +126,25 @@ pub fn build_return_path_section(
     }
 
     let mentions_json = match pubkey {
-        Some(pk) => format!(
-            "[{{ displayName: \"{display_name}\", pubkey: \"{pk}\", isAgent: true }}]"
-        ),
+        Some(pk) => {
+            format!("[{{ displayName: \"{display_name}\", pubkey: \"{pk}\", isAgent: true }}]")
+        }
         None => format!(
             "[{{ displayName: \"{display_name}\", pubkey: \"<agent-pubkey>\", isAgent: true }}]"
         ),
     };
 
     lines.push("- On \"report back\" / \"hand back\" / \"I'm done\":".to_string());
-    lines.push(
-        "  call buzz_draft_message with the origin channelId + threadId,".to_string(),
-    );
+    lines.push("  call buzz_draft_message with the origin channelId + threadId,".to_string());
     lines.push(format!(
         "  content starting with \"{mention} <text JM asked for>\","
     ));
     lines.push(format!("  AND mentions: {mentions_json}"));
     lines.push(
-        "  for that agent. Plain @Name alone is NOT enough — drafts need mentionRefs."
-            .to_string(),
+        "  for that agent. Plain @Name alone is NOT enough — drafts need mentionRefs.".to_string(),
     );
     lines.push("  Draft only. JM clicks Send.".to_string());
-    lines.push(
-        "- Never draft to any other channel or thread unless JM gives new IDs.".to_string(),
-    );
+    lines.push("- Never draft to any other channel or thread unless JM gives new IDs.".to_string());
     lines.push("- Never auto-draft progress; keep status in the Term TUI.".to_string());
 
     lines.join("\n")
@@ -203,10 +202,7 @@ pub fn run(p: TermSessionCardParams) -> Result<String, ErrorData> {
     }
 
     if p.prompt.is_empty() {
-        return Err(ErrorData::invalid_params(
-            "prompt must be non-empty",
-            None,
-        ));
+        return Err(ErrorData::invalid_params("prompt must be non-empty", None));
     }
 
     let sid = match p.sid.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
@@ -385,9 +381,8 @@ mod tests {
 
     #[test]
     fn params_reject_unknown_fields() {
-        let res: Result<TermSessionCardParams, _> = serde_json::from_str(
-            r#"{"name":"n","tool":"claude","prompt":"p","token":"nope"}"#,
-        );
+        let res: Result<TermSessionCardParams, _> =
+            serde_json::from_str(r#"{"name":"n","tool":"claude","prompt":"p","token":"nope"}"#);
         assert!(res.is_err());
     }
 

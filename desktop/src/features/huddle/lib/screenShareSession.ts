@@ -6,10 +6,7 @@ import {
   type RemoteTrack,
   type RoomOptions,
 } from "livekit-client";
-import {
-  acquireDisplayMedia,
-  stopMediaStreamTracks,
-} from "./screenShareMedia";
+import { acquireDisplayMedia, stopMediaStreamTracks } from "./screenShareMedia";
 
 export { acquireDisplayMedia, stopMediaStreamTracks } from "./screenShareMedia";
 
@@ -95,10 +92,7 @@ export class HuddleScreenShareSession {
           publication.source === Track.Source.ScreenShare
         ) {
           this.attachRemote(participant.identity, publication.track);
-        } else if (
-          publication.kind === Track.Kind.Video &&
-          publication.track
-        ) {
+        } else if (publication.kind === Track.Kind.Video && publication.track) {
           // Accept any remote video (room is screen-only by grant).
           this.attachRemote(participant.identity, publication.track);
         }
@@ -206,4 +200,3 @@ export class HuddleScreenShareSession {
     this.callbacks.onLocalPreviewChanged(null);
   }
 }
-

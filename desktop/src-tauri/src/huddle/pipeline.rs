@@ -640,7 +640,6 @@ pub(crate) fn sign_and_guard_stt_body(
     Ok(body_bytes)
 }
 
-
 fn resolve_stt_agent_aliases(
     app_handle: &Option<tauri::AppHandle>,
     agent_pubkeys: &[String],
@@ -656,10 +655,7 @@ fn resolve_stt_agent_aliases(
         .map(|r| {
             (
                 r.pubkey.clone(),
-                super::stt_wake::collect_record_aliases(
-                    &r.name,
-                    r.display_name.as_deref(),
-                ),
+                super::stt_wake::collect_record_aliases(&r.name, r.display_name.as_deref()),
             )
         })
         .collect();
@@ -721,9 +717,7 @@ pub(crate) fn spawn_transcription_task(
             // Belt-and-suspenders: worker already drops junk, but never post
             // punctuation-only finals (they previously barge-in-silenced TTS).
             if !super::stt::is_substantive_transcript(&t) {
-                eprintln!(
-                    "buzz-desktop: transcription skipped junk final ({t:?})"
-                );
+                eprintln!("buzz-desktop: transcription skipped junk final ({t:?})");
                 continue;
             }
 
@@ -750,11 +744,8 @@ pub(crate) fn spawn_transcription_task(
                 .clone();
 
             // Wake only agents addressed as "{keyword} <Name>"; still post transcript always.
-            let mut wake_pubkeys = super::stt_wake::addressed_agent_pubkeys(
-                &t,
-                &cached_aliases,
-                &activation_keyword,
-            );
+            let mut wake_pubkeys =
+                super::stt_wake::addressed_agent_pubkeys(&t, &cached_aliases, &activation_keyword);
             // Addressable toggle (default on): OFF agents ignore spoken wakes.
             if !wake_pubkeys.is_empty() {
                 if let Some(handle) = app_handle.as_ref() {
@@ -796,9 +787,13 @@ pub(crate) fn spawn_transcription_task(
             let content = if wake_pubkeys.is_empty() {
                 t.clone()
             } else {
-                let channel_lines =
-                    fetch_huddle_transcript_lines(&http_client, &keys, &relay_base_url, channel_uuid)
-                        .await;
+                let channel_lines = fetch_huddle_transcript_lines(
+                    &http_client,
+                    &keys,
+                    &relay_base_url,
+                    channel_uuid,
+                )
+                .await;
                 let prior = super::stt_wake::merge_transcript_context(
                     &channel_lines,
                     &session_transcript,
@@ -941,8 +936,13 @@ pub(crate) async fn fetch_huddle_transcript_lines(
         // Skip wake payloads that already embedded a transcript block so we
         // do not nest prior wake contexts inside the next wake.
         if content.starts_with("[Huddle transcript — full meeting context so far]") {
-            if let Some(addr) = content.split("[Addressed]
-").nth(1) {
+            if let Some(addr) = content
+                .split(
+                    "[Addressed]
+",
+                )
+                .nth(1)
+            {
                 let addressed = addr.trim();
                 if !addressed.is_empty() {
                     let created = event

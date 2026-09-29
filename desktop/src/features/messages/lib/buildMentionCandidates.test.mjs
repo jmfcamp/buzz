@@ -204,11 +204,7 @@ test("offline and unknown-presence directory agents stay out of autocomplete", (
         ],
       }),
     );
-    assert.deepEqual(
-      candidates,
-      [],
-      `expected ${status} agent to be hidden`,
-    );
+    assert.deepEqual(candidates, [], `expected ${status} agent to be hidden`);
   }
 });
 

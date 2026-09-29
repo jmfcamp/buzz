@@ -284,7 +284,10 @@ fn continuous_speech_flushes_at_max_utterance_without_silence() {
             "unexpected action before max utterance: {action:?}"
         );
     }
-    assert!(saw_max, "continuous speech must emit MaxUtterance before silence");
+    assert!(
+        saw_max,
+        "continuous speech must emit MaxUtterance before silence"
+    );
     assert!(
         endpoint.speech_buf.len() >= MAX_UTTERANCE_SAMPLES,
         "flush should retain at least the soft-cap samples"

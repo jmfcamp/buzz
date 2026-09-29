@@ -54,30 +54,25 @@ fn signer_root() -> Result<PathBuf, ErrorData> {
 }
 
 fn ensure_dirs(root: &Path) -> Result<(), ErrorData> {
-    create_dir_all(root.join("inbox")).map_err(|e| {
-        ErrorData::internal_error(format!("user-signer inbox: {e}"), None)
-    })?;
-    create_dir_all(root.join("outbox")).map_err(|e| {
-        ErrorData::internal_error(format!("user-signer outbox: {e}"), None)
-    })?;
+    create_dir_all(root.join("inbox"))
+        .map_err(|e| ErrorData::internal_error(format!("user-signer inbox: {e}"), None))?;
+    create_dir_all(root.join("outbox"))
+        .map_err(|e| ErrorData::internal_error(format!("user-signer outbox: {e}"), None))?;
     Ok(())
 }
 
 fn write_request(root: &Path, id: &str, body: &Value) -> Result<(), ErrorData> {
     ensure_dirs(root)?;
     let path = root.join("inbox").join(format!("{id}.request.json"));
-    let bytes = serde_json::to_vec_pretty(body).map_err(|e| {
-        ErrorData::internal_error(format!("serialize request: {e}"), None)
-    })?;
+    let bytes = serde_json::to_vec_pretty(body)
+        .map_err(|e| ErrorData::internal_error(format!("serialize request: {e}"), None))?;
     let mut f = File::create(&path).map_err(|e| {
         ErrorData::internal_error(format!("write request {}: {e}", path.display()), None)
     })?;
-    f.write_all(&bytes).map_err(|e| {
-        ErrorData::internal_error(format!("write request: {e}"), None)
-    })?;
-    f.write_all(b"\n").map_err(|e| {
-        ErrorData::internal_error(format!("write request: {e}"), None)
-    })?;
+    f.write_all(&bytes)
+        .map_err(|e| ErrorData::internal_error(format!("write request: {e}"), None))?;
+    f.write_all(b"\n")
+        .map_err(|e| ErrorData::internal_error(format!("write request: {e}"), None))?;
     Ok(())
 }
 
@@ -86,13 +81,11 @@ fn wait_response(root: &Path, id: &str, wait_ms: u64) -> Result<Value, ErrorData
     let deadline = SystemTime::now() + Duration::from_millis(wait_ms.max(100));
     loop {
         if path.exists() {
-            let raw = std::fs::read_to_string(&path).map_err(|e| {
-                ErrorData::internal_error(format!("read response: {e}"), None)
-            })?;
+            let raw = std::fs::read_to_string(&path)
+                .map_err(|e| ErrorData::internal_error(format!("read response: {e}"), None))?;
             let _ = std::fs::remove_file(&path);
-            let value: Value = serde_json::from_str(&raw).map_err(|e| {
-                ErrorData::internal_error(format!("parse response: {e}"), None)
-            })?;
+            let value: Value = serde_json::from_str(&raw)
+                .map_err(|e| ErrorData::internal_error(format!("parse response: {e}"), None))?;
             return Ok(value);
         }
         if SystemTime::now() >= deadline {
@@ -110,14 +103,17 @@ fn wait_response(root: &Path, id: &str, wait_ms: u64) -> Result<Value, ErrorData
 fn call_op(op: &str, mut fields: Value, wait_ms: u64) -> Result<CallToolResult, ErrorData> {
     let root = signer_root()?;
     let id = Uuid::new_v4().to_string();
-    let obj = fields.as_object_mut().ok_or_else(|| {
-        ErrorData::internal_error("request fields must be an object", None)
-    })?;
+    let obj = fields
+        .as_object_mut()
+        .ok_or_else(|| ErrorData::internal_error("request fields must be an object", None))?;
     obj.insert("id".into(), json!(id));
     obj.insert("op".into(), json!(op));
     write_request(&root, &id, &fields)?;
     let response = wait_response(&root, &id, wait_ms)?;
-    let ok = response.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+    let ok = response
+        .get("ok")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let text = serde_json::to_string_pretty(&response).unwrap_or_else(|_| response.to_string());
     if ok {
         Ok(CallToolResult::success(vec![Content::text(text)]))
@@ -239,8 +235,7 @@ pub fn draft_message(p: DraftMessageParams) -> Result<CallToolResult, ErrorData>
         "threadId": p.thread_id.as_deref().map(str::trim).filter(|s| !s.is_empty()),
     });
     if !mentions.is_empty() {
-        body
-            .as_object_mut()
+        body.as_object_mut()
             .expect("object")
             .insert("mentions".into(), json!(mentions));
     }
@@ -399,8 +394,7 @@ mod tests {
         result.expect("draft ok");
         let raw = captured.lock().unwrap().clone().expect("captured request");
         assert!(
-            raw.contains(r#""displayName": "Fable""#)
-                || raw.contains(r#""displayName":"Fable""#)
+            raw.contains(r#""displayName": "Fable""#) || raw.contains(r#""displayName":"Fable""#)
         );
         assert!(raw.contains("deadbeef"));
         assert!(raw.contains(r#""isAgent""#));

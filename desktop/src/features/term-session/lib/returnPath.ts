@@ -61,7 +61,9 @@ export type ResolveReturnPathMentionInput = {
  * Normalize a display name into `@Name`. Does not invent a default agent.
  * Returns empty string when no usable name is available.
  */
-export function formatReturnPathMention(raw: string | null | undefined): string {
+export function formatReturnPathMention(
+  raw: string | null | undefined,
+): string {
   const trimmed = (raw ?? "").trim();
   if (!trimmed) return "";
   return trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
@@ -141,8 +143,7 @@ export function buildTermSessionReturnPathSection(
 ): string {
   const originChannelId = input.originChannelId.trim();
   const originThreadId = input.originThreadId.trim();
-  const mention =
-    formatReturnPathMention(input.mention) || "@agent";
+  const mention = formatReturnPathMention(input.mention) || "@agent";
   const displayName = mention.startsWith("@") ? mention.slice(1) : mention;
   const mentionPubkey = (input.mentionPubkey ?? "").trim();
 
