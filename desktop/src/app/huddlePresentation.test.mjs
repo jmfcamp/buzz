@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   reconcilePresentationWithNativeExists,
+  shouldCoalesceHuddleCompanionOpen,
   shouldMountMainHuddleDrawerBar,
 } from "./huddlePresentation.ts";
 
@@ -56,3 +57,28 @@ test("drawer/none stay put when companion does not exist", () => {
   );
   assert.equal(reconcilePresentationWithNativeExists("none", false), null);
 });
+
+test("coalesce companion open only while invoke is in flight", () => {
+  assert.equal(
+    shouldCoalesceHuddleCompanionOpen({
+      sameChannel: true,
+      openInFlight: true,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldCoalesceHuddleCompanionOpen({
+      sameChannel: true,
+      openInFlight: false,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldCoalesceHuddleCompanionOpen({
+      sameChannel: false,
+      openInFlight: true,
+    }),
+    false,
+  );
+});
+

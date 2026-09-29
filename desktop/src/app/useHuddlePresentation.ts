@@ -10,6 +10,7 @@ import {
 import {
   type HuddlePresentation,
   reconcilePresentationWithNativeExists,
+  shouldCoalesceHuddleCompanionOpen,
 } from "@/app/huddlePresentation";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { channelsQueryKey } from "@/features/channels/hooks";
@@ -275,19 +276,26 @@ export function useHuddlePresentation() {
         huddleCompanionOpenPendingRef.current = false;
       }
       hideHuddleChannel(ephemeralChannelId);
+      // Coalesce only an in-flight open. A settled promise must not skip native
+      // open — after the user closes the companion, reusing it flips presentation
+      // to "window" with no OS window and unmounts the drawer (stuck open).
+      if (
+        shouldCoalesceHuddleCompanionOpen({
+          sameChannel:
+            huddleCompanionChannelIdRef.current === ephemeralChannelId,
+          openInFlight: huddleCompanionOpenPendingRef.current,
+        }) &&
+        huddleCompanionOpenPromiseRef.current
+      ) {
+        return huddleCompanionOpenPromiseRef.current;
+      }
+
       // Bump epoch before flipping to window so in-flight companion-returned
       // handlers (late Destroyed after dock) cannot restore the drawer.
       const openEpoch = presentationEpochRef.current + 1;
       presentationEpochRef.current = openEpoch;
       companionExistsRef.current = true;
       setPresentation("window");
-
-      if (
-        huddleCompanionChannelIdRef.current === ephemeralChannelId &&
-        huddleCompanionOpenPromiseRef.current
-      ) {
-        return huddleCompanionOpenPromiseRef.current;
-      }
 
       huddleCompanionChannelIdRef.current = ephemeralChannelId;
       huddleCompanionOpenPendingRef.current = true;
@@ -461,6 +469,13 @@ export function useHuddlePresentation() {
           );
           if (!next) return;
           presentationEpochRef.current += 1;
+          if (next !== "window") {
+            // Companion is gone — drop stale open promise so the next expand
+            // invokes native open instead of reusing a settled no-op.
+            huddleCompanionChannelIdRef.current = null;
+            huddleCompanionOpenPromiseRef.current = null;
+            huddleCompanionOpenPendingRef.current = false;
+          }
           setPresentation(next);
           if (next === "window") {
             // Keep main off the ephemeral transcript while the companion owns UI.

@@ -42,3 +42,17 @@ export function reconcilePresentationWithNativeExists(
   }
   return options.huddleActive ? "drawer" : "none";
 }
+
+/**
+ * Coalesce `open_huddle_window` only while an invoke is in flight for the same
+ * channel. A settled prior open must not skip native open — the OS companion
+ * may already be gone, and flipping presentation to "window" without a real
+ * window unmounts the drawer with nothing on stage.
+ */
+export function shouldCoalesceHuddleCompanionOpen(options: {
+  sameChannel: boolean;
+  openInFlight: boolean;
+}): boolean {
+  return options.sameChannel && options.openInFlight;
+}
+
