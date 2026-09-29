@@ -10,6 +10,7 @@ import {
 import {
   type HuddlePresentation,
   reconcilePresentationWithNativeExists,
+  shouldPromoteNoneToDrawer,
 } from "@/app/huddlePresentation";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { channelsQueryKey } from "@/features/channels/hooks";
@@ -49,6 +50,7 @@ export function useHuddlePresentation() {
   presentationRef.current = presentation;
   const companionExistsRef = React.useRef(false);
   const [isHuddleStartPending, setIsHuddleStartPending] = React.useState(false);
+  const startPendingRef = React.useRef(false);
   const [revealedHuddleChannelIds, setRevealedHuddleChannelIds] =
     React.useState<ReadonlySet<string>>(() => new Set());
   const [huddleBackingChannelIds, setHuddleBackingChannelIds] = React.useState<
@@ -153,10 +155,28 @@ export function useHuddlePresentation() {
 
   const handleHuddleStartPendingChange = React.useCallback(
     (pending: boolean) => {
+      startPendingRef.current = pending;
       setIsHuddleStartPending(pending);
       if (pending) {
+        // Keep main unmounted for the whole start/join → companion open
+        // transition so the dock never flashes on the main window.
         presentationEpochRef.current += 1;
         setPresentation("none");
+        return;
+      }
+      // Start/join settled. If companion open skipped/failed closed and we
+      // are still on none with an active huddle, show the drawer as fallback.
+      if (
+        shouldPromoteNoneToDrawer({
+          presentation: presentationRef.current,
+          companionExists: companionExistsRef.current,
+          openInFlight: huddleCompanionOpenPendingRef.current,
+          startPending: false,
+        }) &&
+        activeHuddleChannelIdRef.current != null
+      ) {
+        presentationEpochRef.current += 1;
+        setPresentation("drawer");
       }
     },
     [],
@@ -169,7 +189,9 @@ export function useHuddlePresentation() {
       if (
         presentationRef.current === "window" ||
         companionExistsRef.current ||
-        isHuddleStartPending
+        isHuddleStartPending ||
+        startPendingRef.current ||
+        huddleCompanionOpenPendingRef.current
       ) {
         return;
       }
@@ -585,16 +607,20 @@ export function useHuddlePresentation() {
           },
         );
       }
-      // Strict mount gate is presentation === "drawer". If companion open was
-      // skipped (dismissed) or failed closed, promote none → drawer so the bar
-      // can appear without requiring a remounted visibility effect.
+      // Strict mount gate is presentation === "drawer". Never promote during
+      // start/join pending or companion open — that flashes the main dock
+      // before the companion loads. Promote only once those gates clear
+      // (dismissed dock, or settled fallback without a companion).
       if (
         !isHuddleRoom &&
         (event.payload.phase === "active" ||
           event.payload.phase === "connected") &&
-        presentationRef.current === "none" &&
-        !companionExistsRef.current &&
-        !huddleCompanionOpenPendingRef.current
+        shouldPromoteNoneToDrawer({
+          presentation: presentationRef.current,
+          companionExists: companionExistsRef.current,
+          openInFlight: huddleCompanionOpenPendingRef.current,
+          startPending: startPendingRef.current,
+        })
       ) {
         presentationEpochRef.current += 1;
         setPresentation("drawer");

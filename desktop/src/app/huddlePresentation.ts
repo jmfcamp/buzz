@@ -42,3 +42,24 @@ export function reconcilePresentationWithNativeExists(
   }
   return options.huddleActive ? "drawer" : "none";
 }
+
+/**
+ * Main may mount the drawer bar only after companion open is no longer the
+ * active path. During start/join (pending) or while open_huddle_window is
+ * in flight, stay on `"none"` so the main dock never flashes before the
+ * companion loads. Promote when the user docked (dismissed) or when start
+ * settled with no companion and no open in flight.
+ */
+export function shouldPromoteNoneToDrawer(options: {
+  presentation: HuddlePresentation;
+  companionExists: boolean;
+  openInFlight: boolean;
+  startPending: boolean;
+}): boolean {
+  if (options.presentation !== "none") return false;
+  if (options.companionExists) return false;
+  if (options.openInFlight) return false;
+  if (options.startPending) return false;
+  // Settled fallback / dismissed dock — caller also requires active phase.
+  return true;
+}

@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   reconcilePresentationWithNativeExists,
   shouldMountMainHuddleDrawerBar,
+  shouldPromoteNoneToDrawer,
 } from "./huddlePresentation.ts";
 
 test("main must not mount drawer bar when presentation is window", () => {
@@ -55,4 +56,55 @@ test("drawer/none stay put when companion does not exist", () => {
     null,
   );
   assert.equal(reconcilePresentationWithNativeExists("none", false), null);
+});
+
+test("none→drawer promote blocked during start pending or companion open", () => {
+  assert.equal(
+    shouldPromoteNoneToDrawer({
+      presentation: "none",
+      companionExists: false,
+      openInFlight: false,
+      startPending: true,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldPromoteNoneToDrawer({
+      presentation: "none",
+      companionExists: false,
+      openInFlight: true,
+      startPending: false,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldPromoteNoneToDrawer({
+      presentation: "window",
+      companionExists: false,
+      openInFlight: false,
+      startPending: false,
+    }),
+    false,
+  );
+});
+
+test("none→drawer promote allowed when settled with no companion", () => {
+  assert.equal(
+    shouldPromoteNoneToDrawer({
+      presentation: "none",
+      companionExists: false,
+      openInFlight: false,
+      startPending: false,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldPromoteNoneToDrawer({
+      presentation: "none",
+      companionExists: false,
+      openInFlight: false,
+      startPending: false,
+    }),
+    true,
+  );
 });

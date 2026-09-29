@@ -79,17 +79,45 @@ test("subscriber skips installing a session when startShare already owns one", (
 
 test("benign AbortError does not setError in startShare or subscriber", () => {
   assert.match(src, /isBenignScreenShareAbort/);
+  assert.match(src, /shouldSuppressScreenShareError/);
   const start = src.indexOf("const startShare");
   const startBody = src.slice(start, src.indexOf("const stopShare", start));
-  // startShare catch must skip setError when abort is benign
-  assert.match(startBody, /isBenignScreenShareAbort\(e\)/);
-  const abortIdx = startBody.indexOf("isBenignScreenShareAbort(e)");
+  // startShare catch must skip setError when abort/PC blip is suppressed
+  assert.match(startBody, /shouldSuppressScreenShareError\(e\)/);
+  const abortIdx = startBody.indexOf("shouldSuppressScreenShareError(e)");
   const setErrorIdx = startBody.indexOf("setError(e instanceof Error");
-  assert.ok(abortIdx >= 0 && setErrorIdx > abortIdx, "abort guard before setError");
+  assert.ok(abortIdx >= 0 && setErrorIdx > abortIdx, "suppress guard before setError");
 
   const effect = src.slice(
     src.indexOf("React.useEffect(() => {"),
     src.indexOf("const startShare"),
   );
-  assert.match(effect, /isBenignScreenShareAbort\(e\)/);
+  assert.match(effect, /shouldSuppressScreenShareError\(e\)/);
+});
+
+test("transient PC connection errors are suppressed (no red banner)", () => {
+  assert.match(src, /isTransientPcConnectionError/);
+  assert.match(src, /could not establish pc connection/);
+  assert.match(src, /shouldSuppressScreenShareError/);
+});
+
+test("successful publish clears error", () => {
+  const start = src.indexOf("const startShare");
+  const body = src.slice(start, src.indexOf("const stopShare", start));
+  assert.match(body, /await session\.startShare\(acquired\)/);
+  const shareIdx = body.indexOf("await session.startShare(acquired)");
+  const clearIdx = body.indexOf("setError(null)", shareIdx);
+  assert.ok(clearIdx > shareIdx, "clears error after successful publish");
+});
+
+test("stopShare restores Share availability and clears sharing state", () => {
+  const stop = src.indexOf("const stopShare");
+  const body = src.slice(stop, src.indexOf("const shareBlocked", stop));
+  assert.match(body, /finally/);
+  assert.match(body, /setSharing\(false\)/);
+  assert.match(body, /setLocalPreviewStream\(null\)/);
+  assert.match(
+    body,
+    /setAvailable\(\(prev\) => \(prev === false \? false : true\)\)/,
+  );
 });

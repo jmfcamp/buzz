@@ -52,6 +52,25 @@ function isBenignScreenShareAbort(error: unknown): boolean {
   return false;
 }
 
+/**
+ * LiveKit peer-connection / ICE blips after a successful mint. Share stays
+ * available; do not raise a blocking red banner (publish may still work).
+ */
+function isTransientPcConnectionError(error: unknown): boolean {
+  if (error == null || !(error instanceof Error)) return false;
+  const msg = error.message.toLowerCase();
+  if (msg.includes("could not establish pc connection")) return true;
+  if (msg.includes("pc connection")) return true;
+  if (msg.includes("peerconnection")) return true;
+  if (msg.includes("ice connection")) return true;
+  if (msg.includes("ice failed")) return true;
+  return false;
+}
+
+function shouldSuppressScreenShareError(error: unknown): boolean {
+  return isBenignScreenShareAbort(error) || isTransientPcConnectionError(error);
+}
+
 function makeSessionCallbacks(setters: {
   setRemoteStream: (stream: MediaStream | null) => void;
   setLocalPreviewStream: (stream: MediaStream | null) => void;
@@ -83,8 +102,8 @@ function makeSessionCallbacks(setters: {
  * Share stays visible after a PC/connect failure: only relay
  * `screen_share_unavailable` hides the control. A connect generation
  * rejects stale subscriber errors when startShare takes over the room.
- * Benign AbortErrors (picker dismiss, superseded LiveKit connect) are
- * logged only — never shown via setError.
+ * Benign AbortErrors and transient PC/ICE blips are logged only; never
+ * shown via setError. stopShare always restores Share availability.
  */
 export function useHuddleScreenShare(args: {
   active: boolean;
@@ -181,9 +200,9 @@ export function useHuddleScreenShare(args: {
         if (cancelled || gen !== connectGenRef.current) return;
       } catch (e) {
         if (cancelled || gen !== connectGenRef.current) return;
-        // Superseded subscribe connect / user-gesture abort: keep Share, no banner.
-        if (isBenignScreenShareAbort(e)) {
-          console.debug("[huddle] screen-share subscriber connect aborted", e);
+        // Aborts + transient PC/ICE: keep Share, no scary banner.
+        if (shouldSuppressScreenShareError(e)) {
+          console.debug("[huddle] screen-share subscriber connect soft-fail", e);
           if (sessionRef.current && !sessionRef.current.isConnected) {
             const dead = sessionRef.current;
             sessionRef.current = null;
@@ -258,6 +277,8 @@ export function useHuddleScreenShare(args: {
       await session.startShare(acquired);
       acquired = null; // ownership transferred to session
       setSharing(true);
+      // Publish succeeded — drop any stale subscriber PC banner.
+      setError(null);
     } catch (e) {
       try {
         await sessionRef.current?.stopShare();
@@ -267,9 +288,11 @@ export function useHuddleScreenShare(args: {
       stopMediaStreamTracks(acquired);
       setLocalPreviewStream(null);
       setSharing(false);
-      // Picker dismiss / superseded LiveKit connect — not a user-facing failure.
-      if (isBenignScreenShareAbort(e)) {
-        console.debug("[huddle] screen-share start aborted", e);
+      // Picker dismiss / superseded connect / PC blip — not blocking.
+      if (shouldSuppressScreenShareError(e)) {
+        console.debug("[huddle] screen-share start soft-fail", e);
+        // Mint proved LiveKit is configured; keep Share for retry.
+        setAvailable(true);
         return;
       }
       setError(e instanceof Error ? e.message : String(e));
@@ -286,11 +309,19 @@ export function useHuddleScreenShare(args: {
           parentChannelId: parentRef.current,
         });
       }
+    } catch (e) {
+      // Slot/stop failures must not permanently hide Share.
+      if (!shouldSuppressScreenShareError(e)) {
+        setError(e instanceof Error ? e.message : String(e));
+      } else {
+        console.debug("[huddle] screen-share stop soft-fail", e);
+      }
+    } finally {
       setCurrentSharer(null);
       setLocalPreviewStream(null);
       setSharing(false);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      // After stop, Share must return unless relay reported true unavailable.
+      setAvailable((prev) => (prev === false ? false : true));
     }
   }, [channelId]);
 

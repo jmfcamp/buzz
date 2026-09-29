@@ -717,6 +717,7 @@ export function HuddleProvider({
       setIsMuted(startMuted);
       setHuddleError(null);
       setIsStarting(true);
+      onHuddleStartPendingChange?.(true);
 
       try {
         const joinInfo = await invoke<HuddleJoinInfo>("join_huddle", {
@@ -756,6 +757,7 @@ export function HuddleProvider({
         console.error("Failed to join huddle:", e);
         throw e;
       } finally {
+        onHuddleStartPendingChange?.(false);
         setIsStarting(false);
         busyRef.current = false;
       }
@@ -765,6 +767,7 @@ export function HuddleProvider({
       cleanupSupersededStart,
       connectAndSetupMedia,
       getVoiceInputMode,
+      onHuddleStartPendingChange,
       onHuddleStarted,
     ],
   );
