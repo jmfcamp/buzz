@@ -15,6 +15,28 @@ export function shouldMountMainHuddleDrawerBar(
   return false;
 }
 
+/**
+ * AppHuddleShell dock chrome (mount HuddleBar + lift app surface).
+ *
+ * Window identity is the gate — not main `presentation`:
+ * - Companion room webview (`isRoom`, label `huddle-<uuid>`) ALWAYS shows the
+ *   control dock. Main presentation stays `"none"`/`"window"` and must not be
+ *   required for companion CSS lift (`buzz-huddle-app-surface-room-open`).
+ * - Main webview NEVER shows the dock (`shouldMountMainHuddleDrawerBar`).
+ *
+ * Regression: quality pass stopped promoting presentation→`"drawer"` on
+ * visibility, so companion kept `isDrawerOpen=false`, left the app surface at
+ * `bottom:0` / z-10, and covered the mounted bar in the z-2 drawer slot.
+ */
+export function shouldShowHuddleDockChrome(options: {
+  isRoom: boolean;
+  presentation: HuddlePresentation;
+}): boolean {
+  return (
+    options.isRoom || shouldMountMainHuddleDrawerBar(options.presentation)
+  );
+}
+
 type ReconcileOptions = {
   /** True while `open_huddle_window` has not settled. */
   openInFlight?: boolean;

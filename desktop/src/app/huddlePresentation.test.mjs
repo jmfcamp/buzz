@@ -6,6 +6,7 @@ import {
   shouldCoalesceHuddleCompanionOpen,
   shouldMountMainHuddleDrawerBar,
   shouldPromoteNoneToDrawer,
+  shouldShowHuddleDockChrome,
 } from "./huddlePresentation.ts";
 
 test("main must never mount drawer bar (companion-only product)", () => {
@@ -96,6 +97,33 @@ test("coalesce companion open only while in-flight for same channel", () => {
       sameChannel: false,
       openInFlight: true,
     }),
+    false,
+  );
+});
+
+test("companion room always shows dock chrome; main never", () => {
+  assert.equal(
+    shouldShowHuddleDockChrome({ isRoom: true, presentation: "none" }),
+    true,
+  );
+  assert.equal(
+    shouldShowHuddleDockChrome({ isRoom: true, presentation: "window" }),
+    true,
+  );
+  assert.equal(
+    shouldShowHuddleDockChrome({ isRoom: true, presentation: "drawer" }),
+    true,
+  );
+  assert.equal(
+    shouldShowHuddleDockChrome({ isRoom: false, presentation: "none" }),
+    false,
+  );
+  assert.equal(
+    shouldShowHuddleDockChrome({ isRoom: false, presentation: "drawer" }),
+    false,
+  );
+  assert.equal(
+    shouldShowHuddleDockChrome({ isRoom: false, presentation: "window" }),
     false,
   );
 });
