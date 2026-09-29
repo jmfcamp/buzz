@@ -34,6 +34,8 @@ export class HuddleScreenShareSession {
   private localStream: MediaStream | null = null;
   private remote: ScreenShareRemote | null = null;
   private disposed = false;
+  /** Serialize connect/reconnect so subscribe and publish never interleave. */
+  private connectTail: Promise<void> = Promise.resolve();
 
   constructor(private readonly callbacks: ScreenShareSessionCallbacks) {}
 
@@ -46,9 +48,19 @@ export class HuddleScreenShareSession {
   }
 
   async connect(url: string, token: string): Promise<void> {
+    const run = this.connectTail.then(() => this.connectExclusive(url, token));
+    // Keep the chain alive after failures so later connects still serialize.
+    this.connectTail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private async connectExclusive(url: string, token: string): Promise<void> {
     if (this.disposed) return;
     if (this.room) {
-      await this.disconnect();
+      await this.disconnectRoomOnly();
     }
     // livekit-client ≥2.17 defaults singlePeerConnection=true (/rtc/v1).
     // Hula LiveKit was on v1.8.4 which only serves legacy /rtc — force dual-PC
@@ -148,6 +160,11 @@ export class HuddleScreenShareSession {
   }
 
   async disconnect(): Promise<void> {
+    await this.disconnectRoomOnly();
+  }
+
+  /** Stop local publish (if any) and drop the LiveKit room. */
+  private async disconnectRoomOnly(): Promise<void> {
     await this.stopShare();
     const room = this.room;
     this.room = null;

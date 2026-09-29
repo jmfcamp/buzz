@@ -127,3 +127,15 @@ test("screenShareSession source forces dual peer connection", async () => {
   assert.match(src, /singlePeerConnection:\s*false/);
   assert.match(src, /acquireDisplayMedia/);
 });
+
+test("screenShareSession serializes reconnects", async () => {
+  const src = await import("node:fs").then((fs) =>
+    fs.readFileSync(
+      new URL("./screenShareSession.ts", import.meta.url),
+      "utf8",
+    ),
+  );
+  assert.match(src, /connectExclusive/);
+  assert.match(src, /connectTail/);
+});
+

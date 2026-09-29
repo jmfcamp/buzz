@@ -28,9 +28,37 @@ export type HuddleScreenShareState = {
   clearError: () => void;
 };
 
+function makeSessionCallbacks(setters: {
+  setRemoteStream: (stream: MediaStream | null) => void;
+  setLocalPreviewStream: (stream: MediaStream | null) => void;
+  setSharing: (sharing: boolean) => void;
+  setCurrentSharer: (pubkey: string | null) => void;
+}): ConstructorParameters<typeof HuddleScreenShareSession>[0] {
+  return {
+    onRemoteChanged: (remote: ScreenShareRemote | null) => {
+      setters.setRemoteStream(remote?.stream ?? null);
+    },
+    onLocalPreviewChanged: (stream) => {
+      // Non-null: session owns a published local track. Null during
+      // reconnect must not clear an early pre-connect preview.
+      if (stream) {
+        setters.setLocalPreviewStream(stream);
+        setters.setSharing(true);
+      }
+    },
+    onCurrentSharerChanged: (pubkey) => {
+      setters.setCurrentSharer(pubkey);
+    },
+  };
+}
+
 /**
  * Connects a LiveKit subscriber when a huddle is active and LiveKit is
  * configured. Publishes at most one local screen track.
+ *
+ * Share stays visible after a PC/connect failure: only relay
+ * `screen_share_unavailable` hides the control. A connect generation
+ * rejects stale subscriber errors when startShare takes over the room.
  */
 export function useHuddleScreenShare(args: {
   active: boolean;
@@ -50,10 +78,23 @@ export function useHuddleScreenShare(args: {
   const [currentSharer, setCurrentSharer] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const sessionRef = React.useRef<HuddleScreenShareSession | null>(null);
+  /** Bumped on effect cleanup and when startShare claims the room. */
+  const connectGenRef = React.useRef(0);
   const channelRef = React.useRef(channelId);
   channelRef.current = channelId;
   const parentRef = React.useRef(parentChannelId);
   parentRef.current = parentChannelId;
+
+  const sessionCallbacks = React.useMemo(
+    () =>
+      makeSessionCallbacks({
+        setRemoteStream,
+        setLocalPreviewStream,
+        setSharing,
+        setCurrentSharer,
+      }),
+    [],
+  );
 
   const teardown = React.useCallback(async () => {
     const session = sessionRef.current;
@@ -77,6 +118,7 @@ export function useHuddleScreenShare(args: {
 
   React.useEffect(() => {
     let cancelled = false;
+    const gen = ++connectGenRef.current;
 
     async function connectSubscriber() {
       if (!active || !channelId) {
@@ -89,52 +131,55 @@ export function useHuddleScreenShare(args: {
       try {
         const minted = await mintScreenShareToken({
           channelId,
-          parentChannelId,
+          parentChannelId: parentRef.current,
           intent: "subscribe",
         });
-        if (cancelled) return;
+        if (cancelled || gen !== connectGenRef.current) return;
         if ("unavailable" in minted && minted.unavailable) {
           setAvailable(false);
           setConnecting(false);
           return;
         }
+        // Mint succeeded → LiveKit is configured. Keep Share visible even if
+        // the peer connection later times out (user can retry via Share).
         setAvailable(true);
         const token = minted as ScreenTokenResponse;
         setCurrentSharer(token.current_sharer);
-        const session = new HuddleScreenShareSession({
-          onRemoteChanged: (remote: ScreenShareRemote | null) => {
-            setRemoteStream(remote?.stream ?? null);
-          },
-          onLocalPreviewChanged: (stream) => {
-            // Non-null: session owns a published local track. Null during
-            // reconnect must not clear an early pre-connect preview.
-            if (stream) {
-              setLocalPreviewStream(stream);
-              setSharing(true);
-            }
-          },
-          onCurrentSharerChanged: (pubkey) => {
-            setCurrentSharer(pubkey);
-          },
-        });
+        // startShare may have installed a publish session while we minted.
+        if (sessionRef.current) {
+          return;
+        }
+        const session = new HuddleScreenShareSession(sessionCallbacks);
         sessionRef.current = session;
         await session.connect(token.url, token.token);
+        if (cancelled || gen !== connectGenRef.current) return;
       } catch (e) {
-        if (cancelled) return;
-        // Treat network/auth failures as unavailable for the Share button.
-        setAvailable(false);
+        if (cancelled || gen !== connectGenRef.current) return;
+        // PC/auth/network failures must not hide Share — only true unavailable
+        // above does. Stale subscriber rejects after startShare reconnect are
+        // ignored via connectGenRef.
         setError(e instanceof Error ? e.message : String(e));
+        if (sessionRef.current && !sessionRef.current.isConnected) {
+          const dead = sessionRef.current;
+          sessionRef.current = null;
+          void dead.disconnect();
+        }
       } finally {
-        if (!cancelled) setConnecting(false);
+        if (!cancelled && gen === connectGenRef.current) {
+          setConnecting(false);
+        }
       }
     }
 
     void connectSubscriber();
     return () => {
       cancelled = true;
+      connectGenRef.current += 1;
       void teardown();
     };
-  }, [active, channelId, parentChannelId, teardown]);
+    // parentChannelId is read via parentRef so parent filling in after join
+    // does not tear down a healthy LiveKit PC and hide Share on reconnect.
+  }, [active, channelId, sessionCallbacks, teardown]);
 
   const startShare = React.useCallback(async () => {
     if (!channelId) return;
@@ -149,7 +194,7 @@ export function useHuddleScreenShare(args: {
       setSharing(true);
       const minted = await mintScreenShareToken({
         channelId,
-        parentChannelId,
+        parentChannelId: parentRef.current,
         intent: "publish",
       });
       if ("unavailable" in minted && minted.unavailable) {
@@ -162,24 +207,17 @@ export function useHuddleScreenShare(args: {
         return;
       }
       const token = minted as ScreenTokenResponse;
+      setAvailable(true);
       setCurrentSharer(token.current_sharer ?? selfPubkey ?? null);
-      // Reconnect with the publish-capable token — subscribe JWTs cannot publish.
+      // Invalidate in-flight subscriber connect so its catch cannot hide Share
+      // after we reclaim the same session for publish.
+      connectGenRef.current += 1;
       let session = sessionRef.current;
       if (!session) {
-        session = new HuddleScreenShareSession({
-          onRemoteChanged: (remote) => setRemoteStream(remote?.stream ?? null),
-          onLocalPreviewChanged: (stream) => {
-            // Only clear preview when the session stops a track it owns.
-            // A null callback during reconnect must not wipe the early preview.
-            if (stream) {
-              setLocalPreviewStream(stream);
-              setSharing(true);
-            }
-          },
-          onCurrentSharerChanged: setCurrentSharer,
-        });
+        session = new HuddleScreenShareSession(sessionCallbacks);
         sessionRef.current = session;
       }
+      // Reconnect with the publish-capable token — subscribe JWTs cannot publish.
       await session.connect(token.url, token.token);
       await session.startShare(acquired);
       acquired = null; // ownership transferred to session
@@ -195,7 +233,7 @@ export function useHuddleScreenShare(args: {
       setError(e instanceof Error ? e.message : String(e));
       setSharing(false);
     }
-  }, [channelId, parentChannelId, selfPubkey]);
+  }, [channelId, selfPubkey, sessionCallbacks]);
 
   const stopShare = React.useCallback(async () => {
     setError(null);
@@ -204,7 +242,7 @@ export function useHuddleScreenShare(args: {
       if (channelId) {
         await stopScreenShareSlot({
           channelId,
-          parentChannelId,
+          parentChannelId: parentRef.current,
         });
       }
       setCurrentSharer(null);
@@ -213,7 +251,7 @@ export function useHuddleScreenShare(args: {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [channelId, parentChannelId]);
+  }, [channelId]);
 
   const shareBlocked = isShareBlockedByOther({
     selfPubkey,
