@@ -76,3 +76,20 @@ test("subscriber effect does not reconnect when parentChannelId changes", () => 
 test("subscriber skips installing a session when startShare already owns one", () => {
   assert.match(src, /if \(sessionRef\.current\) \{\s*return;/);
 });
+
+test("benign AbortError does not setError in startShare or subscriber", () => {
+  assert.match(src, /isBenignScreenShareAbort/);
+  const start = src.indexOf("const startShare");
+  const startBody = src.slice(start, src.indexOf("const stopShare", start));
+  // startShare catch must skip setError when abort is benign
+  assert.match(startBody, /isBenignScreenShareAbort\(e\)/);
+  const abortIdx = startBody.indexOf("isBenignScreenShareAbort(e)");
+  const setErrorIdx = startBody.indexOf("setError(e instanceof Error");
+  assert.ok(abortIdx >= 0 && setErrorIdx > abortIdx, "abort guard before setError");
+
+  const effect = src.slice(
+    src.indexOf("React.useEffect(() => {"),
+    src.indexOf("const startShare"),
+  );
+  assert.match(effect, /isBenignScreenShareAbort\(e\)/);
+});

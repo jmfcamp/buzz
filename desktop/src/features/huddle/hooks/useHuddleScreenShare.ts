@@ -28,6 +28,30 @@ export type HuddleScreenShareState = {
   clearError: () => void;
 };
 
+/** User dismissed getDisplayMedia, or LiveKit aborted a superseded connect. */
+function isBenignScreenShareAbort(error: unknown): boolean {
+  if (error == null) return false;
+  if (typeof DOMException !== "undefined" && error instanceof DOMException) {
+    if (error.name === "AbortError") return true;
+  }
+  if (error instanceof Error) {
+    if (error.name === "AbortError") return true;
+    const msg = error.message.toLowerCase();
+    if (msg.includes("operation was aborted")) return true;
+    if (msg.includes("connection attempt aborted")) return true;
+    if (msg.includes("client initiated disconnect")) return true;
+    if (msg.includes("signal connection aborted")) return true;
+    // LiveKit ConnectionError.cancelled(...)
+    if (
+      error.name === "ConnectionError" &&
+      (msg.includes("abort") || msg.includes("cancel"))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function makeSessionCallbacks(setters: {
   setRemoteStream: (stream: MediaStream | null) => void;
   setLocalPreviewStream: (stream: MediaStream | null) => void;
@@ -59,6 +83,8 @@ function makeSessionCallbacks(setters: {
  * Share stays visible after a PC/connect failure: only relay
  * `screen_share_unavailable` hides the control. A connect generation
  * rejects stale subscriber errors when startShare takes over the room.
+ * Benign AbortErrors (picker dismiss, superseded LiveKit connect) are
+ * logged only — never shown via setError.
  */
 export function useHuddleScreenShare(args: {
   active: boolean;
@@ -155,6 +181,16 @@ export function useHuddleScreenShare(args: {
         if (cancelled || gen !== connectGenRef.current) return;
       } catch (e) {
         if (cancelled || gen !== connectGenRef.current) return;
+        // Superseded subscribe connect / user-gesture abort: keep Share, no banner.
+        if (isBenignScreenShareAbort(e)) {
+          console.debug("[huddle] screen-share subscriber connect aborted", e);
+          if (sessionRef.current && !sessionRef.current.isConnected) {
+            const dead = sessionRef.current;
+            sessionRef.current = null;
+            void dead.disconnect();
+          }
+          return;
+        }
         // PC/auth/network failures must not hide Share — only true unavailable
         // above does. Stale subscriber rejects after startShare reconnect are
         // ignored via connectGenRef.
@@ -230,8 +266,13 @@ export function useHuddleScreenShare(args: {
       }
       stopMediaStreamTracks(acquired);
       setLocalPreviewStream(null);
-      setError(e instanceof Error ? e.message : String(e));
       setSharing(false);
+      // Picker dismiss / superseded LiveKit connect — not a user-facing failure.
+      if (isBenignScreenShareAbort(e)) {
+        console.debug("[huddle] screen-share start aborted", e);
+        return;
+      }
+      setError(e instanceof Error ? e.message : String(e));
     }
   }, [channelId, selfPubkey, sessionCallbacks]);
 
