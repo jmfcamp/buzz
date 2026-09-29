@@ -164,6 +164,28 @@ impl DevMcp {
     }
 
     #[tool(
+        name = "browser_record_start",
+        description = "Start Drive viewport recording for a Buzz browser you hold in Drive mode. Prefer surface_id. Desktop captures the WKWebView (~4 fps, max 60s, no audio) with the same snapshot path as Drive stills. Returns {ok, requestId, surfaceId, result}. Call browser_record_stop_and_post to encode MP4 and post to the grant channel/thread. Requires BUZZ_AGENT_PUBKEY."
+    )]
+    async fn browser_record_start(
+        &self,
+        Parameters(p): Parameters<browser_agent::RecordStartParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        browser_agent::record_start(p)
+    }
+
+    #[tool(
+        name = "browser_record_stop_and_post",
+        description = "Stop Drive viewport recording, encode H.264 MP4, upload, and post as the grant agent into the bound channel/thread. Prefer surface_id. Optional caption. Waits for record_posted|record_error (default 90s). Returns {ok, requestId, channelId, threadRoot, result}. Requires Drive grant + BUZZ_AGENT_PUBKEY."
+    )]
+    async fn browser_record_stop_and_post(
+        &self,
+        Parameters(p): Parameters<browser_agent::RecordStopParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        browser_agent::record_stop_and_post(p)
+    }
+
+    #[tool(
         name = "browser_runbook_get",
         description = "Read the site runbook for a Buzz browser you hold Observe or Drive on. Prefer surface_id. Without procedure_id returns agentBrief + active procedure index (id/title/summary). With procedure_id returns full markdown steps for that entry. Requires BUZZ_AGENT_PUBKEY."
     )]
