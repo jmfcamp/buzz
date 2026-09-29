@@ -157,6 +157,14 @@ pub struct HuddleState {
     /// until the user explicitly opens it.
     #[serde(skip)]
     pub manual_mic_unmuted: Arc<AtomicBool>,
+    /// Spoken activation keyword for STT agent wake (`hey Fable`, …).
+    /// Shared as `Arc<Mutex<_>>` so the transcription task reads the live
+    /// value at post time. Serialized as a plain string for the frontend.
+    #[serde(
+        serialize_with = "serialize_activation_keyword",
+        deserialize_with = "deserialize_activation_keyword"
+    )]
+    pub activation_keyword: Arc<Mutex<String>>,
 }
 
 fn serialize_agent_pubkeys<S>(v: &Arc<Mutex<Vec<String>>>, s: S) -> Result<S::Ok, S::Error>
@@ -178,6 +186,24 @@ where
 {
     let v: Vec<String> = serde::Deserialize::deserialize(d)?;
     Ok(Arc::new(Mutex::new(v)))
+}
+
+fn serialize_activation_keyword<S>(v: &Arc<Mutex<String>>, s: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let guard = v.lock().unwrap_or_else(|e| e.into_inner());
+    s.serialize_str(&guard)
+}
+
+fn deserialize_activation_keyword<'de, D>(d: D) -> Result<Arc<Mutex<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let v: String = serde::Deserialize::deserialize(d)?;
+    let normalized = super::stt_wake::normalize_activation_keyword(&v)
+        .unwrap_or_else(|| super::stt_wake::DEFAULT_ACTIVATION_KEYWORD.to_string());
+    Ok(Arc::new(Mutex::new(normalized)))
 }
 
 impl Clone for HuddleState {
@@ -216,6 +242,7 @@ impl Clone for HuddleState {
             voice_input_mode: self.voice_input_mode.clone(),
             ptt_active: Arc::clone(&self.ptt_active),
             manual_mic_unmuted: Arc::clone(&self.manual_mic_unmuted),
+            activation_keyword: Arc::clone(&self.activation_keyword),
         }
     }
 }
@@ -253,6 +280,9 @@ impl Default for HuddleState {
             voice_input_mode: VoiceInputMode::default(),
             ptt_active: Arc::new(AtomicBool::new(false)),
             manual_mic_unmuted: Arc::new(AtomicBool::new(false)),
+            activation_keyword: Arc::new(Mutex::new(
+                super::stt_wake::DEFAULT_ACTIVATION_KEYWORD.to_string(),
+            )),
         }
     }
 }
@@ -361,10 +391,14 @@ impl HuddleState {
         let gen = Arc::clone(&self.session_generation);
         let huddle_generation = self.huddle_generation;
         let tts_enabled = self.tts_enabled;
+        // Keep the user's spoken wake keyword across huddle teardowns within
+        // this app session; UI localStorage re-applies it after full restarts.
+        let activation_keyword = Arc::clone(&self.activation_keyword);
         *self = Self::default();
         self.session_generation = gen;
         self.huddle_generation = huddle_generation;
         self.tts_enabled = tts_enabled;
+        self.activation_keyword = activation_keyword;
     }
 }
 
