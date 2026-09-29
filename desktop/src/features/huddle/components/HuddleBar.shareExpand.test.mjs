@@ -55,3 +55,13 @@ test("share stage sits above app-surface so expand is visible", () => {
 test("HuddleBar passes republishing overlay while local share is reconnecting", () => {
   assert.match(src, /republishing=\{screenShare\.sharing && screenShare\.republishing\}/);
 });
+
+test("expanded share shows dock Chat button and keeps participant avatars", () => {
+  assert.match(src, /HuddleDockChatControl/);
+  assert.match(src, /huddle-dock-chat-button|HuddleDockChatControl/);
+  assert.match(src, /visible=\{Boolean\(shareExpanded && spotlightStream\)\}/);
+  // Avatars stay in the dock while expanded (room header is covered by stage).
+  assert.match(src, /mode === "main" \|\| shareExpanded/);
+  assert.match(src, /HuddleParticipantsControl/);
+  assert.match(src, /setHuddleShareExpanded/);
+});

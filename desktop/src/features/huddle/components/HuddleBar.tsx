@@ -33,7 +33,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { useHuddle, useHuddleLevels } from "../HuddleContext";
 import { useHuddleParticipantRoster } from "../hooks/useHuddleParticipantRoster";
 import { useHuddleScreenShare } from "../hooks/useHuddleScreenShare";
+import { setHuddleShareExpanded } from "../lib/huddleShareExpandStore";
 import { AddAgentDialog, type AgentAddResult } from "./AddAgentDialog";
+import { HuddleDockChatControl } from "./HuddleDockChatControl";
 import { ScreenShareSpotlight } from "./ScreenShareSpotlight";
 import type { HuddleAgentVoiceSettings } from "./AgentVoiceMenu";
 import { MicControls, SpeakerControls } from "./MicControls";
@@ -166,6 +168,7 @@ export function HuddleBar({
     setVoiceInputMode,
     huddleError,
     clearHuddleError,
+    interruptAgentSpeech,
     audioDevices,
     selectedDeviceId,
     setSelectedDeviceId,
@@ -476,6 +479,13 @@ export function HuddleBar({
       shell.removeAttribute("data-huddle-share-expanded");
     }
   }, [shareExpanded, shareStageHost, spotlightStream]);
+
+  // Keep auto-read / dock-chat coordination in sync with expand state.
+  React.useEffect(() => {
+    setHuddleShareExpanded(Boolean(shareExpanded && spotlightStream));
+    return () => setHuddleShareExpanded(false);
+  }, [shareExpanded, spotlightStream]);
+
   const participantSpeakerLevels = React.useMemo(() => {
     const levels = { ...speakerLevels };
     if (currentPubkey) {
@@ -814,6 +824,11 @@ export function HuddleBar({
           />
 
           <div className="flex shrink-0 items-center gap-2">
+            <HuddleDockChatControl
+              channelId={barState?.ephemeral_channel_id ?? null}
+              visible={Boolean(shareExpanded && spotlightStream)}
+            />
+
             <MicControls
               isMuted={isMuted}
               onToggleMute={toggleMute}
@@ -851,13 +866,20 @@ export function HuddleBar({
               onSelectOutputDevice={setSelectedOutputDevice}
             />
 
-            {mode === "main" ? (
+            {/* Keep member/agent avatars in the dock while share fills the
+                stage (room header is covered). Main mode always shows them. */}
+            {mode === "main" || shareExpanded ? (
               <HuddleParticipantsControl
                 participants={lifecycleParticipants}
                 activeSpeakers={activeSpeakers}
                 speakerLevels={participantSpeakerLevels}
                 agentPubkeys={barState.agent_pubkeys}
                 agentVoiceSettings={barState.agent_voice_settings}
+                onInterruptAgentSpeech={
+                  mode === "room"
+                    ? (agentPubkey) => void interruptAgentSpeech(agentPubkey)
+                    : undefined
+                }
                 selfProfile={{
                   avatarUrl:
                     profileQuery.data?.avatarUrl ??
@@ -959,7 +981,6 @@ export function HuddleBar({
                 {transcriptionEnabled ? "Stop transcript" : "Start transcript"}
               </TooltipContent>
             </Tooltip>
-
 
             <Tooltip>
               <TooltipTrigger asChild>
