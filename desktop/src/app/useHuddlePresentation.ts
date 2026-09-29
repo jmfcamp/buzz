@@ -245,11 +245,17 @@ export function useHuddlePresentation() {
     returnMainWindowToHuddleParent,
   ]);
   const openHuddleCompanion = React.useCallback(
-    (ephemeralChannelId: string) => {
+    (ephemeralChannelId: string, options?: { force?: boolean }) => {
       activeHuddleChannelIdRef.current = ephemeralChannelId;
       trackHuddleBackingChannel(ephemeralChannelId);
 
-      if (huddleCompanionDismissedChannelIdRef.current === ephemeralChannelId) {
+      // Auto-open (huddle start / creating phase) must not fight an explicit
+      // user dock to the drawer. The PIP control clears dismissed first via
+      // handleHuddleCompanionOpen / force.
+      if (
+        !options?.force &&
+        huddleCompanionDismissedChannelIdRef.current === ephemeralChannelId
+      ) {
         return Promise.resolve();
       }
 

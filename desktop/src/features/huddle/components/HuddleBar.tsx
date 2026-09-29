@@ -668,9 +668,11 @@ export function HuddleBar({
 
   async function handleOpenHuddleWindow() {
     try {
+      // Mark companion presentation first so a dismissed-to-drawer guard cannot
+      // swallow a later auto-open, then ask native to show/create the window.
+      onOpenHuddleWindow?.();
       await invoke("open_huddle_window");
       dismissHeadphonesHint();
-      onOpenHuddleWindow?.();
     } catch (error) {
       console.error("Failed to open huddle window:", error);
     }

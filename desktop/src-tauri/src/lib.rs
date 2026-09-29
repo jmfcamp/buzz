@@ -986,21 +986,29 @@ pub fn run() {
             event: WindowEvent::CloseRequested { .. },
             ..
         } if label.starts_with("huddle-") => {
-            let is_active_huddle_window =
-                app_handle
-                    .state::<AppState>()
-                    .huddle()
-                    .ok()
-                    .is_some_and(|huddle| {
-                        !matches!(huddle.phase, HuddlePhase::Idle | HuddlePhase::Leaving)
-                            && huddle
-                                .ephemeral_channel_id
-                                .as_deref()
-                                .is_some_and(|channel_id| label == format!("huddle-{channel_id}"))
-                    });
-            if is_active_huddle_window {
-                if let Err(error) = app_handle.emit("huddle-companion-returned", ()) {
-                    eprintln!("buzz-desktop: failed to restore huddle drawer: {error}");
+            // open_huddle_window may destroy a zombie companion to recreate it;
+            // that CloseRequested must not flip the main app back to the drawer.
+            if huddle::window::take_suppress_companion_return() {
+                // consumed
+            } else {
+                let is_active_huddle_window =
+                    app_handle
+                        .state::<AppState>()
+                        .huddle()
+                        .ok()
+                        .is_some_and(|huddle| {
+                            !matches!(huddle.phase, HuddlePhase::Idle | HuddlePhase::Leaving)
+                                && huddle
+                                    .ephemeral_channel_id
+                                    .as_deref()
+                                    .is_some_and(|channel_id| {
+                                        label == format!("huddle-{channel_id}")
+                                    })
+                        });
+                if is_active_huddle_window {
+                    if let Err(error) = app_handle.emit("huddle-companion-returned", ()) {
+                        eprintln!("buzz-desktop: failed to restore huddle drawer: {error}");
+                    }
                 }
             }
         }

@@ -77,12 +77,30 @@ impl TtsPipeline {
             expected_speaker_pubkey,
         );
         if cancelled {
+            // Epoch-bump the agent-authenticated publisher so remotes stop
+            // receiving TTS frames — Stop is huddle-wide, not local-only.
             self.broadcasters.cancel_speaker(
                 expected_speaker_pubkey,
                 current_speaker_generation(&self.speaker_generations, expected_speaker_pubkey),
             );
         }
         cancelled
+    }
+
+    /// Cancel whoever currently owns playback (spoken "stop" / Stop for all).
+    ///
+    /// Returns `true` when an active speaker was cancelled. Broadcast cancel
+    /// stops relay audio for every participant in the huddle.
+    pub(crate) fn cancel_current_speech(&self) -> bool {
+        let active = self
+            .active_speaker
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        match active {
+            Some(pubkey) => self.cancel_active_speaker(&pubkey),
+            None => false,
+        }
     }
 
     /// Select a bundled Pocket voice for subsequent speech.

@@ -129,6 +129,23 @@
     display: none;
   }
 
+  /* Main-window drawer: inset + rounded so the bar respects the lifted app
+   * surface corners and does not clip flush against the window edge. The
+   * dedicated companion room keeps a full-bleed control dock. */
+  .buzz-huddle-shell[data-huddle-window="false"] .buzz-huddle-drawer-slot {
+    padding: var(--buzz-huddle-drawer-inset);
+  }
+
+  .buzz-huddle-shell[data-huddle-window="false"]
+    .buzz-huddle-drawer-slot
+    > .buzz-huddle-drawer {
+    border-radius: calc(
+      var(--buzz-huddle-drawer-radius) -
+      var(--buzz-huddle-drawer-inset)
+    );
+    height: 100%;
+  }
+
   .buzz-huddle-popover {
     --buzz-huddle-popover-surface: var(
       --huddle-popover-surface,

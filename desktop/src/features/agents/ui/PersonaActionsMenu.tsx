@@ -89,11 +89,6 @@ export function PersonaActionsMenu({
             className="text-destructive focus:text-destructive"
             disabled={disabled}
             onClick={() => {
-              if (persona.isBuiltIn) {
-                onDeactivate(persona);
-                return;
-              }
-
               onDelete(persona);
             }}
           >

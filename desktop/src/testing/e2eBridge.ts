@@ -9063,9 +9063,7 @@ async function handleDeletePersona(args: { id: string }): Promise<void> {
   if (!persona) {
     throw new Error(`agent ${args.id} not found`);
   }
-  if (persona.is_builtin) {
-    throw new Error("Built-in agents cannot be deleted.");
-  }
+  // Built-in agents are deletable; production records the id in deleted-seed-ids.json.
   if (mockTeams.some((team) => team.persona_ids.includes(args.id))) {
     throw new Error(
       `${persona.display_name} is still referenced by a team. Remove it from those teams first.`,
@@ -9320,9 +9318,7 @@ async function handleUpdateTeam(args: {
 
 async function handleDeleteTeam(args: { id: string }): Promise<void> {
   const team = mockTeams.find((candidate) => candidate.id === args.id);
-  if (team?.is_builtin) {
-    throw new Error("Built-in teams cannot be deleted.");
-  }
+  // Built-in teams are deletable; production records the id in deleted-seed-ids.json.
   mockTeams = mockTeams.filter((candidate) => candidate.id !== args.id);
 }
 

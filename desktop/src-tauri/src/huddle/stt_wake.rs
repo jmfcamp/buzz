@@ -262,6 +262,47 @@ pub fn collect_record_aliases(name: &str, display_name: Option<&str>) -> Vec<Str
     out
 }
 
+
+/// Spoken commands that should hard-stop agent TTS for the whole huddle.
+///
+/// Kept deliberately narrow so ordinary conversation ("don't stop there") does
+/// not cancel speech. Anchored phrases / short imperatives only.
+pub fn is_spoken_stop_command(text: &str) -> bool {
+    let normalized = text
+        .trim()
+        .trim_matches(|c: char| c.is_ascii_punctuation())
+        .to_ascii_lowercase();
+    if normalized.is_empty() {
+        return false;
+    }
+    const EXACT: &[&str] = &[
+        "stop",
+        "stop speaking",
+        "stop talking",
+        "please stop",
+        "please stop speaking",
+        "be quiet",
+        "quiet",
+        "shut up",
+        "enough",
+        "cancel",
+        "cancel that",
+    ];
+    if EXACT.iter().any(|phrase| normalized == *phrase) {
+        return true;
+    }
+    // "{keyword} stop" / "hey fable stop" — trailing stop after a short preface.
+    for suffix in [" stop", " stop speaking", " stop talking", " be quiet", " shut up"] {
+        if let Some(prefix) = normalized.strip_suffix(suffix) {
+            let words = prefix.split_whitespace().count();
+            if (1..=4).contains(&words) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -443,4 +484,17 @@ mod tests {
         );
         assert_eq!(with_wake_dup, vec!["earlier".to_string()]);
     }
+
+    #[test]
+    fn spoken_stop_command_matches_short_imperatives() {
+        assert!(is_spoken_stop_command("stop"));
+        assert!(is_spoken_stop_command("Stop!"));
+        assert!(is_spoken_stop_command("please stop speaking"));
+        assert!(is_spoken_stop_command("hey Fable stop"));
+        assert!(is_spoken_stop_command("at fable, stop talking"));
+        assert!(!is_spoken_stop_command("."));
+        assert!(!is_spoken_stop_command("don't stop there"));
+        assert!(!is_spoken_stop_command("we should stop by later"));
+    }
+
 }

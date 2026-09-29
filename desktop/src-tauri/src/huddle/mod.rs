@@ -52,7 +52,7 @@ mod tts_playback;
 pub mod tts_settings;
 mod tts_voice_import;
 mod tts_voice_registry;
-mod window;
+pub(crate) mod window;
 pub mod wire;
 
 // ── Shared utilities ──────────────────────────────────────────────────────────

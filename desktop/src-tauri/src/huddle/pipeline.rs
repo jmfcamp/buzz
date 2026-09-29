@@ -717,11 +717,37 @@ pub(crate) fn spawn_transcription_task(
             if t.is_empty() {
                 continue;
             }
+            // Belt-and-suspenders: worker already drops junk, but never post
+            // punctuation-only finals (they previously barge-in-silenced TTS).
+            if !super::stt::is_substantive_transcript(&t) {
+                eprintln!(
+                    "buzz-desktop: transcription skipped junk final ({t:?})"
+                );
+                continue;
+            }
 
             // Session guard: if the generation has changed, this task is stale.
             // Drop the transcript silently — the huddle has ended or been replaced.
             if session_generation.load(Ordering::Acquire) != spawned_gen {
                 break; // Exit the loop entirely — no more posts from this task.
+            }
+
+            // Spoken stop — hard-cancel active agent speech for the whole huddle.
+            if super::stt_wake::is_spoken_stop_command(&t) {
+                if let Some(handle) = app_handle.as_ref() {
+                    use tauri::Manager;
+                    if let Some(app_state) = handle.try_state::<AppState>() {
+                        if let Ok(huddle) = app_state.huddle() {
+                            if let Some(pipeline) = huddle.tts_pipeline.as_ref() {
+                                if pipeline.cancel_current_speech() {
+                                    eprintln!(
+                                        "buzz-desktop: spoken stop cancelled active agent TTS"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             // Fix 1: read current agent pubkeys at post time.
