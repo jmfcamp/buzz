@@ -2,13 +2,23 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import * as React from "react";
 
+import { useHuddleAudioReconnect } from "./hooks/useHuddleAudioReconnect";
 import { setupAudioWorklet, type AudioWorkletHandle } from "./lib/audioWorklet";
+import {
+  HUDDLE_AUDIO_COMMAND_EVENT,
+  HUDDLE_AUDIO_LEVEL_EVENT,
+  HUDDLE_AUDIO_STATE_EVENT,
+  type HuddleAudioCommand,
+  type HuddleAudioMirrorState,
+  interruptAgentSpeech,
+  isRedundantHuddlePhaseError,
+} from "./lib/huddleAudioBridge";
 import {
   shouldClaimHuddleMedia,
   shouldEndRustSessionOnAudioOwnerUnmount,
   shouldSetupMediaOnHuddleStart,
 } from "./lib/huddleAudioSession";
-import { type AudioInputDevice, useAudioDevices } from "./lib/useAudioDevices";
+import { useAudioDevices } from "./lib/useAudioDevices";
 import { usePipelineHotstart } from "./lib/usePipelineHotstart";
 import { formatHuddleActionError } from "./lib/huddleError";
 import {
@@ -39,34 +49,6 @@ import type {
 type HuddleJoinInfo = {
   ephemeral_channel_id: string;
 };
-
-type HuddleAudioMirrorState = {
-  isMuted: boolean;
-  micConnected: boolean;
-  audioDevices: AudioInputDevice[];
-  selectedDeviceId: string;
-  micGain: number;
-  voiceInputMode: VoiceInputMode;
-};
-
-type HuddleAudioCommand =
-  | { type: "request-state" }
-  | { type: "set-muted"; isMuted: boolean }
-  | { type: "set-input-device"; deviceId: string }
-  | { type: "set-mic-gain"; gain: number }
-  | { type: "set-voice-input-mode"; mode: VoiceInputMode };
-
-const HUDDLE_AUDIO_COMMAND_EVENT = "huddle-audio-command";
-const HUDDLE_AUDIO_STATE_EVENT = "huddle-audio-state";
-const HUDDLE_AUDIO_LEVEL_EVENT = "huddle-audio-level";
-
-function isRedundantHuddlePhaseError(message: string): boolean {
-  return /^cannot (?:start|join) huddle: already in phase /i.test(message);
-}
-
-function interruptAgentSpeech(agentPubkey: string) {
-  return invoke<void>("interrupt_huddle_speech", { agentPubkey });
-}
 
 const HuddleContext = React.createContext<HuddleContextValue | null>(null);
 const HuddleLevelsContext = React.createContext<HuddleLevelsValue | null>(null);
@@ -1062,61 +1044,11 @@ export function HuddleProvider({
     };
   }, [ownsAudioSession]);
 
-  // Unexpected audio-owner/pod disconnects are recoverable: keep the huddle,
-  // mic, and voice pipelines live while Rust reconnects only the audio WS.
-  // `tokenRef` makes an intentional leave/start supersede this loop, and the
-  // in-flight guard collapses duplicate disconnect events from failed dials.
-  const audioReconnectInFlightRef = React.useRef(false);
-  React.useEffect(() => {
-    if (!ownsAudioSession) return;
-
-    let cancelled = false;
-    let unlisten: (() => void) | null = null;
-    listen("huddle-audio-disconnected", () => {
-      if (cancelled || audioReconnectInFlightRef.current) return;
-      audioReconnectInFlightRef.current = true;
-      const reconnectToken = tokenRef.current;
-
-      void (async () => {
-        // Keep a long enough tail for Kubernetes Service endpoint removal after
-        // a draining pod flips readiness. Early retries make remote-owner
-        // handoff fast; the two 2s attempts prevent a client connected to the
-        // draining pod itself from exhausting before kube-proxy converges.
-        const delaysMs = [0, 100, 250, 500, 1_000, 2_000, 2_000];
-        for (const delayMs of delaysMs) {
-          if (cancelled || tokenRef.current !== reconnectToken) return;
-          if (delayMs > 0) {
-            await new Promise((resolve) => window.setTimeout(resolve, delayMs));
-          }
-          if (cancelled || tokenRef.current !== reconnectToken) return;
-          try {
-            await invoke("reconnect_huddle_audio");
-            // Success installs a live replacement pipeline. If it later fails,
-            // its Tauri event arrives after this loop releases the in-flight
-            // guard and starts a fresh bounded recovery cycle. Repeating those
-            // cycles is intentional while the relay remains connectable.
-            return;
-          } catch {
-            // A draining pod may still receive the first retry before Service
-            // endpoints converge. Keep the bounded backoff client-local.
-          }
-        }
-
-        if (!cancelled && tokenRef.current === reconnectToken) {
-          await leaveHuddleRef.current();
-        }
-      })().finally(() => {
-        audioReconnectInFlightRef.current = false;
-      });
-    }).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
-    });
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [ownsAudioSession]);
+  useHuddleAudioReconnect({
+    ownsAudioSession,
+    tokenRef,
+    leaveHuddleRef,
+  });
 
   // High-frequency (20-30 Hz) audio levels live in their own context so their
   // churn re-renders only the meter components, not every useHuddle consumer.
