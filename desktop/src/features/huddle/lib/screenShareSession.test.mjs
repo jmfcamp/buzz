@@ -119,3 +119,12 @@ test("acquireDisplayMedia stops tracks when no video", async () => {
     });
   }
 });
+
+test("screenShareSession source forces dual peer connection", async () => {
+  const src = await import("node:fs").then((fs) =>
+    fs.readFileSync(new URL("./screenShareSession.ts", import.meta.url), "utf8"),
+  );
+  assert.match(src, /singlePeerConnection:\s*false/);
+  assert.match(src, /acquireDisplayMedia/);
+});
+

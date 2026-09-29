@@ -53,9 +53,13 @@ export class HuddleScreenShareSession {
     if (this.room) {
       await this.disconnect();
     }
+    // livekit-client ≥2.17 defaults singlePeerConnection=true (/rtc/v1).
+    // Hula LiveKit was on v1.8.4 which only serves legacy /rtc — force dual-PC
+    // so connect does not burn a failed v1 attempt before fallback.
     const options: RoomOptions = {
       adaptiveStream: true,
       dynacast: true,
+      singlePeerConnection: false,
     };
     const room = new Room(options);
     this.room = room;
@@ -196,10 +200,9 @@ export class HuddleScreenShareSession {
   }
 
   private stopLocalTracks() {
-    if (this.localStream) {
-      this.localStream.getTracks().forEach((t) => t.stop());
-      this.localStream = null;
-    }
+    if (!this.localStream) return;
+    this.localStream.getTracks().forEach((t) => t.stop());
+    this.localStream = null;
     this.callbacks.onLocalPreviewChanged(null);
   }
 }

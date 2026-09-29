@@ -405,7 +405,18 @@ pub(crate) async fn maybe_start_stt_pipeline(
 }
 
 /// Start STT after agent presence automatically enables transcription.
+///
+/// Default huddle voice mode is push-to-talk with a muted mic. That starves
+/// the STT worklet (and the pipeline PTT gate) so agent auto-enable would
+/// silently produce no kind:9 transcripts. Switch to voice-activity and open
+/// the mic so PCM reaches STT; the frontend mirrors `voice_input_mode` from
+/// huddle-state-changed.
 pub(crate) async fn start_auto_enabled_transcription(state: &AppState, ephemeral_channel_id: &str) {
+    {
+        if let Ok(mut hs) = state.huddle() {
+            hs.open_mic_for_agent_transcription();
+        }
+    }
     if let Some(manager) = models::global_model_manager() {
         manager.start_stt_download(state.http_client.clone());
     }

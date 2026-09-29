@@ -395,6 +395,29 @@ export function HuddleBar({
   });
   const spotlightStream =
     screenShare.localPreviewStream ?? screenShare.remoteStream;
+  const drawerRootRef = React.useRef<HTMLDivElement | null>(null);
+
+  // Keep --buzz-huddle-drawer-height in sync with real bar content so a
+  // screen-share preview is not clipped by the fixed 5rem drawer slot.
+  React.useEffect(() => {
+    const el = drawerRootRef.current;
+    if (!el) return;
+    const shell = el.closest(".buzz-huddle-shell") as HTMLElement | null;
+    if (!shell) return;
+    const apply = () => {
+      const height = Math.ceil(el.getBoundingClientRect().height);
+      if (height > 0) {
+        shell.style.setProperty("--buzz-huddle-drawer-height", `${height}px`);
+      }
+    };
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      shell.style.removeProperty("--buzz-huddle-drawer-height");
+    };
+  }, [spotlightStream, isHuddleVisible]);
   const participantSpeakerLevels = React.useMemo(() => {
     const levels = { ...speakerLevels };
     if (currentPubkey) {
@@ -584,6 +607,7 @@ export function HuddleBar({
 
   return (
     <div
+      ref={drawerRootRef}
       aria-hidden={isDrawerClosing}
       data-state={isDrawerClosing ? "closing" : "open"}
       className={cn(
@@ -598,7 +622,7 @@ export function HuddleBar({
           label={
             screenShare.sharing ? "You are sharing" : "Screen share"
           }
-          className="mx-auto h-40 w-full max-w-3xl"
+          className="mx-auto h-56 w-full max-w-3xl shrink-0"
         />
       ) : null}
       {screenShare.error ? (

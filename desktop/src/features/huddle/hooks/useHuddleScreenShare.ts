@@ -106,8 +106,12 @@ export function useHuddleScreenShare(args: {
             setRemoteStream(remote?.stream ?? null);
           },
           onLocalPreviewChanged: (stream) => {
-            setLocalPreviewStream(stream);
-            setSharing(stream != null);
+            // Non-null: session owns a published local track. Null during
+            // reconnect must not clear an early pre-connect preview.
+            if (stream) {
+              setLocalPreviewStream(stream);
+              setSharing(true);
+            }
           },
           onCurrentSharerChanged: (pubkey) => {
             setCurrentSharer(pubkey);
@@ -139,6 +143,10 @@ export function useHuddleScreenShare(args: {
     let acquired: MediaStream | null = null;
     try {
       acquired = await acquireDisplayMedia();
+      // Local preview is independent of LiveKit publish — show it immediately
+      // even if mint/connect later fails.
+      setLocalPreviewStream(acquired);
+      setSharing(true);
       const minted = await mintScreenShareToken({
         channelId,
         parentChannelId,
@@ -147,6 +155,8 @@ export function useHuddleScreenShare(args: {
       if ("unavailable" in minted && minted.unavailable) {
         stopMediaStreamTracks(acquired);
         acquired = null;
+        setLocalPreviewStream(null);
+        setSharing(false);
         setAvailable(false);
         setError(minted.reason);
         return;
@@ -159,8 +169,12 @@ export function useHuddleScreenShare(args: {
         session = new HuddleScreenShareSession({
           onRemoteChanged: (remote) => setRemoteStream(remote?.stream ?? null),
           onLocalPreviewChanged: (stream) => {
-            setLocalPreviewStream(stream);
-            setSharing(stream != null);
+            // Only clear preview when the session stops a track it owns.
+            // A null callback during reconnect must not wipe the early preview.
+            if (stream) {
+              setLocalPreviewStream(stream);
+              setSharing(true);
+            }
           },
           onCurrentSharerChanged: setCurrentSharer,
         });
@@ -171,7 +185,13 @@ export function useHuddleScreenShare(args: {
       acquired = null; // ownership transferred to session
       setSharing(true);
     } catch (e) {
+      try {
+        await sessionRef.current?.stopShare();
+      } catch {
+        /* best-effort */
+      }
       stopMediaStreamTracks(acquired);
+      setLocalPreviewStream(null);
       setError(e instanceof Error ? e.message : String(e));
       setSharing(false);
     }
@@ -188,6 +208,7 @@ export function useHuddleScreenShare(args: {
         });
       }
       setCurrentSharer(null);
+      setLocalPreviewStream(null);
       setSharing(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

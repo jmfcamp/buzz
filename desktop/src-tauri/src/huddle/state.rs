@@ -342,6 +342,18 @@ impl HuddleState {
         false
     }
 
+    /// Open continuous mic capture for agent auto-transcription.
+    ///
+    /// Default PTT+muted starves the AudioWorklet → `push_audio_pcm` path, so
+    /// STT never sees finals. Voice-activity + unmuted feeds STT (and the
+    /// Opus relay) until the user mutes again.
+    pub(crate) fn open_mic_for_agent_transcription(&mut self) {
+        if self.voice_input_mode == VoiceInputMode::PushToTalk {
+            self.voice_input_mode = VoiceInputMode::VoiceActivity;
+        }
+        self.manual_mic_unmuted.store(true, Ordering::Release);
+    }
+
     /// Reset to default state while preserving the session generation counter.
     /// Used by start_huddle rollback, join_huddle rollback, and teardown_huddle
     /// to invalidate in-flight transcription tasks without losing the generation.
@@ -385,6 +397,27 @@ mod tests {
         let state = HuddleState::default();
         assert_eq!(state.voice_input_mode, super::VoiceInputMode::PushToTalk);
         assert!(!state.manual_mic_unmuted.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn open_mic_for_agent_transcription_switches_ptt_muted_to_vad_open() {
+        let mut state = HuddleState::default();
+        assert_eq!(state.voice_input_mode, super::VoiceInputMode::PushToTalk);
+        assert!(!state.manual_mic_unmuted.load(Ordering::Acquire));
+
+        state.open_mic_for_agent_transcription();
+
+        assert_eq!(state.voice_input_mode, super::VoiceInputMode::VoiceActivity);
+        assert!(state.manual_mic_unmuted.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn open_mic_for_agent_transcription_keeps_existing_vad() {
+        let mut state = HuddleState::default();
+        state.voice_input_mode = super::VoiceInputMode::VoiceActivity;
+        state.open_mic_for_agent_transcription();
+        assert_eq!(state.voice_input_mode, super::VoiceInputMode::VoiceActivity);
+        assert!(state.manual_mic_unmuted.load(Ordering::Acquire));
     }
 
     #[test]
