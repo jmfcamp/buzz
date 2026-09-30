@@ -154,12 +154,10 @@ export function AgentMessageTurnFooterChrome() {
         </span>
 
         <button
-          aria-label={
-            contextOpen ? "Hide prompt context" : "Show prompt context"
-          }
+          aria-label="Context"
           aria-pressed={contextOpen}
           className={cn(
-            "inline-flex items-center gap-0.5 rounded-full border border-border/70 bg-muted/40 px-1.5 py-0.5 text-2xs font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground",
+            "inline-flex items-center gap-1 rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 text-2xs font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground",
             contextOpen && "bg-muted/70 text-foreground",
             !meta.hasPromptContext && "opacity-70",
           )}
@@ -167,12 +165,13 @@ export function AgentMessageTurnFooterChrome() {
           onClick={() => setContextOpen((v) => !v)}
           title={
             meta.hasPromptContext
-              ? "Show prompt context"
+              ? "Context"
               : "No prompt context for this turn yet"
           }
           type="button"
         >
           <CheckCheck className="h-3 w-3" />
+          <span>Context</span>
         </button>
 
         {showThoughtChip ? (
