@@ -180,7 +180,7 @@ export function AgentMessageTurnFooterChrome() {
             aria-expanded={expanded}
             aria-label="Thought"
             className={cn(
-              "inline-flex items-center gap-0.5 rounded-full border border-border/70 bg-muted/40 px-1.5 py-0.5 text-2xs font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground",
+              "inline-flex items-center gap-1 rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 text-2xs font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground",
               expanded && "bg-muted/70 text-foreground",
             )}
             data-testid={`agent-message-thinking-toggle-${messageId}`}
@@ -189,6 +189,7 @@ export function AgentMessageTurnFooterChrome() {
             type="button"
           >
             <Brain className="h-3 w-3" />
+            <span>Thought</span>
             <ChevronDown
               className={cn(
                 "h-3 w-3 transition-transform",
