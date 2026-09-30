@@ -68,7 +68,6 @@ test("findNearestTurnIdByTime prefers turn with thinking content", () => {
   );
 });
 
-
 test("findNearestTurnIdByTime prefers short turn ending at reply over long prior turn", () => {
   // Prior long turn emits a late tool beside the reply; old nearest-item
   // scoring stole the join → 19:47 duration + wrong 44200 tokens.
@@ -145,7 +144,10 @@ test("findNearestTurnIdByTime does not let a later turn steal an older reply", (
 });
 
 test("parseUsageTokensUsedLabel reads Usage Tokens numerator", () => {
-  assert.equal(parseUsageTokensUsedLabel("Tokens: 81645/1000000 ($0.9677 USD)"), 81645);
+  assert.equal(
+    parseUsageTokensUsedLabel("Tokens: 81645/1000000 ($0.9677 USD)"),
+    81645,
+  );
   assert.equal(parseUsageTokensUsedLabel("Tokens: 1500/8192"), 1500);
   assert.equal(parseUsageTokensUsedLabel("nope"), null);
 });
@@ -159,7 +161,11 @@ test("findTurnUsageUsedTokens returns latest used for the turn only", () => {
       payload: {
         method: "session/update",
         params: {
-          update: { sessionUpdate: "usage_update", used: 1000, size: 1_000_000 },
+          update: {
+            sessionUpdate: "usage_update",
+            used: 1000,
+            size: 1_000_000,
+          },
         },
       },
     },
@@ -170,7 +176,11 @@ test("findTurnUsageUsedTokens returns latest used for the turn only", () => {
       payload: {
         method: "session/update",
         params: {
-          update: { sessionUpdate: "usage_update", used: 81645, size: 1_000_000 },
+          update: {
+            sessionUpdate: "usage_update",
+            used: 81645,
+            size: 1_000_000,
+          },
         },
       },
     },
@@ -181,7 +191,11 @@ test("findTurnUsageUsedTokens returns latest used for the turn only", () => {
       payload: {
         method: "session/update",
         params: {
-          update: { sessionUpdate: "usage_update", used: 243900, size: 1_000_000 },
+          update: {
+            sessionUpdate: "usage_update",
+            used: 243900,
+            size: 1_000_000,
+          },
         },
       },
     },

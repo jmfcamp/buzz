@@ -281,7 +281,9 @@ export function findNearestTurnIdByTime(
 }
 
 /** Parse `Tokens: 81645/1000000 (...optional)` from a Usage lifecycle line. */
-export function parseUsageTokensUsedLabel(text: string | null | undefined): number | null {
+export function parseUsageTokensUsedLabel(
+  text: string | null | undefined,
+): number | null {
   if (!text) return null;
   const match = /^Tokens:\s*(\d+)\s*\/\s*\d+/i.exec(text.trim());
   if (!match) return null;
