@@ -46,6 +46,8 @@ import { resolveMentionProps } from "@/shared/lib/resolveMentionNames";
 import type { VideoReviewContext } from "@/shared/ui/VideoPlayer";
 import { VideoReviewCommentMarkdown } from "@/shared/ui/VideoReviewCommentMarkdown";
 import { MessageActionBar } from "./MessageActionBar";
+import { AgentMessageTurnChrome } from "./AgentMessageTurnChrome";
+import { useShowAgentThinking } from "@/features/messages/lib/showAgentThinkingPreference";
 import { editMessage } from "@/shared/api/tauri";
 import { hasLinkPreviewSuppression } from "@/features/messages/lib/formatTimelineMessages";
 import { toast } from "sonner";
@@ -194,6 +196,7 @@ export const MessageRow = React.memo(
             }
           }
         : undefined;
+    const showAgentThinking = useShowAgentThinking();
     const [badgeBurstEmoji, setBadgeBurstEmoji] = React.useState<string | null>(
       null,
     );
@@ -706,6 +709,9 @@ export const MessageRow = React.memo(
             void handleReactionSelect(emoji);
           }}
         />
+        {showAgentThinking && message.isAgent && !message.pending ? (
+          <AgentMessageTurnChrome channelId={channelId} message={message} />
+        ) : null}
         {reactionErrorMessage ? (
           <p className="mt-1.5 text-xs text-destructive">
             {reactionErrorMessage}
@@ -946,6 +952,7 @@ export const MessageRow = React.memo(
     // from parent create new refs every render — including them defeats memo.
   },
   (prev, next) =>
+    prev.channelId === next.channelId &&
     prev.message.id === next.message.id &&
     prev.message.pubkey === next.message.pubkey &&
     prev.message.body === next.message.body &&

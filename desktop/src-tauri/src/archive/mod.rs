@@ -826,6 +826,111 @@ pub async fn get_agent_usage_series(
         .await
 }
 
+// ── get_agent_turn_metric_near ───────────────────────────────────────────────
+
+/// Request for the nearest archived turn metric to a reply timestamp.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentTurnMetricNearRequest {
+    /// Agent author pubkey (64-hex).
+    pub agent_pubkey: String,
+    /// Unix seconds to search around (typically the reply message `created_at`).
+    pub around_sec: i64,
+    /// Half-window in seconds (default 180). Clamped to 30..=900.
+    pub window_sec: Option<i64>,
+}
+
+/// Nearest valid NIP-AM turn metric for per-message chrome.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentTurnMetricNear {
+    pub id: String,
+    pub reported_at: i64,
+    pub session_id: Option<String>,
+    pub turn_seq: Option<String>,
+    pub model: Option<String>,
+    pub harness: Option<String>,
+    /// Decimal string for JS BigInt safety (same convention as usage series).
+    pub turn_input_tokens: Option<String>,
+    pub turn_output_tokens: Option<String>,
+    pub turn_total_tokens: Option<String>,
+    pub turn_cost_usd: Option<f64>,
+    pub delta_sec: i64,
+}
+
+fn agent_turn_metric_near(
+    conn: &Connection,
+    identity_pk: &str,
+    relay_url: &str,
+    request: &AgentTurnMetricNearRequest,
+) -> Result<Option<AgentTurnMetricNear>, String> {
+    let pk = request.agent_pubkey.trim().to_lowercase();
+    if pk.len() != 64 || !pk.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err("agent_pubkey must be exactly 64 hex characters".to_string());
+    }
+    if chrono::DateTime::from_timestamp(request.around_sec, 0).is_none() {
+        return Err(format!(
+            "around_sec {} is out of representable range",
+            request.around_sec
+        ));
+    }
+    let window = request.window_sec.unwrap_or(180).clamp(30, 900);
+    let start = request.around_sec.saturating_sub(window);
+    let end = request.around_sec.saturating_add(window).saturating_add(1);
+
+    metric_store::backfill_agent_metric_index(conn, identity_pk, relay_url)?;
+    let rows = metric_store::load_window_valid_rows(
+        conn,
+        identity_pk,
+        relay_url,
+        start,
+        end,
+        Some(&pk),
+    )?;
+
+    let mut best: Option<(&metric_store::AgentMetricIndexRow, i64)> = None;
+    for row in &rows {
+        let Some(reported) = row.reported_at else {
+            continue;
+        };
+        let delta = (reported - request.around_sec).abs();
+        match best {
+            None => best = Some((row, delta)),
+            Some((_, best_delta)) if delta < best_delta => best = Some((row, delta)),
+            _ => {}
+        }
+    }
+
+    Ok(best.map(|(row, delta)| AgentTurnMetricNear {
+        id: row.id.clone(),
+        reported_at: row.reported_at.unwrap_or(row.event_created_at),
+        session_id: row.session_id.clone(),
+        turn_seq: row.turn_seq.map(|s| s.to_string()),
+        model: row.model.clone(),
+        harness: row.harness.clone(),
+        turn_input_tokens: row.turn_input_tokens.map(|n| n.to_string()),
+        turn_output_tokens: row.turn_output_tokens.map(|n| n.to_string()),
+        turn_total_tokens: row.turn_total_tokens.map(|n| n.to_string()),
+        turn_cost_usd: row.turn_cost_usd,
+        delta_sec: delta,
+    }))
+}
+
+/// Return the archived turn metric nearest to `around_sec` for one agent.
+/// Used by per-message chat chrome (tokens under an agent reply).
+#[tauri::command]
+pub async fn get_agent_turn_metric_near(
+    state: State<'_, AppState>,
+    request: AgentTurnMetricNearRequest,
+) -> Result<Option<AgentTurnMetricNear>, String> {
+    let identity_pk = identity_pubkey(&state)?;
+    let relay_url = relay_ws_url_with_override(&state);
+    state
+        .archive_db
+        .with_conn(move |conn| agent_turn_metric_near(conn, &identity_pk, &relay_url, &request))
+        .await
+}
+
 // ── Retention configuration commands ──────────────────────────────────────────
 
 /// Read the global observer-frame (kind 24200) retention window, in days. Every
