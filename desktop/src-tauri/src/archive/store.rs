@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS agent_metric_index (
     reported_at                  INTEGER,
     session_id                   TEXT,
     turn_seq                     TEXT,
+    turn_id                      TEXT,
     model                        TEXT,
     delta_reliable               INTEGER,
     turn_input_tokens            TEXT,
@@ -129,6 +130,9 @@ CREATE INDEX IF NOT EXISTS idx_archived_events_agent_metric
 -- cardinality checks key on this prefix.
 CREATE INDEX IF NOT EXISTS idx_agent_metric_session
     ON agent_metric_index (identity_pubkey, relay_url, agent_pubkey, session_id, turn_seq, id);
+
+CREATE INDEX IF NOT EXISTS idx_agent_metric_turn_id
+    ON agent_metric_index (identity_pubkey, relay_url, agent_pubkey, session_id, turn_id, id);
 
 -- Window scan by reported time.
 CREATE INDEX IF NOT EXISTS idx_agent_metric_reported

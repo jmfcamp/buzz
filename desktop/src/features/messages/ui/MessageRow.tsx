@@ -686,6 +686,7 @@ export const MessageRow = React.memo(
             { key: "timestamp", node: inlineMetadataNode },
             {
               key: "turn-chrome",
+              nowrap: true,
               node:
                 showAgentThinking && message.isAgent && !message.pending ? (
                   <AgentMessageTurnHeaderChips />

@@ -2,6 +2,7 @@
 export type TurnJoinObserverEvent = {
   kind: string;
   turnId: string | null;
+  sessionId?: string | null;
   payload: unknown;
   timestamp?: string;
 };

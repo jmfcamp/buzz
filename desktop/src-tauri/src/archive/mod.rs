@@ -828,7 +828,8 @@ pub async fn get_agent_usage_series(
 
 // ── get_agent_turn_metric_near ───────────────────────────────────────────────
 
-/// Request for the nearest archived turn metric to a reply timestamp.
+/// Request for a per-reply turn metric. Prefer exact `(sessionId, turnId)`;
+/// otherwise a tight time window around `aroundSec`.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentTurnMetricNearRequest {
@@ -836,17 +837,22 @@ pub struct AgentTurnMetricNearRequest {
     pub agent_pubkey: String,
     /// Unix seconds to search around (typically the reply message `created_at`).
     pub around_sec: i64,
-    /// Half-window in seconds (default 180). Clamped to 30..=900.
+    /// Half-window in seconds for the fuzzy fallback (default 45). Clamped to 15..=120.
     pub window_sec: Option<i64>,
+    /// Observer/harness session id when known.
+    pub session_id: Option<String>,
+    /// Observer/harness turn id when known (exact join with `session_id`).
+    pub turn_id: Option<String>,
 }
 
-/// Nearest valid NIP-AM turn metric for per-message chrome.
+/// Matched NIP-AM turn metric for per-message chrome.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentTurnMetricNear {
     pub id: String,
     pub reported_at: i64,
     pub session_id: Option<String>,
+    pub turn_id: Option<String>,
     pub turn_seq: Option<String>,
     pub model: Option<String>,
     pub harness: Option<String>,
@@ -856,6 +862,26 @@ pub struct AgentTurnMetricNear {
     pub turn_total_tokens: Option<String>,
     pub turn_cost_usd: Option<f64>,
     pub delta_sec: i64,
+    /// `exact` = session+turn id hit; `time` = high-confidence time fallback.
+    pub match_kind: String,
+}
+
+fn row_to_near(row: &metric_store::AgentMetricIndexRow, delta: i64, match_kind: &str) -> AgentTurnMetricNear {
+    AgentTurnMetricNear {
+        id: row.id.clone(),
+        reported_at: row.reported_at.unwrap_or(row.event_created_at),
+        session_id: row.session_id.clone(),
+        turn_id: row.turn_id.clone(),
+        turn_seq: row.turn_seq.map(|s| s.to_string()),
+        model: row.model.clone(),
+        harness: row.harness.clone(),
+        turn_input_tokens: row.turn_input_tokens.map(|n| n.to_string()),
+        turn_output_tokens: row.turn_output_tokens.map(|n| n.to_string()),
+        turn_total_tokens: row.turn_total_tokens.map(|n| n.to_string()),
+        turn_cost_usd: row.turn_cost_usd,
+        delta_sec: delta,
+        match_kind: match_kind.to_string(),
+    }
 }
 
 fn agent_turn_metric_near(
@@ -874,11 +900,54 @@ fn agent_turn_metric_near(
             request.around_sec
         ));
     }
-    let window = request.window_sec.unwrap_or(180).clamp(30, 900);
-    let start = request.around_sec.saturating_sub(window);
-    let end = request.around_sec.saturating_add(window).saturating_add(1);
 
     metric_store::backfill_agent_metric_index(conn, identity_pk, relay_url)?;
+
+    let session = request
+        .session_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let turn = request
+        .turn_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
+    if let (Some(session_id), Some(turn_id)) = (session, turn) {
+        if let Some(row) = metric_store::load_by_session_turn_id(
+            conn,
+            identity_pk,
+            relay_url,
+            &pk,
+            session_id,
+            turn_id,
+        )? {
+            let reported = row.reported_at.unwrap_or(row.event_created_at);
+            let delta = (reported - request.around_sec).abs();
+            return Ok(Some(row_to_near(&row, delta, "exact")));
+        }
+    }
+
+    // Session unknown but harness turn id unique for this agent → still exact.
+    if let Some(turn_id) = turn {
+        if let Some(row) = metric_store::load_by_turn_id_unique(
+            conn,
+            identity_pk,
+            relay_url,
+            &pk,
+            turn_id,
+        )? {
+            let reported = row.reported_at.unwrap_or(row.event_created_at);
+            let delta = (reported - request.around_sec).abs();
+            return Ok(Some(row_to_near(&row, delta, "exact")));
+        }
+    }
+
+    // Tight time fallback only — refuse to show a likely wrong turn's tokens.
+    let window = request.window_sec.unwrap_or(45).clamp(15, 120);
+    let start = request.around_sec.saturating_sub(window);
+    let end = request.around_sec.saturating_add(window).saturating_add(1);
     let rows = metric_store::load_window_valid_rows(
         conn,
         identity_pk,
@@ -888,32 +957,41 @@ fn agent_turn_metric_near(
         Some(&pk),
     )?;
 
-    let mut best: Option<(&metric_store::AgentMetricIndexRow, i64)> = None;
+    let mut ranked: Vec<(&metric_store::AgentMetricIndexRow, i64, bool)> = Vec::new();
     for row in &rows {
         let Some(reported) = row.reported_at else {
             continue;
         };
         let delta = (reported - request.around_sec).abs();
-        match best {
-            None => best = Some((row, delta)),
-            Some((_, best_delta)) if delta < best_delta => best = Some((row, delta)),
-            _ => {}
+        if delta > window {
+            continue;
+        }
+        let same_session = match (session, row.session_id.as_deref()) {
+            (Some(want), Some(got)) => want == got,
+            _ => false,
+        };
+        ranked.push((row, delta, same_session));
+    }
+    ranked.sort_by(|a, b| {
+        // Prefer same-session, then smaller delta.
+        b.2.cmp(&a.2).then(a.1.cmp(&b.1))
+    });
+
+    let Some((best, best_delta, _)) = ranked.first().copied() else {
+        return Ok(None);
+    };
+    // Ambiguous: another candidate nearly as close → hide rather than mis-attribute.
+    if let Some((_, second_delta, _)) = ranked.get(1).copied() {
+        if second_delta <= best_delta.saturating_add(15) && second_delta <= window {
+            return Ok(None);
         }
     }
+    // Require a clear proximity hit.
+    if best_delta > window {
+        return Ok(None);
+    }
 
-    Ok(best.map(|(row, delta)| AgentTurnMetricNear {
-        id: row.id.clone(),
-        reported_at: row.reported_at.unwrap_or(row.event_created_at),
-        session_id: row.session_id.clone(),
-        turn_seq: row.turn_seq.map(|s| s.to_string()),
-        model: row.model.clone(),
-        harness: row.harness.clone(),
-        turn_input_tokens: row.turn_input_tokens.map(|n| n.to_string()),
-        turn_output_tokens: row.turn_output_tokens.map(|n| n.to_string()),
-        turn_total_tokens: row.turn_total_tokens.map(|n| n.to_string()),
-        turn_cost_usd: row.turn_cost_usd,
-        delta_sec: delta,
-    }))
+    Ok(Some(row_to_near(best, best_delta, "time")))
 }
 
 /// Return the archived turn metric nearest to `around_sec` for one agent.

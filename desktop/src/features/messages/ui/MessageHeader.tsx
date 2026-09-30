@@ -59,17 +59,29 @@ export function MessageMetaSeparator() {
 export function MessageMetaSegments({
   segments,
 }: {
-  segments: ReadonlyArray<{ key: string; node: React.ReactNode }>;
+  segments: ReadonlyArray<{
+    key: string;
+    node: React.ReactNode;
+    /**
+     * Keep this segment on one line and do not let flex shrink it below its
+     * content width. Used for compact chip groups that must sit beside the
+     * timestamp when space remains.
+     */
+    nowrap?: boolean;
+  }>;
 }) {
   const present = segments.filter((slot) => Boolean(slot.node));
   return (
     <>
-      {present.map(({ key, node }, index) =>
+      {present.map(({ key, node, nowrap }, index) =>
         index === 0 ? (
           <React.Fragment key={key}>{node}</React.Fragment>
         ) : (
           <span
-            className="inline-flex min-w-0 items-baseline gap-x-1.5"
+            className={cn(
+              "inline-flex items-baseline gap-x-1.5",
+              nowrap ? "shrink-0" : "min-w-0",
+            )}
             key={key}
           >
             <MessageMetaSeparator />

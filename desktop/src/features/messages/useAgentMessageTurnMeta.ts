@@ -58,8 +58,10 @@ export type AgentMessageTurnMeta = {
 /**
  * Best-available join of duration / tokens / thinking for one agent reply.
  *
- * - Duration: parent prompt `created_at` → reply `created_at` (via `parentId`)
- * - Tokens: nearest archived 44200 metric by `reported_at` (±3m window)
+ * - Duration: triggering prompt / turn_started → reply (not stale parentId)
+ * - Tokens: archived 44200 via exact `(sessionId, turnId)` (or unique turnId);
+ *   else a tight high-confidence time window. Ambiguous matches are hidden.
+ *   Kind 44200 still has no chat message id — that is the remaining schema gap.
  * - Thinking: observer frames for agent+channel; prefer turn whose
  *   `triggeringEventIds` includes `parentId`, else nearest by time that has
  *   thought/tool content. Includes null-turnId chunks in the prompt→reply window.
@@ -94,20 +96,6 @@ export function useAgentMessageTurnMeta(input: {
       } catch {
         return null;
       }
-    },
-  });
-
-  const metricQuery = useQuery({
-    queryKey: ["agent-turn-metric-near", agentPubkey, input.createdAt] as const,
-    enabled: enabled && Boolean(agentPubkey),
-    staleTime: 30_000,
-    queryFn: async () => {
-      if (!agentPubkey) return null;
-      return getAgentTurnMetricNear({
-        agentPubkey,
-        aroundSec: input.createdAt,
-        windowSec: 180,
-      });
     },
   });
 
@@ -163,29 +151,57 @@ export function useAgentMessageTurnMeta(input: {
     [combinedEvents],
   );
 
-  const { turnId, joinMethod, turnStarted } = React.useMemo(() => {
+  const { turnId, sessionId, joinMethod, turnStarted } = React.useMemo(() => {
     const byTrigger = findTurnIdForPromptEvent(combinedEvents, input.parentId);
     if (byTrigger) {
+      const started = findTurnStartedEvent(combinedEvents, byTrigger);
       return {
         turnId: byTrigger,
+        sessionId: started?.sessionId ?? null,
         joinMethod: "triggering-event" as const,
-        turnStarted: findTurnStartedEvent(combinedEvents, byTrigger),
+        turnStarted: started,
       };
     }
     const byTime = findNearestTurnIdByTime(transcriptItems, input.createdAt);
     if (byTime) {
+      const started = findTurnStartedEvent(combinedEvents, byTime);
       return {
         turnId: byTime,
+        sessionId: started?.sessionId ?? null,
         joinMethod: "time-proximity" as const,
-        turnStarted: findTurnStartedEvent(combinedEvents, byTime),
+        turnStarted: started,
       };
     }
     return {
       turnId: null,
+      sessionId: null,
       joinMethod: "none" as const,
       turnStarted: null,
     };
   }, [combinedEvents, transcriptItems, input.parentId, input.createdAt]);
+
+  // Prefer exact session+turn on 44200; fall back to tight time only.
+  const metricQuery = useQuery({
+    queryKey: [
+      "agent-turn-metric-near",
+      agentPubkey,
+      input.createdAt,
+      sessionId,
+      turnId,
+    ] as const,
+    enabled: enabled && Boolean(agentPubkey),
+    staleTime: 30_000,
+    queryFn: async () => {
+      if (!agentPubkey) return null;
+      return getAgentTurnMetricNear({
+        agentPubkey,
+        aroundSec: input.createdAt,
+        windowSec: 45,
+        sessionId,
+        turnId,
+      });
+    },
+  });
 
   // Actual harness prompt id for this turn (not necessarily message.parentId —
   // parentId may be an older thread ancestor and inflated duration).
@@ -271,7 +287,15 @@ export function useAgentMessageTurnMeta(input: {
     turnStartedAtSec,
   ]);
 
-  const metric = metricQuery.data ?? null;
+  const rawMetric = metricQuery.data ?? null;
+  // Hide fuzzy/ambiguous attributions (wrong turn's 230k). Exact always OK;
+  // time match only when within the tight window the backend already enforced.
+  const metric =
+    rawMetric &&
+    (rawMetric.matchKind === "exact" ||
+      (rawMetric.matchKind === "time" && rawMetric.deltaSec <= 45))
+      ? rawMetric
+      : null;
   const totalTokens =
     metric?.turnTotalTokens ??
     (metric?.turnInputTokens && metric?.turnOutputTokens

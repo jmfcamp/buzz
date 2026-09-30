@@ -95,7 +95,7 @@ export function AgentMessageTurnHeaderChips() {
 
   return (
     <span
-      className="inline-flex min-w-0 flex-wrap items-center gap-1"
+      className="inline-flex shrink-0 items-center gap-1"
       data-testid={`agent-message-turn-chrome-${messageId}`}
     >
       {meta.durationLabel ? (
@@ -114,16 +114,17 @@ export function AgentMessageTurnHeaderChips() {
       {showThoughtChip ? (
         <button
           aria-expanded={expanded}
+          aria-label="Thought"
           className={cn(
-            "inline-flex items-center gap-1 rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 text-2xs font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground",
+            "inline-flex items-center gap-0.5 rounded-full border border-border/70 bg-muted/40 px-1.5 py-0.5 text-2xs font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground",
             expanded && "bg-muted/70 text-foreground",
           )}
           data-testid={`agent-message-thinking-toggle-${messageId}`}
           onClick={() => setExpanded((v) => !v)}
+          title="Thought"
           type="button"
         >
           <Brain className="h-3 w-3" />
-          <span>Thought</span>
           <ChevronDown
             className={cn(
               "h-3 w-3 transition-transform",
