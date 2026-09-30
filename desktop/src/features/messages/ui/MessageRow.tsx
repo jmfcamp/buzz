@@ -237,10 +237,7 @@ export const MessageRow = React.memo(
     const isAuthorAgent =
       message.isAgent === true || profilePopoverRole === "bot";
 
-    const { emojiOnly } = useMessageEmoji(
-      message.body,
-      message.tags,
-    );
+    const { emojiOnly } = useMessageEmoji(message.body, message.tags);
     const bodyOffsetClass = emojiOnly ? "mt-1" : "mt-conversation-body";
 
     const indentRem = getThreadReplyIndentRem(message.depth);

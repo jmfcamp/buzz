@@ -17,7 +17,10 @@ test("missing push to talk stays on and an explicit false stays off", () => {
 });
 
 test("microphone gain is clamped and a bad value becomes full volume", () => {
-  assert.equal(normalizeHuddleDefaults({ microphoneGain: 4 }).microphoneGain, 1);
+  assert.equal(
+    normalizeHuddleDefaults({ microphoneGain: 4 }).microphoneGain,
+    1,
+  );
   assert.equal(
     normalizeHuddleDefaults({ microphoneGain: Number.NaN }).microphoneGain,
     1,

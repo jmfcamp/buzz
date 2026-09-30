@@ -49,7 +49,8 @@ function renderBody(bodyMessage) {
         createElement(MessageBody, {
           channelId: "channel-1",
           isKnownAgentPubkey: () => false,
-          markdownClassName: "max-w-full text-left text-message text-foreground",
+          markdownClassName:
+            "max-w-full text-left text-message text-foreground",
           message: bodyMessage,
         }),
       ),
@@ -91,8 +92,14 @@ test("shared message body renders the diff card fallback", () => {
 });
 
 test("channel and inbox rows both mount the shared message body", () => {
-  const body = readFileSync(new URL("./MessageBody.tsx", import.meta.url), "utf8");
-  const channel = readFileSync(new URL("./MessageRow.tsx", import.meta.url), "utf8");
+  const body = readFileSync(
+    new URL("./MessageBody.tsx", import.meta.url),
+    "utf8",
+  );
+  const channel = readFileSync(
+    new URL("./MessageRow.tsx", import.meta.url),
+    "utf8",
+  );
   const inbox = readFileSync(
     new URL("../../home/ui/InboxMessageRow.tsx", import.meta.url),
     "utf8",

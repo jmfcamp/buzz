@@ -119,13 +119,13 @@ export function MessageBody({
   );
   const snapshotSharedBy = React.useMemo(
     () =>
-      resolveSnapshotSharedBy(
-        { signerPubkey: message.signerPubkey },
-        profiles,
-      ),
+      resolveSnapshotSharedBy({ signerPubkey: message.signerPubkey }, profiles),
     [message.signerPubkey, profiles],
   );
-  const { customEmoji, emojiOnly } = useMessageEmoji(message.body, message.tags);
+  const { customEmoji, emojiOnly } = useMessageEmoji(
+    message.body,
+    message.tags,
+  );
   const { nonDmChannelNames: channelNames } = useChannelNavigation();
   const getTag = (name: string) =>
     message.tags?.find((tag) => tag[0] === name)?.[1];
@@ -178,10 +178,7 @@ export function MessageBody({
       ) : (
         <VideoReviewCommentMarkdown
           channelNames={channelNames}
-          className={cn(
-            markdownClassName,
-            emojiOnly && EMOJI_ONLY_CLASS_NAME,
-          )}
+          className={cn(markdownClassName, emojiOnly && EMOJI_ONLY_CLASS_NAME)}
           configNudgeAuthorPubkey={getConfigNudgeAuthorPubkey(
             message,
             isKnownAgentPubkey,
