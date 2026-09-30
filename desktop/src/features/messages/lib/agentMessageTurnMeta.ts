@@ -57,6 +57,10 @@ function extractTriggeringEventIds(payload: unknown): string[] {
     : [];
 }
 
+export function isThinkingContentItem(item: TurnJoinTranscriptItem): boolean {
+  return item.type === "thought" || item.type === "tool";
+}
+
 /**
  * Find the turnId whose turn_started payload lists `promptEventId` in
  * `triggeringEventIds`. Exact join when the harness stamped the prompt.
@@ -78,28 +82,50 @@ export function findTurnIdForPromptEvent(
 }
 
 /**
- * Fallback: pick the turn whose items are closest in time to `replyCreatedAt`
- * (Unix seconds). Used when triggeringEventIds is missing.
+ * Prefer a turn that has thought/tool items near `replyCreatedAt`. Falls back
+ * to any nearest turn. Rejects joins more than 10 minutes away.
  */
 export function findNearestTurnIdByTime(
   items: readonly TurnJoinTranscriptItem[],
   replyCreatedAt: number,
 ): string | null {
-  let bestTurnId: string | null = null;
-  let bestDelta = Number.POSITIVE_INFINITY;
+  const scored = new Map<string, { delta: number; hasThinking: boolean }>();
   for (const item of items) {
     if (!item.turnId || !item.timestamp) continue;
     const ts = Date.parse(item.timestamp);
     if (!Number.isFinite(ts)) continue;
     const delta = Math.abs(ts / 1000 - replyCreatedAt);
-    if (delta < bestDelta) {
-      bestDelta = delta;
-      bestTurnId = item.turnId;
+    const prev = scored.get(item.turnId);
+    const hasThinking = isThinkingContentItem(item);
+    if (!prev || delta < prev.delta) {
+      scored.set(item.turnId, {
+        delta,
+        hasThinking: hasThinking || Boolean(prev?.hasThinking),
+      });
+    } else if (hasThinking) {
+      scored.set(item.turnId, { ...prev, hasThinking: true });
     }
   }
-  // Reject joins more than 10 minutes away — likely a different turn.
-  if (bestDelta > 600) return null;
-  return bestTurnId;
+
+  let bestId: string | null = null;
+  let bestDelta = Number.POSITIVE_INFINITY;
+  let bestHasThinking = false;
+  for (const [turnId, score] of scored) {
+    if (score.delta > 600) continue;
+    // Prefer turns that actually carry thinking content.
+    if (score.hasThinking && !bestHasThinking) {
+      bestId = turnId;
+      bestDelta = score.delta;
+      bestHasThinking = true;
+      continue;
+    }
+    if (score.hasThinking === bestHasThinking && score.delta < bestDelta) {
+      bestId = turnId;
+      bestDelta = score.delta;
+      bestHasThinking = score.hasThinking;
+    }
+  }
+  return bestId;
 }
 
 export function filterTranscriptItemsForTurn<T extends TurnJoinTranscriptItem>(
@@ -108,6 +134,55 @@ export function filterTranscriptItemsForTurn<T extends TurnJoinTranscriptItem>(
 ): T[] {
   if (!turnId) return [];
   return items.filter((item) => item.turnId === turnId);
+}
+
+/**
+ * Collect thought/tool rows for a reply turn.
+ *
+ * 1. Exact turnId filter when known
+ * 2. Plus thought/tool rows with null turnId in the prompt→reply window
+ *    (some harnesses omit turnId on early chunks)
+ * 3. If still empty, time-window thought/tool rows regardless of turnId
+ */
+export function collectThinkingContentItems<T extends TurnJoinTranscriptItem>(
+  items: readonly T[],
+  options: {
+    turnId: string | null;
+    windowStartSec: number | null;
+    windowEndSec: number;
+  },
+): T[] {
+  const { turnId, windowStartSec, windowEndSec } = options;
+  const start = windowStartSec ?? windowEndSec - 600;
+  const end = windowEndSec + 30;
+
+  const inWindow = (item: T): boolean => {
+    if (!item.timestamp) return false;
+    const ts = Date.parse(item.timestamp);
+    if (!Number.isFinite(ts)) return false;
+    const sec = ts / 1000;
+    return sec >= start && sec <= end;
+  };
+
+  const byTurn = turnId
+    ? items.filter(
+        (item) => item.turnId === turnId && isThinkingContentItem(item),
+      )
+    : [];
+
+  const orphanInWindow = items.filter(
+    (item) =>
+      isThinkingContentItem(item) &&
+      (!item.turnId || item.turnId === turnId) &&
+      inWindow(item) &&
+      !byTurn.some((existing) => existing.id === item.id),
+  );
+
+  const combined = [...byTurn, ...orphanInWindow];
+  if (combined.length > 0) return combined;
+
+  // Last resort: any thought/tool in the prompt→reply window.
+  return items.filter((item) => isThinkingContentItem(item) && inWindow(item));
 }
 
 export function summarizeThinkingItems(

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  collectThinkingContentItems,
   findNearestTurnIdByTime,
   findTurnIdForPromptEvent,
   formatTurnDuration,
@@ -34,28 +35,55 @@ test("findTurnIdForPromptEvent matches triggeringEventIds", () => {
   assert.equal(findTurnIdForPromptEvent(events, "other"), null);
 });
 
-test("findNearestTurnIdByTime picks closest turn", () => {
+test("findNearestTurnIdByTime prefers turn with thinking content", () => {
   const items = [
     {
       id: "1",
-      type: "thought",
-      text: "a",
+      type: "lifecycle",
       timestamp: "2026-01-01T00:00:10Z",
-      turnId: "t1",
+      turnId: "t-life",
     },
     {
       id: "2",
       type: "thought",
-      text: "b",
-      timestamp: "2026-01-01T00:05:00Z",
-      turnId: "t2",
+      text: "hmm",
+      timestamp: "2026-01-01T00:00:12Z",
+      turnId: "t-think",
     },
   ];
   assert.equal(
-    findNearestTurnIdByTime(
-      items,
-      Date.parse("2026-01-01T00:00:12Z") / 1000,
-    ),
-    "t1",
+    findNearestTurnIdByTime(items, Date.parse("2026-01-01T00:00:11Z") / 1000),
+    "t-think",
   );
+});
+
+test("collectThinkingContentItems keeps thought/tool and orphans in window", () => {
+  const items = [
+    {
+      id: "life",
+      type: "lifecycle",
+      timestamp: "2026-01-01T00:00:10Z",
+      turnId: "t1",
+    },
+    {
+      id: "th",
+      type: "thought",
+      text: "plan",
+      timestamp: "2026-01-01T00:00:11Z",
+      turnId: "t1",
+    },
+    {
+      id: "orphan",
+      type: "tool",
+      title: "shell",
+      timestamp: "2026-01-01T00:00:12Z",
+      turnId: null,
+    },
+  ];
+  const collected = collectThinkingContentItems(items, {
+    turnId: "t1",
+    windowStartSec: Date.parse("2026-01-01T00:00:00Z") / 1000,
+    windowEndSec: Date.parse("2026-01-01T00:00:20Z") / 1000,
+  });
+  assert.deepEqual(collected.map((i) => i.id).sort(), ["orphan", "th"]);
 });

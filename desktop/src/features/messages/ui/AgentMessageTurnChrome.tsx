@@ -13,7 +13,7 @@ type AgentMessageTurnChromeProps = {
 
 /**
  * LM Studio-style chrome under an agent/bot reply: duration, tokens, and a
- * thinking toggle that expands thought / tool-call cards for that turn.
+ * Thinking toggle (only when this turn has thought/tool content).
  */
 export function AgentMessageTurnChrome({
   channelId,
@@ -27,20 +27,29 @@ export function AgentMessageTurnChrome({
     createdAt: message.createdAt,
     parentId: message.parentId,
     isAgent: message.isAgent === true,
-    thinkingExpanded: expanded,
   });
+
+  const showThoughtChip = meta.enabled && meta.hasThinkingContent;
+  // Collapse if content disappears after a rematch.
+  React.useEffect(() => {
+    if (!showThoughtChip && expanded) setExpanded(false);
+  }, [showThoughtChip, expanded]);
 
   if (!meta.enabled) return null;
 
-  const hasThinking =
-    meta.thoughtCount > 0 || meta.toolCount > 0 || meta.turnItems.length > 0;
-  const thinkingLabel = hasThinking
-    ? meta.durationLabel
-      ? `Thought for ${meta.durationLabel}`
-      : "Thinking"
-    : meta.durationLabel
-      ? `Ran for ${meta.durationLabel}`
-      : "Thinking";
+  if (!meta.durationLabel && !meta.tokensLabel && !showThoughtChip) {
+    if (meta.durationLoading || meta.metricLoading || meta.thinkingLoading) {
+      return (
+        <div
+          className="mt-1.5 text-2xs text-muted-foreground/60"
+          data-testid={`agent-message-turn-chrome-${message.id}`}
+        >
+          …
+        </div>
+      );
+    }
+    return null;
+  }
 
   return (
     <div
@@ -48,25 +57,27 @@ export function AgentMessageTurnChrome({
       data-testid={`agent-message-turn-chrome-${message.id}`}
     >
       <div className="flex flex-wrap items-center gap-1.5">
-        <button
-          aria-expanded={expanded}
-          className={cn(
-            "inline-flex items-center gap-1 rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 text-2xs font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground",
-            expanded && "bg-muted/70 text-foreground",
-          )}
-          data-testid={`agent-message-thinking-toggle-${message.id}`}
-          onClick={() => setExpanded((v) => !v)}
-          type="button"
-        >
-          <Brain className="h-3 w-3" />
-          <span>{thinkingLabel}</span>
-          <ChevronDown
+        {showThoughtChip ? (
+          <button
+            aria-expanded={expanded}
             className={cn(
-              "h-3 w-3 transition-transform",
-              expanded && "rotate-180",
+              "inline-flex items-center gap-1 rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 text-2xs font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground",
+              expanded && "bg-muted/70 text-foreground",
             )}
-          />
-        </button>
+            data-testid={`agent-message-thinking-toggle-${message.id}`}
+            onClick={() => setExpanded((v) => !v)}
+            type="button"
+          >
+            <Brain className="h-3 w-3" />
+            <span>Thought</span>
+            <ChevronDown
+              className={cn(
+                "h-3 w-3 transition-transform",
+                expanded && "rotate-180",
+              )}
+            />
+          </button>
+        ) : null}
 
         {meta.durationLabel ? (
           <span
@@ -109,72 +120,53 @@ export function AgentMessageTurnChrome({
         ) : null}
       </div>
 
-      {expanded ? (
+      {expanded && showThoughtChip ? (
         <div
           className="max-h-64 overflow-y-auto rounded-lg border border-border/70 bg-muted/20 px-2.5 py-2"
           data-testid={`agent-message-thinking-card-${message.id}`}
         >
-          {meta.turnItems.length === 0 ? (
-            <p className="text-2xs text-muted-foreground">
-              No thinking or tool activity found for this reply yet. Open Usage
-              &amp; activity on the agent for full history.
-            </p>
-          ) : (
-            <ul className="space-y-2">
-              {meta.turnItems.map((item) => {
-                if (item.type === "thought") {
-                  return (
-                    <li
-                      className="text-xs leading-5 text-muted-foreground"
-                      key={item.id}
-                    >
-                      <p className="mb-0.5 text-2xs font-medium uppercase tracking-wide text-muted-foreground/80">
-                        {item.title || "Thinking"}
-                      </p>
-                      <Markdown
-                        className="leading-5"
-                        content={item.text.trim() || " "}
-                      />
-                    </li>
-                  );
-                }
-                if (item.type === "tool") {
-                  return (
-                    <li
-                      className="flex items-start gap-1.5 text-xs text-muted-foreground"
-                      key={item.id}
-                    >
-                      <span className="mt-0.5 shrink-0 rounded bg-muted px-1 py-0.5 text-2xs font-medium text-foreground/80">
-                        tool
-                      </span>
-                      <span className="min-w-0 break-words">
-                        {item.title}
-                        {item.status ? (
-                          <span className="text-muted-foreground/70">
-                            {" "}
-                            · {item.status}
-                          </span>
-                        ) : null}
-                      </span>
-                    </li>
-                  );
-                }
-                if (item.type === "lifecycle" && item.renderClass === "error") {
-                  return (
-                    <li className="text-xs text-destructive" key={item.id}>
-                      {item.title}: {item.text}
-                    </li>
-                  );
-                }
-                return null;
-              })}
-            </ul>
-          )}
-          {meta.joinMethod === "time-proximity" ? (
-            <p className="mt-2 text-3xs text-muted-foreground/70">
-              Linked by time (no prompt event id on the turn).
-            </p>
-          ) : null}
+          <ul className="space-y-2">
+            {meta.turnItems.map((item) => {
+              if (item.type === "thought") {
+                return (
+                  <li
+                    className="text-xs leading-5 text-muted-foreground"
+                    key={item.id}
+                  >
+                    <p className="mb-0.5 text-2xs font-medium uppercase tracking-wide text-muted-foreground/80">
+                      {item.title || "Thinking"}
+                    </p>
+                    <Markdown
+                      className="leading-5"
+                      content={item.text.trim() || " "}
+                    />
+                  </li>
+                );
+              }
+              if (item.type === "tool") {
+                return (
+                  <li
+                    className="flex items-start gap-1.5 text-xs text-muted-foreground"
+                    key={item.id}
+                  >
+                    <span className="mt-0.5 shrink-0 rounded bg-muted px-1 py-0.5 text-2xs font-medium text-foreground/80">
+                      tool
+                    </span>
+                    <span className="min-w-0 break-words">
+                      {item.title}
+                      {item.status ? (
+                        <span className="text-muted-foreground/70">
+                          {" "}
+                          · {item.status}
+                        </span>
+                      ) : null}
+                    </span>
+                  </li>
+                );
+              }
+              return null;
+            })}
+          </ul>
         </div>
       ) : null}
     </div>
