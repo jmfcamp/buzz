@@ -49,7 +49,9 @@ export function AgentMessageTurnChromeRoot({
     isAgent: message.isAgent === true,
   });
 
-  const showThoughtChip = meta.enabled && meta.hasThinkingContent;
+  // Always show Thought for agent replies when the setting is on — expand
+  // may be empty/loading; chip presence is the contract.
+  const showThoughtChip = meta.enabled;
   React.useEffect(() => {
     if (!showThoughtChip && expanded) setExpanded(false);
   }, [showThoughtChip, expanded]);
@@ -79,37 +81,22 @@ export function AgentMessageTurnHeaderChips() {
 
   const { meta, expanded, setExpanded, showThoughtChip, messageId } = ctx;
 
-  if (!meta.durationLabel && !meta.tokensLabel && !showThoughtChip) {
-    if (meta.durationLoading || meta.metricLoading || meta.thinkingLoading) {
-      return (
-        <span
-          className="text-2xs text-muted-foreground/60"
-          data-testid={`agent-message-turn-chrome-${messageId}`}
-        >
-          …
-        </span>
-      );
-    }
-    return null;
-  }
+  const durationText = meta.durationLabel ?? (meta.durationLoading ? "…" : "—");
+  const tokensText = meta.tokensLabel ?? (meta.metricLoading ? "…" : "—");
 
   return (
     <span
       className="inline-flex shrink-0 items-center gap-1"
       data-testid={`agent-message-turn-chrome-${messageId}`}
     >
-      {meta.durationLabel ? (
-        <span
-          className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/60 px-2 py-0.5 text-2xs tabular-nums text-muted-foreground"
-          data-testid={`agent-message-duration-${messageId}`}
-          title="Time from prompt to this reply"
-        >
-          <Clock3 className="h-3 w-3" />
-          {meta.durationLabel}
-        </span>
-      ) : meta.durationLoading ? (
-        <span className="px-1 text-2xs text-muted-foreground/60">…</span>
-      ) : null}
+      <span
+        className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/60 px-2 py-0.5 text-2xs tabular-nums text-muted-foreground"
+        data-testid={`agent-message-duration-${messageId}`}
+        title="Time from prompt to this reply"
+      >
+        <Clock3 className="h-3 w-3" />
+        {durationText}
+      </span>
 
       {showThoughtChip ? (
         <button
@@ -134,32 +121,32 @@ export function AgentMessageTurnHeaderChips() {
         </button>
       ) : null}
 
-      {meta.tokensLabel ? (
-        <span
-          className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/60 px-2 py-0.5 text-2xs tabular-nums text-muted-foreground"
-          data-testid={`agent-message-tokens-${messageId}`}
-          title={
-            meta.metric
-              ? [
-                  meta.metric.turnInputTokens
-                    ? `in ${meta.metric.turnInputTokens}`
-                    : null,
-                  meta.metric.turnOutputTokens
-                    ? `out ${meta.metric.turnOutputTokens}`
-                    : null,
-                  meta.metric.model ? meta.metric.model : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")
-              : "Tokens for this turn"
-          }
-        >
-          <Coins className="h-3 w-3" />
-          {meta.tokensLabel} tok
-        </span>
-      ) : meta.metricLoading ? (
-        <span className="px-1 text-2xs text-muted-foreground/60">…</span>
-      ) : null}
+      <span
+        className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/60 px-2 py-0.5 text-2xs tabular-nums text-muted-foreground"
+        data-testid={`agent-message-tokens-${messageId}`}
+        title={
+          meta.metric
+            ? [
+                meta.metric.turnInputTokens
+                  ? `in ${meta.metric.turnInputTokens}`
+                  : null,
+                meta.metric.turnOutputTokens
+                  ? `out ${meta.metric.turnOutputTokens}`
+                  : null,
+                meta.metric.model ? meta.metric.model : null,
+                meta.metric.matchKind ? `match ${meta.metric.matchKind}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")
+            : meta.metricLoading
+              ? "Loading tokens…"
+              : "Tokens unavailable for this turn"
+        }
+      >
+        <Coins className="h-3 w-3" />
+        {tokensText}
+        {meta.tokensLabel ? " tok" : ""}
+      </span>
     </span>
   );
 }
@@ -171,11 +158,20 @@ export function AgentMessageTurnThinkingCard() {
 
   const { meta, messageId } = ctx;
 
+  const emptyMessage = meta.thinkingLoading
+    ? "Loading thinking…"
+    : meta.hasThinkingContent
+      ? null
+      : "No thinking recorded for this turn.";
+
   return (
     <div
       className="mb-1.5 max-h-64 overflow-y-auto rounded-lg border border-border/70 bg-muted/20 px-2.5 py-2"
       data-testid={`agent-message-thinking-card-${messageId}`}
     >
+      {emptyMessage ? (
+        <p className="text-xs text-muted-foreground/80">{emptyMessage}</p>
+      ) : null}
       <ul className="space-y-2">
         {meta.turnItems.map((item) => {
           if (item.type === "thought") {

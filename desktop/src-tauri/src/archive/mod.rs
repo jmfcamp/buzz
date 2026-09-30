@@ -837,7 +837,7 @@ pub struct AgentTurnMetricNearRequest {
     pub agent_pubkey: String,
     /// Unix seconds to search around (typically the reply message `created_at`).
     pub around_sec: i64,
-    /// Half-window in seconds for the fuzzy fallback (default 45). Clamped to 15..=120.
+    /// Half-window in seconds for the fuzzy fallback (default 180). Clamped to 15..=900.
     pub window_sec: Option<i64>,
     /// Observer/harness session id when known.
     pub session_id: Option<String>,
@@ -950,8 +950,8 @@ fn agent_turn_metric_near(
         }
     }
 
-    // Tight time fallback only — refuse to show a likely wrong turn's tokens.
-    let window = request.window_sec.unwrap_or(45).clamp(15, 120);
+    // Time fallback: prefer same-session, then nearest reported_at.
+    let window = request.window_sec.unwrap_or(180).clamp(15, 900);
     let start = request.around_sec.saturating_sub(window);
     let end = request.around_sec.saturating_add(window).saturating_add(1);
     let rows = metric_store::load_window_valid_rows(
@@ -986,17 +986,11 @@ fn agent_turn_metric_near(
     let Some((best, best_delta, _)) = ranked.first().copied() else {
         return Ok(None);
     };
-    // Ambiguous: another candidate nearly as close → hide rather than mis-attribute.
-    if let Some((_, second_delta, _)) = ranked.get(1).copied() {
-        if second_delta <= best_delta.saturating_add(15) && second_delta <= window {
-            return Ok(None);
-        }
-    }
-    // Require a clear proximity hit.
     if best_delta > window {
         return Ok(None);
     }
-
+    // Prefer showing a nearby metric over hiding the tokens chip when two
+    // candidates are close (owner-visible reply chrome).
     Ok(Some(row_to_near(best, best_delta, "time")))
 }
 

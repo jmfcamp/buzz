@@ -486,9 +486,9 @@ fn test_agent_turn_metric_near_prefers_exact_session_turn() {
     assert_eq!(hit.turn_total_tokens.as_deref(), Some("150"));
 }
 
-/// Ambiguous time-only candidates must return None (hide wrong tokens).
+/// Ambiguous time-only candidates still return the nearest metric (show chips).
 #[test]
-fn test_agent_turn_metric_near_hides_ambiguous_time_match() {
+fn test_agent_turn_metric_near_picks_nearest_when_ambiguous() {
     let conn = in_memory();
     let owner_pk = Keys::generate().public_key().to_hex();
     let agent_pk = Keys::generate().public_key().to_hex();
@@ -549,6 +549,8 @@ fn test_agent_turn_metric_near_hides_ambiguous_time_match() {
             turn_id: None,
         },
     )
-    .unwrap();
-    assert!(hit.is_none(), "two close candidates must hide tokens");
+    .unwrap()
+    .expect("nearest metric must still show for reply chrome");
+    assert_eq!(hit.id, "a");
+    assert_eq!(hit.match_kind, "time");
 }

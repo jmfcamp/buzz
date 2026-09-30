@@ -97,7 +97,7 @@ test("normalizeUnixSeconds coerces ms", () => {
   assert.equal(normalizeUnixSeconds(null), null);
 });
 
-test("resolveTurnDurationSeconds prefers prompt and rejects absurd spans", () => {
+test("resolveTurnDurationSeconds prefers prompt; falls back to long spans", () => {
   assert.equal(
     resolveTurnDurationSeconds({
       replyCreatedAt: 1_000_100,
@@ -106,14 +106,23 @@ test("resolveTurnDurationSeconds prefers prompt and rejects absurd spans", () =>
     }),
     10,
   );
-  // ~11m20s ancestor must not display
+  // Prefer reliable turn_started over an absurd parent span.
+  assert.equal(
+    resolveTurnDurationSeconds({
+      replyCreatedAt: 1_000_000 + 680,
+      turnStartedAtSec: 1_000_000 + 670,
+      promptCreatedAtSec: 1_000_000,
+    }),
+    10,
+  );
+  // Long-only candidate still returns a value so the chip is never empty.
   assert.equal(
     resolveTurnDurationSeconds({
       replyCreatedAt: 1_000_000 + 680,
       turnStartedAtSec: null,
       promptCreatedAtSec: 1_000_000,
     }),
-    null,
+    680,
   );
   assert.ok(680 > MAX_RELIABLE_TURN_DURATION_SEC);
   assert.equal(

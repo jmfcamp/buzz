@@ -71,9 +71,9 @@ export function normalizeUnixSeconds(
 }
 
 /**
- * Latency for THIS turn: prefer turn_started (generation start), then the
- * triggering prompt timestamp, then a capped parent→reply delta.
- * Reject spans over {@link MAX_RELIABLE_TURN_DURATION_SEC}.
+ * Latency for THIS turn: prefer triggering prompt, then turn_started.
+ * Prefer a span ≤ {@link MAX_RELIABLE_TURN_DURATION_SEC}; otherwise return the
+ * best non-negative candidate so the duration chip can still show a value.
  */
 export function resolveTurnDurationSeconds(input: {
   replyCreatedAt: number;
@@ -83,19 +83,21 @@ export function resolveTurnDurationSeconds(input: {
   const reply = normalizeUnixSeconds(input.replyCreatedAt);
   if (reply == null) return null;
 
-  // Prefer the actual triggering prompt, then turn_started (generation start).
   const candidates: number[] = [];
   const prompt = normalizeUnixSeconds(input.promptCreatedAtSec);
   if (prompt != null) candidates.push(reply - prompt);
   const started = normalizeUnixSeconds(input.turnStartedAtSec);
   if (started != null) candidates.push(reply - started);
 
+  // Prefer prompt, then turn_started, among reliable spans.
   for (const delta of candidates) {
     if (delta >= 0 && delta <= MAX_RELIABLE_TURN_DURATION_SEC) {
       return delta;
     }
   }
-  return null;
+  // Still show something rather than omit the chip (e.g. long tool turns).
+  const usable = candidates.filter((delta) => delta >= 0);
+  return usable.length > 0 ? Math.min(...usable) : null;
 }
 
 export function findTurnStartedEvent(

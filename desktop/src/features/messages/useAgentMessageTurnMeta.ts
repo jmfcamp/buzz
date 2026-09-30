@@ -196,7 +196,7 @@ export function useAgentMessageTurnMeta(input: {
       return getAgentTurnMetricNear({
         agentPubkey,
         aroundSec: input.createdAt,
-        windowSec: 45,
+        windowSec: 180,
         sessionId,
         turnId,
       });
@@ -264,43 +264,19 @@ export function useAgentMessageTurnMeta(input: {
     thinkingSummary.thoughtCount > 0 || thinkingSummary.toolCount > 0;
 
   const durationSeconds = React.useMemo(() => {
-    // Only use parent→reply when parent is the known trigger (or no better signal).
-    const parentIsTrigger =
-      input.parentId != null &&
-      promptEventId != null &&
-      input.parentId.toLowerCase() === promptEventId.toLowerCase();
-    const promptForDuration =
-      promptCreatedAt ??
-      (parentIsTrigger || turnStartedAtSec == null ? parentCreatedAt : null);
+    // Prefer harness trigger / turn_started; fall back to parentId timestamp so
+    // the duration chip always has a candidate when any prompt exists.
+    const promptForDuration = promptCreatedAt ?? parentCreatedAt;
 
     return resolveTurnDurationSeconds({
       replyCreatedAt: input.createdAt,
       turnStartedAtSec,
       promptCreatedAtSec: promptForDuration,
     });
-  }, [
-    input.createdAt,
-    input.parentId,
-    promptEventId,
-    promptCreatedAt,
-    parentCreatedAt,
-    turnStartedAtSec,
-  ]);
+  }, [input.createdAt, promptCreatedAt, parentCreatedAt, turnStartedAtSec]);
 
-  const rawMetric = metricQuery.data ?? null;
-  // Backend already refuses ambiguous time joins. Trust a returned row; only
-  // drop legacy/unknown matchKind payloads that look like a far fuzzy hit.
-  const metric =
-    rawMetric == null
-      ? null
-      : rawMetric.matchKind === "exact" ||
-          rawMetric.matchKind === "time" ||
-          rawMetric.matchKind == null ||
-          rawMetric.matchKind === ""
-        ? rawMetric
-        : rawMetric.deltaSec <= 45
-          ? rawMetric
-          : null;
+  // Show whatever the archive returns — do not hide on matchKind.
+  const metric = metricQuery.data ?? null;
   const totalTokens =
     metric?.turnTotalTokens ??
     (metric?.turnInputTokens && metric?.turnOutputTokens

@@ -516,7 +516,7 @@ export type AgentTurnMetricNearRequest = {
   aroundSec: number;
   /**
    * Half-window seconds for the time fallback only. Backend clamps to
-   * 15..120 (default 45). Exact session+turn / unique turn id ignores this.
+   * 15..900 (default 180). Exact session+turn / unique turn id ignores this.
    */
   windowSec?: number;
   /** Observer/harness session id when known (exact join with turnId). */
