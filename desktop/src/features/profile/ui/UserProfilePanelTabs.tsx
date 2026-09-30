@@ -288,7 +288,15 @@ export function ProfileInfoTabContent({
               feedScope={feedScope}
               onOpenActivity={onOpenActivity}
             />
-          ) : null}
+          ) : (
+            <ProfileIngressRow
+              icon={Wrench}
+              label="View activity"
+              onClick={() => onOpenActivity(null)}
+              testId={`user-profile-view-activity-${pubkey}`}
+              trailing="View"
+            />
+          )}
           {pubkey ? (
             <UsageAndActivityButton
               agentName={managedAgent?.name ?? activityAgent?.name ?? null}
@@ -299,15 +307,7 @@ export function ProfileInfoTabContent({
               testId={`user-profile-usage-activity-${pubkey}`}
               variant="ghost"
             />
-          ) : (
-            <ProfileIngressRow
-              icon={Wrench}
-              label="Usage & activity"
-              onClick={() => onOpenActivity(null)}
-              testId="user-profile-view-activity-missing-pubkey"
-              trailing="View"
-            />
-          )}
+          ) : null}
         </div>
       ) : null}
       {hasInfoFields || showInstructionBlock ? (

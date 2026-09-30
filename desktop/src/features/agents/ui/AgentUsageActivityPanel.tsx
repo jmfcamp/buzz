@@ -38,6 +38,30 @@ function formatCost(value: number | null, incomplete: boolean): string {
   return `$${value.toFixed(value < 0.01 ? 4 : 2)}`;
 }
 
+
+function bucketTotalTokens(usage: {
+  totalTokens: { value: string | null; incomplete: boolean };
+  inputTokens: { value: string | null; incomplete: boolean };
+  outputTokens: { value: string | null; incomplete: boolean };
+}): string | null {
+  if (usage.totalTokens.value !== null) return usage.totalTokens.value;
+  const input = usage.inputTokens;
+  const output = usage.outputTokens;
+  if (
+    input.value === null ||
+    output.value === null ||
+    input.incomplete ||
+    output.incomplete
+  ) {
+    return null;
+  }
+  try {
+    return (BigInt(input.value) + BigInt(output.value)).toString();
+  } catch {
+    return null;
+  }
+}
+
 function bucketLabel(startSec: number): string {
   const d = new Date(startSec * 1000);
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
@@ -80,7 +104,7 @@ export function AgentUsageActivityPanel({
   const maxTotal = React.useMemo(() => {
     let max = 0n;
     for (const bucket of buckets) {
-      const raw = bucket.usage.totalTokens.value;
+      const raw = bucketTotalTokens(bucket.usage);
       if (raw === null) continue;
       try {
         const n = BigInt(raw);
@@ -163,7 +187,7 @@ export function AgentUsageActivityPanel({
                 </div>
 
                 <div
-                  className="flex h-24 items-end gap-1 rounded-lg border border-border/60 bg-muted/20 px-2 py-2"
+                  className="flex h-24 gap-1 rounded-lg border border-border/60 bg-muted/20 px-2 py-2"
                   data-testid="agent-usage-bucket-chart"
                 >
                   {buckets.length === 0 ? (
@@ -173,7 +197,7 @@ export function AgentUsageActivityPanel({
                   ) : (
                     buckets.map((bucket) => {
                       let heightPct = 4;
-                      const raw = bucket.usage.totalTokens.value;
+                      const raw = bucketTotalTokens(bucket.usage);
                       if (raw !== null) {
                         try {
                           const n = BigInt(raw);
@@ -185,19 +209,27 @@ export function AgentUsageActivityPanel({
                           heightPct = 4;
                         }
                       }
+                      const incomplete =
+                        bucket.usage.totalTokens.incomplete ||
+                        (bucket.usage.totalTokens.value === null &&
+                          (bucket.usage.inputTokens.incomplete ||
+                            bucket.usage.outputTokens.incomplete));
                       return (
                         <div
-                          className="flex min-w-0 flex-1 flex-col items-center justify-end gap-1"
+                          className="flex h-full min-w-0 flex-1 flex-col items-center gap-1"
                           key={`${bucket.start}-${bucket.end}`}
-                          title={`${bucketLabel(bucket.start)}: ${formatTokenField(raw, bucket.usage.totalTokens.incomplete)} tokens`}
+                          title={`${bucketLabel(bucket.start)}: ${formatTokenField(raw, incomplete)} tokens`}
                         >
-                          <div
-                            className={cn(
-                              "w-full rounded-sm bg-primary/70",
-                              bucket.reportCount === 0 && "bg-muted-foreground/20",
-                            )}
-                            style={{ height: `${heightPct}%` }}
-                          />
+                          <div className="flex w-full min-h-0 flex-1 items-end">
+                            <div
+                              className={cn(
+                                "w-full rounded-sm bg-primary/70",
+                                bucket.reportCount === 0 &&
+                                  "bg-muted-foreground/20",
+                              )}
+                              style={{ height: `${heightPct}%` }}
+                            />
+                          </div>
                           <span className="truncate text-3xs text-muted-foreground">
                             {bucketLabel(bucket.start)}
                           </span>
