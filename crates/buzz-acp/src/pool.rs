@@ -30,10 +30,10 @@ use tokio::time::timeout;
 use uuid::Uuid;
 
 use crate::acp::{
-    extract_model_config_options, extract_model_state, extract_thought_level_config_id,
-    extract_reasoning_level_config_id, preferred_reasoning_level_value,
-    model_in_catalog, resolve_model_switch_method, AcpClient, AcpError, EnvVar, McpServer,
-    ModelSwitchMethod, StopReason, SystemPromptTransport, BUZZ_PI_ACP_NAME,
+    extract_model_config_options, extract_model_state, extract_reasoning_level_config_id,
+    extract_thought_level_config_id, model_in_catalog, preferred_reasoning_level_value,
+    resolve_model_switch_method, AcpClient, AcpError, EnvVar, McpServer, ModelSwitchMethod,
+    StopReason, SystemPromptTransport, BUZZ_PI_ACP_NAME,
 };
 use crate::config::{compose_scoped_session_title, DedupMode, PermissionMode};
 use crate::observer;
@@ -1764,7 +1764,6 @@ async fn create_session_and_apply_model(
     let reasoning_outcome =
         apply_startup_reasoning_stream(agent, reasoning_snapshot, &resp.session_id).await?;
 
-
     // Emit session config for desktop consumption (config bridge tier 1b).
     // Emitted AFTER desired_model resolution so the desktop caches the
     // post-switch state. modelOverridden reflects whether the switch actually
@@ -2161,7 +2160,6 @@ async fn apply_startup_reasoning_stream(
         }
     }
 }
-
 
 /// Patch the `currentValue` of the configOption whose `configId`/`id` matches
 /// `config_id` in a session/new `configOptions` array, in place.

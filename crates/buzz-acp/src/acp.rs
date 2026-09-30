@@ -2321,9 +2321,9 @@ pub fn preferred_reasoning_level_value(result: &serde_json::Value) -> Option<&'s
                 .collect()
         })
         .unwrap_or_default();
-    if values.iter().any(|v| *v == "stream") {
+    if values.contains(&"stream") {
         Some("stream")
-    } else if values.iter().any(|v| *v == "on") {
+    } else if values.contains(&"on") {
         Some("on")
     } else if values.is_empty() {
         // OpenClaw advertises off/on/stream; empty options still accept set.
@@ -2332,7 +2332,6 @@ pub fn preferred_reasoning_level_value(result: &serde_json::Value) -> Option<&'s
         None
     }
 }
-
 
 /// Match a desired model ID against a fresh `session/new` response.
 ///
@@ -2979,10 +2978,7 @@ mod tests {
                 "options": [{ "value": "off" }, { "value": "on" }]
             }]
         });
-        assert_eq!(
-            super::preferred_reasoning_level_value(&result),
-            Some("on")
-        );
+        assert_eq!(super::preferred_reasoning_level_value(&result), Some("on"));
     }
 
     #[test]
