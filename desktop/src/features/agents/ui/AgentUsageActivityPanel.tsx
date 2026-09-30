@@ -5,6 +5,11 @@ import { useOpenAgentActivity } from "@/features/agents/useOpenAgentActivity";
 import { useAgentUsageSeries } from "@/features/agents/useAgentUsageSeries";
 import { Button } from "@/shared/ui/button";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/shared/ui/tooltip";
+import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -214,26 +219,59 @@ export function AgentUsageActivityPanel({
                         (bucket.usage.totalTokens.value === null &&
                           (bucket.usage.inputTokens.incomplete ||
                             bucket.usage.outputTokens.incomplete));
+                      const tokensLabel = formatTokenField(raw, incomplete);
+                      const costLabel = formatCost(
+                        bucket.usage.estimatedCostUsd.value,
+                        bucket.usage.estimatedCostUsd.incomplete,
+                      );
+                      const dayLabel = bucketLabel(bucket.start);
                       return (
-                        <div
-                          className="flex h-full min-w-0 flex-1 flex-col items-center gap-1"
-                          key={`${bucket.start}-${bucket.end}`}
-                          title={`${bucketLabel(bucket.start)}: ${formatTokenField(raw, incomplete)} tokens`}
-                        >
-                          <div className="flex w-full min-h-0 flex-1 items-end">
+                        <Tooltip key={`${bucket.start}-${bucket.end}`}>
+                          <TooltipTrigger asChild>
                             <div
-                              className={cn(
-                                "w-full rounded-sm bg-primary/70",
-                                bucket.reportCount === 0 &&
-                                  "bg-muted-foreground/20",
-                              )}
-                              style={{ height: `${heightPct}%` }}
-                            />
-                          </div>
-                          <span className="truncate text-3xs text-muted-foreground">
-                            {bucketLabel(bucket.start)}
-                          </span>
-                        </div>
+                              className="flex h-full min-w-0 flex-1 cursor-default flex-col items-center gap-1"
+                              data-testid={`agent-usage-bucket-${bucket.start}`}
+                              tabIndex={0}
+                            >
+                              <div className="flex w-full min-h-0 flex-1 items-end">
+                                <div
+                                  className={cn(
+                                    "w-full rounded-sm bg-primary/70",
+                                    bucket.reportCount === 0 &&
+                                      "bg-muted-foreground/20",
+                                  )}
+                                  style={{ height: `${heightPct}%` }}
+                                />
+                              </div>
+                              <span className="truncate text-3xs text-muted-foreground">
+                                {dayLabel}
+                              </span>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent
+                            className="max-w-xs text-xs"
+                            data-testid={`agent-usage-bucket-tooltip-${bucket.start}`}
+                            side="top"
+                          >
+                            <p className="font-semibold">{dayLabel}</p>
+                            <p className="mt-1 text-secondary-foreground">
+                              {tokensLabel} tokens
+                            </p>
+                            <p className="text-secondary-foreground">
+                              Est. cost {costLabel}
+                            </p>
+                            {bucket.reportCount > 0 ? (
+                              <p className="mt-1 text-2xs text-muted-foreground">
+                                {bucket.reportCount} report
+                                {bucket.reportCount === 1 ? "" : "s"}
+                              </p>
+                            ) : (
+                              <p className="mt-1 text-2xs text-muted-foreground">
+                                No reports this day
+                              </p>
+                            )}
+                          </TooltipContent>
+                        </Tooltip>
                       );
                     })
                   )}
