@@ -263,3 +263,97 @@ export function summarizeThinkingItems(
   }
   return { thoughtCount, toolCount, thoughtPreview };
 }
+
+/** Minimal shapes for prompt-context join (mirrors activity-feed transcript). */
+export type TurnPromptContextItem = TurnJoinTranscriptItem & {
+  acpSource?: string | null;
+  sections?: ReadonlyArray<{ title: string; body: string }>;
+  role?: string;
+  text?: string;
+};
+
+/**
+ * Collect prompt context + setup lifecycle for a reply turn — same sources the
+ * activity-feed CheckCheck dialog uses (`session/prompt:context`, turn_started).
+ */
+export function collectTurnPromptContext<T extends TurnPromptContextItem>(
+  items: readonly T[],
+  options: {
+    turnId: string | null;
+    windowStartSec: number | null;
+    windowEndSec: number;
+  },
+): {
+  sections: Array<{ title: string; body: string }>;
+  setup: T[];
+  hasContext: boolean;
+} {
+  const { turnId, windowStartSec, windowEndSec } = options;
+  const start = windowStartSec ?? windowEndSec - 600;
+  const end = windowEndSec + 30;
+
+  const inWindow = (item: T): boolean => {
+    if (!item.timestamp) return turnId != null && item.turnId === turnId;
+    const ts = Date.parse(item.timestamp);
+    if (!Number.isFinite(ts)) return false;
+    const sec = ts / 1000;
+    return sec >= start && sec <= end;
+  };
+
+  const matchesTurn = (item: T): boolean => {
+    if (turnId && item.turnId === turnId) return true;
+    if (turnId && item.turnId && item.turnId !== turnId) return false;
+    return inWindow(item);
+  };
+
+  const contextItem =
+    items.find(
+      (item) =>
+        item.type === "metadata" &&
+        item.acpSource === "session/prompt:context" &&
+        matchesTurn(item),
+    ) ??
+    items.find(
+      (item) =>
+        item.type === "metadata" &&
+        item.acpSource === "session/prompt:context" &&
+        inWindow(item),
+    ) ??
+    null;
+
+  const userPrompt =
+    items.find(
+      (item) =>
+        item.type === "message" &&
+        item.role === "user" &&
+        item.acpSource === "session/prompt:user" &&
+        matchesTurn(item),
+    ) ?? null;
+
+  const setup = items.filter(
+    (item) =>
+      item.type === "lifecycle" &&
+      (item.acpSource === "turn_started" ||
+        item.acpSource === "session_resolved") &&
+      matchesTurn(item),
+  );
+
+  const sections: Array<{ title: string; body: string }> = [];
+  if (userPrompt?.text?.trim()) {
+    sections.push({
+      title: userPrompt.title?.trim() || "Prompt",
+      body: userPrompt.text.trim(),
+    });
+  }
+  for (const section of contextItem?.sections ?? []) {
+    if (section?.title != null && section?.body != null) {
+      sections.push({ title: section.title, body: section.body });
+    }
+  }
+
+  return {
+    sections,
+    setup,
+    hasContext: sections.length > 0,
+  };
+}

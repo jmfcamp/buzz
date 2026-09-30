@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   collectThinkingContentItems,
+  collectTurnPromptContext,
   findNearestTurnIdByTime,
   findTurnIdForPromptEvent,
   formatTurnDuration,
@@ -133,4 +134,45 @@ test("resolveTurnDurationSeconds prefers prompt; falls back to long spans", () =
     }),
     45,
   );
+});
+
+test("collectTurnPromptContext joins prompt user + context for turn", () => {
+  const items = [
+    {
+      id: "u1",
+      type: "message",
+      role: "user",
+      acpSource: "session/prompt:user",
+      turnId: "t1",
+      timestamp: "2026-09-30T00:00:00.000Z",
+      text: "Are you there?",
+      title: "You",
+    },
+    {
+      id: "c1",
+      type: "metadata",
+      acpSource: "session/prompt:context",
+      turnId: "t1",
+      timestamp: "2026-09-30T00:00:00.000Z",
+      sections: [{ title: "Channel", body: "#general" }],
+    },
+    {
+      id: "l1",
+      type: "lifecycle",
+      acpSource: "turn_started",
+      turnId: "t1",
+      timestamp: "2026-09-30T00:00:01.000Z",
+      title: "Turn started",
+      text: "",
+    },
+  ];
+  const result = collectTurnPromptContext(items, {
+    turnId: "t1",
+    windowStartSec: 1_000_000,
+    windowEndSec: 1_000_100,
+  });
+  assert.equal(result.hasContext, true);
+  assert.equal(result.sections[0].body, "Are you there?");
+  assert.equal(result.sections[1].title, "Channel");
+  assert.equal(result.setup.length, 1);
 });

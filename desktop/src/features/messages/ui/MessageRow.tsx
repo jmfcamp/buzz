@@ -48,8 +48,7 @@ import { VideoReviewCommentMarkdown } from "@/shared/ui/VideoReviewCommentMarkdo
 import { MessageActionBar } from "./MessageActionBar";
 import {
   AgentMessageTurnChromeRoot,
-  AgentMessageTurnHeaderChips,
-  AgentMessageTurnThinkingCard,
+  AgentMessageTurnFooterChrome,
 } from "./AgentMessageTurnChrome";
 import { useShowAgentThinking } from "@/features/messages/lib/showAgentThinkingPreference";
 import { editMessage } from "@/shared/api/tauri";
@@ -667,21 +666,13 @@ export const MessageRow = React.memo(
         </div>
       ) : null;
 
-    const turnChromeNode =
-      showAgentThinking && message.isAgent && !message.pending ? (
-        <AgentMessageTurnHeaderChips />
-      ) : null;
-
     const headerNode = isDisplayedAsContinuation ? null : (
       // pe reserves the measured action-rail footprint (0px until measured) so
       // header content ends before the rail's left edge in every rail state.
-      //
-      // Primary cluster (shrink-0, nowrap): Name · time · chips stays on one
-      // line. "managed by …" is a following sibling so it wraps to a second
-      // row before time/chips ever do.
+      // Clean header: Name · managed by · time (turn chips live under the body).
       <MessageHeaderRow className="pe-[var(--message-action-rail-width,0px)]">
         <span
-          className="inline-flex shrink-0 flex-nowrap items-baseline gap-x-1.5"
+          className="inline-flex min-w-0 flex-nowrap items-baseline gap-x-1.5"
           data-testid="message-header-primary"
         >
           {message.pubkey ? (
@@ -696,14 +687,14 @@ export const MessageRow = React.memo(
           ) : (
             authorNode
           )}
-          <MessageMetaSeparator />
-          {inlineMetadataNode}
-          {turnChromeNode ? (
+          {agentOwnerNode ? (
             <>
               <MessageMetaSeparator />
-              {turnChromeNode}
+              {agentOwnerNode}
             </>
           ) : null}
+          <MessageMetaSeparator />
+          {inlineMetadataNode}
           {personaNode ? (
             <>
               <MessageMetaSeparator />
@@ -711,15 +702,6 @@ export const MessageRow = React.memo(
             </>
           ) : null}
         </span>
-        {agentOwnerNode ? (
-          <span
-            className="inline-flex items-baseline gap-x-1.5"
-            data-testid="message-header-owner"
-          >
-            <MessageMetaSeparator />
-            {agentOwnerNode}
-          </span>
-        ) : null}
       </MessageHeaderRow>
     );
     const bodyContainerClass = isDisplayedAsContinuation
@@ -728,11 +710,11 @@ export const MessageRow = React.memo(
 
     const messageBodyNode = (
       <>
-        {showAgentThinking && message.isAgent && !message.pending ? (
-          <AgentMessageTurnThinkingCard />
-        ) : null}
         <SentFromThreadLine channelId={channelId} tags={message.tags} />
         {renderBody()}
+        {showAgentThinking && message.isAgent && !message.pending ? (
+          <AgentMessageTurnFooterChrome />
+        ) : null}
         {continuationMetadataNode}
         <MessageReactions
           messageId={message.id}

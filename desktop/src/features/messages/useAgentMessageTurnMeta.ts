@@ -17,6 +17,7 @@ import {
 } from "@/features/agents/ui/useObserverEvents";
 import {
   collectThinkingContentItems,
+  collectTurnPromptContext,
   extractTriggeringEventIds,
   findNearestTurnIdByTime,
   findTurnIdForPromptEvent,
@@ -53,6 +54,10 @@ export type AgentMessageTurnMeta = {
   metricLoading: boolean;
   durationLoading: boolean;
   thinkingLoading: boolean;
+  /** Sections for the shared Prompt context dialog (activity-feed CheckCheck). */
+  promptContextSections: Array<{ title: string; body: string }>;
+  promptSetupItems: TranscriptItem[];
+  hasPromptContext: boolean;
 };
 
 /**
@@ -263,6 +268,16 @@ export function useAgentMessageTurnMeta(input: {
   const hasThinkingContent =
     thinkingSummary.thoughtCount > 0 || thinkingSummary.toolCount > 0;
 
+  const promptContext = React.useMemo(
+    () =>
+      collectTurnPromptContext(transcriptItems, {
+        turnId,
+        windowStartSec: thinkingWindowStartSec,
+        windowEndSec: input.createdAt,
+      }),
+    [transcriptItems, turnId, thinkingWindowStartSec, input.createdAt],
+  );
+
   const durationSeconds = React.useMemo(() => {
     // Prefer harness trigger / turn_started; fall back to parentId timestamp so
     // the duration chip always has a candidate when any prompt exists.
@@ -310,6 +325,9 @@ export function useAgentMessageTurnMeta(input: {
       (Boolean(promptEventId) && promptQuery.isLoading) ||
       (Boolean(input.parentId) && !promptEventId && parentQuery.isLoading),
     thinkingLoading,
+    promptContextSections: promptContext.sections,
+    promptSetupItems: promptContext.setup,
+    hasPromptContext: promptContext.hasContext,
   };
 }
 
