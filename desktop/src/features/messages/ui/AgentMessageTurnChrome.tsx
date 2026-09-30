@@ -150,7 +150,7 @@ export function AgentMessageTurnFooterChrome() {
         >
           <Coins className="h-3 w-3" />
           {tokensText}
-          {meta.tokensLabel ? " tok" : ""}
+          {meta.tokensLabel ? " tokens" : ""}
         </span>
 
         <button
