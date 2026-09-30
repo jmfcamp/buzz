@@ -46,7 +46,11 @@ import { resolveMentionProps } from "@/shared/lib/resolveMentionNames";
 import type { VideoReviewContext } from "@/shared/ui/VideoPlayer";
 import { VideoReviewCommentMarkdown } from "@/shared/ui/VideoReviewCommentMarkdown";
 import { MessageActionBar } from "./MessageActionBar";
-import { AgentMessageTurnChrome } from "./AgentMessageTurnChrome";
+import {
+  AgentMessageTurnChromeRoot,
+  AgentMessageTurnHeaderChips,
+  AgentMessageTurnThinkingCard,
+} from "./AgentMessageTurnChrome";
 import { useShowAgentThinking } from "@/features/messages/lib/showAgentThinkingPreference";
 import { editMessage } from "@/shared/api/tauri";
 import { hasLinkPreviewSuppression } from "@/features/messages/lib/formatTimelineMessages";
@@ -680,6 +684,13 @@ export const MessageRow = React.memo(
           segments={[
             { key: "owner", node: agentOwnerNode },
             { key: "timestamp", node: inlineMetadataNode },
+            {
+              key: "turn-chrome",
+              node:
+                showAgentThinking && message.isAgent && !message.pending ? (
+                  <AgentMessageTurnHeaderChips />
+                ) : null,
+            },
             { key: "persona", node: personaNode },
           ]}
         />
@@ -691,6 +702,9 @@ export const MessageRow = React.memo(
 
     const messageBodyNode = (
       <>
+        {showAgentThinking && message.isAgent && !message.pending ? (
+          <AgentMessageTurnThinkingCard />
+        ) : null}
         <SentFromThreadLine channelId={channelId} tags={message.tags} />
         {renderBody()}
         {continuationMetadataNode}
@@ -709,9 +723,6 @@ export const MessageRow = React.memo(
             void handleReactionSelect(emoji);
           }}
         />
-        {showAgentThinking && message.isAgent && !message.pending ? (
-          <AgentMessageTurnChrome channelId={channelId} message={message} />
-        ) : null}
         {reactionErrorMessage ? (
           <p className="mt-1.5 text-xs text-destructive">
             {reactionErrorMessage}
@@ -927,20 +938,60 @@ export const MessageRow = React.memo(
             <>
               {avatarGutterNode}
               <div className="flex min-w-0 flex-1 flex-col">
-                {headerNode}
-                <div className={bodyContainerClass} data-testid="message-body">
-                  {messageBodyNode}
-                </div>
+                {showAgentThinking && message.isAgent && !message.pending ? (
+                  <AgentMessageTurnChromeRoot
+                    channelId={channelId}
+                    message={message}
+                  >
+                    {headerNode}
+                    <div
+                      className={bodyContainerClass}
+                      data-testid="message-body"
+                    >
+                      {messageBodyNode}
+                    </div>
+                  </AgentMessageTurnChromeRoot>
+                ) : (
+                  <>
+                    {headerNode}
+                    <div
+                      className={bodyContainerClass}
+                      data-testid="message-body"
+                    >
+                      {messageBodyNode}
+                    </div>
+                  </>
+                )}
               </div>
             </>
           ) : (
             <>
               {avatarGutterNode}
               <div className="flex min-w-0 flex-1 flex-col">
-                {headerNode}
-                <div className={bodyContainerClass} data-testid="message-body">
-                  {messageBodyNode}
-                </div>
+                {showAgentThinking && message.isAgent && !message.pending ? (
+                  <AgentMessageTurnChromeRoot
+                    channelId={channelId}
+                    message={message}
+                  >
+                    {headerNode}
+                    <div
+                      className={bodyContainerClass}
+                      data-testid="message-body"
+                    >
+                      {messageBodyNode}
+                    </div>
+                  </AgentMessageTurnChromeRoot>
+                ) : (
+                  <>
+                    {headerNode}
+                    <div
+                      className={bodyContainerClass}
+                      data-testid="message-body"
+                    >
+                      {messageBodyNode}
+                    </div>
+                  </>
+                )}
               </div>
             </>
           )}

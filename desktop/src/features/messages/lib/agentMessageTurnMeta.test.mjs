@@ -7,6 +7,9 @@ import {
   findTurnIdForPromptEvent,
   formatTurnDuration,
   formatTurnTokens,
+  MAX_RELIABLE_TURN_DURATION_SEC,
+  normalizeUnixSeconds,
+  resolveTurnDurationSeconds,
 } from "./agentMessageTurnMeta.ts";
 
 test("formatTurnDuration", () => {
@@ -86,4 +89,39 @@ test("collectThinkingContentItems keeps thought/tool and orphans in window", () 
     windowEndSec: Date.parse("2026-01-01T00:00:20Z") / 1000,
   });
   assert.deepEqual(collected.map((i) => i.id).sort(), ["orphan", "th"]);
+});
+
+test("normalizeUnixSeconds coerces ms", () => {
+  assert.equal(normalizeUnixSeconds(1_700_000_000), 1_700_000_000);
+  assert.equal(normalizeUnixSeconds(1_700_000_000_000), 1_700_000_000);
+  assert.equal(normalizeUnixSeconds(null), null);
+});
+
+test("resolveTurnDurationSeconds prefers prompt and rejects absurd spans", () => {
+  assert.equal(
+    resolveTurnDurationSeconds({
+      replyCreatedAt: 1_000_100,
+      turnStartedAtSec: 1_000_080,
+      promptCreatedAtSec: 1_000_090,
+    }),
+    10,
+  );
+  // ~11m20s ancestor must not display
+  assert.equal(
+    resolveTurnDurationSeconds({
+      replyCreatedAt: 1_000_000 + 680,
+      turnStartedAtSec: null,
+      promptCreatedAtSec: 1_000_000,
+    }),
+    null,
+  );
+  assert.ok(680 > MAX_RELIABLE_TURN_DURATION_SEC);
+  assert.equal(
+    resolveTurnDurationSeconds({
+      replyCreatedAt: 1_000_045,
+      turnStartedAtSec: 1_000_000,
+      promptCreatedAtSec: null,
+    }),
+    45,
+  );
 });

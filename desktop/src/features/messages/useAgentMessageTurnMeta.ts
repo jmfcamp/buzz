@@ -17,10 +17,14 @@ import {
 } from "@/features/agents/ui/useObserverEvents";
 import {
   collectThinkingContentItems,
+  extractTriggeringEventIds,
   findNearestTurnIdByTime,
   findTurnIdForPromptEvent,
+  findTurnStartedEvent,
   formatTurnDuration,
   formatTurnTokens,
+  normalizeUnixSeconds,
+  resolveTurnDurationSeconds,
   summarizeThinkingItems,
 } from "@/features/messages/lib/agentMessageTurnMeta";
 import { useShowAgentThinking } from "@/features/messages/lib/showAgentThinkingPreference";
@@ -159,31 +163,80 @@ export function useAgentMessageTurnMeta(input: {
     [combinedEvents],
   );
 
-  const parentCreatedAt =
-    typeof parentQuery.data?.created_at === "number"
-      ? parentQuery.data.created_at
-      : null;
-
-  const { turnId, joinMethod } = React.useMemo(() => {
+  const { turnId, joinMethod, turnStarted } = React.useMemo(() => {
     const byTrigger = findTurnIdForPromptEvent(combinedEvents, input.parentId);
     if (byTrigger) {
-      return { turnId: byTrigger, joinMethod: "triggering-event" as const };
+      return {
+        turnId: byTrigger,
+        joinMethod: "triggering-event" as const,
+        turnStarted: findTurnStartedEvent(combinedEvents, byTrigger),
+      };
     }
     const byTime = findNearestTurnIdByTime(transcriptItems, input.createdAt);
     if (byTime) {
-      return { turnId: byTime, joinMethod: "time-proximity" as const };
+      return {
+        turnId: byTime,
+        joinMethod: "time-proximity" as const,
+        turnStarted: findTurnStartedEvent(combinedEvents, byTime),
+      };
     }
-    return { turnId: null, joinMethod: "none" as const };
+    return {
+      turnId: null,
+      joinMethod: "none" as const,
+      turnStarted: null,
+    };
   }, [combinedEvents, transcriptItems, input.parentId, input.createdAt]);
+
+  // Actual harness prompt id for this turn (not necessarily message.parentId —
+  // parentId may be an older thread ancestor and inflated duration).
+  const triggerPromptId = React.useMemo(() => {
+    if (!turnStarted) return null;
+    const ids = extractTriggeringEventIds(turnStarted.payload);
+    return ids[0] ?? null;
+  }, [turnStarted]);
+
+  const promptEventId =
+    triggerPromptId ??
+    (joinMethod === "triggering-event" ? (input.parentId ?? null) : null);
+
+  const promptQuery = useQuery({
+    queryKey: ["agent-message-turn-prompt", promptEventId],
+    enabled: enabled && Boolean(promptEventId),
+    staleTime: 60_000,
+    queryFn: async () => {
+      if (!promptEventId) return null;
+      try {
+        return await getEventById(promptEventId);
+      } catch {
+        return null;
+      }
+    },
+  });
+
+  // Parent is only a duration fallback when it is the trigger (or we have no
+  // turn_started). Still fetched for thinking window bounds.
+  const parentCreatedAt = normalizeUnixSeconds(parentQuery.data?.created_at);
+  const promptCreatedAt = normalizeUnixSeconds(promptQuery.data?.created_at);
+
+  const turnStartedAtSec = React.useMemo(() => {
+    if (!turnStarted?.timestamp) return null;
+    const ms = Date.parse(turnStarted.timestamp);
+    if (!Number.isFinite(ms)) return null;
+    return Math.floor(ms / 1000);
+  }, [turnStarted]);
+
+  // Window for collecting thinking: prefer prompt/turn start, not an old parent.
+  const thinkingWindowStartSec =
+    promptCreatedAt ?? turnStartedAtSec ?? parentCreatedAt;
 
   const turnItems = React.useMemo(
     () =>
       collectThinkingContentItems(transcriptItems, {
         turnId,
-        windowStartSec: parentCreatedAt,
+        windowStartSec: thinkingWindowStartSec,
         windowEndSec: input.createdAt,
       }),
-    [transcriptItems, turnId, parentCreatedAt, input.createdAt],
+    [transcriptItems, turnId, thinkingWindowStartSec, input.createdAt],
   );
 
   const thinkingSummary = React.useMemo(
@@ -195,20 +248,28 @@ export function useAgentMessageTurnMeta(input: {
     thinkingSummary.thoughtCount > 0 || thinkingSummary.toolCount > 0;
 
   const durationSeconds = React.useMemo(() => {
-    if (parentCreatedAt != null && parentCreatedAt > 0) {
-      return Math.max(0, input.createdAt - parentCreatedAt);
-    }
-    const startEvent = combinedEvents.find(
-      (e) => e.kind === "turn_started" && e.turnId === turnId,
-    );
-    if (startEvent?.timestamp) {
-      const startMs = Date.parse(startEvent.timestamp);
-      if (Number.isFinite(startMs)) {
-        return Math.max(0, input.createdAt - Math.floor(startMs / 1000));
-      }
-    }
-    return null;
-  }, [parentCreatedAt, input.createdAt, combinedEvents, turnId]);
+    // Only use parent→reply when parent is the known trigger (or no better signal).
+    const parentIsTrigger =
+      input.parentId != null &&
+      promptEventId != null &&
+      input.parentId.toLowerCase() === promptEventId.toLowerCase();
+    const promptForDuration =
+      promptCreatedAt ??
+      (parentIsTrigger || turnStartedAtSec == null ? parentCreatedAt : null);
+
+    return resolveTurnDurationSeconds({
+      replyCreatedAt: input.createdAt,
+      turnStartedAtSec,
+      promptCreatedAtSec: promptForDuration,
+    });
+  }, [
+    input.createdAt,
+    input.parentId,
+    promptEventId,
+    promptCreatedAt,
+    parentCreatedAt,
+    turnStartedAtSec,
+  ]);
 
   const metric = metricQuery.data ?? null;
   const totalTokens =
@@ -240,7 +301,9 @@ export function useAgentMessageTurnMeta(input: {
     hasThinkingContent,
     joinMethod,
     metricLoading: metricQuery.isLoading,
-    durationLoading: Boolean(input.parentId) && parentQuery.isLoading,
+    durationLoading:
+      (Boolean(promptEventId) && promptQuery.isLoading) ||
+      (Boolean(input.parentId) && !promptEventId && parentQuery.isLoading),
     thinkingLoading,
   };
 }

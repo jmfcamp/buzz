@@ -49,12 +49,65 @@ export function formatTurnTokens(
   }
 }
 
-function extractTriggeringEventIds(payload: unknown): string[] {
+export function extractTriggeringEventIds(payload: unknown): string[] {
   if (!payload || typeof payload !== "object") return [];
   const ids = (payload as { triggeringEventIds?: unknown }).triggeringEventIds;
   return Array.isArray(ids)
     ? ids.filter((id): id is string => typeof id === "string")
     : [];
+}
+
+/** Reject absurd spans (wrong ancestor / unit mismatch). */
+export const MAX_RELIABLE_TURN_DURATION_SEC = 10 * 60;
+
+/** Coerce unix seconds; values that look like ms are divided. */
+export function normalizeUnixSeconds(
+  value: number | null | undefined,
+): number | null {
+  if (value == null || !Number.isFinite(value) || value <= 0) return null;
+  const n = value > 1e12 ? Math.floor(value / 1000) : Math.floor(value);
+  return n > 0 ? n : null;
+}
+
+/**
+ * Latency for THIS turn: prefer turn_started (generation start), then the
+ * triggering prompt timestamp, then a capped parent→reply delta.
+ * Reject spans over {@link MAX_RELIABLE_TURN_DURATION_SEC}.
+ */
+export function resolveTurnDurationSeconds(input: {
+  replyCreatedAt: number;
+  turnStartedAtSec: number | null;
+  promptCreatedAtSec: number | null;
+}): number | null {
+  const reply = normalizeUnixSeconds(input.replyCreatedAt);
+  if (reply == null) return null;
+
+  // Prefer the actual triggering prompt, then turn_started (generation start).
+  const candidates: number[] = [];
+  const prompt = normalizeUnixSeconds(input.promptCreatedAtSec);
+  if (prompt != null) candidates.push(reply - prompt);
+  const started = normalizeUnixSeconds(input.turnStartedAtSec);
+  if (started != null) candidates.push(reply - started);
+
+  for (const delta of candidates) {
+    if (delta >= 0 && delta <= MAX_RELIABLE_TURN_DURATION_SEC) {
+      return delta;
+    }
+  }
+  return null;
+}
+
+export function findTurnStartedEvent(
+  events: readonly TurnJoinObserverEvent[],
+  turnId: string | null,
+): TurnJoinObserverEvent | null {
+  if (!turnId) return null;
+  for (const event of events) {
+    if (event.kind === "turn_started" && event.turnId === turnId) {
+      return event;
+    }
+  }
+  return null;
 }
 
 export function isThinkingContentItem(item: TurnJoinTranscriptItem): boolean {
