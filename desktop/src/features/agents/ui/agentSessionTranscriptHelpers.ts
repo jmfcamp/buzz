@@ -593,7 +593,9 @@ export function extractContentText(value: unknown): string {
  * Standard shape is `content: { type, text }`. OpenClaw ledger replay emits
  * top-level `text` (and thinking blocks may surface as `thinking`).
  */
-export function extractSessionUpdateText(update: Record<string, unknown>): string {
+export function extractSessionUpdateText(
+  update: Record<string, unknown>,
+): string {
   const fromContent = extractContentText(update.content);
   if (fromContent.trim()) return fromContent;
   const topLevel =

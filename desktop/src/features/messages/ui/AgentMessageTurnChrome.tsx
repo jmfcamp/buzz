@@ -86,7 +86,7 @@ export function AgentMessageTurnChromeRoot({
  */
 export function AgentMessageTurnFooterChrome() {
   const ctx = useChromeContext();
-  if (!ctx || !ctx.meta.enabled) return null;
+  if (!ctx?.meta.enabled) return null;
 
   const {
     meta,
@@ -217,7 +217,7 @@ export const AgentMessageTurnHeaderChips = AgentMessageTurnFooterChrome;
 /** Thinking expand card — sits under the chip row when open. */
 export function AgentMessageTurnThinkingCard() {
   const ctx = useChromeContext();
-  if (!ctx || !ctx.showThoughtChip) return null;
+  if (!ctx?.showThoughtChip) return null;
 
   const { meta, messageId } = ctx;
 

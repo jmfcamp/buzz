@@ -4,11 +4,7 @@ import { Activity, BarChart3, Loader2 } from "lucide-react";
 import { useOpenAgentActivity } from "@/features/agents/useOpenAgentActivity";
 import { useAgentUsageSeries } from "@/features/agents/useAgentUsageSeries";
 import { Button } from "@/shared/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/shared/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import {
   Sheet,
   SheetContent,
@@ -42,7 +38,6 @@ function formatCost(value: number | null, incomplete: boolean): string {
   }
   return `$${value.toFixed(value < 0.01 ? 4 : 2)}`;
 }
-
 
 function bucketTotalTokens(usage: {
   totalTokens: { value: string | null; incomplete: boolean };
@@ -228,10 +223,10 @@ export function AgentUsageActivityPanel({
                       return (
                         <Tooltip key={`${bucket.start}-${bucket.end}`}>
                           <TooltipTrigger asChild>
-                            <div
-                              className="flex h-full min-w-0 flex-1 cursor-default flex-col items-center gap-1"
+                            <button
+                              className="flex h-full min-w-0 flex-1 cursor-default flex-col items-center gap-1 border-0 bg-transparent p-0"
                               data-testid={`agent-usage-bucket-${bucket.start}`}
-                              tabIndex={0}
+                              type="button"
                             >
                               <div className="flex w-full min-h-0 flex-1 items-end">
                                 <div
@@ -246,7 +241,7 @@ export function AgentUsageActivityPanel({
                               <span className="truncate text-3xs text-muted-foreground">
                                 {dayLabel}
                               </span>
-                            </div>
+                            </button>
                           </TooltipTrigger>
                           <TooltipContent
                             className="max-w-xs text-xs"
@@ -277,7 +272,8 @@ export function AgentUsageActivityPanel({
                   )}
                 </div>
 
-                {series?.coverage.hasUnknownUsage || agentRow?.hasUnknownUsage ? (
+                {series?.coverage.hasUnknownUsage ||
+                agentRow?.hasUnknownUsage ? (
                   <p className="text-2xs text-muted-foreground">
                     Some turns reported incomplete token counts — totals may
                     understate real usage.

@@ -1065,7 +1065,6 @@ test("parseSystemPromptSections (modern) does NOT split on bracket [Team Instruc
   ]);
 });
 
-
 test("extractSessionUpdateText prefers content.text", () => {
   assert.equal(
     extractSessionUpdateText({
@@ -1087,6 +1086,9 @@ test("extractSessionUpdateText falls back to OpenClaw replay top-level text", ()
 });
 
 test("extractSessionUpdateText falls back to thinking/reasoning fields", () => {
-  assert.equal(extractSessionUpdateText({ thinking: "deliberation" }), "deliberation");
+  assert.equal(
+    extractSessionUpdateText({ thinking: "deliberation" }),
+    "deliberation",
+  );
   assert.equal(extractSessionUpdateText({ reasoning: "why" }), "why");
 });
