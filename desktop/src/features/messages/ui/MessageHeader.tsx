@@ -55,6 +55,10 @@ export function MessageMetaSeparator() {
  * slots. Each divider is grouped with the segment it precedes so the two wrap
  * together — as loose siblings in a flex-wrap row, a divider can end up alone
  * at the start of the second line.
+ *
+ * For agent replies, prefer a dedicated primary cluster (name · time · chips)
+ * with `shrink-0`, and put "managed by" in a following sibling so it wraps to
+ * a second row before time/chips do.
  */
 export function MessageMetaSegments({
   segments,
@@ -98,6 +102,11 @@ type MessageAuthorTextProps = {
   children: React.ReactNode;
   className?: string;
   hoverUnderline?: boolean;
+  /**
+   * Keep the full display name on one line without ellipsis. Used on the
+   * message header primary row so chips do not crush the name into "F…".
+   */
+  nowrap?: boolean;
 };
 
 export function MessageAuthorText({
@@ -105,11 +114,13 @@ export function MessageAuthorText({
   children,
   className,
   hoverUnderline = false,
+  nowrap = false,
 }: MessageAuthorTextProps) {
   return (
     <Component
       className={cn(
-        "truncate text-message font-semibold leading-message-author tracking-normal",
+        "text-message font-semibold leading-message-author tracking-normal",
+        nowrap ? "whitespace-nowrap" : "truncate",
         hoverUnderline && "hover:underline",
         className,
       )}
@@ -141,10 +152,10 @@ export function MessageAuthorIdentity({
           pubkey={pubkey}
           role={role}
           botIdenticonValue={displayName}
-          triggerClassName="min-w-0 max-w-full"
+          triggerClassName="shrink-0"
         >
           <button
-            className="truncate rounded leading-message-author focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+            className="whitespace-nowrap rounded leading-message-author focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             type="button"
           >
             {children}

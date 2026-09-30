@@ -59,7 +59,7 @@ import { MessageAgentOwner } from "./MessageAgentOwner";
 import {
   MessageAuthorText,
   MessageHeaderRow,
-  MessageMetaSegments,
+  MessageMetaSeparator,
 } from "./MessageHeader";
 import { MessageTimestamp } from "./MessageTimestamp";
 import { SentFromThreadLine } from "./SentFromThreadLine";
@@ -565,9 +565,13 @@ export const MessageRow = React.memo(
     );
 
     const authorNode = message.pubkey ? (
-      <MessageAuthorText hoverUnderline>{message.author}</MessageAuthorText>
+      <MessageAuthorText hoverUnderline nowrap>
+        {message.author}
+      </MessageAuthorText>
     ) : (
-      <MessageAuthorText as="h3">{message.author}</MessageAuthorText>
+      <MessageAuthorText as="h3" nowrap>
+        {message.author}
+      </MessageAuthorText>
     );
     const agentOwnerNode = message.isAgent ? (
       <MessageAgentOwner
@@ -663,38 +667,59 @@ export const MessageRow = React.memo(
         </div>
       ) : null;
 
+    const turnChromeNode =
+      showAgentThinking && message.isAgent && !message.pending ? (
+        <AgentMessageTurnHeaderChips />
+      ) : null;
+
     const headerNode = isDisplayedAsContinuation ? null : (
       // pe reserves the measured action-rail footprint (0px until measured) so
       // header content ends before the rail's left edge in every rail state.
+      //
+      // Primary cluster (shrink-0, nowrap): Name · time · chips stays on one
+      // line. "managed by …" is a following sibling so it wraps to a second
+      // row before time/chips ever do.
       <MessageHeaderRow className="pe-[var(--message-action-rail-width,0px)]">
-        {message.pubkey ? (
-          <MessageAuthorWithIndicators
-            authorName={message.author}
-            ownerPubkey={message.ownerPubkey}
-            pubkey={message.pubkey}
-            role={profilePopoverRole}
+        <span
+          className="inline-flex shrink-0 flex-nowrap items-baseline gap-x-1.5"
+          data-testid="message-header-primary"
+        >
+          {message.pubkey ? (
+            <MessageAuthorWithIndicators
+              authorName={message.author}
+              ownerPubkey={message.ownerPubkey}
+              pubkey={message.pubkey}
+              role={profilePopoverRole}
+            >
+              {authorNode}
+            </MessageAuthorWithIndicators>
+          ) : (
+            authorNode
+          )}
+          <MessageMetaSeparator />
+          {inlineMetadataNode}
+          {turnChromeNode ? (
+            <>
+              <MessageMetaSeparator />
+              {turnChromeNode}
+            </>
+          ) : null}
+          {personaNode ? (
+            <>
+              <MessageMetaSeparator />
+              {personaNode}
+            </>
+          ) : null}
+        </span>
+        {agentOwnerNode ? (
+          <span
+            className="inline-flex items-baseline gap-x-1.5"
+            data-testid="message-header-owner"
           >
-            {authorNode}
-          </MessageAuthorWithIndicators>
-        ) : (
-          authorNode
-        )}
-        {/* Author is not a segment: "Alice 9:53 AM" needs no divider. */}
-        <MessageMetaSegments
-          segments={[
-            { key: "owner", node: agentOwnerNode },
-            { key: "timestamp", node: inlineMetadataNode },
-            {
-              key: "turn-chrome",
-              nowrap: true,
-              node:
-                showAgentThinking && message.isAgent && !message.pending ? (
-                  <AgentMessageTurnHeaderChips />
-                ) : null,
-            },
-            { key: "persona", node: personaNode },
-          ]}
-        />
+            <MessageMetaSeparator />
+            {agentOwnerNode}
+          </span>
+        ) : null}
       </MessageHeaderRow>
     );
     const bodyContainerClass = isDisplayedAsContinuation
