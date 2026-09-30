@@ -60,6 +60,7 @@ const settingsNavGroups: Array<{
       "appearance",
       "notifications",
       "voice",
+      "huddle",
       "shortcuts",
       "buzz-term",
       "pinned-sites",
@@ -70,7 +71,12 @@ const settingsNavGroups: Array<{
   },
   {
     label: "Communities",
-    sections: ["hosted-communities", "community-members", "community-sections", "bots"],
+    sections: [
+      "hosted-communities",
+      "community-members",
+      "community-sections",
+      "bots",
+    ],
   },
   {
     label: "App",

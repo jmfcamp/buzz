@@ -27,12 +27,12 @@ export interface HuddleContextValue {
   setVoiceInputMode: (mode: VoiceInputMode) => Promise<void>;
   audioDevices: AudioInputDevice[];
   selectedDeviceId: string;
-  setSelectedDeviceId: (id: string) => void;
+  setSelectedDeviceId: (id: string) => Promise<void>;
   micGain: number;
   setMicGain: (value: number) => void;
   outputDevices: { name: string; is_default: boolean }[];
   selectedOutputDevice: string;
-  setSelectedOutputDevice: (name: string) => void;
+  setSelectedOutputDevice: (name: string) => Promise<void>;
   activeEphemeralChannelId: string | null;
   showHuddleInMainApp: (ephemeralChannelId: string) => void;
   viewHuddleChannel: (ephemeralChannelId: string) => void;

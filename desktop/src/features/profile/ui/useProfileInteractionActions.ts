@@ -11,7 +11,7 @@ import {
 import { useCommunityBotsQuery } from "@/features/community-bots/hooks";
 import { isCommunityBotPubkey } from "@/features/community-bots/lib/addCandidates";
 import { canDirectMessageIdentity } from "@/features/community-bots/lib/directMessage";
-import { useHuddle } from "@/features/huddle";
+import { useHuddle } from "@/features/huddle/HuddleContext";
 import { formatHuddleActionError } from "@/features/huddle/lib/huddleError";
 import {
   createOptimisticMessage,

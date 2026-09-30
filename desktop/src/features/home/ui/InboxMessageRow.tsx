@@ -6,23 +6,19 @@ import { toTimelineMessage } from "@/features/home/lib/inboxViewHelpers";
 import { formatTimeWithoutDayPeriod } from "@/features/messages/lib/dateFormatters";
 import { formatItemTimestamp } from "@/shared/lib/datetime";
 import type { TimelineMessage } from "@/features/messages/types";
-import { getConfigNudgeAuthorPubkey } from "@/features/messages/ui/configNudgeAuthPubkey";
 import { MessageActionBar } from "@/features/messages/ui/MessageActionBar";
 import { MessageAgentOwner } from "@/features/messages/ui/MessageAgentOwner";
+import { MessageBody } from "@/features/messages/ui/MessageBody";
 import { MessageMetaSeparator } from "@/features/messages/ui/MessageHeader";
 import { MessageReactions } from "@/features/messages/ui/MessageReactions";
 import { UnreadDivider } from "@/features/messages/ui/UnreadDivider";
 import { useReactionHandler } from "@/features/messages/ui/useReactionHandler";
-import { useMessageEmoji } from "@/features/messages/lib/useMessageEmoji";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import { UserProfilePopover } from "@/features/profile/ui/UserProfilePopover";
 import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
-import { hasLinkPreviewSuppression } from "@/features/messages/lib/formatTimelineMessages";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
 import type { VideoReviewContext } from "@/shared/ui/VideoPlayer";
-import { VideoReviewCommentMarkdown } from "@/shared/ui/VideoReviewCommentMarkdown";
-import { parseImetaTags } from "@/shared/ui/markdown/parseImeta";
 
 export type InboxDisplayMessage = InboxContextMessage & {
   depth: number;
@@ -33,6 +29,8 @@ type InboxMessageRowProps = {
   canReply: boolean;
   /** Channel UUID for "Copy link" — passed straight through to MessageActionBar. */
   channelId?: string | null;
+  huddleMemberPubkeys?: readonly string[];
+  huddleMemberPubkeysPending?: boolean;
   isContinuation?: boolean;
   isFirst?: boolean;
   isFocusHighlightVisible: boolean;
@@ -56,6 +54,8 @@ export function InboxMessageRow({
   agentPubkeys,
   canReply,
   channelId = null,
+  huddleMemberPubkeys,
+  huddleMemberPubkeysPending = false,
   isContinuation = false,
   isFirst = false,
   isFocusHighlightVisible,
@@ -72,14 +72,6 @@ export function InboxMessageRow({
   const timelineMessage = React.useMemo(
     () => toTimelineMessage(message),
     [message],
-  );
-  const imetaByUrl = React.useMemo(
-    () => (message.tags ? parseImetaTags(message.tags) : undefined),
-    [message.tags],
-  );
-  const { customEmoji, emojiOnly } = useMessageEmoji(
-    message.content,
-    message.tags,
   );
   const [badgeBurstEmoji, setBadgeBurstEmoji] = React.useState<string | null>(
     null,
@@ -263,29 +255,15 @@ export function InboxMessageRow({
             className={isContinuation ? "mt-0" : "mt-conversation-body"}
             data-testid="message-body"
           >
-            <VideoReviewCommentMarkdown
-              className={cn(
-                "max-w-full text-left text-message text-foreground",
-                emojiOnly &&
-                  "text-4xl leading-tight [&_p]:leading-tight [&_img[data-custom-emoji]]:h-[1.45em] [&_img[data-custom-emoji]]:align-middle [&_button:has(img[data-custom-emoji])]:align-middle",
-              )}
-              // Only pass the author pubkey for agent-authored messages so
-              // config-nudge cards can authenticate the sender. Uses the
-              // raw event signer (signerPubkey), not a relay-delegated display
-              // author, because the agent itself must have signed the card.
-              configNudgeAuthorPubkey={getConfigNudgeAuthorPubkey(
-                timelineMessage,
-                isKnownAgentPubkey,
-              )}
-              content={message.content}
-              messageId={message.id}
-              linkPreviewsSuppressed={hasLinkPreviewSuppression(
-                timelineMessage.tags,
-              )}
-              customEmoji={customEmoji}
-              imetaByUrl={imetaByUrl}
-              mentionNames={message.mentionNames}
-              mentionPubkeysByName={message.mentionPubkeysByName}
+            <MessageBody
+              canRemoveLinkPreviews={Boolean(onEdit)}
+              channelId={channelId}
+              huddleMemberPubkeys={huddleMemberPubkeys}
+              huddleMemberPubkeysPending={huddleMemberPubkeysPending}
+              isKnownAgentPubkey={isKnownAgentPubkey}
+              markdownClassName="max-w-full text-left text-message text-foreground"
+              message={timelineMessage}
+              profiles={profiles}
               videoReviewCommentRootId={videoReviewCommentRootId}
               videoReviewContext={videoReviewContext}
             />

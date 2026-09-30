@@ -16,6 +16,10 @@ import type {
 } from "@/features/home/lib/inbox";
 import { getProjectInboxReference } from "@/features/home/lib/projectInbox";
 import { ProjectInboxDetail } from "@/features/home/ui/ProjectInboxDetail";
+import {
+  getDmHuddleMemberPubkeys,
+  hasOtherDmParticipant,
+} from "@/features/channels/lib/dmHuddleMembers";
 import { ChannelMembersBar } from "@/features/channels/ui/ChannelMembersBar";
 import { useCommunities } from "@/features/communities/useCommunities";
 import { formatInboxTypeLabel } from "@/features/home/lib/inbox";
@@ -215,6 +219,12 @@ function InboxMessageDetailPane({
   const conversationId = item?.conversationId ?? null;
   const selectedChannelId = item?.item.channelId ?? null;
   const isDirectMessage = item?.item.channelType === "dm";
+  const huddleMemberPubkeys = React.useMemo(
+    () => getDmHuddleMemberPubkeys(channel, agentPubkeys, currentPubkey),
+    [agentPubkeys, channel, currentPubkey],
+  );
+  const huddleMemberPubkeysPending =
+    !agentPubkeys && hasOtherDmParticipant(channel, currentPubkey);
   // Build the plain, non-virtualized timeline the shared hook anchors against.
   // Live arrivals rerun its layout compensation without changing the target.
 
@@ -763,6 +773,8 @@ function InboxMessageDetailPane({
                   agentPubkeys={agentPubkeys}
                   canReply={canReply}
                   channelId={item.item.channelId}
+                  huddleMemberPubkeys={huddleMemberPubkeys}
+                  huddleMemberPubkeysPending={huddleMemberPubkeysPending}
                   isContinuation={isContinuation}
                   isFirst={index === 0}
                   isFocusHighlightVisible={isFocusHighlightVisible}

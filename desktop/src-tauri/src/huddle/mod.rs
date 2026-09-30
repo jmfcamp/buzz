@@ -30,6 +30,7 @@ pub mod agent_voice;
 pub mod agents;
 pub mod audio_output;
 mod commands;
+pub mod huddle_defaults;
 mod human_floor;
 pub mod jitter;
 #[cfg(test)]
@@ -103,6 +104,7 @@ use agent_tts_routing::{
     classify_agent_tts_runtime, enqueue_agent_tts_text, normalize_agent_tts_text,
     AgentTtsRuntimeGate,
 };
+use audio_output::set_audio_output_device;
 pub use pipeline::check_pipeline_hotstart;
 use pipeline::{
     await_inflight_tts_start, maybe_start_stt_pipeline, maybe_start_tts_pipeline,
@@ -140,18 +142,33 @@ fn normalize_huddle_channel_name(candidate: Option<String>, fallback: &str) -> S
 #[tauri::command]
 pub async fn set_voice_input_mode(
     mode: VoiceInputMode,
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let needs_restart = {
+    let (old_mode, old_preference, needs_restart) = {
         let mut hs = state.huddle()?;
         let old_mode = hs.voice_input_mode.clone();
-        hs.voice_input_mode = mode.clone();
-        // Restart STT if mode changed and a huddle is active with a pipeline running.
-        old_mode != mode
+        let old_preference = hs.voice_input_preference.clone();
+        let needs_restart = old_mode != mode
             && matches!(hs.phase, HuddlePhase::Connected | HuddlePhase::Active)
             && hs.stt_pipeline.is_some()
-            && hs.transcription_enabled
+            && hs.transcription_enabled;
+        hs.voice_input_mode = mode.clone();
+        hs.voice_input_preference = mode.clone();
+        (old_mode, old_preference, needs_restart)
     };
+
+    if let Err(error) =
+        huddle_defaults::update_saved_defaults(&app, &state.huddle_audio, |defaults| {
+            defaults.push_to_talk = matches!(mode, VoiceInputMode::PushToTalk);
+            Ok(())
+        })
+    {
+        let mut hs = state.huddle()?;
+        hs.voice_input_mode = old_mode;
+        hs.voice_input_preference = old_preference;
+        return Err(error);
+    }
 
     if needs_restart {
         let eph_id = {
@@ -180,6 +197,40 @@ pub async fn set_voice_input_mode(
 pub fn get_voice_input_mode(state: State<'_, AppState>) -> Result<VoiceInputMode, String> {
     let hs = state.huddle()?;
     Ok(hs.voice_input_mode.clone())
+}
+
+/// Merge saved huddle defaults and apply live push-to-talk or speaker changes.
+///
+/// A patch field that is absent stays unchanged. Push-to-talk uses the same
+/// path as [`set_voice_input_mode`], including the STT restart. The camera id
+/// is stored only; huddle video does not start.
+#[tauri::command]
+pub async fn set_huddle_defaults(
+    patch: huddle_defaults::HuddleDefaultsPatch,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<huddle_defaults::HuddleDefaults, String> {
+    let mut probe = huddle_defaults::HuddleDefaults::default();
+    huddle_defaults::apply_patch(&mut probe, &patch)?;
+    if let Some(name) = patch.speaker_device_name.clone() {
+        set_audio_output_device(name, app.clone(), state.clone())?;
+    }
+    if let Some(push_to_talk) = patch.push_to_talk {
+        let mode = if push_to_talk {
+            VoiceInputMode::PushToTalk
+        } else {
+            VoiceInputMode::VoiceActivity
+        };
+        set_voice_input_mode(mode, app.clone(), state.clone()).await?;
+    }
+    huddle_defaults::update_saved_defaults(&app, &state.huddle_audio, |defaults| {
+        let device_patch = huddle_defaults::HuddleDefaultsPatch {
+            push_to_talk: None,
+            speaker_device_name: None,
+            ..patch.clone()
+        };
+        huddle_defaults::apply_patch(defaults, &device_patch)
+    })
 }
 
 /// Start a new huddle in the given parent channel.
