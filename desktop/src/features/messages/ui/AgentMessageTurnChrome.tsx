@@ -82,7 +82,7 @@ export function AgentMessageTurnChromeRoot({
 
 /**
  * Duration / Thought / tokens / prompt-context chips under the reply body.
- * Thinking expand mounts just above this row when open (LM Studio-style).
+ * Thinking expand mounts under this chip row when open.
  */
 export function AgentMessageTurnFooterChrome() {
   const ctx = useChromeContext();
@@ -111,8 +111,6 @@ export function AgentMessageTurnFooterChrome() {
       className="mt-1.5"
       data-testid={`agent-message-turn-footer-${messageId}`}
     >
-      {expanded && showThoughtChip ? <AgentMessageTurnThinkingCard /> : null}
-
       <span
         className="inline-flex shrink-0 flex-wrap items-center gap-1"
         data-testid={`agent-message-turn-chrome-${messageId}`}
@@ -201,6 +199,8 @@ export function AgentMessageTurnFooterChrome() {
         ) : null}
       </span>
 
+      {expanded && showThoughtChip ? <AgentMessageTurnThinkingCard /> : null}
+
       <PromptContextDialog
         onOpenChange={setContextOpen}
         open={contextOpen}
@@ -214,7 +214,7 @@ export function AgentMessageTurnFooterChrome() {
 /** @deprecated Use AgentMessageTurnFooterChrome — kept as alias during rename. */
 export const AgentMessageTurnHeaderChips = AgentMessageTurnFooterChrome;
 
-/** Thinking expand card — sits above the under-body chip row when open. */
+/** Thinking expand card — sits under the chip row when open. */
 export function AgentMessageTurnThinkingCard() {
   const ctx = useChromeContext();
   if (!ctx || !ctx.showThoughtChip) return null;
@@ -229,7 +229,7 @@ export function AgentMessageTurnThinkingCard() {
 
   return (
     <div
-      className="mb-1.5 max-h-64 overflow-y-auto rounded-lg border border-border/70 bg-muted/20 px-2.5 py-2"
+      className="mt-1.5 max-h-64 overflow-y-auto rounded-lg border border-border/70 bg-muted/20 px-2.5 py-2"
       data-testid={`agent-message-thinking-card-${messageId}`}
     >
       {emptyMessage ? (
