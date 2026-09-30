@@ -11,6 +11,7 @@ import {
 import { extractPlaygroundCards } from "./card.ts";
 import {
   addPlaygroundTab,
+  closePlaygroundTab,
   ensureBrowserForSid,
   getLiveBrowserForSid,
   getPlaygroundBrowser,

@@ -46,7 +46,7 @@ export type AgentMessageTurnMeta = {
   durationLabel: string | null;
   durationSeconds: number | null;
   tokensLabel: string | null;
-  totalTokens: string | null;
+  totalTokens: string | number | null;
   metric: AgentTurnMetricNear | null;
   turnId: string | null;
   /** Thought + tool items only (never lifecycle-only filler). */
