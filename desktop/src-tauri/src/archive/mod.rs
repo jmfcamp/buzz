@@ -867,6 +867,12 @@ pub struct AgentTurnMetricNear {
 }
 
 fn row_to_near(row: &metric_store::AgentMetricIndexRow, delta: i64, match_kind: &str) -> AgentTurnMetricNear {
+    let turn_total = row.turn_total_tokens.or_else(|| match (row.turn_input_tokens, row.turn_output_tokens) {
+        (Some(i), Some(o)) => Some(i.saturating_add(o)),
+        (Some(i), None) => Some(i),
+        (None, Some(o)) => Some(o),
+        (None, None) => None,
+    });
     AgentTurnMetricNear {
         id: row.id.clone(),
         reported_at: row.reported_at.unwrap_or(row.event_created_at),
@@ -877,7 +883,7 @@ fn row_to_near(row: &metric_store::AgentMetricIndexRow, delta: i64, match_kind: 
         harness: row.harness.clone(),
         turn_input_tokens: row.turn_input_tokens.map(|n| n.to_string()),
         turn_output_tokens: row.turn_output_tokens.map(|n| n.to_string()),
-        turn_total_tokens: row.turn_total_tokens.map(|n| n.to_string()),
+        turn_total_tokens: turn_total.map(|n| n.to_string()),
         turn_cost_usd: row.turn_cost_usd,
         delta_sec: delta,
         match_kind: match_kind.to_string(),

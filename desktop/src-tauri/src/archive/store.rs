@@ -131,8 +131,9 @@ CREATE INDEX IF NOT EXISTS idx_archived_events_agent_metric
 CREATE INDEX IF NOT EXISTS idx_agent_metric_session
     ON agent_metric_index (identity_pubkey, relay_url, agent_pubkey, session_id, turn_seq, id);
 
-CREATE INDEX IF NOT EXISTS idx_agent_metric_turn_id
-    ON agent_metric_index (identity_pubkey, relay_url, agent_pubkey, session_id, turn_id, id);
+-- idx_agent_metric_turn_id is created by migration M5 after `turn_id` exists.
+-- Putting it in SCHEMA breaks open_archive_db on pre-M5 DBs (CREATE TABLE
+-- IF NOT EXISTS leaves the old shape, then this index fails on missing column).
 
 -- Window scan by reported time.
 CREATE INDEX IF NOT EXISTS idx_agent_metric_reported

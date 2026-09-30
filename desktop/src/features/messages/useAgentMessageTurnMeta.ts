@@ -288,14 +288,19 @@ export function useAgentMessageTurnMeta(input: {
   ]);
 
   const rawMetric = metricQuery.data ?? null;
-  // Hide fuzzy/ambiguous attributions (wrong turn's 230k). Exact always OK;
-  // time match only when within the tight window the backend already enforced.
+  // Backend already refuses ambiguous time joins. Trust a returned row; only
+  // drop legacy/unknown matchKind payloads that look like a far fuzzy hit.
   const metric =
-    rawMetric &&
-    (rawMetric.matchKind === "exact" ||
-      (rawMetric.matchKind === "time" && rawMetric.deltaSec <= 45))
-      ? rawMetric
-      : null;
+    rawMetric == null
+      ? null
+      : rawMetric.matchKind === "exact" ||
+          rawMetric.matchKind === "time" ||
+          rawMetric.matchKind == null ||
+          rawMetric.matchKind === ""
+        ? rawMetric
+        : rawMetric.deltaSec <= 45
+          ? rawMetric
+          : null;
   const totalTokens =
     metric?.turnTotalTokens ??
     (metric?.turnInputTokens && metric?.turnOutputTokens

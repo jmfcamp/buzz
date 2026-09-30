@@ -144,6 +144,18 @@ impl AgentMetricIndexRow {
 
         let turn = payload.turn.as_ref();
         let cumulative = payload.cumulative.as_ref();
+        let turn_input = turn.and_then(|t| t.input_tokens);
+        let turn_output = turn.and_then(|t| t.output_tokens);
+        // Publishers (e.g. claude-agent-acp) often omit totalTokens; derive so
+        // per-message chips still show an accurate count.
+        let turn_total = turn
+            .and_then(|t| t.total_tokens)
+            .or_else(|| match (turn_input, turn_output) {
+                (Some(i), Some(o)) => Some(i.saturating_add(o)),
+                (Some(i), None) => Some(i),
+                (None, Some(o)) => Some(o),
+                (None, None) => None,
+            });
 
         Self {
             id: id.to_string(),
@@ -157,9 +169,9 @@ impl AgentMetricIndexRow {
             harness: Some(payload.harness),
             model: payload.model,
             delta_reliable: Some(payload.delta_reliable),
-            turn_input_tokens: turn.and_then(|t| t.input_tokens),
-            turn_output_tokens: turn.and_then(|t| t.output_tokens),
-            turn_total_tokens: turn.and_then(|t| t.total_tokens),
+            turn_input_tokens: turn_input,
+            turn_output_tokens: turn_output,
+            turn_total_tokens: turn_total,
             turn_cost_usd: turn.and_then(|t| t.cost_usd),
             turn_cache_read_tokens: turn.and_then(|t| t.cache_read_tokens),
             turn_cache_write_tokens: turn.and_then(|t| t.cache_write_tokens),
