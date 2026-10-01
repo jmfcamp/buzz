@@ -1,6 +1,11 @@
 import { defineConfig, devices } from "@playwright/test";
 
-export default defineConfig({
+import { applyPlaywrightNodeCollect } from "./playwright-node-collect.mjs";
+
+const config = defineConfig({
+  build: {
+    external: ["**/*.css"],
+  },
   testDir: "./tests/e2e",
   timeout: 30_000,
   retries: process.env.CI ? 2 : 0,
@@ -222,3 +227,5 @@ export default defineConfig({
     url: "http://127.0.0.1:4173",
   },
 });
+
+export default applyPlaywrightNodeCollect(config);
