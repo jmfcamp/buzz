@@ -1,4 +1,4 @@
-import emojiData from "@emoji-mart/data";
+import { emojiMartData as emojiData } from "@/shared/lib/emojiMartDataset";
 import Picker from "@emoji-mart/react";
 import { Link2, UploadCloud } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";

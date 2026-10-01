@@ -1,4 +1,4 @@
-import data from "@emoji-mart/data";
+import { emojiMartData as data } from "@/shared/lib/emojiMartDataset";
 import { init } from "emoji-mart";
 
 // emoji-mart treats a persisted empty object differently from a missing index:

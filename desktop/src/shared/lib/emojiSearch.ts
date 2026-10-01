@@ -1,4 +1,4 @@
-import data from "@emoji-mart/data";
+import { emojiMartData as data } from "@/shared/lib/emojiMartDataset";
 
 /**
  * Shortcode fuzzy matching for the `:shortcode` emoji autocomplete.
