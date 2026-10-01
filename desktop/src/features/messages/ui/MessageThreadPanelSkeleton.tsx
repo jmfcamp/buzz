@@ -29,6 +29,7 @@ export function MessageThreadPanelHeader({
   onClose,
   onHeaderTitleClick,
   showBackButton,
+  titleAccessory,
 }: {
   headerLeading?: React.ReactNode;
   headerTitle?: string;
@@ -39,6 +40,8 @@ export function MessageThreadPanelHeader({
   onClose: () => void;
   onHeaderTitleClick?: () => void;
   showBackButton?: boolean;
+  /** Sits immediately to the right of the title text. */
+  titleAccessory?: React.ReactNode;
 }) {
   const title = onHeaderTitleClick ? (
     <button
@@ -69,7 +72,16 @@ export function MessageThreadPanelHeader({
             : undefined
         }
       >
-        <AuxiliaryPanelTitle>{title}</AuxiliaryPanelTitle>
+        {titleAccessory ? (
+          <div className="flex min-w-0 flex-1 items-center gap-1">
+            <div className="w-fit min-w-0 max-w-[calc(100%-1.75rem)]">
+              <AuxiliaryPanelTitle>{title}</AuxiliaryPanelTitle>
+            </div>
+            {titleAccessory}
+          </div>
+        ) : (
+          <AuxiliaryPanelTitle>{title}</AuxiliaryPanelTitle>
+        )}
         {headerTrailing}
       </AuxiliaryPanelHeaderGroup>
     </AuxiliaryPanelHeader>

@@ -1,4 +1,4 @@
-import { ChevronDown, MessageSquare, StarOff } from "lucide-react";
+import { ChevronDown, MessageSquare, Pencil, StarOff } from "lucide-react";
 import * as React from "react";
 import { useLocation } from "@tanstack/react-router";
 
@@ -9,7 +9,11 @@ import {
   countUnreadForStarredThreadRoot,
   formatSidebarUnreadCount,
 } from "@/features/sidebar/lib/starredThreadSidebar";
+import { starredThreadTitle } from "@/features/sidebar/lib/threadLabels";
 import type { StarredThreadEntry } from "@/features/sidebar/lib/threadStarsStorage";
+import { useThreadLabels } from "@/features/sidebar/lib/useThreadLabels";
+import { ThreadRenameDialog } from "@/features/messages/ui/ThreadRenameDialog";
+import { StatusEmoji } from "@/features/user-status/ui/StatusEmoji";
 import {
   ChannelWorkingBadge,
   formatWorkingTooltip,
@@ -21,6 +25,7 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "@/shared/ui/context-menu";
+import { deferMenuAction } from "@/features/sidebar/ui/sidebarMenuHelpers";
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -46,16 +51,22 @@ function selectedThreadRootFromSearch(search: unknown): string | null {
 
 function StarredThreadRow({
   entry,
+  displayTitle,
+  icon,
   isActive,
   unreadCount,
   activeWorking,
+  onRename,
   onSelect,
   onUnstar,
 }: {
   entry: StarredThreadEntry;
+  displayTitle: string;
+  icon?: string;
   isActive: boolean;
   unreadCount: number;
   activeWorking?: ActiveChannelTurnSummary;
+  onRename?: () => void;
   onSelect: () => void;
   onUnstar: () => void;
 }) {
@@ -63,6 +74,7 @@ function StarredThreadRow({
   const workingTitle = activeWorking
     ? formatWorkingTooltip(activeWorking)
     : undefined;
+  const rowLabel = `${displayTitle} · #${entry.channelName}`;
 
   return (
     <ContextMenu>
@@ -77,21 +89,27 @@ function StarredThreadRow({
             data-testid={`starred-thread-${entry.rootId}`}
             isActive={isActive}
             onClick={onSelect}
-            title={
-              workingTitle
-                ? `${entry.title} · #${entry.channelName} · ${workingTitle}`
-                : `${entry.title} · #${entry.channelName}`
-            }
-            tooltip={`${entry.title} · #${entry.channelName}`}
+            title={workingTitle ? `${rowLabel} · ${workingTitle}` : rowLabel}
+            tooltip={rowLabel}
           >
-            <MessageSquare className="h-4 w-4 shrink-0" />
+            {icon ? (
+              <span
+                aria-hidden="true"
+                className="flex h-4 w-4 shrink-0 items-center justify-center"
+                data-testid={`starred-thread-icon-${entry.rootId}`}
+              >
+                <StatusEmoji className="h-4 w-4" decorative value={icon} />
+              </span>
+            ) : (
+              <MessageSquare className="h-4 w-4 shrink-0" />
+            )}
             <span
               className={cn(
                 "min-w-0 flex-1 truncate text-left",
                 !isActive && !hasUnread && "opacity-80",
               )}
             >
-              {entry.title}
+              {displayTitle}
             </span>
             {activeWorking ? (
               <ChannelWorkingBadge
@@ -125,6 +143,17 @@ function StarredThreadRow({
         </SidebarMenuItem>
       </ContextMenuTrigger>
       <ContextMenuContent>
+        {onRename ? (
+          <ContextMenuItem
+            data-testid={`starred-thread-rename-${entry.rootId}`}
+            onSelect={() => {
+              deferMenuAction(onRename);
+            }}
+          >
+            <Pencil className="h-4 w-4" />
+            <span>Rename</span>
+          </ContextMenuItem>
+        ) : null}
         <ContextMenuItem
           onSelect={() => {
             onUnstar();
@@ -140,12 +169,14 @@ function StarredThreadRow({
 
 export function SidebarStarredThreadsSection({
   activeWorkingByChannelId,
+  currentPubkey,
   isCollapsed,
   items,
   onToggleCollapsed,
   onUnstarThread,
 }: {
   activeWorkingByChannelId?: ReadonlyMap<string, ActiveChannelTurnSummary>;
+  currentPubkey?: string;
   isCollapsed: boolean;
   items: readonly StarredThreadEntry[];
   onToggleCollapsed: () => void;
@@ -154,6 +185,8 @@ export function SidebarStarredThreadsSection({
   const { goChannel } = useAppNavigation();
   const location = useLocation();
   const { unreadThreadFeedItems } = useAppShell();
+  const { labelFor, setThreadLabel } = useThreadLabels(currentPubkey);
+  const [renameRootId, setRenameRootId] = React.useState<string | null>(null);
   const selectedThreadRootId = React.useMemo(
     () => selectedThreadRootFromSearch(location.search),
     [location.search],
@@ -175,52 +208,86 @@ export function SidebarStarredThreadsSection({
     return null;
   }
 
+  const renameEntry = renameRootId
+    ? items.find((entry) => entry.rootId === renameRootId)
+    : undefined;
+  const renameLabel = renameRootId ? labelFor(renameRootId) : undefined;
+
   return (
-    <SidebarGroup
-      className="group/sidebar-section select-none"
-      data-testid="starred-threads-section"
-    >
-      <div className="relative">
-        <SidebarGroupLabel asChild>
-          <button
-            aria-controls={contentId}
-            aria-expanded={!isCollapsed}
-            className={SECTION_LABEL_BUTTON_CLASS}
-            data-testid="starred-threads-section-label"
-            onClick={onToggleCollapsed}
-            type="button"
-          >
-            <span data-sidebar-section-title>Starred threads</span>
-            <span aria-hidden="true" className={SECTION_LABEL_CHEVRON_CLASS}>
-              <ChevronDown
-                className={cn(
-                  SECTION_LABEL_CHEVRON_ICON_CLASS,
-                  isCollapsed ? "-rotate-90" : "rotate-0",
-                )}
-              />
-            </span>
-          </button>
-        </SidebarGroupLabel>
-      </div>
-      {!isCollapsed ? (
-        <SidebarGroupContent id={contentId}>
-          <SidebarMenu data-testid="starred-threads-list">
-            {items.map((entry) => (
-              <StarredThreadRow
-                key={entry.rootId}
-                activeWorking={activeWorkingByChannelId?.get(entry.channelId)}
-                entry={entry}
-                isActive={selectedThreadRootId === entry.rootId}
-                onSelect={() => {
-                  void goChannel(entry.channelId, { thread: entry.rootId });
-                }}
-                onUnstar={() => onUnstarThread(entry.rootId)}
-                unreadCount={unreadCountByRootId.get(entry.rootId) ?? 0}
-              />
-            ))}
-          </SidebarMenu>
-        </SidebarGroupContent>
+    <>
+      <SidebarGroup
+        className="group/sidebar-section select-none"
+        data-testid="starred-threads-section"
+      >
+        <div className="relative">
+          <SidebarGroupLabel asChild>
+            <button
+              aria-controls={contentId}
+              aria-expanded={!isCollapsed}
+              className={SECTION_LABEL_BUTTON_CLASS}
+              data-testid="starred-threads-section-label"
+              onClick={onToggleCollapsed}
+              type="button"
+            >
+              <span data-sidebar-section-title>Starred threads</span>
+              <span aria-hidden="true" className={SECTION_LABEL_CHEVRON_CLASS}>
+                <ChevronDown
+                  className={cn(
+                    SECTION_LABEL_CHEVRON_ICON_CLASS,
+                    isCollapsed ? "-rotate-90" : "rotate-0",
+                  )}
+                />
+              </span>
+            </button>
+          </SidebarGroupLabel>
+        </div>
+        {!isCollapsed ? (
+          <SidebarGroupContent id={contentId}>
+            <SidebarMenu data-testid="starred-threads-list">
+              {items.map((entry) => {
+                const label = labelFor(entry.rootId);
+                return (
+                  <StarredThreadRow
+                    key={entry.rootId}
+                    activeWorking={activeWorkingByChannelId?.get(
+                      entry.channelId,
+                    )}
+                    displayTitle={starredThreadTitle(entry.title, label?.name)}
+                    entry={entry}
+                    icon={label?.icon}
+                    isActive={selectedThreadRootId === entry.rootId}
+                    onRename={
+                      currentPubkey
+                        ? () => setRenameRootId(entry.rootId)
+                        : undefined
+                    }
+                    onSelect={() => {
+                      void goChannel(entry.channelId, { thread: entry.rootId });
+                    }}
+                    onUnstar={() => onUnstarThread(entry.rootId)}
+                    unreadCount={unreadCountByRootId.get(entry.rootId) ?? 0}
+                  />
+                );
+              })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        ) : null}
+      </SidebarGroup>
+      {renameEntry ? (
+        <ThreadRenameDialog
+          allowEmpty={false}
+          initialIcon={renameLabel?.icon ?? ""}
+          initialName={starredThreadTitle(renameEntry.title, renameLabel?.name)}
+          onConfirm={({ name, icon }) => {
+            setThreadLabel(renameEntry.rootId, { name, icon });
+          }}
+          onOpenChange={(open) => {
+            if (!open) setRenameRootId(null);
+          }}
+          open
+          showIcon
+        />
       ) : null}
-    </SidebarGroup>
+    </>
   );
 }

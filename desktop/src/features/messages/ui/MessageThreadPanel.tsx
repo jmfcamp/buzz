@@ -6,7 +6,10 @@ import { ConversationInfoButton } from "@/features/channels/ui/ConversationInfoB
 import { ConversationPopoutMenu } from "@/features/popout/ui/ConversationPopoutMenu";
 import { ConversationPlaygroundPinsMenu } from "@/features/playground/ui/ConversationPlaygroundPinsMenu";
 import { TermSessionHandoffPopover } from "@/features/term-session/ui/TermSessionHandoffPopover";
+import { ThreadRenameButton } from "@/features/messages/ui/ThreadRenameButton";
 import { ThreadStarButton } from "@/features/messages/ui/ThreadStarButton";
+import { threadHeaderTitle } from "@/features/sidebar/lib/threadLabels";
+import { useThreadLabels } from "@/features/sidebar/lib/useThreadLabels";
 
 import { HuddleTranscriptIntro } from "@/features/huddle/components/HuddleTranscriptIntro";
 import {
@@ -230,6 +233,13 @@ export function MessageThreadPanel({
   >(null);
   const isOverlay = useIsThreadPanelOverlay();
   const threadHeadId = threadHead?.id ?? null;
+  const { labelFor } = useThreadLabels(currentPubkey);
+  const savedThreadLabel = threadHeadId ? labelFor(threadHeadId) : undefined;
+  const resolvedHeaderTitle = headerTitle
+    ? headerTitle
+    : threadHeaderTitle(savedThreadLabel?.name);
+  const canRenameThread =
+    !headerTitle && Boolean(threadHeadId && currentPubkey);
   const isPopoutThreadOnly = usePopoutThreadOnlyLayout();
   useEscapeKey(
     onClose,
@@ -921,8 +931,16 @@ export function MessageThreadPanel({
           isHuddleTranscript || isPopoutThreadOnly ? undefined : (
             <MessageThreadPanelHeader
               headerLeading={headerLeading}
-              headerTitle={headerTitle}
+              headerTitle={resolvedHeaderTitle}
               headerTitleAriaLabel={headerTitleAriaLabel}
+              titleAccessory={
+                canRenameThread && threadHeadId && currentPubkey ? (
+                  <ThreadRenameButton
+                    currentPubkey={currentPubkey}
+                    rootId={threadHeadId}
+                  />
+                ) : null
+              }
               headerTrailing={
                 channelId ? (
                   <>
@@ -939,7 +957,7 @@ export function MessageThreadPanel({
                       channelId={channelId}
                       testId="thread-info-button"
                       threadRootId={threadHeadId}
-                      title={headerTitle ?? channelName}
+                      title={resolvedHeaderTitle}
                     />
                     <ConversationPlaygroundPinsMenu
                       channelId={channelId}
