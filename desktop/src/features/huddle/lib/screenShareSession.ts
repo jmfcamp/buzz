@@ -51,8 +51,11 @@ export class HuddleScreenShareSession {
   private remoteClearTimer: ReturnType<typeof setTimeout> | null = null;
   /** Serialize connect/reconnect so subscribe and publish never interleave. */
   private connectTail: Promise<void> = Promise.resolve();
+  private readonly callbacks: ScreenShareSessionCallbacks;
 
-  constructor(private readonly callbacks: ScreenShareSessionCallbacks) {}
+  constructor(callbacks: ScreenShareSessionCallbacks) {
+    this.callbacks = callbacks;
+  }
 
   get isConnected(): boolean {
     return this.room?.state === "connected";

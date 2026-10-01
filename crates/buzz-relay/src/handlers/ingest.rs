@@ -12,21 +12,22 @@ use uuid::Uuid;
 use buzz_auth::Scope;
 use buzz_core::kind::{
     event_kind_u32, is_identity_archive_request_kind, is_parameterized_replaceable,
-    is_relay_admin_kind, KIND_AGENT_ENGRAM, KIND_AGENT_OBSERVER_FRAME, KIND_AGENT_PROFILE, KIND_AGENT_TURN_METRIC,
-    KIND_APPROVAL_DENY, KIND_APPROVAL_GRANT, KIND_AUTH, KIND_BOOKMARK_LIST, KIND_BOOKMARK_SET,
-    KIND_CANVAS, KIND_COMMUNITY_BOTS, KIND_COMMUNITY_PINNED_SITES, KIND_COMMUNITY_SECTIONS, KIND_CONTACT_LIST,
-    KIND_DELETION, KIND_DM_ADD_MEMBER, KIND_DM_HIDE, KIND_DM_OPEN, KIND_EMOJI_LIST, KIND_EMOJI_SET,
-    KIND_EVENT_REMINDER, KIND_FOLLOW_SET, KIND_FORUM_COMMENT, KIND_FORUM_POST, KIND_FORUM_VOTE,
-    KIND_GIFT_WRAP, KIND_GIT_ISSUE, KIND_GIT_PATCH, KIND_GIT_PR_UPDATE, KIND_GIT_PULL_REQUEST,
-    KIND_GIT_REPO_ANNOUNCEMENT, KIND_GIT_REPO_STATE, KIND_GIT_STATUS_CLOSED, KIND_GIT_STATUS_DRAFT,
-    KIND_GIT_STATUS_MERGED, KIND_GIT_STATUS_OPEN, KIND_HUDDLE_ENDED, KIND_HUDDLE_GUIDELINES, KIND_HUDDLE_SCREEN_SHARE,
-    KIND_HUDDLE_PARTICIPANT_JOINED, KIND_HUDDLE_PARTICIPANT_LEFT, KIND_HUDDLE_STARTED,
-    KIND_IA_ARCHIVE_REQUEST, KIND_IA_UNARCHIVE_REQUEST, KIND_LONG_FORM, KIND_MANAGED_AGENT,
-    KIND_MEMBER_ADDED_NOTIFICATION, KIND_MEMBER_REMOVED_NOTIFICATION, KIND_MODERATION_BAN,
-    KIND_MODERATION_RESOLVE_REPORT, KIND_MODERATION_TIMEOUT, KIND_MODERATION_UNBAN,
-    KIND_MODERATION_UNTIMEOUT, KIND_MUTE_LIST, KIND_NIP29_CREATE_GROUP, KIND_NIP29_DELETE_EVENT,
-    KIND_NIP29_DELETE_GROUP, KIND_NIP29_EDIT_METADATA, KIND_NIP29_JOIN_REQUEST,
-    KIND_NIP29_LEAVE_REQUEST, KIND_NIP29_PUT_USER, KIND_NIP29_REMOVE_USER,
+    is_relay_admin_kind, KIND_AGENT_ENGRAM, KIND_AGENT_OBSERVER_FRAME, KIND_AGENT_PROFILE,
+    KIND_AGENT_TURN_METRIC, KIND_APPROVAL_DENY, KIND_APPROVAL_GRANT, KIND_AUTH, KIND_BOOKMARK_LIST,
+    KIND_BOOKMARK_SET, KIND_CANVAS, KIND_COMMUNITY_BOTS, KIND_COMMUNITY_PINNED_SITES,
+    KIND_COMMUNITY_SECTIONS, KIND_CONTACT_LIST, KIND_DELETION, KIND_DM_ADD_MEMBER, KIND_DM_HIDE,
+    KIND_DM_OPEN, KIND_EMOJI_LIST, KIND_EMOJI_SET, KIND_EVENT_REMINDER, KIND_FOLLOW_SET,
+    KIND_FORUM_COMMENT, KIND_FORUM_POST, KIND_FORUM_VOTE, KIND_GIFT_WRAP, KIND_GIT_ISSUE,
+    KIND_GIT_PATCH, KIND_GIT_PR_UPDATE, KIND_GIT_PULL_REQUEST, KIND_GIT_REPO_ANNOUNCEMENT,
+    KIND_GIT_REPO_STATE, KIND_GIT_STATUS_CLOSED, KIND_GIT_STATUS_DRAFT, KIND_GIT_STATUS_MERGED,
+    KIND_GIT_STATUS_OPEN, KIND_HUDDLE_ENDED, KIND_HUDDLE_GUIDELINES,
+    KIND_HUDDLE_PARTICIPANT_JOINED, KIND_HUDDLE_PARTICIPANT_LEFT, KIND_HUDDLE_SCREEN_SHARE,
+    KIND_HUDDLE_STARTED, KIND_IA_ARCHIVE_REQUEST, KIND_IA_UNARCHIVE_REQUEST, KIND_LONG_FORM,
+    KIND_MANAGED_AGENT, KIND_MEMBER_ADDED_NOTIFICATION, KIND_MEMBER_REMOVED_NOTIFICATION,
+    KIND_MODERATION_BAN, KIND_MODERATION_RESOLVE_REPORT, KIND_MODERATION_TIMEOUT,
+    KIND_MODERATION_UNBAN, KIND_MODERATION_UNTIMEOUT, KIND_MUTE_LIST, KIND_NIP29_CREATE_GROUP,
+    KIND_NIP29_DELETE_EVENT, KIND_NIP29_DELETE_GROUP, KIND_NIP29_EDIT_METADATA,
+    KIND_NIP29_JOIN_REQUEST, KIND_NIP29_LEAVE_REQUEST, KIND_NIP29_PUT_USER, KIND_NIP29_REMOVE_USER,
     KIND_NIP43_LEAVE_REQUEST, KIND_NIP65_RELAY_LIST_METADATA, KIND_PERSONA, KIND_PIN_LIST,
     KIND_PRESENCE_UPDATE, KIND_PRIVATE_MANAGED_AGENT, KIND_PRODUCT_FEEDBACK, KIND_PROFILE,
     KIND_PROJECT, KIND_REACTION, KIND_READ_STATE, KIND_REPORT, KIND_STREAM_MESSAGE,
@@ -251,7 +252,6 @@ async fn authorize_community_bots(
     Ok(())
 }
 
-
 async fn authorize_community_sections(
     state: &Arc<AppState>,
     tenant: &TenantContext,
@@ -281,7 +281,6 @@ async fn authorize_community_sections(
         .map_err(|error| IngestError::Rejected(format!("invalid: {error}")))?;
     Ok(())
 }
-
 
 /// A validated canvas `expected-revision` precondition.
 ///
@@ -2139,13 +2138,19 @@ fn validate_agent_observer_route(
     }))
 }
 
-fn parse_observer_pubkey_tag(event: &nostr::Event, tag_name: &str) -> Result<nostr::PublicKey, String> {
+fn parse_observer_pubkey_tag(
+    event: &nostr::Event,
+    tag_name: &str,
+) -> Result<nostr::PublicKey, String> {
     let value = single_observer_tag_content(event, tag_name)?;
     nostr::PublicKey::from_hex(value)
         .map_err(|_| format!("invalid: observer {tag_name} tag must be a hex pubkey"))
 }
 
-fn single_observer_tag_content<'a>(event: &'a nostr::Event, tag_name: &str) -> Result<&'a str, String> {
+fn single_observer_tag_content<'a>(
+    event: &'a nostr::Event,
+    tag_name: &str,
+) -> Result<&'a str, String> {
     let mut values = event
         .tags
         .iter()
@@ -3116,11 +3121,7 @@ async fn ingest_event_inner(
 
         let agent_bytes = route.agent.to_bytes().to_vec();
         let owner_bytes = route.owner.to_bytes().to_vec();
-        let cache_key = (
-            tenant.community(),
-            agent_bytes.clone(),
-            owner_bytes.clone(),
-        );
+        let cache_key = (tenant.community(), agent_bytes.clone(), owner_bytes.clone());
         let is_owner = match state.observer_owner_cache.get(&cache_key) {
             Some(cached) => cached,
             None => {
@@ -4457,7 +4458,6 @@ mod postgres_tests {
             "kind:30624 must stay tenant-global even with a stray h tag"
         );
     }
-
 
     #[test]
     fn community_sections_require_users_write() {

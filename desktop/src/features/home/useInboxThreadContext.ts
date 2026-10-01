@@ -1,5 +1,6 @@
 import * as React from "react";
 
+import { inboxThreadDescendantFilter } from "@/features/home/lib/inboxThreadContextFilter";
 import { isInboxThreadContextEvent } from "@/features/home/lib/inboxViewHelpers";
 import { relayEventFromFeedItem } from "@/features/home/lib/inbox";
 import { fetchStructuralAuxForMessages } from "@/features/messages/lib/auxBackfill";
@@ -8,10 +9,7 @@ import { relayClient } from "@/shared/api/relayClient";
 import { buildChannelReactionAuxFilter } from "@/shared/api/relayChannelFilters";
 import { getEventById } from "@/shared/api/tauri";
 import type { FeedItem, RelayEvent } from "@/shared/api/types";
-import {
-  CHANNEL_TIMELINE_CONTENT_KINDS,
-  HOME_MENTION_EVENT_KINDS,
-} from "@/shared/constants/kinds";
+import { CHANNEL_TIMELINE_CONTENT_KINDS } from "@/shared/constants/kinds";
 
 type InboxThreadContextResult = {
   events: RelayEvent[];
@@ -27,7 +25,6 @@ type InboxThreadContextResult = {
   refreshReactions: () => Promise<void>;
 };
 
-const THREAD_CONTEXT_LIMIT = 100;
 const MAX_ANCESTOR_HOPS = 50;
 const CHANNEL_CONTEXT_EVENT_KINDS = new Set<number>(
   CHANNEL_TIMELINE_CONTENT_KINDS,
@@ -153,12 +150,9 @@ export function useInboxThreadContext(
         const descendantEventsPromise =
           selectedChannelId && threadRootId
             ? relayClient
-                .fetchEvents({
-                  "#e": [threadRootId],
-                  "#h": [selectedChannelId],
-                  kinds: [...HOME_MENTION_EVENT_KINDS],
-                  limit: THREAD_CONTEXT_LIMIT,
-                })
+                .fetchEvents(
+                  inboxThreadDescendantFilter(selectedChannelId, threadRootId),
+                )
                 .then((events) => ({ events, failed: false }))
                 .catch((error) => {
                   console.error(

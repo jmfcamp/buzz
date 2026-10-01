@@ -146,7 +146,14 @@ pub struct HuddleState {
     #[serde(skip)]
     pub session_generation: Arc<AtomicU64>,
     /// Voice input mode: push-to-talk or voice-activity detection.
+    ///
+    /// This is the live mode. Agent transcription may switch it to voice
+    /// activity for the current huddle. The saved preference is
+    /// `voice_input_preference`.
     pub voice_input_mode: VoiceInputMode,
+    /// Installation preference restored on teardown. Not the live mode.
+    #[serde(skip)]
+    pub voice_input_preference: VoiceInputMode,
     /// True while the PTT key is held (+ 200 ms release delay).
     /// Shared with the STT pipeline for mic gating.
     #[serde(skip)]
@@ -240,6 +247,7 @@ impl Clone for HuddleState {
             huddle_generation: self.huddle_generation,
             session_generation: Arc::clone(&self.session_generation),
             voice_input_mode: self.voice_input_mode.clone(),
+            voice_input_preference: self.voice_input_preference.clone(),
             ptt_active: Arc::clone(&self.ptt_active),
             manual_mic_unmuted: Arc::clone(&self.manual_mic_unmuted),
             activation_keyword: Arc::clone(&self.activation_keyword),
@@ -278,6 +286,7 @@ impl Default for HuddleState {
             huddle_generation: 0,
             session_generation: Arc::new(AtomicU64::new(0)),
             voice_input_mode: VoiceInputMode::default(),
+            voice_input_preference: VoiceInputMode::default(),
             ptt_active: Arc::new(AtomicBool::new(false)),
             manual_mic_unmuted: Arc::new(AtomicBool::new(false)),
             activation_keyword: Arc::new(Mutex::new(
@@ -394,11 +403,14 @@ impl HuddleState {
         // Keep the user's spoken wake keyword across huddle teardowns within
         // this app session; UI localStorage re-applies it after full restarts.
         let activation_keyword = Arc::clone(&self.activation_keyword);
+        let voice_input_preference = self.voice_input_preference.clone();
         *self = Self::default();
         self.session_generation = gen;
         self.huddle_generation = huddle_generation;
         self.tts_enabled = tts_enabled;
         self.activation_keyword = activation_keyword;
+        self.voice_input_preference = voice_input_preference.clone();
+        self.voice_input_mode = voice_input_preference;
     }
 }
 
@@ -442,7 +454,37 @@ mod tests {
         state.open_mic_for_agent_transcription();
 
         assert_eq!(state.voice_input_mode, super::VoiceInputMode::VoiceActivity);
+        assert_eq!(
+            state.voice_input_preference,
+            super::VoiceInputMode::PushToTalk
+        );
         assert!(state.manual_mic_unmuted.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn reset_restores_the_saved_voice_preference_not_the_agent_flip() {
+        let mut state = HuddleState::default();
+        state.open_mic_for_agent_transcription();
+        state.reset_preserving_generation();
+        assert_eq!(state.voice_input_mode, super::VoiceInputMode::PushToTalk);
+        assert_eq!(
+            state.voice_input_preference,
+            super::VoiceInputMode::PushToTalk
+        );
+    }
+
+    #[test]
+    fn saved_voice_activity_preference_survives_reset() {
+        let mut state = HuddleState::default();
+        state.voice_input_preference = super::VoiceInputMode::VoiceActivity;
+        state.voice_input_mode = super::VoiceInputMode::VoiceActivity;
+        state.open_mic_for_agent_transcription();
+        state.reset_preserving_generation();
+        assert_eq!(state.voice_input_mode, super::VoiceInputMode::VoiceActivity);
+        assert_eq!(
+            state.voice_input_preference,
+            super::VoiceInputMode::VoiceActivity
+        );
     }
 
     #[test]

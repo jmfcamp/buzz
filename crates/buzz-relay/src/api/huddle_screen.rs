@@ -157,14 +157,7 @@ async fn authenticate(
         pubkey,
         event_id_bytes,
         signed_created_at,
-    } = bridge::verify_bridge_auth_with_options(
-        headers,
-        "POST",
-        &url,
-        Some(body),
-        true,
-        true,
-    )?;
+    } = bridge::verify_bridge_auth_with_options(headers, "POST", &url, Some(body), true, true)?;
     bridge::check_nip98_replay(state, &tenant, event_id_bytes).await?;
 
     let _owner = relay_members::enforce_relay_membership(
@@ -204,9 +197,8 @@ pub async fn mint_screen_token(
     let (tenant, pubkey) = authenticate(&state, &headers, &path, &body).await?;
     let livekit = require_livekit(&state)?;
 
-    let request: ScreenTokenRequest = serde_json::from_slice(&body).map_err(|_| {
-        api_error(StatusCode::BAD_REQUEST, "invalid JSON body")
-    })?;
+    let request: ScreenTokenRequest = serde_json::from_slice(&body)
+        .map_err(|_| api_error(StatusCode::BAD_REQUEST, "invalid JSON body"))?;
 
     let intent = request.intent.trim().to_ascii_lowercase();
     let want_publish = match intent.as_str() {
@@ -229,14 +221,14 @@ pub async fn mint_screen_token(
     )
     .await
     .map_err(|e| {
-        let status = if e.contains("archived") || e.contains("not linked") || e.contains("not a member")
-        {
-            StatusCode::FORBIDDEN
-        } else if e.contains("requires parent") {
-            StatusCode::BAD_REQUEST
-        } else {
-            StatusCode::INTERNAL_SERVER_ERROR
-        };
+        let status =
+            if e.contains("archived") || e.contains("not linked") || e.contains("not a member") {
+                StatusCode::FORBIDDEN
+            } else if e.contains("requires parent") {
+                StatusCode::BAD_REQUEST
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
         if status == StatusCode::INTERNAL_SERVER_ERROR {
             internal_error(&format!("huddle screen membership: {e}"))
         } else {
@@ -278,8 +270,8 @@ pub async fn mint_screen_token(
         now_unix_secs(),
         TOKEN_TTL_SECS,
     );
-    let token = encode_livekit_token(&claims, livekit.api_secret())
-        .map_err(|e| internal_error(&e))?;
+    let token =
+        encode_livekit_token(&claims, livekit.api_secret()).map_err(|e| internal_error(&e))?;
 
     let current_sharer = state
         .huddle_screen_sharers
@@ -311,9 +303,8 @@ pub async fn stop_screen_share(
     let request: ScreenStopRequest = if body.is_empty() {
         ScreenStopRequest::default()
     } else {
-        serde_json::from_slice(&body).map_err(|_| {
-            api_error(StatusCode::BAD_REQUEST, "invalid JSON body")
-        })?
+        serde_json::from_slice(&body)
+            .map_err(|_| api_error(StatusCode::BAD_REQUEST, "invalid JSON body"))?
     };
 
     // Soft membership: allow stop even if channel archived so cleanup works.
@@ -362,7 +353,8 @@ mod tests {
 
     #[test]
     fn subscribe_claims_cannot_publish() {
-        let claims = build_livekit_claims("APIkey", "pubkeyhex", "huddle-1", false, 1_700_000_000, 60);
+        let claims =
+            build_livekit_claims("APIkey", "pubkeyhex", "huddle-1", false, 1_700_000_000, 60);
         assert!(claims.video.room_join);
         assert!(claims.video.can_subscribe);
         assert!(!claims.video.can_publish);
@@ -374,7 +366,8 @@ mod tests {
 
     #[test]
     fn publish_claims_limit_sources_to_screen_share() {
-        let claims = build_livekit_claims("APIkey", "pubkeyhex", "huddle-1", true, 1_700_000_000, 60);
+        let claims =
+            build_livekit_claims("APIkey", "pubkeyhex", "huddle-1", true, 1_700_000_000, 60);
         assert!(claims.video.can_publish);
         assert_eq!(
             claims

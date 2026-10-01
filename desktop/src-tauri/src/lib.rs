@@ -338,6 +338,33 @@ pub fn run() {
                 huddle.tts_enabled = tts_settings.agent_text_to_speech;
             }
 
+            let (huddle_defaults, huddle_defaults_load_error) =
+                huddle::huddle_defaults::load_for_app(&app_handle);
+            if let Ok(mut guard) = state.huddle_audio.defaults.lock() {
+                *guard = huddle_defaults.clone();
+            }
+            if let Ok(mut guard) = state.huddle_audio.defaults_load_error.lock() {
+                *guard = huddle_defaults_load_error.clone();
+            }
+            if huddle_defaults_load_error.is_none() {
+                let mode = if huddle_defaults.push_to_talk {
+                    huddle::VoiceInputMode::PushToTalk
+                } else {
+                    huddle::VoiceInputMode::VoiceActivity
+                };
+                if let Ok(mut huddle) = state.huddle_state.lock() {
+                    huddle.voice_input_mode = mode.clone();
+                    huddle.voice_input_preference = mode;
+                }
+                if let Ok(mut output) = state.huddle_audio.output_device.lock() {
+                    *output = if huddle_defaults.speaker_device_name.is_empty() {
+                        None
+                    } else {
+                        Some(huddle_defaults.speaker_device_name)
+                    };
+                }
+            }
+
             // Bring up the runtime-owned shared-compute coordinator before
             // saved agents are restored. Its lifetime is tied to the app, not
             // a UI mount; it publishes discovery and reconciles membership for
@@ -901,6 +928,8 @@ pub fn run() {
             get_huddle_agent_pubkeys,
             set_voice_input_mode,
             get_voice_input_mode,
+            huddle::huddle_defaults::get_huddle_defaults,
+            huddle::set_huddle_defaults,
             set_huddle_manual_mic_unmuted,
             list_audio_output_devices,
             set_audio_output_device,

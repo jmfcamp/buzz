@@ -1,7 +1,7 @@
 import * as React from "react";
 
 import { init, SearchIndex } from "emoji-mart";
-import data from "@emoji-mart/data";
+import { emojiMartData as data } from "@/shared/lib/emojiMartDataset";
 
 import type { CustomEmoji } from "@/shared/lib/remarkCustomEmoji";
 import {

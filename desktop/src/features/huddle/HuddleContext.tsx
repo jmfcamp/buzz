@@ -18,7 +18,10 @@ import {
   shouldEndRustSessionOnAudioOwnerUnmount,
   shouldSetupMediaOnHuddleStart,
 } from "./lib/huddleAudioSession";
+import { exactMicrophoneDeviceId } from "./lib/huddleDefaults";
 import { useAudioDevices } from "./lib/useAudioDevices";
+import { useHuddleDeviceControls } from "./lib/useHuddleDeviceControls";
+import { useSavedHuddleDevices } from "./lib/useSavedHuddleDevices";
 import { usePipelineHotstart } from "./lib/usePipelineHotstart";
 import { formatHuddleActionError } from "./lib/huddleError";
 import {
@@ -50,7 +53,9 @@ type HuddleJoinInfo = {
   ephemeral_channel_id: string;
 };
 
-const HuddleContext = React.createContext<HuddleContextValue | null>(null);
+export const HuddleContext = React.createContext<HuddleContextValue | null>(
+  null,
+);
 const HuddleLevelsContext = React.createContext<HuddleLevelsValue | null>(null);
 
 export function HuddleProvider({
@@ -119,6 +124,11 @@ export function HuddleProvider({
     micGain: localMicGain,
     setMicGain: setLocalMicGain,
   } = useAudioDevices(workletRef);
+  const savedDevices = useSavedHuddleDevices(
+    ownsAudioSession,
+    setLocalSelectedDeviceId,
+    setLocalMicGain,
+  );
   const audioDevices = ownsAudioSession
     ? localAudioDevices
     : (mirroredAudioState?.audioDevices ?? []);
@@ -134,51 +144,23 @@ export function HuddleProvider({
   const effectiveIsMuted = ownsAudioSession
     ? locallyMuted
     : (mirroredAudioState?.isMuted ?? true);
-  const setSelectedDeviceId = React.useCallback(
-    (deviceId: string) => {
-      if (ownsAudioSession) {
-        setLocalSelectedDeviceId(deviceId);
-        return;
-      }
-      setMirroredAudioState((previous) =>
-        previous ? { ...previous, selectedDeviceId: deviceId } : previous,
-      );
-      void emit(HUDDLE_AUDIO_COMMAND_EVENT, {
-        type: "set-input-device",
-        deviceId,
-      } satisfies HuddleAudioCommand);
-    },
-    [ownsAudioSession, setLocalSelectedDeviceId],
-  );
-  const setMicGain = React.useCallback(
-    (gain: number) => {
-      const clamped = Math.max(0, Math.min(1, gain));
-      if (ownsAudioSession) {
-        setLocalMicGain(clamped);
-        return;
-      }
-      setMirroredAudioState((previous) =>
-        previous ? { ...previous, micGain: clamped } : previous,
-      );
-      void emit(HUDDLE_AUDIO_COMMAND_EVENT, {
-        type: "set-mic-gain",
-        gain: clamped,
-      } satisfies HuddleAudioCommand);
-    },
-    [ownsAudioSession, setLocalMicGain],
-  );
   /** Audio output devices from Rust backend */
   const [outputDevices, setOutputDevices] = React.useState<
     { name: string; is_default: boolean }[]
   >([]);
   const [selectedOutputDevice, setSelectedOutputDeviceState] =
     React.useState("");
-  const setSelectedOutputDevice = React.useCallback((name: string) => {
-    setSelectedOutputDeviceState(name);
-    invoke("set_audio_output_device", { name }).catch(() => {
-      /* best-effort */
+  const { setMicGain, setSelectedDeviceId, setSelectedOutputDevice } =
+    useHuddleDeviceControls({
+      ownsAudioSession,
+      savedDevices,
+      selectedDeviceId,
+      selectedOutputDevice,
+      setLocalMicGain,
+      setLocalSelectedDeviceId,
+      setMirroredAudioState,
+      setSelectedOutputDeviceState,
     });
-  }, []);
 
   // Fetch output devices on mount and when system devices change.
   React.useEffect(() => {
@@ -399,10 +381,12 @@ export function HuddleProvider({
         return;
       }
       if (event.payload.type === "set-input-device") {
+        savedDevices.claimDeviceEdit();
         setLocalSelectedDeviceId(event.payload.deviceId);
         return;
       }
       if (event.payload.type === "set-mic-gain") {
+        savedDevices.claimGainEdit();
         setLocalMicGain(event.payload.gain);
         return;
       }
@@ -446,6 +430,7 @@ export function HuddleProvider({
     localSelectedDeviceId,
     micConnected,
     ownsAudioSession,
+    savedDevices,
     setLocalMicGain,
     setLocalSelectedDeviceId,
     setVoiceInputModeState,
@@ -620,8 +605,12 @@ export function HuddleProvider({
         noiseSuppression: true,
         sampleRate: 48000,
       };
-      if (selectedDeviceId) {
-        audioConstraints.deviceId = { exact: selectedDeviceId };
+      const exactDeviceId = exactMicrophoneDeviceId(
+        selectedDeviceId,
+        audioDevices.map((device) => device.deviceId),
+      );
+      if (exactDeviceId) {
+        audioConstraints.deviceId = { exact: exactDeviceId };
       }
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: audioConstraints,
@@ -669,7 +658,7 @@ export function HuddleProvider({
         throw err;
       }
     },
-    [getVoiceInputMode, selectedDeviceId],
+    [audioDevices, getVoiceInputMode, selectedDeviceId],
   );
 
   const startHuddle = React.useCallback(

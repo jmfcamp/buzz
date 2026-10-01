@@ -37,13 +37,44 @@ fn list_audio_output_devices_blocking() -> Result<Vec<AudioOutputDevice>, String
 /// Set the preferred audio output device by name. Empty string = system default.
 /// Takes effect on the next huddle start/join (does not change a live stream).
 #[tauri::command]
-pub fn set_audio_output_device(name: String, state: State<'_, AppState>) -> Result<(), String> {
-    let mut guard = state
+pub fn set_audio_output_device(
+    name: String,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let normalized = super::huddle_defaults::normalize_device_name(&name)?;
+    let previous = state
         .huddle_audio
         .output_device
         .lock()
-        .map_err(|e| e.to_string())?;
-    *guard = if name.is_empty() { None } else { Some(name) };
+        .map_err(|error| error.to_string())?
+        .clone();
+    {
+        let mut guard = state
+            .huddle_audio
+            .output_device
+            .lock()
+            .map_err(|error| error.to_string())?;
+        *guard = if normalized.is_empty() {
+            None
+        } else {
+            Some(normalized.clone())
+        };
+    }
+    if let Err(error) =
+        super::huddle_defaults::update_saved_defaults(&app, &state.huddle_audio, |defaults| {
+            defaults.speaker_device_name = normalized;
+            Ok(())
+        })
+    {
+        let mut guard = state
+            .huddle_audio
+            .output_device
+            .lock()
+            .map_err(|lock_error| lock_error.to_string())?;
+        *guard = previous;
+        return Err(error);
+    }
     Ok(())
 }
 

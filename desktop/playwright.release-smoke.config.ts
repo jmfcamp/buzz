@@ -1,9 +1,14 @@
 import { defineConfig, devices } from "@playwright/test";
 
+import { applyPlaywrightNodeCollect } from "./playwright-node-collect.mjs";
+
 const webPort = process.env.BUZZ_RELEASE_SMOKE_WEB_PORT ?? "4173";
 const webUrl = `http://127.0.0.1:${webPort}`;
 
-export default defineConfig({
+const config = defineConfig({
+  build: {
+    external: ["**/*.css"],
+  },
   testDir: "./tests/e2e",
   testMatch: [
     "**/release-smoke.spec.ts",
@@ -34,3 +39,5 @@ export default defineConfig({
     url: webUrl,
   },
 });
+
+export default applyPlaywrightNodeCollect(config);

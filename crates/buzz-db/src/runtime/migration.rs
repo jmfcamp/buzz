@@ -14,6 +14,19 @@ use crate::Result;
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
 
+/// Highest version the production migrator embeds.
+///
+/// Callers that assert `run_migrations` reached the current head use this
+/// value so a newly added migration file cannot leave a copied number behind.
+#[cfg(test)]
+pub(crate) fn latest_embedded_version() -> i64 {
+    MIGRATOR
+        .iter()
+        .map(|migration| migration.version)
+        .max()
+        .expect("embedded migrator is non-empty")
+}
+
 /// Run all pending Buzz database migrations.
 ///
 /// The entire run holds the exclusive [`SCHEMA_DESTRUCTION_LOCK_KEY`] session
@@ -706,6 +719,7 @@ mod postgres_tests {
         assert_eq!(migrations.len(), 50);
         assert_eq!(migrations[48].version, 49);
         assert_eq!(migrations[49].version, 50);
+        assert_eq!(latest_embedded_version(), migrations[49].version);
         assert!(migrations[48]
             .sql
             .as_str()

@@ -3843,6 +3843,32 @@ type PersistedMockHuddle = {
 const MOCK_HUDDLE_STORAGE_KEY = "buzz.e2e.mock-huddle.v1";
 let mockHuddle: PersistedMockHuddle | null = null;
 
+type MockHuddleDefaults = {
+  version: 1;
+  pushToTalk: boolean;
+  microphoneDeviceId: string;
+  speakerDeviceName: string;
+  cameraDeviceId: string;
+  microphoneGain: number;
+};
+
+const mockHuddleDefaults: MockHuddleDefaults = {
+  version: 1,
+  pushToTalk: true,
+  microphoneDeviceId: "",
+  speakerDeviceName: "",
+  cameraDeviceId: "",
+  microphoneGain: 1,
+};
+
+function mockPreferredVoiceInputMode(): "push_to_talk" | "voice_activity" {
+  return mockHuddleDefaults.pushToTalk ? "push_to_talk" : "voice_activity";
+}
+
+function cloneMockHuddleDefaults(): MockHuddleDefaults {
+  return { ...mockHuddleDefaults };
+}
+
 function persistMockHuddle() {
   if (mockHuddle) {
     window.sessionStorage.setItem(
@@ -12097,16 +12123,63 @@ export function maybeInstallE2eTauriMocks() {
         return snapshot;
       }
       case "get_voice_input_mode":
-        return mockHuddle?.state.voice_input_mode ?? "push_to_talk";
+        return (
+          mockHuddle?.state.voice_input_mode ?? mockPreferredVoiceInputMode()
+        );
       case "set_voice_input_mode": {
-        if (!mockHuddle) throw new Error("No active mock huddle.");
         const mode = (payload as { mode?: unknown }).mode;
         if (mode !== "push_to_talk" && mode !== "voice_activity") {
           throw new Error("Missing voice input mode.");
         }
-        mockHuddle.state.voice_input_mode = mode;
-        persistMockHuddle();
-        await emitMockHuddleState();
+        mockHuddleDefaults.pushToTalk = mode === "push_to_talk";
+        if (mockHuddle) {
+          mockHuddle.state.voice_input_mode = mode;
+          persistMockHuddle();
+          await emitMockHuddleState();
+        }
+        return null;
+      }
+      case "get_huddle_defaults":
+        return cloneMockHuddleDefaults();
+      case "set_huddle_defaults": {
+        const patch =
+          (payload as { patch?: Partial<MockHuddleDefaults> }).patch ?? {};
+        if (typeof patch.pushToTalk === "boolean") {
+          mockHuddleDefaults.pushToTalk = patch.pushToTalk;
+          if (mockHuddle) {
+            mockHuddle.state.voice_input_mode = mockPreferredVoiceInputMode();
+          }
+        }
+        if (typeof patch.microphoneDeviceId === "string") {
+          mockHuddleDefaults.microphoneDeviceId = patch.microphoneDeviceId;
+        }
+        if (typeof patch.speakerDeviceName === "string") {
+          mockHuddleDefaults.speakerDeviceName = patch.speakerDeviceName;
+        }
+        if (typeof patch.cameraDeviceId === "string") {
+          mockHuddleDefaults.cameraDeviceId = patch.cameraDeviceId;
+        }
+        if (typeof patch.microphoneGain === "number") {
+          mockHuddleDefaults.microphoneGain = patch.microphoneGain;
+        }
+        if (mockHuddle) persistMockHuddle();
+        return cloneMockHuddleDefaults();
+      }
+      case "list_audio_output_devices":
+        return mockHuddleDefaults.speakerDeviceName
+          ? [
+              {
+                name: mockHuddleDefaults.speakerDeviceName,
+                is_default: false,
+              },
+            ]
+          : [];
+      case "get_audio_output_device":
+        return mockHuddleDefaults.speakerDeviceName;
+      case "set_audio_output_device": {
+        const name = (payload as { name?: unknown }).name;
+        mockHuddleDefaults.speakerDeviceName =
+          typeof name === "string" ? name : "";
         return null;
       }
       case "set_huddle_manual_mic_unmuted":
@@ -12142,7 +12215,7 @@ export function maybeInstallE2eTauriMocks() {
             tts_enabled: false,
             transcription_enabled: false,
             is_creator: true,
-            voice_input_mode: "push_to_talk",
+            voice_input_mode: mockPreferredVoiceInputMode(),
           },
         };
         refreshMockHuddleMembership(activeConfig);
@@ -12236,7 +12309,7 @@ export function maybeInstallE2eTauriMocks() {
           tts_enabled: false,
           transcription_enabled: false,
           is_creator: false,
-          voice_input_mode: "push_to_talk",
+          voice_input_mode: mockPreferredVoiceInputMode(),
         });
         return null;
       case "set_huddle_transcription_enabled":

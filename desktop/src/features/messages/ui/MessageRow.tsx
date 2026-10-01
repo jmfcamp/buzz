@@ -12,7 +12,6 @@ import {
 } from "@/features/messages/lib/canSendToChannel";
 import type { TimelineMessage } from "@/features/messages/types";
 import { useKnownAgentPubkeys } from "@/features/agents/useKnownAgentPubkeys";
-import { HuddleAttachment } from "@/features/huddle/components/HuddleAttachment";
 import { MessageReactions } from "@/features/messages/ui/MessageReactions";
 import { MessageAuthorWithIndicators } from "@/features/messages/ui/MessageAuthorWithIndicators";
 import { useReactionHandler } from "@/features/messages/ui/useReactionHandler";
@@ -28,32 +27,18 @@ import {
   threadReplyLength,
   THREAD_REPLY_LINE_WIDTH_REM,
 } from "@/features/messages/lib/threadTreeLayout";
-import {
-  KIND_HUDDLE_STARTED,
-  KIND_STREAM_MESSAGE_DIFF,
-} from "@/shared/constants/kinds";
-import { getConfigNudgeAuthorPubkey } from "@/features/messages/ui/configNudgeAuthPubkey";
 import { cn } from "@/shared/lib/cn";
 import { useMeasuredCssVariable } from "@/shared/layout/useMeasuredCssVariable";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
-import { useChannelNavigation } from "@/shared/context/ChannelNavigationContext";
-import { parseImetaTags } from "@/shared/ui/markdown/parseImeta";
 import { useMessageEmoji } from "@/features/messages/lib/useMessageEmoji";
-import { parseWaveMessageContent } from "@/features/messages/lib/waveMessage";
-import { resolveSnapshotSharedBy } from "@/features/messages/lib/snapshotSharedBy";
-import { resolveMentionProps } from "@/shared/lib/resolveMentionNames";
 import type { VideoReviewContext } from "@/shared/ui/VideoPlayer";
-import { VideoReviewCommentMarkdown } from "@/shared/ui/VideoReviewCommentMarkdown";
 import { MessageActionBar } from "./MessageActionBar";
 import {
   AgentMessageTurnChromeRoot,
   AgentMessageTurnFooterChrome,
 } from "./AgentMessageTurnChrome";
 import { useShowAgentThinking } from "@/features/messages/lib/showAgentThinkingPreference";
-import { editMessage } from "@/shared/api/tauri";
-import { hasLinkPreviewSuppression } from "@/features/messages/lib/formatTimelineMessages";
-import { toast } from "sonner";
 import { MessageAgentOwner } from "./MessageAgentOwner";
 import {
   MessageAuthorText,
@@ -61,12 +46,9 @@ import {
   MessageMetaSeparator,
 } from "./MessageHeader";
 import { MessageTimestamp } from "./MessageTimestamp";
+import { MessageBody } from "./MessageBody";
 import { SentFromThreadLine } from "./SentFromThreadLine";
-import { WaveMessageAttachment } from "./WaveMessageAttachment";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
-import { useMessageAgentAddressPrefix } from "./MessageAgentAddressPrefix";
-const DiffMessage = React.lazy(() => import("./DiffMessage"));
-const DiffMessageExpanded = React.lazy(() => import("./DiffMessageExpanded"));
 export type ThreadDepthGuideAction = {
   active?: boolean;
   depth: number;
@@ -172,33 +154,6 @@ export const MessageRow = React.memo(
     // Keep the transient send state with its timestamp rather than collapsing
     // it into a grouped message row with no header.
     const isDisplayedAsContinuation = isContinuation && !message.pending;
-    const [expandedDiffId, setExpandedDiffId] = React.useState<string | null>(
-      null,
-    );
-    const linkPreviewsSuppressed = hasLinkPreviewSuppression(message.tags);
-    const removeLinkPreviewsForEveryone =
-      channelId && onEdit && !message.pending && !linkPreviewsSuppressed
-        ? async () => {
-            const tags = message.tags ?? [];
-            try {
-              await editMessage(
-                channelId,
-                message.id,
-                message.body,
-                tags.filter((tag) => tag[0] === "imeta"),
-                tags.filter((tag) => tag[0] === "emoji"),
-                undefined,
-                true,
-                tags.filter((tag) => tag[0] === "mention"),
-              );
-            } catch (error) {
-              toast.error(
-                `Failed to remove previews: ${error instanceof Error ? error.message : String(error)}`,
-              );
-              throw error;
-            }
-          }
-        : undefined;
     const showAgentThinking = useShowAgentThinking();
     const [badgeBurstEmoji, setBadgeBurstEmoji] = React.useState<string | null>(
       null,
@@ -259,10 +214,6 @@ export const MessageRow = React.memo(
       },
       [currentPubkey, onSendToChannel, profiles],
     );
-    const { mentionNames, mentionPubkeysByName } = React.useMemo(
-      () => resolveMentionProps(message.tags, profiles, message.body),
-      [profiles, message.tags, message.body],
-    );
     // "Is this pubkey an agent" = the community-scoped baseline every surface
     // shares (managed ∪ relay) plus the pubkey's own profile `isAgent` flag from this surface's lookup. Both are per-pubkey
     // O(1) checks — no per-row rescan of `profiles` (that duplicated parent
@@ -285,46 +236,9 @@ export const MessageRow = React.memo(
         : message.role;
     const isAuthorAgent =
       message.isAgent === true || profilePopoverRole === "bot";
-    const agentMentionPubkeysByName = React.useMemo(() => {
-      if (!mentionPubkeysByName) {
-        return undefined;
-      }
-      const values: Record<string, string> = {};
-      for (const [name, pubkey] of Object.entries(mentionPubkeysByName)) {
-        if (isKnownAgentPubkey(pubkey)) {
-          values[name] = pubkey;
-        }
-      }
-      return Object.keys(values).length > 0 ? values : undefined;
-    }, [isKnownAgentPubkey, mentionPubkeysByName]);
-    const agentAddressPrefix = useMessageAgentAddressPrefix({
-      profiles,
-      body: message.body,
-      tags: message.tags,
-      mentionNames,
-      mentionPubkeysByName,
-      isKnownAgentPubkey,
-    });
-    const imetaByUrl = React.useMemo(
-      () => (message.tags ? parseImetaTags(message.tags) : undefined),
-      [message.tags],
-    );
-    const snapshotSharedBy = React.useMemo(
-      () =>
-        resolveSnapshotSharedBy(
-          { signerPubkey: message.signerPubkey },
-          profiles,
-        ),
-      [message.signerPubkey, profiles],
-    );
 
-    const { customEmoji, emojiOnly } = useMessageEmoji(
-      message.body,
-      message.tags,
-    );
+    const { emojiOnly } = useMessageEmoji(message.body, message.tags);
     const bodyOffsetClass = emojiOnly ? "mt-1" : "mt-conversation-body";
-
-    const { nonDmChannelNames: channelNames } = useChannelNavigation();
 
     const indentRem = getThreadReplyIndentRem(message.depth);
     const descendantGuideOffsetRem = connectDescendants
@@ -386,93 +300,6 @@ export const MessageRow = React.memo(
         collapseDepthGuideActions.map((action) => [action.depth, action]),
       );
     }, [collapseDepthGuideActions]);
-    const getTag = (name: string) =>
-      message.tags?.find((tag) => tag[0] === name)?.[1];
-
-    const renderBody = () => {
-      switch (message.kind) {
-        case KIND_STREAM_MESSAGE_DIFF:
-          return (
-            <React.Suspense
-              fallback={
-                <div className="p-3 text-sm text-muted-foreground">
-                  Loading diff…
-                </div>
-              }
-            >
-              <DiffMessage
-                commitSha={getTag("commit")}
-                content={message.body}
-                description={getTag("description")}
-                filePath={getTag("file")}
-                onExpand={() => {
-                  setExpandedDiffId(message.id);
-                }}
-                repoUrl={getTag("repo")}
-                searchQuery={searchQuery}
-                truncated={getTag("truncated") === "true"}
-              />
-            </React.Suspense>
-          );
-        case KIND_HUDDLE_STARTED:
-          return (
-            <HuddleAttachment
-              channelId={channelId}
-              className="mt-2"
-              message={message}
-            />
-          );
-        default: {
-          const waveMessage = parseWaveMessageContent(message.body);
-          if (waveMessage) {
-            return (
-              <WaveMessageAttachment
-                channelId={channelId}
-                fallbackText={waveMessage.fallbackText}
-                huddleMemberPubkeys={huddleMemberPubkeys}
-                huddleMemberPubkeysPending={huddleMemberPubkeysPending}
-                searchQuery={searchQuery}
-              />
-            );
-          }
-
-          return (
-            <VideoReviewCommentMarkdown
-              channelNames={channelNames}
-              className={cn(
-                "max-w-full text-message",
-                emojiOnly &&
-                  "text-4xl leading-tight [&_p]:leading-tight [&_img[data-custom-emoji]]:h-[1.45em] [&_img[data-custom-emoji]]:align-middle [&_button:has(img[data-custom-emoji])]:align-middle",
-              )}
-              // Only pass the author pubkey for agent-authored messages so
-              // config-nudge cards can authenticate the sender. Uses the
-              // raw event signer (signerPubkey), not a relay-delegated display
-              // author, because the agent itself must have signed the card.
-              configNudgeAuthorPubkey={getConfigNudgeAuthorPubkey(
-                message,
-                isKnownAgentPubkey,
-              )}
-              content={message.body}
-              messageId={message.id}
-              linkPreviewsSuppressed={linkPreviewsSuppressed}
-              linkPreviewTags={message.tags}
-              leadingInlineContent={agentAddressPrefix}
-              onRemoveLinkPreviewsForEveryone={removeLinkPreviewsForEveryone}
-              customEmoji={customEmoji}
-              imetaByUrl={imetaByUrl}
-              agentMentionPubkeysByName={agentMentionPubkeysByName}
-              mentionNames={mentionNames}
-              mentionPubkeysByName={mentionPubkeysByName}
-              searchQuery={searchQuery}
-              snapshotSharedBy={snapshotSharedBy}
-              videoReviewCommentRootId={videoReviewCommentRootId}
-              videoReviewContext={videoReviewContext}
-            />
-          );
-        }
-      }
-    };
-
     const isThreadReplyLayout = layoutVariant === "thread-reply";
     const guideBleedRem = isThreadReplyLayout ? 0.25 : 0;
     const avatarButtonRadiusClass = isAuthorAgent
@@ -711,7 +538,19 @@ export const MessageRow = React.memo(
     const messageBodyNode = (
       <>
         <SentFromThreadLine channelId={channelId} tags={message.tags} />
-        {renderBody()}
+        <MessageBody
+          canRemoveLinkPreviews={Boolean(onEdit)}
+          channelId={channelId}
+          huddleMemberPubkeys={huddleMemberPubkeys}
+          huddleMemberPubkeysPending={huddleMemberPubkeysPending}
+          isKnownAgentPubkey={isKnownAgentPubkey}
+          markdownClassName="max-w-full text-message"
+          message={message}
+          profiles={profiles}
+          searchQuery={searchQuery}
+          videoReviewCommentRootId={videoReviewCommentRootId}
+          videoReviewContext={videoReviewContext}
+        />
         {showAgentThinking && message.isAgent && !message.pending ? (
           <AgentMessageTurnFooterChrome />
         ) : null}
@@ -735,23 +574,6 @@ export const MessageRow = React.memo(
           <p className="mt-1.5 text-xs text-destructive">
             {reactionErrorMessage}
           </p>
-        ) : null}
-        {expandedDiffId === message.id ? (
-          <React.Suspense
-            fallback={
-              <div className="p-3 text-sm text-muted-foreground">
-                Loading diff viewer…
-              </div>
-            }
-          >
-            <DiffMessageExpanded
-              content={message.body}
-              filePath={getTag("file")}
-              onClose={() => {
-                setExpandedDiffId(null);
-              }}
-            />
-          </React.Suspense>
         ) : null}
       </>
     );

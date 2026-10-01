@@ -8,6 +8,7 @@ import {
   Cpu,
   Download,
   FlaskConical,
+  Headphones,
   Keyboard,
   LayoutList,
   LayoutTemplate,
@@ -85,6 +86,7 @@ import { SegmentedControl } from "@/shared/ui/segmented-control";
 import { ProfileSettingsCard } from "./ProfileSettingsCard";
 import { UpdateChecker } from "../UpdateChecker";
 import { SettingsSectionHeader } from "./SettingsSectionHeader";
+import { HuddleSettingsCard } from "./HuddleSettingsCard";
 import { VoiceSettingsCard } from "./VoiceSettingsCard";
 import { PinnedSitesSettingsCard } from "@/features/pinned-sites/ui/PinnedSitesSettingsCard";
 import { CommunitySectionsSettingsCard } from "@/features/community-sections/ui/CommunitySectionsSettingsCard";
@@ -93,6 +95,7 @@ export type SettingsSection =
   | "profile"
   | "notifications"
   | "voice"
+  | "huddle"
   | "experimental"
   | "agents"
   | "channel-templates"
@@ -117,6 +120,7 @@ const SETTINGS_SECTION_VALUES: readonly SettingsSection[] = [
   "profile",
   "notifications",
   "voice",
+  "huddle",
   "experimental",
   "agents",
   "channel-templates",
@@ -186,6 +190,11 @@ export const settingsSections: SettingsSectionDescriptor[] = [
     value: "voice",
     label: "Voice",
     icon: Volume2,
+  },
+  {
+    value: "huddle",
+    label: "Huddle",
+    icon: Headphones,
   },
   {
     value: "experimental",
@@ -866,6 +875,8 @@ export function renderSettingsSection(
       );
     case "voice":
       return <VoiceSettingsCard />;
+    case "huddle":
+      return <HuddleSettingsCard />;
     case "experimental":
       return <ExperimentalFeaturesCard />;
     case "agents":

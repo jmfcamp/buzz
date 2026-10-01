@@ -45,6 +45,10 @@ pub struct HuddleAudioSettingsState {
     pub tts_transition: tokio::sync::Mutex<()>,
     /// Selected huddle output device. `None` uses the system default.
     pub output_device: Mutex<Option<String>>,
+    /// Saved device, gain, and push-to-talk defaults.
+    pub defaults: Mutex<super::huddle_defaults::HuddleDefaults>,
+    /// Set when the defaults file cannot be read. Saves refuse to overwrite it.
+    pub defaults_load_error: Mutex<Option<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]

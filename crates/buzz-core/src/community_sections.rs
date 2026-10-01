@@ -171,7 +171,9 @@ mod tests {
             ]
         })
         .to_string();
-        assert!(validate_community_sections_payload(Some(COMMUNITY_SECTIONS_D_TAG), &json).is_err());
+        assert!(
+            validate_community_sections_payload(Some(COMMUNITY_SECTIONS_D_TAG), &json).is_err()
+        );
     }
 
     #[test]
@@ -186,6 +188,8 @@ mod tests {
             }]
         })
         .to_string();
-        assert!(validate_community_sections_payload(Some(COMMUNITY_SECTIONS_D_TAG), &json).is_err());
+        assert!(
+            validate_community_sections_payload(Some(COMMUNITY_SECTIONS_D_TAG), &json).is_err()
+        );
     }
 }

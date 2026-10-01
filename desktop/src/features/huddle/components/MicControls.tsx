@@ -323,7 +323,9 @@ export function MicControls({
               label: d.label || `Mic ${d.deviceId.slice(0, 8)}`,
             }))}
             selectedId={selectedDeviceId}
-            onSelect={onSelectDevice}
+            onSelect={(id) => {
+              void Promise.resolve(onSelectDevice(id)).catch(() => {});
+            }}
             showChangeHint={!!selectedDeviceId && micConnected}
           />
           <div>
@@ -487,7 +489,9 @@ export function SpeakerControls({
           label="Speaker"
           devices={outputDevices.map((d) => ({ id: d.name, label: d.name }))}
           selectedId={selectedOutputDevice}
-          onSelect={onSelectOutputDevice}
+          onSelect={(name) => {
+            void Promise.resolve(onSelectOutputDevice(name)).catch(() => {});
+          }}
           showChangeHint={!!selectedOutputDevice}
         />
       </PopoverContent>

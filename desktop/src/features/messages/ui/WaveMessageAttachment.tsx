@@ -4,7 +4,7 @@ import { toast } from "sonner";
 
 import { channelsQueryKey } from "@/features/channels/hooks";
 import { HighlightedSearchText } from "@/features/search/ui/HighlightedSearchText";
-import { useHuddle } from "@/features/huddle";
+import { useHuddle } from "@/features/huddle/HuddleContext";
 import { formatHuddleActionError } from "@/features/huddle/lib/huddleError";
 import {
   Attachment,

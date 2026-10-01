@@ -2752,6 +2752,7 @@ test("settings subtitles share the Appearance secondary color", async ({
     "appearance",
     "notifications",
     "voice",
+    "huddle",
     "shortcuts",
     "custom-emoji",
     "local-archive",
