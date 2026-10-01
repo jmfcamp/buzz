@@ -983,7 +983,11 @@ impl AcpClient {
         let Some(gateway_key) = self.openclaw_gateway_session_key.as_deref() else {
             return;
         };
-        let Some(acp_session_id) = self.standard_usage.in_flight_session_id().map(str::to_owned) else {
+        let Some(acp_session_id) = self
+            .standard_usage
+            .in_flight_session_id()
+            .map(str::to_owned)
+        else {
             return;
         };
         #[cfg(test)]
@@ -2345,15 +2349,6 @@ pub fn extract_model_state(result: &serde_json::Value) -> Option<serde_json::Val
     result.get("models").cloned()
 }
 
-/// Extract the `configId` for the `thought_level` category option from a
-/// `session/new` result, if the adapter advertised one.
-///
-/// Claude Code's adapter uses `category: "thought_level"` in its `configOptions`.
-/// The configId is adapter-defined (e.g. `"effort"` on claude-agent-acp) and must
-/// not be hardcoded in the harness — this function discovers it at session time so
-/// the spawn-scoped effort application forwards the adapter's real id. Accepts both
-/// `configId` (ACP spec) and `id` (claude-agent-acp), matching the model-switch path.
-
 /// Resolve which standard ACP usage adapter (if any) owns this spawn.
 ///
 /// OpenClaw VPS last-miles commonly set `BUZZ_ACP_AGENT_COMMAND=node` with
@@ -2377,6 +2372,14 @@ fn detect_standard_adapter(command: &str, args: &[String]) -> Option<StandardAda
     }
 }
 
+/// Extract the `configId` for the `thought_level` category option from a
+/// `session/new` result, if the adapter advertised one.
+///
+/// Claude Code's adapter uses `category: "thought_level"` in its `configOptions`.
+/// The configId is adapter-defined (e.g. `"effort"` on claude-agent-acp) and must
+/// not be hardcoded in the harness — this function discovers it at session time so
+/// the spawn-scoped effort application forwards the adapter's real id. Accepts both
+/// `configId` (ACP spec) and `id` (claude-agent-acp), matching the model-switch path.
 pub fn extract_thought_level_config_id(result: &serde_json::Value) -> Option<String> {
     let arr = result["configOptions"].as_array()?;
     for opt in arr {

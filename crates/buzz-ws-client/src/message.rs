@@ -179,6 +179,29 @@ pub fn parse_relay_message(text: &str) -> Result<RelayMessage, WsClientError> {
     }
 }
 
+/// Builds a NIP-42 AUTH event, optionally injecting a NIP-OA auth tag.
+///
+/// The `auth_tag` parameter allows callers to attach a workspace-scoped
+/// authorization tag (e.g. `["auth", "<token>"]`) alongside the standard
+/// relay and challenge tags required by NIP-42.
+pub fn build_auth_event(
+    challenge: &str,
+    relay_url: &str,
+    keys: &Keys,
+    auth_tag: Option<&Tag>,
+) -> Result<Event, WsClientError> {
+    let url = RelayUrl::parse(relay_url).map_err(|e| WsClientError::Url(e.to_string()))?;
+    let builder = EventBuilder::auth(challenge, url);
+    let builder = if let Some(tag) = auth_tag {
+        builder.tags([tag.clone()])
+    } else {
+        builder
+    };
+    builder
+        .sign_with_keys(keys)
+        .map_err(|e| WsClientError::EventBuilder(e.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,27 +244,4 @@ mod tests {
             "unexpected err: {err}"
         );
     }
-}
-
-/// Builds a NIP-42 AUTH event, optionally injecting a NIP-OA auth tag.
-///
-/// The `auth_tag` parameter allows callers to attach a workspace-scoped
-/// authorization tag (e.g. `["auth", "<token>"]`) alongside the standard
-/// relay and challenge tags required by NIP-42.
-pub fn build_auth_event(
-    challenge: &str,
-    relay_url: &str,
-    keys: &Keys,
-    auth_tag: Option<&Tag>,
-) -> Result<Event, WsClientError> {
-    let url = RelayUrl::parse(relay_url).map_err(|e| WsClientError::Url(e.to_string()))?;
-    let builder = EventBuilder::auth(challenge, url);
-    let builder = if let Some(tag) = auth_tag {
-        builder.tags([tag.clone()])
-    } else {
-        builder
-    };
-    builder
-        .sign_with_keys(keys)
-        .map_err(|e| WsClientError::EventBuilder(e.to_string()))
 }

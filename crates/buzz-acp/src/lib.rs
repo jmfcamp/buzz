@@ -9215,7 +9215,11 @@ mod observer_chunk_coalescer_tests {
         assert_eq!(chunk_text(&events[1].1), "thinking");
     }
 
-    fn openclaw_toplevel_thought_chunk(seq: u64, message_id: &str, text: &str) -> observer::ObserverEvent {
+    fn openclaw_toplevel_thought_chunk(
+        seq: u64,
+        message_id: &str,
+        text: &str,
+    ) -> observer::ObserverEvent {
         observer::ObserverEvent {
             seq,
             timestamp: format!("2026-04-29T04:00:0{seq}Z"),

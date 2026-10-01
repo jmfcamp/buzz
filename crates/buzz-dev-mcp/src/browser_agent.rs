@@ -32,8 +32,7 @@ fn agent_dir() -> PathBuf {
     }
     // macOS Hula default app support path when Desktop is running as this user.
     let home = std::env::var("HOME").unwrap_or_default();
-    PathBuf::from(home)
-        .join("Library/Application Support/com.huladesk.buzz/browser-agent")
+    PathBuf::from(home).join("Library/Application Support/com.huladesk.buzz/browser-agent")
 }
 
 fn caller_pubkey() -> Option<String> {
@@ -68,9 +67,12 @@ fn grant_matches(grant: &Value, pubkey: &str) -> bool {
         .unwrap_or(false)
 }
 
-
 fn grant_surface_id(grant: &Value) -> Option<&str> {
-    grant.get("surfaceId").and_then(|v| v.as_str()).map(str::trim).filter(|s| !s.is_empty())
+    grant
+        .get("surfaceId")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
 }
 
 fn grant_label(grant: &Value) -> Option<&str> {
@@ -131,9 +133,8 @@ fn resolve_grant_target(
 
     if !label.is_empty() {
         let dir = root.join(label);
-        let grant = read_json(&dir.join("grant.json")).ok_or_else(|| {
-            ErrorData::invalid_params(format!("no grant for {label}"), None)
-        })?;
+        let grant = read_json(&dir.join("grant.json"))
+            .ok_or_else(|| ErrorData::invalid_params(format!("no grant for {label}"), None))?;
         if !grant_matches(&grant, pubkey) {
             return Err(ErrorData::invalid_params(
                 "caller is not the granted agent for this webview",
@@ -146,9 +147,7 @@ fn resolve_grant_target(
                 for entry in entries.flatten() {
                     let gpath = entry.path().join("grant.json");
                     if let Some(other) = read_json(&gpath) {
-                        if grant_matches(&other, pubkey)
-                            && grant_surface_id(&other) == Some(sid)
-                        {
+                        if grant_matches(&other, pubkey) && grant_surface_id(&other) == Some(sid) {
                             if let Some(live) = grant_label(&other).map(|s| s.to_string()) {
                                 if live != label {
                                     let live_dir = root.join(&live);
@@ -174,12 +173,7 @@ fn resolve_grant_target(
                 if grant_matches(&grant, pubkey) {
                     let live = grant_label(&grant)
                         .map(|s| s.to_string())
-                        .unwrap_or_else(|| {
-                            entry
-                                .file_name()
-                                .to_string_lossy()
-                                .into_owned()
-                        });
+                        .unwrap_or_else(|| entry.file_name().to_string_lossy().into_owned());
                     matches.push((root.join(&live), grant, live));
                 }
             }
@@ -233,7 +227,7 @@ fn collect_drive_results_from_events(
     let mut found: std::collections::HashMap<String, Value> = std::collections::HashMap::new();
     let mut last_url: Option<String> = None;
     if let Ok(file) = fs::File::open(events_path) {
-        for line in BufReader::new(file).lines().flatten() {
+        for line in BufReader::new(file).lines().map_while(Result::ok) {
             let Ok(ev) = serde_json::from_str::<Value>(&line) else {
                 continue;
             };
@@ -294,7 +288,6 @@ fn wait_for_drive_results(
     }
 }
 
-
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -333,17 +326,14 @@ pub fn observe_poll(p: ObservePollParams) -> Result<CallToolResult, ErrorData> {
             None,
         ));
     };
-    let (dir, grant, label) = resolve_grant_target(
-        &pubkey,
-        &p.webview_label,
-        p.surface_id.as_deref(),
-    )?;
+    let (dir, grant, label) =
+        resolve_grant_target(&pubkey, &p.webview_label, p.surface_id.as_deref())?;
     let after = p.after_id.unwrap_or(0);
     let limit = p.limit.unwrap_or(50).clamp(1, 200);
     let path = dir.join("events.jsonl");
     let mut events = Vec::new();
     if let Ok(file) = fs::File::open(path) {
-        for line in BufReader::new(file).lines().flatten() {
+        for line in BufReader::new(file).lines().map_while(Result::ok) {
             if let Ok(ev) = serde_json::from_str::<Value>(&line) {
                 let id = ev.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
                 if id > after {
@@ -426,8 +416,6 @@ pub fn grants(_p: GrantsParams) -> Result<CallToolResult, ErrorData> {
     )]))
 }
 
-
-
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct TabsParams {
     /// Live webview label (fragile across popout). Prefer `surface_id`.
@@ -497,7 +485,9 @@ pub fn tabs(p: TabsParams) -> Result<CallToolResult, ErrorData> {
         })),
         "note": "Main tab (isMain/mainTabSid) is primary focus. Extra tabs come from in-page window.open / target=_blank. Use browser_switch_tab to focus a tab (rebinds Observe/Drive). Poll browser_observe_poll for kind=tab_opened / tab_switched."
     });
-    Ok(CallToolResult::success(vec![Content::text(body.to_string())]))
+    Ok(CallToolResult::success(vec![Content::text(
+        body.to_string(),
+    )]))
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -546,12 +536,10 @@ pub fn switch_tab(p: SwitchTabParams) -> Result<CallToolResult, ErrorData> {
             .unwrap_or(0),
     });
     let path = dir.join("tab-switch-request.json");
-    let mut f = fs::File::create(&path).map_err(|e| {
-        ErrorData::internal_error(format!("write tab-switch-request: {e}"), None)
-    })?;
-    f.write_all(req.to_string().as_bytes()).map_err(|e| {
-        ErrorData::internal_error(format!("write tab-switch-request: {e}"), None)
-    })?;
+    let mut f = fs::File::create(&path)
+        .map_err(|e| ErrorData::internal_error(format!("write tab-switch-request: {e}"), None))?;
+    f.write_all(req.to_string().as_bytes())
+        .map_err(|e| ErrorData::internal_error(format!("write tab-switch-request: {e}"), None))?;
     Ok(CallToolResult::success(vec![Content::text(
         json!({
             "ok": true,
@@ -598,7 +586,12 @@ pub fn get_viewport(p: GetViewportParams) -> Result<CallToolResult, ErrorData> {
     let mut viewport = read_json(&dir.join("viewport.json"));
     if viewport.is_none() {
         if let Some(sid) = grant_surface_id(&grant) {
-            viewport = read_json(&agent_dir().join("viewports").join(sid).join("viewport.json"));
+            viewport = read_json(
+                &agent_dir()
+                    .join("viewports")
+                    .join(sid)
+                    .join("viewport.json"),
+            );
         }
     }
     let body = json!({
@@ -614,7 +607,9 @@ pub fn get_viewport(p: GetViewportParams) -> Result<CallToolResult, ErrorData> {
         })),
         "note": "Viewport mirrors Desktop Stage (Desktop | Responsive | Mobile). Use browser_set_viewport while Driving to change it."
     });
-    Ok(CallToolResult::success(vec![Content::text(body.to_string())]))
+    Ok(CallToolResult::success(vec![Content::text(
+        body.to_string(),
+    )]))
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -668,7 +663,7 @@ pub fn validate_set_viewport_params(p: &SetViewportParams) -> Result<Value, Stri
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
                 .unwrap_or("iphone-16");
-            if !VIEWPORT_DEVICE_IDS.iter().any(|d| *d == device_id) {
+            if !VIEWPORT_DEVICE_IDS.contains(&device_id) {
                 return Err(format!(
                     "deviceId must be one of: {}",
                     VIEWPORT_DEVICE_IDS.join(", ")
@@ -708,9 +703,7 @@ pub fn set_viewport(p: SetViewportParams) -> Result<CallToolResult, ErrorData> {
             None,
         ));
     };
-    let patch = validate_set_viewport_params(&p).map_err(|e| {
-        ErrorData::invalid_params(e, None)
-    })?;
+    let patch = validate_set_viewport_params(&p).map_err(|e| ErrorData::invalid_params(e, None))?;
     let (dir, grant, label) = require_drive_grant_resolved(
         &pubkey,
         p.webview_label.as_deref().unwrap_or(""),
@@ -731,12 +724,10 @@ pub fn set_viewport(p: SetViewportParams) -> Result<CallToolResult, ErrorData> {
         );
     }
     let path = dir.join("viewport-request.json");
-    let mut f = fs::File::create(&path).map_err(|e| {
-        ErrorData::internal_error(format!("write viewport-request: {e}"), None)
-    })?;
-    f.write_all(req.to_string().as_bytes()).map_err(|e| {
-        ErrorData::internal_error(format!("write viewport-request: {e}"), None)
-    })?;
+    let mut f = fs::File::create(&path)
+        .map_err(|e| ErrorData::internal_error(format!("write viewport-request: {e}"), None))?;
+    f.write_all(req.to_string().as_bytes())
+        .map_err(|e| ErrorData::internal_error(format!("write viewport-request: {e}"), None))?;
     Ok(CallToolResult::success(vec![Content::text(
         json!({
             "ok": true,
@@ -850,7 +841,13 @@ fn validate_drive_action(action: &DriveActionParam) -> Result<String, String> {
         }
         "scroll" => {}
         "navigate" => {
-            if action.url.as_deref().map(str::trim).unwrap_or("").is_empty() {
+            if action
+                .url
+                .as_deref()
+                .map(str::trim)
+                .unwrap_or("")
+                .is_empty()
+            {
                 return Err("navigate requires url".into());
             }
         }
@@ -859,10 +856,7 @@ fn validate_drive_action(action: &DriveActionParam) -> Result<String, String> {
             if key.is_empty() {
                 return Err("key requires key".into());
             }
-            if !SUPPORTED_KEYS
-                .iter()
-                .any(|k| k.eq_ignore_ascii_case(key))
-            {
+            if !SUPPORTED_KEYS.iter().any(|k| k.eq_ignore_ascii_case(key)) {
                 return Err(format!(
                     "unsupported key {key:?}; supported: {}",
                     SUPPORTED_KEYS.join(", ")
@@ -920,8 +914,8 @@ pub fn parse_drive_action(raw: &Value) -> Result<DriveActionParam, String> {
             return Err("action uses `type`; Drive actions require `kind`".into());
         }
     }
-    let action: DriveActionParam = serde_json::from_value(value)
-        .map_err(|e| format!("invalid Drive action shape: {e}"))?;
+    let action: DriveActionParam =
+        serde_json::from_value(value).map_err(|e| format!("invalid Drive action shape: {e}"))?;
     validate_drive_action(&action)?;
     Ok(action)
 }
@@ -953,7 +947,11 @@ pub struct DriveParams {
     pub include_snapshot: Option<bool>,
 }
 
-fn queue_action(dir: &Path, pubkey: &str, mut action: DriveActionParam) -> Result<String, ErrorData> {
+fn queue_action(
+    dir: &Path,
+    pubkey: &str,
+    mut action: DriveActionParam,
+) -> Result<String, ErrorData> {
     let id = action
         .id
         .as_ref()
@@ -1020,6 +1018,7 @@ fn inbox_lock_acquire(dir: &Path) -> Result<InboxLockGuard, String> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn drive_wait_response(
     dir: &Path,
     label: &str,
@@ -1055,11 +1054,12 @@ fn drive_wait_response(
                 "elapsedMs": started.elapsed().as_millis() as u64,
             })
         };
-        return Ok(CallToolResult::success(vec![Content::text(body.to_string())]));
+        return Ok(CallToolResult::success(vec![Content::text(
+            body.to_string(),
+        )]));
     }
 
-    let (results, last_url, complete) =
-        wait_for_drive_results(dir, ids, wait_timeout_ms, poll_ms);
+    let (results, last_url, complete) = wait_for_drive_results(dir, ids, wait_timeout_ms, poll_ms);
     let steps: Vec<Value> = ids
         .iter()
         .map(|id| {
@@ -1105,7 +1105,9 @@ fn drive_wait_response(
         "elapsedMs": started.elapsed().as_millis() as u64,
         "snapshot": snapshot,
     });
-    Ok(CallToolResult::success(vec![Content::text(body.to_string())]))
+    Ok(CallToolResult::success(vec![Content::text(
+        body.to_string(),
+    )]))
 }
 
 pub fn drive(p: DriveParams) -> Result<CallToolResult, ErrorData> {
@@ -1120,21 +1122,15 @@ fn drive_with_poll(p: DriveParams, poll_ms: u64) -> Result<CallToolResult, Error
             None,
         ));
     };
-    let (dir, grant, label) = require_drive_grant_resolved(
-        &pubkey,
-        &p.webview_label,
-        p.surface_id.as_deref(),
-    )?;
+    let (dir, grant, label) =
+        require_drive_grant_resolved(&pubkey, &p.webview_label, p.surface_id.as_deref())?;
     let queue_only = p.queue_only.unwrap_or(false);
     let wait_timeout_ms = p.wait_timeout_ms.unwrap_or(10_000).min(60_000);
     let include_snapshot = p.include_snapshot.unwrap_or(false);
 
     if let Some(batch) = p.actions.as_ref() {
         if batch.is_empty() {
-            return Err(ErrorData::invalid_params(
-                "actions array is empty",
-                None,
-            ));
+            return Err(ErrorData::invalid_params("actions array is empty", None));
         }
         let mut ids = Vec::new();
         let mut parsed = Vec::new();
@@ -1166,9 +1162,7 @@ fn drive_with_poll(p: DriveParams, poll_ms: u64) -> Result<CallToolResult, Error
         );
     }
 
-    let action = parse_drive_action(&p.action).map_err(|e| {
-        ErrorData::invalid_params(e, None)
-    })?;
+    let action = parse_drive_action(&p.action).map_err(|e| ErrorData::invalid_params(e, None))?;
     let id = queue_action(&dir, &pubkey, action)?;
     drive_wait_response(
         &dir,
@@ -1183,7 +1177,6 @@ fn drive_with_poll(p: DriveParams, poll_ms: u64) -> Result<CallToolResult, Error
         &pubkey,
     )
 }
-
 
 fn event_kind(ev: &Value) -> Option<&str> {
     ev.get("kind").and_then(|v| v.as_str())
@@ -1215,10 +1208,8 @@ fn read_events_after(dir: &Path, after: EventsWatermark) -> Vec<Value> {
     let Ok(mut file) = fs::File::open(&path) else {
         return Vec::new();
     };
-    if after.file_len > 0 {
-        if file.seek(SeekFrom::Start(after.file_len)).is_err() {
-            return Vec::new();
-        }
+    if after.file_len > 0 && file.seek(SeekFrom::Start(after.file_len)).is_err() {
+        return Vec::new();
     }
     let mut buf = String::new();
     if file.read_to_string(&mut buf).is_err() {
@@ -1294,11 +1285,8 @@ pub fn snapshot(p: SnapshotParams) -> Result<CallToolResult, ErrorData> {
             None,
         ));
     };
-    let (dir, grant, label) = resolve_grant_target(
-        &pubkey,
-        &p.webview_label,
-        p.surface_id.as_deref(),
-    )?;
+    let (dir, grant, label) =
+        resolve_grant_target(&pubkey, &p.webview_label, p.surface_id.as_deref())?;
 
     let want_shot = p.screenshot.unwrap_or(false);
     let started = std::time::Instant::now();
@@ -1310,7 +1298,7 @@ pub fn snapshot(p: SnapshotParams) -> Result<CallToolResult, ErrorData> {
     let mut last_url = Value::Null;
     let mut last_title = Value::Null;
     if let Ok(file) = fs::File::open(dir.join("events.jsonl")) {
-        for line in BufReader::new(file).lines().flatten() {
+        for line in BufReader::new(file).lines().map_while(Result::ok) {
             if let Ok(ev) = serde_json::from_str::<Value>(&line) {
                 if event_kind(&ev) == Some("nav") {
                     if let Some(payload) = ev.get("payload") {
@@ -1351,7 +1339,6 @@ pub fn snapshot(p: SnapshotParams) -> Result<CallToolResult, ErrorData> {
         .to_string(),
     )]))
 }
-
 
 // ── Drive viewport recording ────────────────────────────────────────────────
 
@@ -1408,7 +1395,7 @@ fn wait_for_record_event(
     loop {
         for ev in read_events_after(dir, after) {
             let kind = event_kind(&ev).unwrap_or("");
-            if !kinds.iter().any(|k| *k == kind) {
+            if !kinds.contains(&kind) {
                 continue;
             }
             let rid = ev
@@ -1557,7 +1544,6 @@ pub fn record_stop_and_post(p: RecordStopParams) -> Result<CallToolResult, Error
     )]))
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1582,9 +1568,7 @@ mod tests {
         fs::create_dir_all(&gdir).unwrap();
         fs::write(
             gdir.join("grant.json"),
-            format!(
-                r#"{{"agentPubkey":"{pubkey}","mode":"observe","webviewLabel":"{label}"}}"#
-            ),
+            format!(r#"{{"agentPubkey":"{pubkey}","mode":"observe","webviewLabel":"{label}"}}"#),
         )
         .unwrap();
         let mut events = fs::File::create(gdir.join("events.jsonl")).unwrap();
@@ -1605,7 +1589,6 @@ mod tests {
         let text = format!("{result:?}");
         assert!(text.contains("console"), "{text}");
     }
-
 
     #[test]
     fn wait_for_snapshot_sees_events_after_id_reset_via_byte_watermark() {
@@ -1687,7 +1670,10 @@ mod tests {
             scale_percent: None,
         })
         .unwrap();
-        assert_eq!(desktop.get("mode").and_then(|v| v.as_str()), Some("desktop"));
+        assert_eq!(
+            desktop.get("mode").and_then(|v| v.as_str()),
+            Some("desktop")
+        );
 
         let responsive = validate_set_viewport_params(&SetViewportParams {
             mode: "responsive".into(),
@@ -1714,12 +1700,18 @@ mod tests {
             scale_percent: Some(75.0),
         })
         .unwrap();
-        assert_eq!(mobile.get("deviceId").and_then(|v| v.as_str()), Some("iphone-16"));
+        assert_eq!(
+            mobile.get("deviceId").and_then(|v| v.as_str()),
+            Some("iphone-16")
+        );
         assert_eq!(
             mobile.get("orientation").and_then(|v| v.as_str()),
             Some("landscape")
         );
-        assert_eq!(mobile.get("scalePercent").and_then(|v| v.as_i64()), Some(75));
+        assert_eq!(
+            mobile.get("scalePercent").and_then(|v| v.as_i64()),
+            Some(75)
+        );
     }
 
     #[test]
@@ -1835,9 +1827,7 @@ mod tests {
         fs::create_dir_all(&gdir).unwrap();
         fs::write(
             gdir.join("grant.json"),
-            format!(
-                r#"{{"agentPubkey":"{pubkey}","mode":"drive","webviewLabel":"{label}"}}"#
-            ),
+            format!(r#"{{"agentPubkey":"{pubkey}","mode":"drive","webviewLabel":"{label}"}}"#),
         )
         .unwrap();
         let err = with_env(dir.path(), pubkey, || {
@@ -1869,9 +1859,7 @@ mod tests {
         fs::create_dir_all(&gdir).unwrap();
         fs::write(
             gdir.join("grant.json"),
-            format!(
-                r#"{{"agentPubkey":"{pubkey}","mode":"drive","webviewLabel":"{label}"}}"#
-            ),
+            format!(r#"{{"agentPubkey":"{pubkey}","mode":"drive","webviewLabel":"{label}"}}"#),
         )
         .unwrap();
         let result = with_env(dir.path(), pubkey, || {
@@ -1902,9 +1890,7 @@ mod tests {
         fs::create_dir_all(&gdir).unwrap();
         fs::write(
             gdir.join("grant.json"),
-            format!(
-                r#"{{"agentPubkey":"{pubkey}","mode":"drive","webviewLabel":"{label}"}}"#
-            ),
+            format!(r#"{{"agentPubkey":"{pubkey}","mode":"drive","webviewLabel":"{label}"}}"#),
         )
         .unwrap();
         with_env(dir.path(), pubkey, || {
@@ -1932,9 +1918,7 @@ mod tests {
         fs::create_dir_all(&gdir).unwrap();
         fs::write(
             gdir.join("grant.json"),
-            format!(
-                r#"{{"agentPubkey":"{pubkey}","mode":"drive","webviewLabel":"{label}"}}"#
-            ),
+            format!(r#"{{"agentPubkey":"{pubkey}","mode":"drive","webviewLabel":"{label}"}}"#),
         )
         .unwrap();
         with_env(dir.path(), pubkey, || {
@@ -2061,8 +2045,14 @@ mod tests {
         handle.join().unwrap();
         let text = format!("{result:?}");
         assert!(text.contains("complete"), "{text}");
-        assert!(text.contains("example.com/done") || text.contains("scroll"), "{text}");
-        assert!(text.contains("\"ok\":true") || text.contains("ok: true") || text.contains("results"), "{text}");
+        assert!(
+            text.contains("example.com/done") || text.contains("scroll"),
+            "{text}"
+        );
+        assert!(
+            text.contains("\"ok\":true") || text.contains("ok: true") || text.contains("results"),
+            "{text}"
+        );
     }
 
     #[test]
@@ -2084,7 +2074,8 @@ mod tests {
         let (results, url) = collect_drive_results_from_events(&path, &wanted);
         assert_eq!(results.len(), 2);
         assert_eq!(url.as_deref(), Some("https://x.test"));
-        let (partial, _) = collect_drive_results_from_events(&path, &["a1".into(), "missing".into()]);
+        let (partial, _) =
+            collect_drive_results_from_events(&path, &["a1".into(), "missing".into()]);
         assert_eq!(partial.len(), 1);
     }
 
@@ -2097,9 +2088,7 @@ mod tests {
         fs::create_dir_all(&gdir).unwrap();
         fs::write(
             gdir.join("grant.json"),
-            format!(
-                r#"{{"agentPubkey":"{pubkey}","mode":"drive","webviewLabel":"{label}"}}"#
-            ),
+            format!(r#"{{"agentPubkey":"{pubkey}","mode":"drive","webviewLabel":"{label}"}}"#),
         )
         .unwrap();
         let result = with_env(dir.path(), pubkey, || {
@@ -2149,10 +2138,7 @@ mod tests {
         assert!(text.contains("extra"), "{text}");
         assert!(text.contains("isMain"), "{text}");
     }
-
 }
-
-
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct RunbookGetParams {
@@ -2174,16 +2160,20 @@ pub fn runbook_get(p: RunbookGetParams) -> Result<CallToolResult, ErrorData> {
             None,
         ));
     };
-    let (dir, grant, label) = resolve_grant_target(
-        &pubkey,
-        &p.webview_label,
-        p.surface_id.as_deref(),
-    )?;
-    let inject = read_json(&dir.join("runbook.json")).unwrap_or_else(|| json!({
-        "agentBrief": "",
-        "procedures": []
-    }));
-    if let Some(proc_id) = p.procedure_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    let (dir, grant, label) =
+        resolve_grant_target(&pubkey, &p.webview_label, p.surface_id.as_deref())?;
+    let inject = read_json(&dir.join("runbook.json")).unwrap_or_else(|| {
+        json!({
+            "agentBrief": "",
+            "procedures": []
+        })
+    });
+    if let Some(proc_id) = p
+        .procedure_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         let full = read_json(&dir.join("runbook-full.json")).unwrap_or(json!({}));
         let procedures = full
             .get("procedures")
@@ -2208,7 +2198,9 @@ pub fn runbook_get(p: RunbookGetParams) -> Result<CallToolResult, ErrorData> {
             "surfaceId": grant_surface_id(&grant),
             "procedure": procedure,
         });
-        return Ok(CallToolResult::success(vec![Content::text(body.to_string())]));
+        return Ok(CallToolResult::success(vec![Content::text(
+            body.to_string(),
+        )]));
     }
     let body = json!({
         "webviewLabel": label,
@@ -2216,7 +2208,9 @@ pub fn runbook_get(p: RunbookGetParams) -> Result<CallToolResult, ErrorData> {
         "runbook": inject,
         "note": "Pass procedure_id to fetch full steps for one active/pending/archived entry."
     });
-    Ok(CallToolResult::success(vec![Content::text(body.to_string())]))
+    Ok(CallToolResult::success(vec![Content::text(
+        body.to_string(),
+    )]))
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -2250,11 +2244,8 @@ pub fn runbook_propose(p: RunbookProposeParams) -> Result<CallToolResult, ErrorD
             None,
         ));
     }
-    let (dir, grant, label) = resolve_grant_target(
-        &pubkey,
-        &p.webview_label,
-        p.surface_id.as_deref(),
-    )?;
+    let (dir, grant, label) =
+        resolve_grant_target(&pubkey, &p.webview_label, p.surface_id.as_deref())?;
     // Reject early when mirrored full runbook marks this title as persisted.
     if let Some(full) = read_json(&dir.join("runbook-full.json")) {
         if let Some(procs) = full.get("procedures").and_then(|v| v.as_array()) {
@@ -2302,15 +2293,26 @@ pub fn runbook_propose(p: RunbookProposeParams) -> Result<CallToolResult, ErrorD
         .append(true)
         .open(&path)
         .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
-    writeln!(file, "{line}")
-        .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+    writeln!(file, "{line}").map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
     file.flush()
         .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
     drop(_guard);
-    let _ = fs::write(dir.join("drive-wake"), format!("{}
-", now_ms()));
-    let _ = fs::write(dir.join("runbook-propose-wake"), format!("{}
-", now_ms()));
+    let _ = fs::write(
+        dir.join("drive-wake"),
+        format!(
+            "{}
+",
+            now_ms()
+        ),
+    );
+    let _ = fs::write(
+        dir.join("runbook-propose-wake"),
+        format!(
+            "{}
+",
+            now_ms()
+        ),
+    );
     let body = json!({
         "ok": true,
         "queued": true,
@@ -2321,10 +2323,10 @@ pub fn runbook_propose(p: RunbookProposeParams) -> Result<CallToolResult, ErrorD
         "title": title,
         "note": "Desktop auto-activates agent procedures. Persisted (human-locked) titles are rejected. Agent brief is human-owned."
     });
-    Ok(CallToolResult::success(vec![Content::text(body.to_string())]))
+    Ok(CallToolResult::success(vec![Content::text(
+        body.to_string(),
+    )]))
 }
-
-
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct FillFieldParams {
@@ -2360,11 +2362,8 @@ pub fn fill_field(p: FillFieldParams) -> Result<CallToolResult, ErrorData> {
             None,
         ));
     };
-    let (dir, grant, label) = require_drive_grant_resolved(
-        &pubkey,
-        &p.webview_label,
-        p.surface_id.as_deref(),
-    )?;
+    let (dir, grant, label) =
+        require_drive_grant_resolved(&pubkey, &p.webview_label, p.surface_id.as_deref())?;
     let action = DriveActionParam {
         kind: "fill".into(),
         id: None,
@@ -2535,7 +2534,10 @@ mod fill_field_tests {
                 steps: "hack".into(),
             })
             .unwrap_err();
-            assert!(format!("{err:?}").to_lowercase().contains("persisted"), "{err:?}");
+            assert!(
+                format!("{err:?}").to_lowercase().contains("persisted"),
+                "{err:?}"
+            );
         });
     }
 }
@@ -2644,8 +2646,8 @@ mod runbook_tests {
                 steps: "Open Filters".into(),
             })
             .unwrap();
-            let raw = fs::read_to_string(dir.path().join(label).join("runbook-propose.jsonl"))
-                .unwrap();
+            let raw =
+                fs::read_to_string(dir.path().join(label).join("runbook-propose.jsonl")).unwrap();
             assert!(raw.contains("How to filter"));
             assert!(raw.contains("Open Filters"));
             assert!(raw.contains(&pubkey));

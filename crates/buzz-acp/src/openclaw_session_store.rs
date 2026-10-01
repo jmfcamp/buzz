@@ -27,7 +27,11 @@ pub(crate) struct OpenClawStoreUsage {
 
 /// Resolve `agents/<id>/sessions/sessions.json` under the OpenClaw state dir.
 pub(crate) fn resolve_sessions_json_path(agent_id: &str) -> PathBuf {
-    resolve_openclaw_state_dir().join("agents").join(agent_id).join("sessions").join("sessions.json")
+    resolve_openclaw_state_dir()
+        .join("agents")
+        .join(agent_id)
+        .join("sessions")
+        .join("sessions.json")
 }
 
 fn resolve_openclaw_state_dir() -> PathBuf {
@@ -153,7 +157,10 @@ mod tests {
     #[test]
     fn lookup_rejects_missing_key() {
         let dir = tempfile::tempdir().unwrap();
-        let path = write_store(dir.path(), r#"{"agent:other:buzz":{"totalTokens":1,"totalTokensFresh":true}}"#);
+        let path = write_store(
+            dir.path(),
+            r#"{"agent:other:buzz":{"totalTokens":1,"totalTokensFresh":true}}"#,
+        );
         assert!(lookup_fresh_used_tokens_in_store(&path, "agent:captain:buzz").is_none());
     }
 
