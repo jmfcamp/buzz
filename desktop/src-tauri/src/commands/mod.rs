@@ -1,3 +1,4 @@
+pub mod admin;
 mod agent_access;
 mod agent_auth;
 mod agent_config;
@@ -83,6 +84,7 @@ pub use crate::community_bots::{
     community_bots_list_remote_agents, community_bots_resolve_identity,
     community_bots_reveal_identity_secret, community_bots_sign_profile,
 };
+pub use admin::*;
 pub use agent_access::*;
 pub use agent_auth::*;
 pub use agent_config::*;

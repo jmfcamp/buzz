@@ -337,7 +337,7 @@ pub async fn resolve_report_with_enforcement(
         state,
         tenant,
         community_id,
-        report_id,
+        Some(report_id),
         &action_record.action,
         action_record.reason.as_deref(),
         action_record.timeout_until,
@@ -381,7 +381,7 @@ async fn drive_enforcement(
     state: &Arc<AppState>,
     tenant: &TenantContext,
     community_id: buzz_core::tenant::CommunityId,
-    report_id: Uuid,
+    report_id: Option<Uuid>,
     action: &str,
     reason: Option<&str>,
     timeout_until: Option<DateTime<Utc>>,
@@ -522,7 +522,8 @@ async fn drive_enforcement(
                 target_event_id,
                 channel_id,
             };
-            let mutation_result = run_atomic_mutation(state, action_id, lease_token, &ctx).await;
+            let mutation_result =
+                run_atomic_mutation(state, tenant, action_id, lease_token, &ctx).await;
 
             // On enforcement error, record the failure while we STILL hold the
             // lease — `record_action_failure` is fenced on the live token, so it
@@ -666,6 +667,29 @@ async fn drive_enforcement(
                 }
             }
         }
+        // A ban closes the target's open sessions clusterwide, matching the
+        // in-community kind-9040 ban. It runs before finalize so a crash in
+        // between leaves the action non-terminal and recovery re-runs it here;
+        // a repeated disconnect is a no-op. Timeout does not disconnect.
+        if action == "ban" {
+            if let Some(target) = target_pubkey.or(rec.enforcement_target_pubkey.as_deref()) {
+                // A failed revoke leaves the action non-terminal so the
+                // recovery worker re-runs it.
+                state
+                    .revoke_live_access(
+                        tenant,
+                        target,
+                        &action_id.to_string(),
+                        "blocked: you are banned from this community",
+                    )
+                    .await
+                    .map_err(|e| {
+                        ResolutionError::Internal(format!(
+                            "action {action_id}: live revoke incomplete: {e}"
+                        ))
+                    })?;
+            }
+        }
         // Finalize: action → succeeded, report → resolved, outbox rows created.
         // Requires step_marker = 'mutation_committed' AND active_action_id = this action.
         let finalized = state
@@ -704,7 +728,7 @@ async fn drive_enforcement(
             )));
         }
 
-        info!(action_id = %action_id, report_id = %report_id, action = %action, "enforcement resolved");
+        info!(action_id = %action_id, report_id = ?report_id, action = %action, "enforcement resolved");
         return Ok(EnforcementResolved { action_id });
     }
 }
@@ -732,6 +756,7 @@ enum MutationOutcome {
 /// - `Err` — the mutation itself failed (DB or validation error).
 async fn run_atomic_mutation(
     state: &Arc<AppState>,
+    tenant: &TenantContext,
     action_id: Uuid,
     lease_token: Uuid,
     ctx: &EnforcementCtx<'_>,
@@ -816,7 +841,7 @@ async fn run_atomic_mutation(
                 .map_err(|e| anyhow::anyhow!("thread metadata lookup failed: {e}"))?;
             let parent_id = meta.as_ref().and_then(|m| m.parent_event_id.clone());
             let root_id = meta.as_ref().and_then(|m| m.root_event_id.clone());
-            state
+            let committed = state
                 .db
                 .execute_delete_with_marker(
                     action_id,
@@ -827,7 +852,18 @@ async fn run_atomic_mutation(
                     root_id.as_deref(),
                 )
                 .await
-                .map_err(|e| anyhow::anyhow!("delete failed: {e}"))
+                .map_err(|e| anyhow::anyhow!("delete failed: {e}"))?;
+            // Same post-commit refresh as NIP-29 DELETE_EVENT: push a fresh
+            // 39005 so live badge counts also count down.
+            if let (true, Some(meta), Some(root_id)) = (committed, meta, root_id) {
+                crate::handlers::side_effects::emit_live_thread_summary(
+                    tenant,
+                    state,
+                    meta.channel_id,
+                    root_id,
+                );
+            }
+            Ok(committed)
         }
         other => Err(anyhow::anyhow!("unexpected enforcement action: {other}")),
     };
@@ -931,7 +967,7 @@ pub async fn drive_enforcement_pub(
         state,
         tenant,
         community_id,
-        report_id,
+        Some(report_id),
         action,
         reason,
         timeout_until,
@@ -940,6 +976,33 @@ pub async fn drive_enforcement_pub(
         target_event_id,
         channel_id,
         initial_record,
+        held_lease,
+    )
+    .await
+}
+
+/// Drive an accepted report-less direct action from its persisted record (HTTP
+/// path with `held_lease = None`, recovery worker with its batch lease). The
+/// staff check ran once, at acceptance; an accepted action always completes.
+pub async fn drive_direct_action(
+    state: &Arc<AppState>,
+    tenant: &TenantContext,
+    rec: &AdminActionRecord,
+    held_lease: Option<Uuid>,
+) -> Result<EnforcementResolved, ResolutionError> {
+    drive_enforcement(
+        state,
+        tenant,
+        tenant.community(),
+        None,
+        &rec.action,
+        rec.reason.as_deref(),
+        rec.timeout_until,
+        &rec.actor_pubkey,
+        rec.enforcement_target_pubkey.as_deref(),
+        rec.enforcement_target_event_id.as_deref(),
+        rec.enforcement_channel_id,
+        rec,
         held_lease,
     )
     .await
@@ -981,6 +1044,7 @@ mod tests {
             reporter_pubkey: "0".repeat(64),
             target_kind: target_kind.to_string(),
             target: target.to_string(),
+            target_author_pubkey: None,
             channel_id: None,
             report_type: "spam".to_string(),
             note: None,

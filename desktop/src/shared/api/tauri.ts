@@ -1,4 +1,5 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { beginChannelMembershipWrite } from "@/shared/api/channelMembershipWrites";
 import {
   fromRawInstallRuntimeResult,
   type RawInstallRuntimeResult,
@@ -244,7 +245,7 @@ export class TauriInvokeError extends Error {
   }
 }
 
-function toTauriError(error: unknown): Error {
+export function toTauriError(error: unknown): Error {
   if (error instanceof Error) {
     return error;
   }
@@ -349,14 +350,22 @@ export function getRelayHttpUrl(): Promise<string> {
 export async function addChannelMembers(
   input: AddChannelMembersInput,
 ): Promise<AddChannelMembersResult> {
-  return invokeTauri<RawAddChannelMembersResult>("add_channel_members", input);
+  const record = beginChannelMembershipWrite();
+  const result = await invokeTauri<RawAddChannelMembersResult>(
+    "add_channel_members",
+    input,
+  );
+  record(input.channelId);
+  return result;
 }
 
 export async function removeChannelMember(
   channelId: string,
   pubkey: string,
 ): Promise<void> {
+  const record = beginChannelMembershipWrite();
   await invokeTauri("remove_channel_member", { channelId, pubkey });
+  record(channelId);
 }
 
 export async function changeChannelMemberRole(
@@ -364,15 +373,21 @@ export async function changeChannelMemberRole(
   pubkey: string,
   role: string,
 ): Promise<void> {
+  const record = beginChannelMembershipWrite();
   await invokeTauri("change_channel_member_role", { channelId, pubkey, role });
+  record(channelId);
 }
 
 export async function joinChannel(channelId: string): Promise<void> {
+  const record = beginChannelMembershipWrite();
   await invokeTauri("join_channel", { channelId });
+  record(channelId);
 }
 
 export async function leaveChannel(channelId: string): Promise<void> {
+  const record = beginChannelMembershipWrite();
   await invokeTauri("leave_channel", { channelId });
+  record(channelId);
 }
 
 export async function getHomeFeed(
@@ -546,6 +561,19 @@ export async function signRelayEvent(input: {
   content: string;
   createdAt?: number;
   tags: string[][];
+  /**
+   * When true, the Rust signer calls `EventBuilder::allow_self_tagging()` so
+   * that `p` tags whose value equals the signing key are NOT stripped.
+   *
+   * nostr 0.44.x strips self-`p` tags by default (see `EventBuilder::
+   * build_with_ctx` in the vendored crate). Set this flag ONLY for report
+   * events (kind:1984) where the reporter and the reported author are the
+   * same person — otherwise the relay rejects with "must include a p tag".
+   *
+   * Default: false (matches the historical behaviour for all other event
+   * kinds where stripping self-tags is correct).
+   */
+  allowSelfTagging?: boolean;
 }): Promise<RelayEvent> {
   const eventJson = await invokeTauri<string>("sign_event", input);
   return JSON.parse(eventJson) as RelayEvent;

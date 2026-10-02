@@ -16,7 +16,7 @@ import {
   MonitorCog,
   Moon,
   Pin,
-  ShieldAlert,
+  ServerCog,
   Smartphone,
   Smile,
   SquareTerminal,
@@ -73,10 +73,10 @@ import { ExperimentalFeaturesCard } from "./ExperimentalFeaturesCard";
 import { KeyboardShortcutsCard } from "./KeyboardShortcutsCard";
 import { MeshComputeSettingsCard } from "@/features/mesh-compute/ui/MeshComputeSettingsCard";
 import { MobilePairingCard } from "./MobilePairingCard";
-import { ModerationQueueCard } from "./ModerationQueueCard";
 import { NotificationSettingsCard } from "./NotificationSettingsCard";
 import { AgentsSettingsPanel } from "./AgentsSettingsPanel";
 import { HostedCommunitiesSettingsCard } from "./HostedCommunitiesSettingsCard";
+import { AdminConsoleSettingsCard } from "@/features/admin-console/AdminConsoleSettingsCard";
 import {
   SettingsOptionGroup,
   SettingsOptionGroupList,
@@ -106,7 +106,7 @@ export type SettingsSection =
   | "community-members"
   | "community-sections"
   | "bots"
-  | "moderation"
+  | "relay-admin"
   | "custom-emoji"
   | "local-archive"
   | "mobile"
@@ -131,7 +131,7 @@ const SETTINGS_SECTION_VALUES: readonly SettingsSection[] = [
   "community-members",
   "community-sections",
   "bots",
-  "moderation",
+  "relay-admin",
   "custom-emoji",
   "local-archive",
   "mobile",
@@ -254,9 +254,9 @@ export const settingsSections: SettingsSectionDescriptor[] = [
     icon: Bot,
   },
   {
-    value: "moderation",
-    label: "Moderation",
-    icon: ShieldAlert,
+    value: "relay-admin",
+    label: "Admin",
+    icon: ServerCog,
   },
   {
     value: "custom-emoji",
@@ -908,8 +908,8 @@ export function renderSettingsSection(
           <CommunityAgentsSettingsCard />
         </>
       );
-    case "moderation":
-      return <ModerationQueueCard />;
+    case "relay-admin":
+      return <AdminConsoleSettingsCard />;
     case "custom-emoji":
       return <CustomEmojiSettingsCard />;
     case "local-archive":
