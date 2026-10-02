@@ -11,6 +11,7 @@ import {
   isInboxThreadContextEvent,
   matchesInboxAllView,
   matchesInboxFilter,
+  selectVisibleInboxItems,
   toInboxContextMessage,
   toTimelineMessage,
 } from "./inboxViewHelpers.ts";
@@ -263,6 +264,47 @@ test("matchesInboxFilter matches thread rows by thread tags", () => {
       "thread",
     ),
     false,
+  );
+});
+
+test("unread filter drops the open row when it is the last read item", () => {
+  const open = { id: "a", conversationId: "ca", categories: ["activity"] };
+  const other = { id: "b", conversationId: "cb", categories: ["activity"] };
+  const options = {
+    filter: "all",
+    ownedAgentPubkeys: undefined,
+    selectedConversationId: "ca",
+    unreadOnly: true,
+  };
+
+  assert.deepEqual(
+    selectVisibleInboxItems([open], {
+      ...options,
+      doneIds: new Set(["a"]),
+    }).map((item) => item.id),
+    [],
+  );
+  assert.deepEqual(
+    selectVisibleInboxItems([open, other], {
+      ...options,
+      doneIds: new Set(["a"]),
+    }).map((item) => item.id),
+    ["a", "b"],
+  );
+  assert.deepEqual(
+    selectVisibleInboxItems([open, other], {
+      ...options,
+      doneIds: new Set(["b"]),
+    }).map((item) => item.id),
+    ["a"],
+  );
+  assert.deepEqual(
+    selectVisibleInboxItems([open], {
+      ...options,
+      doneIds: new Set(["a"]),
+      unreadOnly: false,
+    }).map((item) => item.id),
+    ["a"],
   );
 });
 

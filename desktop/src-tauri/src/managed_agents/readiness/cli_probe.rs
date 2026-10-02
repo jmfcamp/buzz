@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::managed_agents::runtime::build_augmented_path;
+use crate::managed_agents::runtime::augmented_agent_path;
 
 /// Build the augmented PATH for CLI probes and other native child processes
 /// (auth commands, `buzz-acp models` discovery), including nvm's default
@@ -11,7 +11,7 @@ pub(crate) fn augmented_path() -> Option<String> {
     let nvm_bin = home
         .as_deref()
         .and_then(crate::managed_agents::find_nvm_default_bin);
-    build_augmented_path(
+    augmented_agent_path(
         home,
         std::env::current_exe()
             .ok()

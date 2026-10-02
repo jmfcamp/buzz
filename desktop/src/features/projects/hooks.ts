@@ -660,9 +660,12 @@ export function useProjectQuery(projectId: string) {
   });
 }
 
-export function useRepoStateQuery(project: Repository | null | undefined) {
+export function useRepoStateQuery(
+  project: Repository | null | undefined,
+  enabled = true,
+) {
   return useQuery({
-    enabled: Boolean(project),
+    enabled: Boolean(enabled && project),
     queryKey: ["project", project?.id ?? "none", "repo-state"],
     queryFn: () => {
       if (!project) throw new Error("No project selected.");
@@ -772,11 +775,12 @@ export function useProjectLocalRepoSnapshotQuery(
   project: Repository | null | undefined,
   reposDir?: string | null,
   branchName?: string | null,
+  enabled = true,
 ) {
   const selectedBranch = branchName ?? project?.defaultBranch ?? null;
 
   return useQuery({
-    enabled: Boolean(project),
+    enabled: Boolean(enabled && project),
     queryKey: [
       "project",
       project?.id ?? "none",

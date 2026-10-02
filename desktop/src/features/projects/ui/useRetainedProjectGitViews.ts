@@ -137,6 +137,7 @@ export function useProjectDetailGitViews({
   activeTag,
   isBuzzHost,
   repository,
+  relayGit = true,
   reposDir,
   repoSource,
   selectedBranchPullRequest,
@@ -147,6 +148,8 @@ export function useProjectDetailGitViews({
   activeRepoPullRequest: ProjectPullRequest | null | undefined;
   activeTag: { commit: string; name: string } | null;
   isBuzzHost: boolean;
+  /** When false, skip the relay clone. A Hula path reads OpenClaw instead. */
+  relayGit?: boolean;
   repository: Repository | null | undefined;
   reposDir?: string | null;
   repoSource: "local" | "remote";
@@ -159,7 +162,7 @@ export function useProjectDetailGitViews({
     activeBranch,
     selectedTag ? null : selectedBranchPullRequest,
     activeTag,
-    isBuzzHost,
+    isBuzzHost && relayGit,
   );
   const displayedRepoSnapshot = useRetainedRepoSnapshot(
     `${repository?.id}:${activeBranch}:${selectedTag ? activeTag?.name : selectedBranchPullRequest?.id}:${selectedTag ? activeTag?.commit : selectedBranchPullRequest?.commit}`,
@@ -175,25 +178,27 @@ export function useProjectDetailGitViews({
     repository,
     reviewDiffBranch,
     activeRepoPullRequest,
-    repoSource === "remote",
+    repoSource === "remote" && relayGit,
   );
   const localRepoDiffQuery = useProjectLocalRepoDiffQuery(
     repository,
     reposDir,
     reviewDiffBranch,
     activeRepoPullRequest,
-    repoSource === "local" && Boolean(activeRepoPullRequest),
+    repoSource === "local" && Boolean(activeRepoPullRequest) && relayGit,
   );
   const commitDiffQuery = useProjectCommitDiffQuery(
     repository,
     selectedCommitHash,
     repoSource,
     reposDir,
+    relayGit,
   );
   const localRepoSnapshotQuery = useProjectLocalRepoSnapshotQuery(
     repository,
     reposDir,
     activeBranch,
+    relayGit,
   );
   const displayedRepoDiff = useRetainedRepoDiff(
     `${repository?.id ?? "none"}:${repoSource}:${reviewDiffBranch}:${activeRepoPullRequest?.id}:${activeRepoPullRequest?.commit}`,

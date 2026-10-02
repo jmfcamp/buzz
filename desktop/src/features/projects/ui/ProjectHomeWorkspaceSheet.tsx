@@ -3,25 +3,31 @@ import * as React from "react";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useCommunities } from "@/features/communities/useCommunities";
 import {
+  useProjectActivitySummariesQuery,
   useProjectPullRequestsQuery,
   useProjectRepoSnapshotQuery,
   useProjectsWorkItemsQuery,
   useRepoStateQuery,
   type Project,
 } from "@/features/projects/hooks";
+import { hulaCommitByHash } from "@/features/projects/lib/hulaFiles";
 import { gitContributorPubkeysFromCommits } from "@/features/projects/lib/projectContributorMatching";
 import { resolveProjectDefaultBranch } from "@/features/projects/lib/projectBranches";
 import type { ProjectHomeWorkspaceSheetTab } from "@/features/projects/lib/projectHomeWorkspaceSheet";
 import { useProjectCommitDiffQuery } from "@/features/projects/useProjectCommitDiff";
+import { useReconcileProjectTaskList } from "@/features/projects/useReconcileProjectTaskList";
 import { useProjectRepositorySnapshots } from "@/features/projects/useProjectRepositorySnapshots";
+import {
+  useHulaCommitDetail,
+  useHulaFilesSnapshot,
+  useHulaRepositorySnapshots,
+} from "@/features/projects/useHulaRepositoryGit";
 import { CreateProjectIssueDialog } from "./CreateProjectIssueDialog";
-import { CreatePullRequestDialog } from "./CreatePullRequestDialog";
 import { ProjectCommitDetailPanel } from "./ProjectCommitDetailPanel";
 import { ContributorsPanel } from "./ProjectDetailFeedPanels";
 import { ProjectHomeCodebasePanel } from "./ProjectHomeCodebasePanel";
 import { ProjectHomeCommitsPanel } from "./ProjectHomeCommitsPanel";
 import { ProjectIssuesPanel } from "./ProjectIssuesPanel";
-import { PullRequestsPanel } from "./ProjectPullRequestsPanel";
 import { PROJECT_DETAIL_PANEL_CLASS } from "./projectPanelStyles";
 import { useProjectDetailPeople } from "./useProjectDetailPeople";
 
@@ -74,9 +80,6 @@ export function ProjectHomeWorkspaceSheet({
   const [selectedIssueId, setSelectedIssueId] = React.useState<string | null>(
     null,
   );
-  const [selectedPullRequestId, setSelectedPullRequestId] = React.useState<
-    string | null
-  >(null);
   const [selectedCommitHash, setSelectedCommitHash] = React.useState<
     string | null
   >(null);
@@ -88,11 +91,15 @@ export function ProjectHomeWorkspaceSheet({
     path: string;
   } | null>(null);
   const [createIssueOpen, setCreateIssueOpen] = React.useState(false);
-  const [createPullRequestOpen, setCreatePullRequestOpen] =
-    React.useState(false);
 
   const projectScope = React.useMemo(() => [project], [project]);
   const workItemsQuery = useProjectsWorkItemsQuery(projectScope);
+  const activityQuery = useProjectActivitySummariesQuery(projectScope);
+  const taskListRefreshing = useReconcileProjectTaskList({
+    issueCount: activityQuery.data?.[project.id]?.issueCount,
+    loadedIssueCount: workItemsQuery.data?.issues.items.length,
+    refetch: workItemsQuery.refetch,
+  });
   const pullRequestsQuery = useProjectPullRequestsQuery(repository);
   const issueItems = React.useMemo(
     () =>
@@ -114,7 +121,9 @@ export function ProjectHomeWorkspaceSheet({
     pullRequests,
     repository,
   });
-  const repoStateQuery = useRepoStateQuery(repository);
+  const hulaProject = Boolean(project.hulaPath);
+  const hulaRoot = hulaProject ? (repository.hulaPath ?? null) : null;
+  const repoStateQuery = useRepoStateQuery(repository, !hulaProject);
   const defaultBranch = resolveProjectDefaultBranch(
     repository.defaultBranch,
     repoStateQuery.data,
@@ -124,13 +133,21 @@ export function ProjectHomeWorkspaceSheet({
     defaultBranch,
     null,
     null,
-    true,
+    !hulaProject,
   );
-  const snapshot = snapshotQuery.data ?? null;
-  const repositorySnapshots = useProjectRepositorySnapshots(
+  const hulaSnapshotQuery = useHulaFilesSnapshot(hulaRoot, "HEAD");
+  const snapshot = hulaProject
+    ? (hulaSnapshotQuery.data ?? null)
+    : (snapshotQuery.data ?? null);
+  const relaySnapshots = useProjectRepositorySnapshots(
     project.repositories,
-    tab === "commits",
+    tab === "commits" && !hulaProject,
   );
+  const hulaSnapshots = useHulaRepositorySnapshots(
+    project.repositories,
+    tab === "commits" && hulaProject,
+  );
+  const repositorySnapshots = hulaProject ? hulaSnapshots : relaySnapshots;
   const selectedCommitResult =
     repositorySnapshots.find(
       ({ repository: candidate }) =>
@@ -138,29 +155,36 @@ export function ProjectHomeWorkspaceSheet({
     ) ?? null;
   const selectedCommitRepository =
     selectedCommitResult?.repository ?? repository;
+  const hulaCommitRoot = hulaProject
+    ? (selectedCommitRepository.hulaPath ?? null)
+    : null;
+  const hulaCommit = useHulaCommitDetail(hulaCommitRoot, selectedCommitHash);
   const commitDiffQuery = useProjectCommitDiffQuery(
     selectedCommitRepository,
     selectedCommitHash,
     "remote",
     activeCommunity?.reposDir,
+    !hulaCommitRoot,
   );
   const contributorPubkeysByGitIdentity = React.useMemo(
     () =>
       gitContributorPubkeysFromCommits(snapshot?.commits ?? [], pullRequests),
     [pullRequests, snapshot?.commits],
   );
-  const selectedPullRequest =
-    pullRequests.find(
-      (pullRequest) => pullRequest.id === selectedPullRequestId,
-    ) ?? null;
   const selectedIssueItem =
     issueItems.find(({ issue }) => issue.id === selectedIssueId) ?? null;
-  const selectedCommit =
-    selectedCommitResult?.snapshot?.commits.find(
-      (commit) => commit.hash === selectedCommitHash,
-    ) ??
-    snapshot?.commits.find((commit) => commit.hash === selectedCommitHash) ??
-    null;
+  const selectedCommit = hulaCommitRoot
+    ? (hulaCommitByHash(
+        selectedCommitResult?.snapshot ?? snapshot,
+        selectedCommitHash,
+      ) ??
+      hulaCommit.commitQuery.data ??
+      null)
+    : (selectedCommitResult?.snapshot?.commits.find(
+        (commit) => commit.hash === selectedCommitHash,
+      ) ??
+      snapshot?.commits.find((commit) => commit.hash === selectedCommitHash) ??
+      null);
   const selectedCommitPullRequest = selectedCommitHash
     ? selectedCommitRepository.id === repository.id
       ? pullRequests.find(
@@ -185,33 +209,6 @@ export function ProjectHomeWorkspaceSheet({
     },
     [goProject, project.id, workItemsQuery],
   );
-  const handlePullRequestCreated = React.useCallback(
-    async (
-      createdProject: Project,
-      createdRepository: Project["repositories"][number],
-      pullRequestId: string,
-    ) => {
-      if (createdProject.id !== project.id) {
-        await goProject(createdProject.id, {
-          pullRequestId,
-          repositoryId: createdRepository.id,
-        });
-        return;
-      }
-      if (createdRepository.id !== repository.id) {
-        onSelectRepository(createdRepository.id);
-      }
-      await pullRequestsQuery.refetch();
-      setSelectedPullRequestId(pullRequestId);
-    },
-    [
-      goProject,
-      onSelectRepository,
-      project.id,
-      pullRequestsQuery,
-      repository.id,
-    ],
-  );
   const detail = React.useMemo<ProjectHomeWorkspaceDetail | null>(() => {
     if (tab === "issues" && selectedIssueId) {
       return {
@@ -221,13 +218,6 @@ export function ProjectHomeWorkspaceSheet({
           repositoryId: selectedIssueItem?.project.id,
         },
         onBack: () => setSelectedIssueId(null),
-      };
-    }
-    if (tab === "prs" && selectedPullRequestId) {
-      return {
-        backLabel: "Back to Reviews",
-        navigation: { pullRequestId: selectedPullRequestId },
-        onBack: () => setSelectedPullRequestId(null),
       };
     }
     if (tab === "commits" && selectedCommitHash) {
@@ -257,7 +247,6 @@ export function ProjectHomeWorkspaceSheet({
     selectedCommitRepository.id,
     selectedIssueId,
     selectedIssueItem?.project.id,
-    selectedPullRequestId,
     tab,
   ]);
   React.useEffect(() => {
@@ -278,24 +267,8 @@ export function ProjectHomeWorkspaceSheet({
       });
       return;
     }
-    if (tab === "prs" && !selectedPullRequestId) {
-      onCreateActionChange?.({
-        disabled: projects.length === 0,
-        label: "Create review",
-        onClick: () => setCreatePullRequestOpen(true),
-        title: "Create review — choose a repository and branches to compare",
-      });
-      return;
-    }
     onCreateActionChange?.(null);
-  }, [
-    onCreateActionChange,
-    project.repositories.length,
-    projects.length,
-    selectedIssueId,
-    selectedPullRequestId,
-    tab,
-  ]);
+  }, [onCreateActionChange, project.repositories.length, selectedIssueId, tab]);
   React.useEffect(
     () => () => {
       onCreateActionChange?.(null);
@@ -309,7 +282,13 @@ export function ProjectHomeWorkspaceSheet({
       body = (
         <ProjectIssuesPanel
           error={workItemsQuery.error}
-          isLoading={workItemsQuery.isLoading}
+          isLoading={
+            workItemsQuery.isLoading ||
+            taskListRefreshing ||
+            (workItemsQuery.isFetching &&
+              issueItems.length === 0 &&
+              workItemsQuery.error == null)
+          }
           issueItems={issueItems}
           onSelectedIssueIdChange={setSelectedIssueId}
           profiles={people.profiles}
@@ -318,27 +297,22 @@ export function ProjectHomeWorkspaceSheet({
         />
       );
       break;
-    case "prs":
-      body = (
-        <PullRequestsPanel
-          error={pullRequestsQuery.error}
-          isLoading={pullRequestsQuery.isLoading}
-          onSelectedPullRequestIdChange={setSelectedPullRequestId}
-          profiles={people.profiles}
-          project={repository}
-          pullRequests={pullRequests}
-          selectedPullRequest={selectedPullRequest}
-        />
-      );
-      break;
     case "commits":
       body = selectedCommitHash ? (
         <ProjectCommitDetailPanel
           commit={selectedCommit}
           commitHash={selectedCommitHash}
-          diff={commitDiffQuery.data}
-          diffError={commitDiffQuery.error}
-          diffLoading={commitDiffQuery.isLoading}
+          diff={
+            hulaCommitRoot ? hulaCommit.diffQuery.data : commitDiffQuery.data
+          }
+          diffError={
+            hulaCommitRoot ? hulaCommit.diffQuery.error : commitDiffQuery.error
+          }
+          diffLoading={
+            hulaCommitRoot
+              ? hulaCommit.diffQuery.isPending
+              : commitDiffQuery.isLoading
+          }
           originAgentName={selectedCommitPullRequest?.originAgentName}
           originChannelId={selectedCommitPullRequest?.channelId}
           project={selectedCommitRepository}
@@ -365,6 +339,7 @@ export function ProjectHomeWorkspaceSheet({
           onOpenCommit={onOpenCommit}
           onRepositoryAdded={onRepositoryAdded}
           onSelectRepository={onSelectRepository}
+          profiles={people.profiles}
           project={project}
           projects={projects}
           repository={repository}
@@ -384,9 +359,7 @@ export function ProjectHomeWorkspaceSheet({
       break;
   }
 
-  const listPanel =
-    (tab === "issues" && !selectedIssueId) ||
-    (tab === "prs" && !selectedPullRequestId);
+  const listPanel = tab === "issues" && !selectedIssueId;
 
   return (
     <div
@@ -401,16 +374,6 @@ export function ProjectHomeWorkspaceSheet({
       ) : (
         body
       )}
-      {createPullRequestOpen ? (
-        <CreatePullRequestDialog
-          initialProjectId={project.id}
-          onCreated={handlePullRequestCreated}
-          onOpenChange={setCreatePullRequestOpen}
-          open
-          projects={projects}
-          reposDir={activeCommunity?.reposDir}
-        />
-      ) : null}
       <CreateProjectIssueDialog
         initialProjectId={project.id}
         onCreated={handleIssueCreated}

@@ -31,6 +31,15 @@ export function primaryMenuLabels(): string[] {
   return PRIMARY_MENU_ITEMS.map((item) => item.label);
 }
 
+/** Prefix a second menu copy so the in-flow rows keep their canonical test ids. */
+export function scopedPrimaryMenuTestId(
+  scope: string | undefined,
+  id: string,
+): string {
+  if (!scope) return id;
+  return `${scope}-${id}`;
+}
+
 export function primaryMenuItemAfter(id: PrimaryMenuItemId): PrimaryMenuItem {
   const index = PRIMARY_MENU_ITEMS.findIndex((item) => item.id === id);
   const next = PRIMARY_MENU_ITEMS[index + 1];

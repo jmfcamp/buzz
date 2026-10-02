@@ -22,6 +22,7 @@ import {
 } from "@/features/channels/hooks";
 import { useChannelModerationCapabilities } from "@/features/channels/ui/ChannelManagementModerationActions";
 import type { ChannelSection } from "@/features/sidebar/lib/useChannelSections";
+import { AddSurfaceTabMenuItem } from "@/features/sidebar/ui/AddSurfaceTabMenuItem";
 import {
   ContextMenuIconSlot,
   deferMenuAction,
@@ -158,6 +159,7 @@ export function ChannelContextMenuItems({
   onCreateSectionForChannel,
   onDeleteChannel,
   onLeaveChannel,
+  tabLabel,
 }: {
   channel: Channel;
   hasUnread: boolean;
@@ -181,6 +183,8 @@ export function ChannelContextMenuItems({
   onCreateSectionForChannel?: (channelId: string) => void;
   onDeleteChannel?: (channel: Channel) => void;
   onLeaveChannel?: (channel: Channel) => void;
+  /** Visible row name. Falls back to the channel record name. */
+  tabLabel?: string;
 }) {
   const {
     feedItemState,
@@ -239,6 +243,11 @@ export function ChannelContextMenuItems({
 
   return (
     <>
+      <AddSurfaceTabMenuItem
+        divided
+        label={tabLabel?.trim() || channel.name}
+        target={{ kind: "channel", channelId: channel.id }}
+      />
       <CopyChannelSubmenu channel={channel} />
       {showMove ? (
         <MoveToSectionSubmenu

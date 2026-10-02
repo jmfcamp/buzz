@@ -8,6 +8,10 @@ import type {
   Repository,
 } from "@/features/projects/hooks";
 import { issueShareLink } from "@/features/projects/lib/projectShareLinks";
+import {
+  taskNextStepLabel,
+  taskStatusWord,
+} from "@/features/projects/lib/taskStatus";
 import { selectionItemFromTask } from "@/features/projects/lib/projectSelection";
 import type { ProjectWorkItemSection } from "@/features/projects/projectWorkItems";
 import {
@@ -55,10 +59,7 @@ type ProjectsIssuesListProps = {
 };
 
 function nextStepLabel(status: ProjectIssue["status"]) {
-  if (status === "Done" || status === "Closed") return "View task";
-  if (status === "In Review") return "Review task";
-  if (status === "Triage") return "Triage task";
-  return "Open task";
+  return taskNextStepLabel(status);
 }
 
 const IssueGridCard = React.memo(function IssueGridCard({
@@ -106,7 +107,7 @@ const IssueGridCard = React.memo(function IssueGridCard({
           data-testid="projects-grid-card-indicator"
         >
           <ProjectEventTypeIcon className="h-3.5 w-3.5" kind="issue" />
-          <span>{issue.status}</span>
+          <span>{taskStatusWord(issue.status)}</span>
         </div>
       </div>
     </Card>

@@ -468,6 +468,7 @@ export function ChannelGroupSection({
             <ContextMenuContent>
               <ChannelContextMenuItems
                 channel={channel}
+                tabLabel={channel.name}
                 hasUnread={unreadChannelIds.has(channel.id)}
                 isMuted={mutedChannelIds?.has(channel.id)}
                 isStarred={starredChannelIds?.has(channel.id)}
@@ -784,6 +785,7 @@ export function CustomChannelSection({
                         <ContextMenuContent>
                           <ChannelContextMenuItems
                             channel={channel}
+                            tabLabel={channel.name}
                             hasUnread={unreadChannelIds.has(channel.id)}
                             isMuted={mutedChannelIds?.has(channel.id)}
                             isStarred={starredChannelIds?.has(channel.id)}

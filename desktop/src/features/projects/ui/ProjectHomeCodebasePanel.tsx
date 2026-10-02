@@ -6,7 +6,9 @@ import {
   type Project,
   type Repository,
 } from "@/features/projects/hooks";
+import { hulaFilesRootPath } from "@/features/projects/lib/hulaFiles";
 import { resolveProjectDefaultBranch } from "@/features/projects/lib/projectBranches";
+import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import { Button } from "@/shared/ui/button";
 import {
   DropdownMenu,
@@ -14,6 +16,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
+import { HulaProjectFiles } from "./HulaProjectFiles";
 import { ProjectRepositoryManagement } from "./ProjectRepositoryManagement";
 import { RepositoryFilesPanel } from "./ProjectRepositoryPanel";
 import { useRepositoryFileContentSource } from "./useRepositoryFileContentSource";
@@ -24,6 +27,7 @@ export function ProjectHomeCodebasePanel({
   onOpenCommit,
   onRepositoryAdded,
   onSelectRepository,
+  profiles,
   project,
   projects,
   repository,
@@ -35,13 +39,18 @@ export function ProjectHomeCodebasePanel({
     path: string;
   }) => void;
   onOpenCommit?: (commitHash: string) => void;
+  profiles?: UserProfileLookup;
   onRepositoryAdded: (repositoryId: string) => void;
   onSelectRepository: (repositoryId: string) => void;
   project: Project;
   projects: Project[];
   repository: Repository | null;
 }) {
-  const repoStateQuery = useRepoStateQuery(repository);
+  const hulaFilesRoot = hulaFilesRootPath(
+    project.hulaPath,
+    repository?.hulaPath,
+  );
+  const repoStateQuery = useRepoStateQuery(repository, !hulaFilesRoot);
   const defaultBranch = repository
     ? resolveProjectDefaultBranch(repository.defaultBranch, repoStateQuery.data)
     : null;
@@ -50,7 +59,7 @@ export function ProjectHomeCodebasePanel({
     defaultBranch,
     null,
     null,
-    Boolean(repository),
+    Boolean(repository) && !hulaFilesRoot,
   );
   const fileContentSource = useRepositoryFileContentSource({
     activeBranch: defaultBranch,
@@ -117,16 +126,26 @@ export function ProjectHomeCodebasePanel({
         </div>
       ) : null}
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
-        <RepositoryFilesPanel
-          error={snapshotQuery.error}
-          fallbackAuthorPubkey={repository.owner}
-          fileContentSource={fileContentSource}
-          files={files}
-          isLoading={snapshotQuery.isPending}
-          onContextChange={onFilesContextChange}
-          onOpenCommit={onOpenCommit}
-          snapshot={snapshot}
-        />
+        {hulaFilesRoot ? (
+          <HulaProjectFiles
+            fallbackAuthorPubkey={repository.owner}
+            onContextChange={onFilesContextChange}
+            onOpenCommit={onOpenCommit}
+            profiles={profiles}
+            rootPath={hulaFilesRoot}
+          />
+        ) : (
+          <RepositoryFilesPanel
+            error={snapshotQuery.error}
+            fallbackAuthorPubkey={repository.owner}
+            fileContentSource={fileContentSource}
+            files={files}
+            isLoading={snapshotQuery.isPending}
+            onContextChange={onFilesContextChange}
+            onOpenCommit={onOpenCommit}
+            snapshot={snapshot}
+          />
+        )}
       </div>
     </div>
   );

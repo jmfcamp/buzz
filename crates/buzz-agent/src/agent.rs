@@ -1474,7 +1474,7 @@ mod tests {
             "buzz messages get --channel X",
             "buzz channels list",
             "buzz reactions remove --event E",
-            "buzz pr open --title T",
+            "buzz repos list",
             "buzz social publish --content hi",
             "buzz notes set --name n",
             "cargo test -p buzz-agent",

@@ -3,8 +3,9 @@ use std::collections::HashMap;
 use tauri::AppHandle;
 
 use crate::managed_agents::openclaw_workspace_mcp::{
-    apply_grant, disconnect, reconcile_expired_grant, refresh, test_connection,
-    OpenClawWorkspaceGrant, OpenClawWorkspaceStatus, OpenClawWorkspaceTestResult,
+    apply_grant, call_tool, disconnect, reconcile_expired_grant, refresh, test_connection,
+    OpenClawToolCallResult, OpenClawWorkspaceGrant, OpenClawWorkspaceStatus,
+    OpenClawWorkspaceTestResult,
 };
 
 #[tauri::command]
@@ -76,4 +77,13 @@ pub fn refresh_openclaw_workspace_mcp(app: AppHandle) -> Result<OpenClawWorkspac
 #[tauri::command]
 pub async fn test_openclaw_workspace_mcp() -> Result<OpenClawWorkspaceTestResult, String> {
     test_connection().await
+}
+
+/// Authenticated `tools/call` for `list_directory`, `stat_path`, `read_file`, and `exec`.
+#[tauri::command]
+pub async fn call_openclaw_workspace_mcp_tool(
+    name: String,
+    arguments: serde_json::Value,
+) -> Result<OpenClawToolCallResult, String> {
+    call_tool(&name, arguments).await
 }

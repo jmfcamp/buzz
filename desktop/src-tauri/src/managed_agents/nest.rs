@@ -321,6 +321,12 @@ pub fn cli_link_name(is_dev: bool) -> String {
 /// overwrite each other's target — the same isolation that separates the
 /// `~/.buzz` and `~/.buzz-dev` nests (see [`NEST_DIR_DEV`]).
 ///
+/// A dev nest also links `~/.buzz-dev/bin/buzz` at the same binary. Managed
+/// agents search `~/.local/bin` before the executable directory, and
+/// `~/.local/bin/buzz` belongs to the installed app. The nest link is placed
+/// first on the agent `PATH` so `buzz` runs this build. The installed name
+/// stays untouched.
+///
 /// On every boot: replaces any existing symlink unconditionally (the `buzz` /
 /// `buzz-dev` name is our namespace), creates a new one if absent, and leaves
 /// regular files alone to avoid clobbering a user-compiled binary.
@@ -329,36 +335,55 @@ pub fn cli_link_name(is_dev: bool) -> String {
 /// for human Terminal use; agents find the CLI via PATH augmentation.
 #[cfg(unix)]
 pub fn ensure_cli_symlink(exe_parent: &Path, is_dev: bool) -> Result<(), String> {
+    let home = dirs::home_dir().ok_or("cannot resolve home directory")?;
+    ensure_cli_symlink_at(exe_parent, is_dev, &home)
+}
+
+/// Same as [`ensure_cli_symlink`] with an explicit home directory.
+///
+/// `is_dev` means the `.buzz-dev` nest, which is how boot calls this function.
+#[cfg(unix)]
+pub(crate) fn ensure_cli_symlink_at(
+    exe_parent: &Path,
+    is_dev: bool,
+    home: &Path,
+) -> Result<(), String> {
     let buzz_bin = exe_parent.join("buzz");
     if !buzz_bin.exists() {
         return Ok(()); // CLI not bundled (e.g., dev builds without sidecars).
     }
 
-    let local_bin = dirs::home_dir()
-        .ok_or("cannot resolve home directory")?
-        .join(".local")
-        .join("bin");
+    let local_bin = home.join(".local").join("bin");
     fs::create_dir_all(&local_bin).map_err(|e| format!("create {}: {e}", local_bin.display()))?;
+    install_cli_symlink(&local_bin.join(cli_link_name(is_dev)), &buzz_bin)?;
 
-    let link = local_bin.join(cli_link_name(is_dev));
+    if is_dev {
+        let nest_bin = home.join(".buzz-dev").join("bin");
+        fs::create_dir_all(&nest_bin).map_err(|e| format!("create {}: {e}", nest_bin.display()))?;
+        install_cli_symlink(&nest_bin.join("buzz"), &buzz_bin)?;
+    }
+
+    Ok(())
+}
+
+/// Replace a symlink we own. Leave a regular file or directory in place.
+#[cfg(unix)]
+fn install_cli_symlink(link: &Path, target: &Path) -> Result<(), String> {
     match link.symlink_metadata() {
         Ok(meta) if meta.file_type().is_symlink() => {
-            let _ = fs::remove_file(&link);
-            create_symlink(&buzz_bin, &link)
-                .map_err(|e| format!("symlink {}: {e}", link.display()))?;
+            let _ = fs::remove_file(link);
+            create_symlink(target, link).map_err(|e| format!("symlink {}: {e}", link.display()))?;
         }
         Ok(_) => {
             // Regular file or directory — don't clobber.
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            create_symlink(&buzz_bin, &link)
-                .map_err(|e| format!("symlink {}: {e}", link.display()))?;
+            create_symlink(target, link).map_err(|e| format!("symlink {}: {e}", link.display()))?;
         }
         Err(e) => {
             return Err(format!("stat {}: {e}", link.display()));
         }
     }
-
     Ok(())
 }
 

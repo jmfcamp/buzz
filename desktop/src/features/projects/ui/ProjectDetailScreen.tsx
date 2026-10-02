@@ -4,8 +4,6 @@ import { toast } from "sonner";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useTerminalContextOverride } from "@/app/TerminalContextOverrideContext";
 import {
-  type Project,
-  type Repository,
   useProjectQuery,
   useProjectIssuesQuery,
   useProjectPullRequestsQuery,
@@ -21,7 +19,6 @@ import {
 import { useProjectBranchActions } from "@/features/projects/branchMutations";
 import { useOptimisticProjectBranches } from "@/features/projects/useOptimisticProjectBranches";
 import { useProjectRepositoryRefSelection } from "@/features/projects/useProjectRepositoryRefSelection";
-import { useUpdateProjectPullRequestMutation } from "@/features/projects/pullRequestMutations";
 import { useCreateProjectIssueMutation } from "@/features/projects/issueMutations";
 import { UserProfilePanel } from "@/features/profile/ui/UserProfilePanel";
 import { ProfilePanelProvider } from "@/shared/context/ProfilePanelContext";
@@ -45,6 +42,10 @@ import {
   projectRepoUnavailableReason,
   refineRepoUnavailableReason,
 } from "@/features/projects/lib/projectRepoAvailability";
+import {
+  hulaFilesErrorMessage,
+  hulaFilesRootPath,
+} from "@/features/projects/lib/hulaFiles";
 import { wantsProjectRepositorySurface } from "@/features/projects/lib/projectDetailSearch";
 import { hasAuthoritativeHomeBinding } from "@/features/projects/lib/projectHomeChannel";
 import { selectProjectRepository } from "@/features/projects/projectModels";
@@ -54,10 +55,17 @@ import { useMemberChannelIds } from "@/features/projects/useRepositoryAccess";
 import { KIND_REPO_ANNOUNCEMENT } from "@/shared/constants/kinds";
 import type { EntityLinkTab } from "@/shared/lib/entityLink";
 import { useProjectRepoPresentation } from "@/features/projects/useProjectRepoHost";
+import {
+  useHulaFilesSnapshot,
+  useHulaRepositoryRefs,
+  useHulaReviewDiff,
+} from "@/features/projects/useHulaRepositoryGit";
 import { WorkspaceTabs } from "./ProjectWorkspaceTabs";
-import type { RepoSourceHeaderControls } from "./ProjectRepositorySource";
+import {
+  openClawRepoSourceControls,
+  type RepoSourceHeaderControls,
+} from "./ProjectRepositorySource";
 import { showProjectCloneErrorToast } from "./projectGitErrorToast";
-import { projectTerminalLabel } from "./useOpenProjectTerminal";
 import type { CreateIssueDialogInput } from "./CreateIssueDialog";
 import { ProjectBranchActionDialogs } from "./ProjectBranchActionDialogs";
 import { ProjectDetailChrome } from "./ProjectDetailChrome";
@@ -111,15 +119,44 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
   const { applyPatch: applyRepositorySearch } = useHistorySearchState(
     PROJECT_REPOSITORY_SEARCH_KEYS,
   );
-  const repoStateQuery = useRepoStateQuery(repository);
-  const pullRequestsQuery = useProjectPullRequestsQuery(repository);
-  const defaultBranch = repository
-    ? resolveProjectDefaultBranch(repository.defaultBranch, repoStateQuery.data)
+  const relayGit = !repository?.hulaPath;
+  const onRepositorySurface = Boolean(
+    project &&
+      repository &&
+      !(
+        hasAuthoritativeHomeBinding(project) &&
+        !wantsProjectRepositorySurface({
+          commitHash,
+          filePath,
+          issueId,
+          projectId,
+          pullRequestId,
+          repositoryId,
+          tab,
+        })
+      ),
+  );
+  const hulaRoot = onRepositorySurface
+    ? hulaFilesRootPath(project?.hulaPath, repository?.hulaPath)
     : null;
+  const hulaRefs = useHulaRepositoryRefs(hulaRoot);
+  const repoStateQuery = useRepoStateQuery(repository, relayGit);
+  const pullRequestsQuery = useProjectPullRequestsQuery(repository);
+  const defaultBranch = hulaRoot
+    ? (hulaRefs.headBranch ?? hulaRefs.branches[0] ?? null)
+    : repository
+      ? resolveProjectDefaultBranch(
+          repository.defaultBranch,
+          repoStateQuery.data,
+        )
+      : null;
+  const observedBranches = hulaRoot
+    ? hulaRefs.branches.map((name) => ({ name, commit: "" }))
+    : (repoStateQuery.data?.branches ?? []);
   const { branchOptions, forgetBranch, managedBranches, rememberBranch } =
     useOptimisticProjectBranches({
       defaultBranch,
-      observedBranches: repoStateQuery.data?.branches ?? [],
+      observedBranches,
       projectId: repository?.id ?? projectId,
       referencedBranches:
         pullRequestsQuery.data?.map(
@@ -133,24 +170,22 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
       projectAvailable: Boolean(repository),
       projectPending: projectQuery.isPending,
       repositoryId: repository?.id ?? null,
-      tags: repoStateQuery.data?.tags ?? [],
+      tags: hulaRoot ? [] : (repoStateQuery.data?.tags ?? []),
     });
   const activeTag =
     repoStateQuery.data?.tags.find((tag) => tag.name === selectedTag) ?? null;
   const [selectedPullRequestId, setSelectedPullRequestId] = React.useState<
     string | null
-  >(pullRequestId ?? null);
+  >(null);
   const [selectedIssueId, setSelectedIssueId] = React.useState<string | null>(
     issueId ?? null,
   );
   const [createIssueRequestKey, setCreateIssueRequestKey] = React.useState(0);
-  const [createPullRequestRequestKey, setCreatePullRequestRequestKey] =
-    React.useState(0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: the transient request ID deliberately reapplies an unchanged entity selection.
   React.useEffect(() => {
-    setSelectedPullRequestId(pullRequestId ?? null);
+    setSelectedPullRequestId(null);
     setSelectedIssueId(issueId ?? null);
-  }, [entityNavigationId, issueId, pullRequestId]);
+  }, [entityNavigationId, issueId]);
   const [selectedCommitHash, setSelectedCommitHash] = React.useState<
     string | null
   >(commitHash ?? null);
@@ -207,11 +242,23 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
   const repositoryPanel = useProjectRepositoryPanel(
     `${repository?.id ?? ""}:${activeTab}:${selectedPullRequestId ?? ""}:${selectedIssueId ?? ""}:${selectedCommitHash ?? ""}`,
   );
+  const hulaGitRef = activeBranch?.trim() || "HEAD";
+  const hulaSnapshotQuery = useHulaFilesSnapshot(hulaRoot, hulaGitRef);
+  const reviewBase = activeRepoPullRequest
+    ? activeRepoPullRequest.targetBranch?.trim() || hulaRefs.headBranch || null
+    : null;
+  const reviewHead = activeRepoPullRequest
+    ? activeRepoPullRequest.commit?.trim() ||
+      activeRepoPullRequest.branchName?.trim() ||
+      null
+    : null;
+  const hulaReviewQuery = useHulaReviewDiff(
+    activeRepoPullRequest ? hulaRoot : null,
+    reviewBase,
+    reviewHead,
+  );
   const {
     commitDiffQuery,
-    displayedRepoDiff,
-    displayedRepoDiffError,
-    displayedRepoDiffLoading,
     displayedRepoSnapshot,
     localRepoSnapshotQuery,
     repoSnapshotQuery,
@@ -220,6 +267,7 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
     activeRepoPullRequest,
     activeTag,
     isBuzzHost: repoRemote.host.kind === "buzz",
+    relayGit,
     repository,
     reposDir: activeCommunity?.reposDir,
     repoSource,
@@ -242,6 +290,8 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
     repository,
     activeCommunity?.reposDir,
     activeBranch,
+    undefined,
+    relayGit,
   );
   const pushLocalRepoMutation = usePushProjectLocalRepositoryMutation(
     repository,
@@ -259,10 +309,6 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
     activeCommunity?.reposDir,
   );
   const createIssueMutation = useCreateProjectIssueMutation(repository);
-  const updatePullRequestMutation = useUpdateProjectPullRequestMutation(
-    repository,
-    openBranchPullRequest,
-  );
   const hasLocalCheckout = Boolean(
     localRepoSnapshotQuery.data || repoSyncStatusQuery.data?.localPath,
   );
@@ -323,6 +369,23 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
     activeBranchCommit,
     localHead: repoSyncStatusQuery.data?.localHead,
   });
+  const refreshHulaGit = React.useCallback(async () => {
+    const results = (
+      await Promise.all([
+        hulaSnapshotQuery.refetch(),
+        hulaRefs.refetch(),
+        hulaReviewQuery.refetch(),
+      ])
+    ).flat();
+    const error = results.find((result) => result.error)?.error;
+    if (error) {
+      toast.error("Could not read OpenClaw.", {
+        description: hulaFilesErrorMessage(error),
+      });
+      return;
+    }
+    toast.success("OpenClaw checkout refreshed.");
+  }, [hulaReviewQuery, hulaRefs, hulaSnapshotQuery]);
   const handleFetchRepo = React.useCallback(async () => {
     const results = await Promise.all([
       repoSnapshotQuery.refetch(),
@@ -434,6 +497,18 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
     fetchTitle:
       repoSyncStatusQuery.data?.pullBlockReason ?? "Check for remote changes",
   };
+  const shownSourceControls = hulaRoot
+    ? openClawRepoSourceControls(filesSourceControls, {
+        checkedOutBranch: hulaRefs.headBranch,
+        onFetch: () => {
+          void refreshHulaGit();
+        },
+        pending:
+          hulaSnapshotQuery.isFetching ||
+          hulaRefs.isFetching ||
+          hulaReviewQuery.isFetching,
+      })
+    : filesSourceControls;
   const fileContentSource = useRepositoryFileContentSource({
     activeBranch,
     activeTag,
@@ -453,6 +528,10 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
     }
   }, [projectPending, repository]);
   React.useEffect(() => {
+    if (hulaRoot) {
+      if (repoSource !== "remote") setRepoSource("remote");
+      return;
+    }
     if (selectedTag) {
       if (repoSource !== "remote") setRepoSource("remote");
       return;
@@ -472,6 +551,7 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
   }, [
     displayedRepoSnapshot,
     hasLocalCheckout,
+    hulaRoot,
     repoSource,
     selectedPullRequestId,
     selectedTag,
@@ -555,34 +635,6 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
     repository?.channelId,
     repository?.cloneUrls,
   ]);
-  const handlePullRequestCreated = React.useCallback(
-    async (
-      createdProject: Project,
-      createdRepository: Repository,
-      pullRequestId: string,
-    ) => {
-      if (createdProject.id !== projectId) {
-        await goProject(createdProject.id, {
-          pullRequestId,
-          repositoryId: createdRepository.id,
-        });
-        return;
-      }
-      if (createdRepository.id === repository?.id) {
-        await pullRequestsQuery.refetch();
-      } else {
-        applyRepositorySearch({ repositoryId: createdRepository.id });
-      }
-      setSelectedPullRequestId(pullRequestId);
-    },
-    [
-      applyRepositorySearch,
-      goProject,
-      projectId,
-      pullRequestsQuery,
-      repository?.id,
-    ],
-  );
   const handleCreateIssue = React.useCallback(
     async (input: CreateIssueDialogInput) => {
       const issueId = await createIssueMutation.mutateAsync(input);
@@ -592,27 +644,6 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
     },
     [createIssueMutation, issuesQuery],
   );
-  const handleUpdatePullRequest = React.useCallback(async () => {
-    const commit = repoSyncStatusQuery.data?.remoteHead;
-    if (!commit) return;
-    try {
-      const updated = await updatePullRequestMutation.mutateAsync({
-        commit,
-        mergeBase: repoSyncStatusQuery.data?.mergeBase ?? null,
-      });
-      toast.success(updated ? "Review updated." : "Review is already current.");
-      await pullRequestsQuery.refetch();
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to update review",
-      );
-    }
-  }, [
-    pullRequestsQuery,
-    repoSyncStatusQuery.data?.mergeBase,
-    repoSyncStatusQuery.data?.remoteHead,
-    updatePullRequestMutation,
-  ]);
   const handlePullLocalRepo = React.useCallback(async () => {
     try {
       const result = await pullLocalRepoMutation.mutateAsync();
@@ -635,11 +666,7 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
     repoStateQuery,
     repoSyncStatusQuery,
   ]);
-  const {
-    handleOpenLocalRepository,
-    handleOpenMergeRecoveryTerminal,
-    handleOpenTerminal,
-  } = useProjectRepositoryOpenActions({
+  const { handleOpenLocalRepository } = useProjectRepositoryOpenActions({
     activeBranch,
     hasLocalCheckout,
     localRepositoryPath: filesSourceControls.localPath ?? null,
@@ -708,9 +735,13 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
       />
     );
   }
-  const repoContributors = displayedRepoSnapshot?.contributors ?? [];
-  const displayedRepositorySnapshot =
-    repoSource === "local"
+  const openClawSnapshot = hulaRoot ? (hulaSnapshotQuery.data ?? null) : null;
+  const repoContributors = hulaRoot
+    ? (openClawSnapshot?.contributors ?? [])
+    : (displayedRepoSnapshot?.contributors ?? []);
+  const displayedRepositorySnapshot = hulaRoot
+    ? openClawSnapshot
+    : repoSource === "local"
       ? (localRepoSnapshotQuery.data?.snapshot ?? null)
       : displayedRepoSnapshot;
   const displayedRepositoryContributors =
@@ -718,8 +749,9 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
   const displayedRepositoryFiles = displayedRepositorySnapshot?.files ?? [];
   const selectedIssue =
     issuesQuery.data?.find((item) => item.id === selectedIssueId) ?? null;
-  const displayedSnapshotCommits =
-    repoSource === "local"
+  const displayedSnapshotCommits = hulaRoot
+    ? (openClawSnapshot?.commits ?? [])
+    : repoSource === "local"
       ? (localRepoSnapshotQuery.data?.snapshot.commits ?? [])
       : (displayedRepoSnapshot?.commits ?? []);
   const selectedCommit = selectedCommitHash
@@ -771,7 +803,6 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
       onCollapse={repositoryPanel.collapse}
       onExpand={repositoryPanel.expand}
       onModeChange={repositoryPanel.setMode}
-      terminalAvailable={projectTerminalContext !== null}
     />
   );
   const detachedRepositoryPanel =
@@ -807,7 +838,27 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
           activeBranchCommit={activeBranchCommit}
           existingBranches={branchOptionsWithLocal}
         />
-        <div className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <ProjectDetailChrome
+            actions={repositoryPanelAction}
+            activeTabCrumb={activeTabCrumb}
+            activeWorkItemCrumb={activeWorkItemCrumb}
+            onGoProjectHome={goChannelHome}
+            onGoProjects={() => {
+              void goProjects();
+            }}
+            project={project}
+            repository={repository}
+            rounded={detachedRepositoryPanel}
+          />
+          <div
+            aria-hidden="true"
+            className={
+              detachedRepositoryPanel
+                ? "h-2 shrink-0 bg-sidebar"
+                : "h-2 shrink-0"
+            }
+          />
           <ProjectConversationPanelController
             canResetWidth={threadPanelWidth.canReset}
             closeWhen={Boolean(profilePanelPubkey)}
@@ -829,10 +880,6 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
                   onChatWithAgent={selectionChat}
                   onClose={repositoryPanel.collapse}
                   onCreateTask={() => setCreateIssueRequestKey((k) => k + 1)}
-                  onCreatePullRequest={() =>
-                    setCreatePullRequestRequestKey((k) => k + 1)
-                  }
-                  onOpenTerminal={() => void handleOpenTerminal()}
                   onOpenLocalRepository={() => void handleOpenLocalRepository()}
                   onRepositoryChange={handleRepositoryChange}
                   onResetWidth={activeRightPanelWidth.onResetWidth}
@@ -845,8 +892,7 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
                   selectedIssue={selectedIssue}
                   selectedPullRequest={selectedPullRequest}
                   snapshot={displayedRepositorySnapshot}
-                  sourceControls={filesSourceControls}
-                  terminalTitle={projectTerminalLabel(hasLocalCheckout)}
+                  sourceControls={shownSourceControls}
                   widthPx={activeRightPanelWidth.widthPx}
                 />
               )
@@ -864,17 +910,6 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
             widthPx={threadPanelWidth.widthPx}
           >
             <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden [container-type:inline-size]">
-              <ProjectDetailChrome
-                actions={repositoryPanelAction}
-                activeTabCrumb={activeTabCrumb}
-                activeWorkItemCrumb={activeWorkItemCrumb}
-                onGoProjectHome={goChannelHome}
-                onGoProjects={() => {
-                  void goProjects();
-                }}
-                project={project}
-                repository={repository}
-              />
               <div
                 className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-y-none px-4 pb-4"
                 data-testid="project-detail-scroll"
@@ -892,7 +927,7 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
                     }
                     initialFilePath={filePath}
                     initialTabRequestKey={entityNavigationId}
-                    fileContentSource={fileContentSource}
+                    fileContentSource={hulaRoot ? undefined : fileContentSource}
                     commitDiff={commitDiffQuery.data}
                     commitDiffError={commitDiffQuery.error}
                     commitDiffLoading={commitDiffQuery.isLoading}
@@ -903,32 +938,10 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
                       pending: createIssueMutation.isPending,
                     }}
                     createIssueRequestKey={createIssueRequestKey}
-                    createPullRequestAction={{
-                      onCreated: handlePullRequestCreated,
-                      projects: projectsQuery.data ?? [project],
-                      reposDir: activeCommunity?.reposDir,
-                    }}
-                    createPullRequestRequestKey={createPullRequestRequestKey}
-                    updatePullRequestAction={
-                      openBranchPullRequest &&
-                      repoSyncStatusQuery.data?.remoteHead &&
-                      repoSyncStatusQuery.data.remoteHead !==
-                        openBranchPullRequest.commit
-                        ? {
-                            onUpdate: () => {
-                              void handleUpdatePullRequest();
-                            },
-                            pending: updatePullRequestMutation.isPending,
-                          }
-                        : undefined
-                    }
                     localSnapshot={localRepoSnapshotQuery.data}
                     localSnapshotError={localRepoSnapshotQuery.error}
                     localSnapshotLoading={localRepoSnapshotQuery.isLoading}
                     onFilesContextChange={setFilesContext}
-                    onOpenMergeRecoveryTerminal={
-                      handleOpenMergeRecoveryTerminal
-                    }
                     onSelectedCommitHashChange={handleSelectedCommitHashChange}
                     onSelectedIssueIdChange={handleSelectedIssueIdChange}
                     onSelectedPullRequestIdChange={
@@ -936,29 +949,36 @@ export function ProjectDetailScreen(props: ProjectDetailScreenProps) {
                     }
                     onSelectedTabChange={setActiveTab}
                     onBack={goChannelHome}
+                    hulaProject={project}
+                    onSelectHulaRepository={(repositoryId) => {
+                      void goProject(project.id, { repositoryId });
+                    }}
                     profiles={profiles}
                     project={repository}
                     projectId={project.id}
-                    repoDiff={displayedRepoDiff}
-                    repoDiffError={displayedRepoDiffError}
-                    repoDiffLoading={displayedRepoDiffLoading}
                     pullRequests={pullRequestsQuery.data ?? []}
-                    pullRequestsError={pullRequestsQuery.error}
-                    pullRequestsLoading={pullRequestsQuery.isLoading}
                     repoContributors={repoContributors}
                     repoHost={repoRemote.host}
-                    repoSource={repoSource}
+                    gitRef={hulaRoot ? hulaGitRef : undefined}
+                    repoSource={hulaRoot ? "remote" : repoSource}
                     selectedCommitHash={selectedCommitHash}
                     selectedIssueId={selectedIssueId}
-                    selectedPullRequest={selectedPullRequest}
-                    selectedPullRequestId={selectedPullRequestId}
+                    roundColumnHeader={detachedRepositoryPanel}
                     sharedHeaderBackdrop={sharedHeaderBackdrop}
-                    snapshot={displayedRepoSnapshot}
-                    snapshotError={repoSnapshotQuery.error}
-                    snapshotLoading={
-                      repoSnapshotQuery.isLoading && !displayedRepoSnapshot
+                    snapshot={
+                      hulaRoot ? openClawSnapshot : displayedRepoSnapshot
                     }
-                    sourceControls={filesSourceControls}
+                    snapshotError={
+                      hulaRoot
+                        ? hulaSnapshotQuery.error
+                        : repoSnapshotQuery.error
+                    }
+                    snapshotLoading={
+                      hulaRoot
+                        ? hulaSnapshotQuery.isPending
+                        : repoSnapshotQuery.isLoading && !displayedRepoSnapshot
+                    }
+                    sourceControls={shownSourceControls}
                     viewerGitIdentity={viewerGitIdentity}
                   />
                 </div>

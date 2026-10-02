@@ -9,25 +9,16 @@ const manifest = JSON.parse(
   ),
 );
 
-test("existing Projects and Workflows experiments remain unchanged", () => {
-  const existing = Object.fromEntries(
-    manifest.features
-      .filter(({ id }) => id === "projects" || id === "workflows")
-      .map((feature) => [feature.id, feature]),
-  );
-
-  assert.deepEqual(existing, {
-    projects: {
-      id: "projects",
-      name: "Projects",
-      description: "Git repository browser and collaboration",
-      platforms: ["desktop"],
-    },
-    workflows: {
+test("Workflows stays a preview and Projects is a normal surface", () => {
+  const ids = manifest.features.map((feature) => feature.id);
+  assert.equal(ids.includes("projects"), false);
+  assert.deepEqual(
+    manifest.features.find((feature) => feature.id === "workflows"),
+    {
       id: "workflows",
       name: "Workflows",
       description: "YAML-defined automations with approval gates",
       platforms: ["desktop"],
     },
-  });
+  );
 });

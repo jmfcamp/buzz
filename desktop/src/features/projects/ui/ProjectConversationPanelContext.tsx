@@ -89,7 +89,7 @@ export function ProjectConversationPanelController({
       <div
         className={cn(
           "relative flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden",
-          detached && "bg-sidebar pb-2 pr-2 pt-px",
+          detached && "bg-sidebar pb-2 pr-2",
           detached && sidebar?.open === false && "pl-2",
         )}
         data-detached={detached ? "true" : "false"}
@@ -115,7 +115,7 @@ export function ProjectConversationPanelController({
           {sharedHeaderBackdrop && detached ? (
             <div
               aria-hidden="true"
-              className={`pointer-events-none absolute inset-x-0 top-0 z-20 h-13 ${PROJECT_COLUMN_HEADER_BACKDROP_CLASS}`}
+              className={`pointer-events-none absolute inset-x-0 top-0 z-20 h-13 overflow-hidden rounded-t-2xl ${PROJECT_COLUMN_HEADER_BACKDROP_CLASS}`}
               data-testid="project-shared-header-backdrop"
             />
           ) : null}

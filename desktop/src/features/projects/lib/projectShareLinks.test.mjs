@@ -71,7 +71,7 @@ test("workspace tab ids map onto link tabs and back", () => {
   // "activity" is the workspace's name for the commit list.
   assert.equal(shareTabForWorkspaceTab("activity"), "commits");
   assert.equal(workspaceTabForShareTab("commits"), "activity");
-  assert.equal(workspaceTabForShareTab("prs"), "prs");
+  assert.equal(workspaceTabForShareTab("prs"), "overview");
   // Overview and PR-detail sub-tabs have no link spelling.
   assert.equal(shareTabForWorkspaceTab("overview"), undefined);
   assert.equal(shareTabForWorkspaceTab("pr-conversation"), undefined);

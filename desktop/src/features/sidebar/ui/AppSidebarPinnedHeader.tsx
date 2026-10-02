@@ -8,6 +8,9 @@ import {
   SquareTerminal,
   Zap,
 } from "lucide-react";
+import type { ReactElement, Ref } from "react";
+
+import type { SurfaceTabTarget } from "@/app/surfaceTabs/surfaceTabModel";
 
 import type { AppView } from "@/app/AppShell.helpers";
 import {
@@ -26,7 +29,9 @@ import { usePinnedSites } from "@/features/pinned-sites/hooks";
 import { getPinnedSiteIcon } from "@/features/pinned-sites/lib/icons";
 import type { PinnedSite } from "@/features/pinned-sites/lib/types";
 import { TopbarSearch } from "@/features/search/ui/TopbarSearch";
+import { scopedPrimaryMenuTestId } from "@/features/sidebar/lib/primaryMenu";
 import { useSidebarMenuCounts } from "@/features/sidebar/lib/useSidebarMenuCounts";
+import { SidebarSurfaceTabMenu } from "@/features/sidebar/ui/AddSurfaceTabMenuItem";
 import { SidebarMenuCountBadge } from "@/features/sidebar/ui/SidebarMenuCountBadge";
 import { SidebarProjectsSection } from "@/features/sidebar/ui/SidebarProjectsSection";
 import type { Channel, SearchHit } from "@/shared/api/types";
@@ -56,7 +61,13 @@ type AppSidebarPinnedHeaderProps = {
   suggestionChannels: Channel[];
 };
 
-type AppSidebarPrimaryMenuProps = {
+export type AppSidebarPrimaryMenuProps = {
+  dragRegion?: boolean;
+  headerRef?: Ref<HTMLDivElement>;
+  includeProjects?: boolean;
+  /** Off-screen menu stays in layout for scroll measurement, but leaves the tab order. */
+  inert?: boolean;
+  menuTestId?: string;
   onSelectAgents: () => void;
   onSelectBrowsers: () => void;
   onSelectBots: () => void;
@@ -68,7 +79,24 @@ type AppSidebarPrimaryMenuProps = {
   projectsOverviewActive: boolean;
   selectedPinId: string | null;
   selectedView: AppView;
+  testIdScope?: string;
 };
+
+function PrimaryTabRow({
+  children,
+  label,
+  target,
+}: {
+  children: ReactElement;
+  label: string;
+  target: SurfaceTabTarget;
+}) {
+  return (
+    <SidebarSurfaceTabMenu label={label} target={target}>
+      {children}
+    </SidebarSurfaceTabMenu>
+  );
+}
 
 export function AppSidebarPinnedHeader({
   channelLabels,
@@ -114,6 +142,11 @@ export function AppSidebarPinnedHeader({
 }
 
 export function AppSidebarPrimaryMenu({
+  dragRegion = true,
+  headerRef,
+  includeProjects = true,
+  inert,
+  menuTestId = "sidebar-primary-menu",
   onSelectAgents,
   onSelectBrowsers,
   onSelectBots,
@@ -125,57 +158,80 @@ export function AppSidebarPrimaryMenu({
   projectsOverviewActive,
   selectedPinId,
   selectedView,
+  testIdScope,
 }: AppSidebarPrimaryMenuProps) {
   const { pins } = usePinnedSites();
   const { preferences, counts } = useSidebarMenuCounts();
   const terminalPanel = useTerminalPanel();
   const buzzTermActive = isLeftNavBuzzTermActive(terminalPanel);
+  const rowTestId = (id: string) => scopedPrimaryMenuTestId(testIdScope, id);
   return (
     <>
       <SidebarHeader
         className="relative z-40 cursor-default select-none px-2 pb-0 pt-0"
-        data-tauri-drag-region
-        data-testid="sidebar-primary-menu"
+        data-tauri-drag-region={dragRegion ? true : undefined}
+        data-testid={menuTestId}
+        inert={inert ? true : undefined}
+        ref={headerRef}
       >
         <SidebarMenu className="sidebar-primary-menu pb-2">
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              className="data-[active=true]:font-normal"
-              isActive={isPrimaryNavRowActive(selectedView === "home", terminalPanel)}
-              onClick={parkPlaygroundThen(leaveLeftNavBuzzTermThen(onSelectHome))}
-              tooltip="Inbox"
-              type="button"
-            >
-              <Inbox className="h-4 w-4" />
-              <SidebarMenuLabel>Inbox</SidebarMenuLabel>
-            </SidebarMenuButton>
-            <SidebarMenuCountBadge
-              count={counts.inbox}
-              legacyWhenPositive
-              preferenceEnabled={preferences.inbox}
-              testId="sidebar-home-count"
-            />
-          </SidebarMenuItem>
-          <FeatureGate feature="pulse">
+          <PrimaryTabRow label="Inbox" target={{ kind: "home" }}>
             <SidebarMenuItem>
               <SidebarMenuButton
-                data-testid="open-pulse-view"
-                isActive={isPrimaryNavRowActive(selectedView === "pulse", terminalPanel)}
-                onClick={parkPlaygroundThen(leaveLeftNavBuzzTermThen(onSelectPulse))}
-                tooltip="Pulse"
+                className="data-[active=true]:font-normal"
+                isActive={isPrimaryNavRowActive(
+                  selectedView === "home",
+                  terminalPanel,
+                )}
+                onClick={parkPlaygroundThen(
+                  leaveLeftNavBuzzTermThen(onSelectHome),
+                )}
+                tooltip="Inbox"
                 type="button"
               >
-                <Activity className="h-4 w-4" />
-                <SidebarMenuLabel>Pulse</SidebarMenuLabel>
+                <Inbox className="h-4 w-4" />
+                <SidebarMenuLabel>Inbox</SidebarMenuLabel>
               </SidebarMenuButton>
+              <SidebarMenuCountBadge
+                count={counts.inbox}
+                legacyWhenPositive
+                preferenceEnabled={preferences.inbox}
+                testId={rowTestId("sidebar-home-count")}
+              />
             </SidebarMenuItem>
+          </PrimaryTabRow>
+          <FeatureGate feature="pulse">
+            <PrimaryTabRow label="Pulse" target={{ kind: "pulse" }}>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  data-testid={rowTestId("open-pulse-view")}
+                  isActive={isPrimaryNavRowActive(
+                    selectedView === "pulse",
+                    terminalPanel,
+                  )}
+                  onClick={parkPlaygroundThen(
+                    leaveLeftNavBuzzTermThen(onSelectPulse),
+                  )}
+                  tooltip="Pulse"
+                  type="button"
+                >
+                  <Activity className="h-4 w-4" />
+                  <SidebarMenuLabel>Pulse</SidebarMenuLabel>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </PrimaryTabRow>
           </FeatureGate>
-          <FeatureGate feature="projects">
+          <PrimaryTabRow label="Projects" target={{ kind: "projects" }}>
             <SidebarMenuItem>
               <SidebarMenuButton
-                data-testid="open-projects-view"
-                isActive={isPrimaryNavRowActive(selectedView === "projects" && projectsOverviewActive, terminalPanel)}
-                onClick={parkPlaygroundThen(leaveLeftNavBuzzTermThen(onSelectProjects))}
+                data-testid={rowTestId("open-projects-view")}
+                isActive={isPrimaryNavRowActive(
+                  selectedView === "projects" && projectsOverviewActive,
+                  terminalPanel,
+                )}
+                onClick={parkPlaygroundThen(
+                  leaveLeftNavBuzzTermThen(onSelectProjects),
+                )}
                 tooltip="Projects"
                 type="button"
               >
@@ -183,106 +239,142 @@ export function AppSidebarPrimaryMenu({
                 <SidebarMenuLabel>Projects</SidebarMenuLabel>
               </SidebarMenuButton>
             </SidebarMenuItem>
-          </FeatureGate>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              className="data-[active=true]:font-normal"
-              data-testid="open-agents-view"
-              isActive={isPrimaryNavRowActive(selectedView === "agents", terminalPanel)}
-              onClick={parkPlaygroundThen(leaveLeftNavBuzzTermThen(onSelectAgents))}
-              tooltip="Agents"
-              type="button"
-            >
-              <Bot className="h-4 w-4" />
-              <SidebarMenuLabel>Agents</SidebarMenuLabel>
-            </SidebarMenuButton>
-            <SidebarMenuCountBadge
-              count={counts.agents}
-              preferenceEnabled={preferences.agents}
-              testId="sidebar-agents-count"
-            />
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              className="data-[active=true]:font-normal"
-              data-testid="open-bots-view"
-              isActive={isPrimaryNavRowActive(selectedView === "bots", terminalPanel)}
-              onClick={parkPlaygroundThen(leaveLeftNavBuzzTermThen(onSelectBots))}
-              tooltip="Bots"
-              type="button"
-            >
-              <BotMessageSquare className="h-4 w-4" />
-              <SidebarMenuLabel>Bots</SidebarMenuLabel>
-            </SidebarMenuButton>
-            <SidebarMenuCountBadge
-              count={counts.bots}
-              preferenceEnabled={preferences.bots}
-              testId="sidebar-bots-count"
-            />
-          </SidebarMenuItem>
-          <ProtectedBestieSidebarEntry />
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              className="data-[active=true]:font-normal"
-              data-testid="open-browsers-view"
-              isActive={isPrimaryNavRowActive(selectedView === "browsers", terminalPanel)}
-              onClick={parkPlaygroundThen(leaveLeftNavBuzzTermThen(onSelectBrowsers))}
-              tooltip="Browsers"
-              type="button"
-            >
-              <AppWindow className="h-4 w-4" />
-              <SidebarMenuLabel>Browsers</SidebarMenuLabel>
-            </SidebarMenuButton>
-            <SidebarMenuCountBadge
-              count={counts.browsers}
-              legacyWhenPositive
-              preferenceEnabled={preferences.browsers}
-              testId="sidebar-browsers-count"
-            />
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              className="data-[active=true]:font-normal"
-              data-testid="open-buzz-term-view"
-              isActive={buzzTermActive}
-              onClick={() => {
-                // Open Term before park so pin restore sees left-nav Term
-                // active and PinnedSiteSurface does not re-show on top.
-                openTerminalPanel("maximized", "all");
-                parkPlaygroundHost();
-              }}
-              tooltip="Buzz Term"
-              type="button"
-            >
-              <SquareTerminal className="h-4 w-4" />
-              <SidebarMenuLabel>Buzz Term</SidebarMenuLabel>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <FeatureGate feature="workflows">
+          </PrimaryTabRow>
+          <PrimaryTabRow label="Agents" target={{ kind: "agents" }}>
             <SidebarMenuItem>
               <SidebarMenuButton
-                data-testid="open-workflows-view"
-                isActive={isPrimaryNavRowActive(selectedView === "workflows", terminalPanel)}
-                onClick={parkPlaygroundThen(leaveLeftNavBuzzTermThen(onSelectWorkflows))}
-                tooltip="Workflows"
+                className="data-[active=true]:font-normal"
+                data-testid={rowTestId("open-agents-view")}
+                isActive={isPrimaryNavRowActive(
+                  selectedView === "agents",
+                  terminalPanel,
+                )}
+                onClick={parkPlaygroundThen(
+                  leaveLeftNavBuzzTermThen(onSelectAgents),
+                )}
+                tooltip="Agents"
                 type="button"
               >
-                <Zap className="h-4 w-4" />
-                <SidebarMenuLabel>Workflows</SidebarMenuLabel>
+                <Bot className="h-4 w-4" />
+                <SidebarMenuLabel>Agents</SidebarMenuLabel>
+              </SidebarMenuButton>
+              <SidebarMenuCountBadge
+                count={counts.agents}
+                preferenceEnabled={preferences.agents}
+                testId={rowTestId("sidebar-agents-count")}
+              />
+            </SidebarMenuItem>
+          </PrimaryTabRow>
+          <PrimaryTabRow label="Bots" target={{ kind: "bots" }}>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                className="data-[active=true]:font-normal"
+                data-testid={rowTestId("open-bots-view")}
+                isActive={isPrimaryNavRowActive(
+                  selectedView === "bots",
+                  terminalPanel,
+                )}
+                onClick={parkPlaygroundThen(
+                  leaveLeftNavBuzzTermThen(onSelectBots),
+                )}
+                tooltip="Bots"
+                type="button"
+              >
+                <BotMessageSquare className="h-4 w-4" />
+                <SidebarMenuLabel>Bots</SidebarMenuLabel>
+              </SidebarMenuButton>
+              <SidebarMenuCountBadge
+                count={counts.bots}
+                preferenceEnabled={preferences.bots}
+                testId={rowTestId("sidebar-bots-count")}
+              />
+            </SidebarMenuItem>
+          </PrimaryTabRow>
+          <ProtectedBestieSidebarEntry />
+          <PrimaryTabRow label="Browsers" target={{ kind: "browsers" }}>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                className="data-[active=true]:font-normal"
+                data-testid={rowTestId("open-browsers-view")}
+                isActive={isPrimaryNavRowActive(
+                  selectedView === "browsers",
+                  terminalPanel,
+                )}
+                onClick={parkPlaygroundThen(
+                  leaveLeftNavBuzzTermThen(onSelectBrowsers),
+                )}
+                tooltip="Browsers"
+                type="button"
+              >
+                <AppWindow className="h-4 w-4" />
+                <SidebarMenuLabel>Browsers</SidebarMenuLabel>
+              </SidebarMenuButton>
+              <SidebarMenuCountBadge
+                count={counts.browsers}
+                legacyWhenPositive
+                preferenceEnabled={preferences.browsers}
+                testId={rowTestId("sidebar-browsers-count")}
+              />
+            </SidebarMenuItem>
+          </PrimaryTabRow>
+          <PrimaryTabRow label="Buzz Term" target={{ kind: "buzz-term" }}>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                className="data-[active=true]:font-normal"
+                data-testid={rowTestId("open-buzz-term-view")}
+                isActive={buzzTermActive}
+                onClick={() => {
+                  // Open Term before park so pin restore sees left-nav Term
+                  // active and PinnedSiteSurface does not re-show on top.
+                  openTerminalPanel("maximized", "all");
+                  parkPlaygroundHost();
+                }}
+                tooltip="Buzz Term"
+                type="button"
+              >
+                <SquareTerminal className="h-4 w-4" />
+                <SidebarMenuLabel>Buzz Term</SidebarMenuLabel>
               </SidebarMenuButton>
             </SidebarMenuItem>
+          </PrimaryTabRow>
+          <FeatureGate feature="workflows">
+            <PrimaryTabRow label="Workflows" target={{ kind: "workflows" }}>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  data-testid={rowTestId("open-workflows-view")}
+                  isActive={isPrimaryNavRowActive(
+                    selectedView === "workflows",
+                    terminalPanel,
+                  )}
+                  onClick={parkPlaygroundThen(
+                    leaveLeftNavBuzzTermThen(onSelectWorkflows),
+                  )}
+                  tooltip="Workflows"
+                  type="button"
+                >
+                  <Zap className="h-4 w-4" />
+                  <SidebarMenuLabel>Workflows</SidebarMenuLabel>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </PrimaryTabRow>
           </FeatureGate>
           {pins.map((pin) => (
             <PinnedSiteMenuItem
-              isActive={isPrimaryNavRowActive(selectedView === "pin" && selectedPinId === pin.id, terminalPanel)}
+              isActive={isPrimaryNavRowActive(
+                selectedView === "pin" && selectedPinId === pin.id,
+                terminalPanel,
+              )}
               key={pin.id}
-              onSelect={parkPlaygroundThen(leaveLeftNavBuzzTermThen(() => onSelectPinnedSite(pin.id)))}
+              onSelect={parkPlaygroundThen(
+                leaveLeftNavBuzzTermThen(() => onSelectPinnedSite(pin.id)),
+              )}
               pin={pin}
+              testId={rowTestId(`open-pinned-site-${pin.id}`)}
             />
           ))}
         </SidebarMenu>
       </SidebarHeader>
-      <SidebarProjectsSection />
+      {includeProjects ? <SidebarProjectsSection /> : null}
     </>
   );
 }
@@ -291,25 +383,32 @@ function PinnedSiteMenuItem({
   isActive,
   onSelect,
   pin,
+  testId,
 }: {
   isActive: boolean;
   onSelect: () => void;
   pin: PinnedSite;
+  testId: string;
 }) {
   const Icon = getPinnedSiteIcon(pin.icon);
   return (
-    <SidebarMenuItem>
-      <SidebarMenuButton
-        className="data-[active=true]:font-normal"
-        data-testid={`open-pinned-site-${pin.id}`}
-        isActive={isActive}
-        onClick={onSelect}
-        tooltip={pin.name}
-        type="button"
-      >
-        <Icon className="h-4 w-4" />
-        <SidebarMenuLabel>{pin.name}</SidebarMenuLabel>
-      </SidebarMenuButton>
-    </SidebarMenuItem>
+    <SidebarSurfaceTabMenu
+      label={pin.name}
+      target={{ kind: "pin", pinId: pin.id }}
+    >
+      <SidebarMenuItem>
+        <SidebarMenuButton
+          className="data-[active=true]:font-normal"
+          data-testid={testId}
+          isActive={isActive}
+          onClick={onSelect}
+          tooltip={pin.name}
+          type="button"
+        >
+          <Icon className="h-4 w-4" />
+          <SidebarMenuLabel>{pin.name}</SidebarMenuLabel>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    </SidebarSurfaceTabMenu>
   );
 }

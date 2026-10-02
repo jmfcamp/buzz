@@ -1,6 +1,5 @@
 import { ArrowLeft } from "lucide-react";
 
-import { cn } from "@/shared/lib/cn";
 import { TabsList, TabsTrigger } from "@/shared/ui/tabs";
 
 export const PROJECT_TAB_TRIGGER_CLASS =
@@ -14,13 +13,7 @@ function ProjectTabLabel({ children }: { children: string }) {
   return <span>{children}</span>;
 }
 
-export function ProjectTabsList({
-  onBack,
-  prsActive,
-}: {
-  onBack: () => void;
-  prsActive?: boolean;
-}) {
+export function ProjectTabsList({ onBack }: { onBack: () => void }) {
   return (
     <div className="flex h-full min-w-0 max-w-full flex-none items-center gap-1.5 overflow-x-auto scrollbar-none">
       <button
@@ -45,16 +38,6 @@ export function ProjectTabsList({
         </TabsTrigger>
         <TabsTrigger className={PROJECT_TAB_TRIGGER_CLASS} value="issues">
           <ProjectTabLabel>Tasks</ProjectTabLabel>
-        </TabsTrigger>
-        <TabsTrigger
-          aria-current={prsActive ? "page" : undefined}
-          className={cn(
-            PROJECT_TAB_TRIGGER_CLASS,
-            prsActive && PROJECT_TAB_SELECTED_CLASS,
-          )}
-          value="prs"
-        >
-          <ProjectTabLabel>Review</ProjectTabLabel>
         </TabsTrigger>
         <TabsTrigger className={PROJECT_TAB_TRIGGER_CLASS} value="channels">
           <ProjectTabLabel>Channels</ProjectTabLabel>

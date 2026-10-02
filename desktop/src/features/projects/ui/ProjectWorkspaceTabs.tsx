@@ -1,23 +1,23 @@
+import { useQuery } from "@tanstack/react-query";
 import {
   CircleDot,
   Files as FilesIcon,
   GitCommitHorizontal,
-  GitPullRequest,
   Hash,
-  RefreshCw,
   Users,
 } from "lucide-react";
 import * as React from "react";
 
-import type {
-  Project,
-  ProjectLocalRepoSnapshot,
-  ProjectPullRequest,
-  ProjectPullRequestCommentAnchor,
-  ProjectRepoContributor,
-  ProjectRepoDiff,
-  ProjectRepoSnapshot,
-  Repository,
+import {
+  useProjectActivitySummariesQuery,
+  useProjectsWorkItemsQuery,
+  type Project,
+  type ProjectLocalRepoSnapshot,
+  type ProjectPullRequest,
+  type ProjectRepoContributor,
+  type ProjectRepoDiff,
+  type ProjectRepoSnapshot,
+  type Repository,
 } from "@/features/projects/hooks";
 import {
   gitContributorPubkeysFromCommits,
@@ -25,12 +25,18 @@ import {
   type ViewerGitIdentity,
 } from "@/features/projects/lib/projectContributorMatching";
 import { repositoryDiscussionQuery } from "@/features/projects/lib/discussionChannels";
+import {
+  hulaCommitByHash,
+  hulaFilesRootPath,
+  loadHulaCommit,
+  loadHulaCommitDiff,
+} from "@/features/projects/lib/hulaFiles";
+import { openClawWorkspaceClient } from "@/features/projects/lib/openClawWorkspaceClient";
 import type { ProjectRepoHost } from "@/features/projects/lib/projectRepoHost";
-import { projectReviewFilesChangedBody } from "@/features/projects/lib/projectReviewDisplay";
 import { projectRepoUnavailableReason } from "@/features/projects/lib/projectRepoAvailability";
+import { useReconcileProjectTaskList } from "@/features/projects/useReconcileProjectTaskList";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import { normalizePubkey } from "@/shared/lib/pubkey";
-import { Button } from "@/shared/ui/button";
 import { BuzzLoadingState } from "@/shared/ui/BuzzLoadingState";
 import { Tabs, TabsContent } from "@/shared/ui/tabs";
 import { findReadmeFile } from "./ProjectReadmePanel";
@@ -41,14 +47,13 @@ import { DiscussionChannelsPanel } from "./DiscussionChannels";
 import { ProjectCommitDetailPanel } from "./ProjectCommitDetailPanel";
 import { ActivityPanel, ContributorsPanel } from "./ProjectDetailFeedPanels";
 import { ProjectIssuesPanel } from "./ProjectIssuesPanel";
-import type { OpenMergeRecoveryTerminal } from "./MergePullRequestButton";
+import { HulaProjectFiles } from "./HulaProjectFiles";
+import { HulaProjectOverview } from "./HulaProjectOverview";
 import {
   type GitDataState,
   ProjectOverviewPanel,
 } from "./ProjectOverviewPanel";
-import { PullRequestsPanel } from "./ProjectPullRequestsPanel";
 import { ProjectTabsList } from "./ProjectWorkspaceTabList";
-import { ProjectPullRequestFilesChangedPanel } from "./ProjectPullRequestFilesChangedPanel";
 import { ProjectRepositoryUnavailableState } from "./ProjectRepositoryUnavailableState";
 import {
   PROJECT_COLUMN_HEADER_BACKDROP_CLASS,
@@ -57,31 +62,20 @@ import {
 } from "./projectPanelStyles";
 import { ProjectSectionHeader } from "./ProjectSectionHeader";
 import { ProjectPanelState } from "./ProjectPanelState";
-import { CreatePullRequestDialog } from "./CreatePullRequestDialog";
 import {
   CreateIssueDialog,
   type CreateIssueDialogInput,
 } from "./CreateIssueDialog";
-
-type CreatePullRequestAction = {
-  projects: Project[];
-  reposDir?: string | null;
-  onCreated: (
-    project: Project,
-    repository: Repository,
-    pullRequestId: string,
-  ) => void | Promise<void>;
-};
 
 type CreateIssueAction = {
   onCreate: (input: CreateIssueDialogInput) => Promise<void>;
   pending: boolean;
 };
 
-type UpdatePullRequestAction = {
-  onUpdate: () => void;
-  pending: boolean;
-};
+function openWorkspaceTab(tab: string | undefined) {
+  if (!tab || tab === "prs") return "overview";
+  return tab;
+}
 
 export function WorkspaceTabs({
   commitDiff,
@@ -91,9 +85,6 @@ export function WorkspaceTabs({
   contributorPubkeys,
   createIssueAction,
   createIssueRequestKey,
-  createPullRequestAction,
-  createPullRequestRequestKey,
-  updatePullRequestAction,
   initialTab,
   initialFilePath,
   initialTabRequestKey,
@@ -103,24 +94,20 @@ export function WorkspaceTabs({
   localSnapshotLoading,
   project,
   projectId,
-  repoDiff,
-  repoDiffError,
-  repoDiffLoading,
   selectedCommitHash,
   selectedIssueId,
-  selectedPullRequest,
-  selectedPullRequestId,
+  roundColumnHeader = false,
   sharedHeaderBackdrop,
   pullRequests,
-  pullRequestsError,
-  pullRequestsLoading,
   onSelectedCommitHashChange,
   onFilesContextChange,
   onSelectedIssueIdChange,
   onSelectedPullRequestIdChange,
   onSelectedTabChange,
   onBack,
-  onOpenMergeRecoveryTerminal,
+  onSelectHulaRepository,
+  gitRef,
+  hulaProject,
   snapshot,
   snapshotError,
   snapshotLoading,
@@ -138,9 +125,6 @@ export function WorkspaceTabs({
   contributorPubkeys: string[];
   createIssueAction: CreateIssueAction;
   createIssueRequestKey?: number;
-  createPullRequestAction?: CreatePullRequestAction;
-  createPullRequestRequestKey?: number;
-  updatePullRequestAction?: UpdatePullRequestAction;
   /** Tab to open on mount (workspace vocabulary), e.g. from a share link. */
   initialTab?: string;
   /** File or folder to open when entering the repository Files tab. */
@@ -153,17 +137,12 @@ export function WorkspaceTabs({
   localSnapshotLoading: boolean;
   project: Repository;
   projectId: string;
-  repoDiff: ProjectRepoDiff | null | undefined;
-  repoDiffError: unknown;
-  repoDiffLoading: boolean;
   selectedCommitHash: string | null;
   selectedIssueId: string | null;
-  selectedPullRequest: ProjectPullRequest | null;
-  selectedPullRequestId: string | null;
+  /** Round the column header to the content pod's top corners. */
+  roundColumnHeader?: boolean;
   sharedHeaderBackdrop?: boolean;
   pullRequests: ProjectPullRequest[];
-  pullRequestsError: unknown;
-  pullRequestsLoading: boolean;
   onSelectedCommitHashChange: (hash: string | null) => void;
   onFilesContextChange?: (context: {
     kind: "file" | "folder";
@@ -174,7 +153,12 @@ export function WorkspaceTabs({
   /** Reports the active tab so the screen breadcrumb can mirror it. */
   onSelectedTabChange?: (tab: string) => void;
   onBack: () => void;
-  onOpenMergeRecoveryTerminal?: OpenMergeRecoveryTerminal;
+  /** Selects a member repository. Does not change the OpenClaw checkout. */
+  onSelectHulaRepository?: (repositoryId: string) => void;
+  /** OpenClaw ref for Files, commits, and contributors. `HEAD` is the checkout. */
+  gitRef?: string;
+  /** NIP-MP project, present when this workspace is a Hula path project. */
+  hulaProject?: Project | null;
   snapshot: ProjectRepoSnapshot | null | undefined;
   snapshotError: unknown;
   snapshotLoading: boolean;
@@ -186,6 +170,60 @@ export function WorkspaceTabs({
   sourceControls?: RepoSourceHeaderControls;
   viewerGitIdentity?: ViewerGitIdentity | null;
 }) {
+  const hulaProjectScope = hulaProject?.hulaPath ? [hulaProject] : [];
+  const hulaWorkItems = useProjectsWorkItemsQuery(hulaProjectScope);
+  const hulaActivity = useProjectActivitySummariesQuery(hulaProjectScope);
+  const taskListRefreshing = useReconcileProjectTaskList({
+    issueCount: hulaProject
+      ? hulaActivity.data?.[hulaProject.id]?.issueCount
+      : undefined,
+    loadedIssueCount: hulaProject?.hulaPath
+      ? hulaWorkItems.data?.issues.items.length
+      : undefined,
+    refetch: hulaWorkItems.refetch,
+  });
+  const hulaFilesRoot = hulaProject?.hulaPath
+    ? hulaFilesRootPath(hulaProject.hulaPath, project.hulaPath)
+    : null;
+  const [hulaSnapshot, setHulaSnapshot] = React.useState<{
+    root: string;
+    snapshot: ProjectRepoSnapshot | null;
+  } | null>(null);
+  const handleHulaSnapshot = React.useCallback(
+    (next: ProjectRepoSnapshot | null) => {
+      setHulaSnapshot(
+        hulaFilesRoot ? { root: hulaFilesRoot, snapshot: next } : null,
+      );
+    },
+    [hulaFilesRoot],
+  );
+  const currentHulaSnapshot =
+    hulaSnapshot?.root === hulaFilesRoot ? hulaSnapshot.snapshot : null;
+  const hulaCommitActive = Boolean(hulaFilesRoot && selectedCommitHash);
+  const knownHulaCommit = hulaCommitActive
+    ? hulaCommitByHash(currentHulaSnapshot, selectedCommitHash)
+    : null;
+  const hulaExec = React.useCallback(
+    (argv: readonly string[], cwd: string) =>
+      openClawWorkspaceClient.exec([...argv], cwd),
+    [],
+  );
+  const hulaCommitQuery = useQuery({
+    enabled: hulaCommitActive && !knownHulaCommit,
+    queryKey: ["hula-commit", hulaFilesRoot, selectedCommitHash],
+    queryFn: () =>
+      hulaFilesRoot && selectedCommitHash
+        ? loadHulaCommit(hulaFilesRoot, selectedCommitHash, hulaExec)
+        : null,
+  });
+  const hulaDiffQuery = useQuery({
+    enabled: hulaCommitActive,
+    queryKey: ["hula-commit-diff", hulaFilesRoot, selectedCommitHash],
+    queryFn: () =>
+      hulaFilesRoot && selectedCommitHash
+        ? loadHulaCommitDiff(hulaFilesRoot, selectedCommitHash, hulaExec)
+        : null,
+  });
   const localCheckoutSnapshot = localSnapshot?.snapshot ?? null;
   const displayedSnapshot =
     repoSource === "local" ? localCheckoutSnapshot : snapshot;
@@ -231,7 +269,7 @@ export function WorkspaceTabs({
           : undefined
       : undefined;
   const repositoryUnavailableState =
-    unavailableReason && !externalHost ? (
+    hulaFilesRoot || !(unavailableReason && !externalHost) ? null : (
       <ProjectRepositoryUnavailableState
         accessChannelId={project.channelId}
         onAskForAccess={sourceControls?.onAskForAccess}
@@ -242,12 +280,7 @@ export function WorkspaceTabs({
         reason={unavailableReason}
         retryPending={sourceControls?.fetchPending}
       />
-    ) : null;
-  const filesChangedBody = projectReviewFilesChangedBody({
-    hasPopulatedDiff: (repoDiff?.files.length ?? 0) > 0,
-    hasSelectedPullRequest: Boolean(selectedPullRequest),
-    repositoryUnavailable: Boolean(repositoryUnavailableState),
-  });
+    );
   const selectedCommitPullRequest = React.useMemo(
     () =>
       pullRequests.find(
@@ -257,31 +290,18 @@ export function WorkspaceTabs({
       ),
     [pullRequests, selectedCommitHash],
   );
-  const isPullRequestSelected = Boolean(selectedPullRequest);
-  const isDetailSelected = Boolean(
-    selectedPullRequestId || selectedIssueId || selectedCommitHash,
-  );
-  const [selectedTab, setSelectedTab] = React.useState(
-    initialTab ?? "overview",
+  const isDetailSelected = Boolean(selectedIssueId || selectedCommitHash);
+  const [selectedTab, setSelectedTab] = React.useState(() =>
+    openWorkspaceTab(initialTab),
   );
   // Follow later share-link navigations to the same project (the search
   // param changes without a remount).
   // biome-ignore lint/correctness/useExhaustiveDependencies: request key intentionally retriggers an unchanged tab.
   React.useEffect(() => {
-    if (initialTab) setSelectedTab(initialTab);
+    if (initialTab) setSelectedTab(openWorkspaceTab(initialTab));
   }, [initialTab, initialTabRequestKey]);
-  const [pullRequestCommentTarget, setPullRequestCommentTarget] =
-    React.useState<{
-      anchor: ProjectPullRequestCommentAnchor;
-      pullRequestId: string;
-    } | null>(null);
   const [createIssueOpen, setCreateIssueOpen] = React.useState(false);
   const previousCreateIssueRequestKey = React.useRef(createIssueRequestKey);
-  const [createPullRequestOpen, setCreatePullRequestOpen] =
-    React.useState(false);
-  const previousCreatePullRequestRequestKey = React.useRef(
-    createPullRequestRequestKey,
-  );
 
   React.useEffect(() => {
     if (previousCreateIssueRequestKey.current === createIssueRequestKey) return;
@@ -290,25 +310,8 @@ export function WorkspaceTabs({
   }, [createIssueRequestKey]);
 
   React.useEffect(() => {
-    if (
-      previousCreatePullRequestRequestKey.current ===
-      createPullRequestRequestKey
-    ) {
-      return;
-    }
-    previousCreatePullRequestRequestKey.current = createPullRequestRequestKey;
-    setCreatePullRequestOpen(true);
-  }, [createPullRequestRequestKey]);
-
-  React.useEffect(() => {
     onSelectedTabChange?.(selectedTab);
   }, [onSelectedTabChange, selectedTab]);
-
-  React.useEffect(() => {
-    if (isPullRequestSelected) {
-      setSelectedTab("prs");
-    }
-  }, [isPullRequestSelected]);
 
   React.useEffect(() => {
     if (selectedIssueId) {
@@ -324,10 +327,8 @@ export function WorkspaceTabs({
 
   const handleTabChange = React.useCallback(
     (nextTab: string) => {
-      setSelectedTab(nextTab);
-      if (nextTab !== "prs") {
-        onSelectedPullRequestIdChange(null);
-      }
+      setSelectedTab(openWorkspaceTab(nextTab));
+      onSelectedPullRequestIdChange(null);
       if (nextTab !== "issues") {
         onSelectedIssueIdChange(null);
       }
@@ -341,18 +342,11 @@ export function WorkspaceTabs({
       onSelectedPullRequestIdChange,
     ],
   );
-  const handleOpenPullRequestComment = React.useCallback(
-    (anchor: ProjectPullRequestCommentAnchor) => {
-      if (!selectedPullRequestId) return;
-      setPullRequestCommentTarget({
-        anchor: { ...anchor },
-        pullRequestId: selectedPullRequestId,
-      });
-    },
-    [selectedPullRequestId],
-  );
+  const shownFileCount = hulaFilesRoot
+    ? (currentHulaSnapshot?.files.length ?? 0)
+    : files.length;
   const sectionHeader =
-    selectedTab === "files" && files.length > 0 ? (
+    selectedTab === "files" && shownFileCount > 0 ? (
       <ProjectSectionHeader
         className={PROJECT_SECTION_HEADER_CLASS}
         icon={FilesIcon}
@@ -374,20 +368,6 @@ export function WorkspaceTabs({
         className={PROJECT_SECTION_HEADER_CLASS}
         icon={CircleDot}
         title="Tasks"
-      />
-    ) : selectedTab === "prs" && !selectedPullRequestId ? (
-      <ProjectSectionHeader
-        action={{
-          disabled:
-            !createPullRequestAction ||
-            createPullRequestAction.projects.length === 0,
-          label: "Create review",
-          onClick: () => setCreatePullRequestOpen(true),
-          title: "Create review — choose a repository and branches to compare",
-        }}
-        className={PROJECT_SECTION_HEADER_CLASS}
-        icon={GitPullRequest}
-        title="Reviews"
       />
     ) : selectedTab === "channels" ? (
       <ProjectSectionHeader
@@ -411,29 +391,12 @@ export function WorkspaceTabs({
     >
       {!isDetailSelected ? (
         <div
-          className={`sticky top-0 z-30 -mx-4 flex h-13 min-w-0 items-center gap-1 px-4 ${
-            sharedHeaderBackdrop ? "" : PROJECT_COLUMN_HEADER_BACKDROP_CLASS
-          }`}
+          className={`sticky top-0 z-30 -mx-4 flex h-13 min-w-0 items-center gap-1 overflow-hidden px-4 ${
+            roundColumnHeader ? "rounded-t-2xl" : ""
+          } ${sharedHeaderBackdrop ? "" : PROJECT_COLUMN_HEADER_BACKDROP_CLASS}`}
           data-testid="project-workspace-tab-menu"
         >
-          <ProjectTabsList onBack={onBack} prsActive={isPullRequestSelected} />
-          <div className="ml-auto flex shrink-0 items-center gap-1">
-            {updatePullRequestAction ? (
-              <Button
-                className="h-8 shrink-0 gap-1.5"
-                disabled={updatePullRequestAction.pending}
-                onClick={updatePullRequestAction.onUpdate}
-                size="sm"
-                title="Publish the pushed commit to this review"
-                variant="outline"
-              >
-                <RefreshCw className="h-4 w-4" />
-                {updatePullRequestAction.pending
-                  ? "Updating…"
-                  : "Update review"}
-              </Button>
-            ) : null}
-          </div>
+          <ProjectTabsList onBack={onBack} />
         </div>
       ) : null}
       {/* Project content follows the same borderless flow as work-item details.
@@ -448,20 +411,44 @@ export function WorkspaceTabs({
           className="m-0 min-h-0 flex-1 flex-col data-[state=active]:flex"
           value="overview"
         >
-          <ProjectOverviewPanel
-            accessChannelId={project.channelId}
-            externalHost={externalHost}
-            externalUrl={externalHost ? sourceControls?.externalUrl : null}
-            fileContentSource={fileContentSource}
-            gitDataState={gitDataState}
-            hideReadmeHeader
-            ownerAvatarUrl={ownerProfile?.avatarUrl}
-            ownerIsAgent={ownerProfile?.isAgent}
-            ownerName={ownerName}
-            readmeFile={readmeFile}
-            sourceControls={sourceControls}
-            unavailableReason={unavailableReason}
-          />
+          {hulaProject?.hulaPath ? (
+            <HulaProjectOverview
+              onSelectRepository={(repositoryId) => {
+                onSelectHulaRepository?.(repositoryId);
+              }}
+              project={hulaProject}
+            >
+              <ProjectOverviewPanel
+                accessChannelId={project.channelId}
+                externalHost={externalHost}
+                externalUrl={externalHost ? sourceControls?.externalUrl : null}
+                fileContentSource={fileContentSource}
+                gitDataState={gitDataState}
+                hideReadmeHeader
+                ownerAvatarUrl={ownerProfile?.avatarUrl}
+                ownerIsAgent={ownerProfile?.isAgent}
+                ownerName={ownerName}
+                readmeFile={readmeFile}
+                sourceControls={sourceControls}
+                unavailableReason={unavailableReason}
+              />
+            </HulaProjectOverview>
+          ) : (
+            <ProjectOverviewPanel
+              accessChannelId={project.channelId}
+              externalHost={externalHost}
+              externalUrl={externalHost ? sourceControls?.externalUrl : null}
+              fileContentSource={fileContentSource}
+              gitDataState={gitDataState}
+              hideReadmeHeader
+              ownerAvatarUrl={ownerProfile?.avatarUrl}
+              ownerIsAgent={ownerProfile?.isAgent}
+              ownerName={ownerName}
+              readmeFile={readmeFile}
+              sourceControls={sourceControls}
+              unavailableReason={unavailableReason}
+            />
+          )}
         </TabsContent>
 
         <TabsContent
@@ -472,14 +459,20 @@ export function WorkspaceTabs({
             (selectedCommitHash ? (
               <ProjectCommitDetailPanel
                 commit={
-                  displayedSnapshot?.commits.find(
-                    (commit) => commit.hash === selectedCommitHash,
-                  ) ?? null
+                  hulaCommitActive
+                    ? (knownHulaCommit ?? hulaCommitQuery.data ?? null)
+                    : (displayedSnapshot?.commits.find(
+                        (commit) => commit.hash === selectedCommitHash,
+                      ) ?? null)
                 }
                 commitHash={selectedCommitHash}
-                diff={commitDiff}
-                diffError={commitDiffError}
-                diffLoading={commitDiffLoading}
+                diff={hulaCommitActive ? hulaDiffQuery.data : commitDiff}
+                diffError={
+                  hulaCommitActive ? hulaDiffQuery.error : commitDiffError
+                }
+                diffLoading={
+                  hulaCommitActive ? hulaDiffQuery.isPending : commitDiffLoading
+                }
                 originAgentName={selectedCommitPullRequest?.originAgentName}
                 originChannelId={selectedCommitPullRequest?.channelId}
                 project={project}
@@ -504,73 +497,55 @@ export function WorkspaceTabs({
         </TabsContent>
 
         <TabsContent
-          className={`m-0 ${
-            selectedPullRequestId ? "" : PROJECT_DETAIL_PANEL_CLASS
-          }`}
-          data-project-detail-panel
-          value="prs"
-        >
-          <PullRequestsPanel
-            diffStats={
-              repoDiff
-                ? {
-                    additions: repoDiff.additions,
-                    deletions: repoDiff.deletions,
-                  }
-                : null
-            }
-            error={pullRequestsError}
-            filesChanged={
-              filesChangedBody === "files" && selectedPullRequest ? (
-                <ProjectPullRequestFilesChangedPanel
-                  diff={repoDiff}
-                  error={repoDiffError}
-                  focusedAnchor={
-                    pullRequestCommentTarget?.pullRequestId ===
-                    selectedPullRequestId
-                      ? pullRequestCommentTarget.anchor
-                      : null
-                  }
-                  isLoading={repoDiffLoading}
-                  profiles={profiles}
-                  project={project}
-                  pullRequest={selectedPullRequest}
-                />
-              ) : filesChangedBody === "unavailable" ? (
-                repositoryUnavailableState
-              ) : undefined
-            }
-            filesCount={repoDiff?.files.length}
-            forceOpenFiles={
-              pullRequestCommentTarget?.pullRequestId === selectedPullRequestId
-            }
-            isLoading={pullRequestsLoading}
-            onOpenCommit={onSelectedCommitHashChange}
-            onOpenInlineComment={handleOpenPullRequestComment}
-            onOpenTerminal={onOpenMergeRecoveryTerminal}
-            onSelectedPullRequestIdChange={onSelectedPullRequestIdChange}
-            profiles={profiles}
-            project={project}
-            pullRequests={pullRequests}
-            selectedPullRequest={selectedPullRequest}
-          />
-        </TabsContent>
-
-        <TabsContent
           className={`m-0 ${selectedIssueId ? "" : PROJECT_DETAIL_PANEL_CLASS}`}
           data-project-detail-panel
           value="issues"
         >
           <ProjectIssuesPanel
+            error={hulaProject?.hulaPath ? hulaWorkItems.error : undefined}
+            isLoading={
+              hulaProject?.hulaPath
+                ? hulaWorkItems.isLoading ||
+                  taskListRefreshing ||
+                  (hulaWorkItems.isFetching &&
+                    (hulaWorkItems.data?.issues.items.length ?? 0) === 0 &&
+                    hulaWorkItems.error == null)
+                : undefined
+            }
+            issueItems={
+              hulaProject?.hulaPath
+                ? (hulaWorkItems.data?.issues.items ?? []).map(
+                    ({ issue, repository }) => ({
+                      issue,
+                      project: repository,
+                    }),
+                  )
+                : undefined
+            }
             onSelectedIssueIdChange={onSelectedIssueIdChange}
             profiles={profiles}
             project={project}
+            repositories={
+              hulaProject?.hulaPath ? hulaProject.repositories : undefined
+            }
             selectedIssueId={selectedIssueId}
           />
         </TabsContent>
 
         <TabsContent className="m-0" value="files">
-          {repositoryUnavailableState ??
+          {hulaFilesRoot ? (
+            <HulaProjectFiles
+              fallbackAuthorPubkey={project.owner}
+              gitRef={gitRef}
+              initialPath={initialFilePath}
+              onContextChange={onFilesContextChange}
+              onOpenCommit={onSelectedCommitHashChange}
+              onSnapshot={handleHulaSnapshot}
+              profiles={profiles}
+              rootPath={hulaFilesRoot}
+            />
+          ) : (
+            (repositoryUnavailableState ??
             (repoSource === "local" &&
             !localSnapshot &&
             !localSnapshotLoading ? (
@@ -596,7 +571,8 @@ export function WorkspaceTabs({
                     : undefined
                 }
               />
-            ))}
+            )))
+          )}
         </TabsContent>
 
         <TabsContent className="m-0" value="channels">
@@ -620,16 +596,6 @@ export function WorkspaceTabs({
           )}
         </TabsContent>
       </div>
-      {createPullRequestAction && createPullRequestOpen ? (
-        <CreatePullRequestDialog
-          initialProjectId={projectId}
-          onCreated={createPullRequestAction.onCreated}
-          onOpenChange={setCreatePullRequestOpen}
-          open
-          projects={createPullRequestAction.projects}
-          reposDir={createPullRequestAction.reposDir}
-        />
-      ) : null}
       <CreateIssueDialog
         isCreating={createIssueAction.pending}
         onCreate={createIssueAction.onCreate}

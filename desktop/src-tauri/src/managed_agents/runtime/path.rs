@@ -1,6 +1,6 @@
 //! PATH augmentation for launched managed-agent child processes.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Return `true` when `path` is a Windows batch shim (`.cmd` or `.bat`,
 /// case-insensitive) that cannot be passed directly to `CreateProcess`.
@@ -156,9 +156,65 @@ pub(in crate::managed_agents) fn build_augmented_path(
         .map(|s| s.to_string_lossy().into_owned())
 }
 
+/// Agent `PATH` for this process.
+///
+/// Same entries as [`build_augmented_path`], plus `~/.buzz-dev/bin` in front
+/// when this process is the dev nest and that directory holds a `buzz`
+/// symlink. `~/.local/bin/buzz` stays the installed app.
+pub(in crate::managed_agents) fn augmented_agent_path(
+    home: Option<PathBuf>,
+    exe_parent: Option<PathBuf>,
+    shell_path: Option<String>,
+    nvm_bin: Option<PathBuf>,
+) -> Option<String> {
+    prepend_path_entry(
+        build_augmented_path(home, exe_parent, shell_path, nvm_bin),
+        dev_cli_priority_dir(),
+    )
+}
+
+/// Put `dir` ahead of `path` so names in `dir` win lookup.
+///
+/// A missing `dir` leaves `path` unchanged. An empty `path` becomes `dir`.
+pub(crate) fn prepend_path_entry(path: Option<String>, dir: Option<PathBuf>) -> Option<String> {
+    let Some(dir) = dir else {
+        return path;
+    };
+    let mut parts = vec![dir];
+    if let Some(rest) = path {
+        parts.extend(std::env::split_paths(&rest));
+    }
+    std::env::join_paths(parts)
+        .ok()
+        .map(|s| s.to_string_lossy().into_owned())
+}
+
+/// Directory to search before `~/.local/bin` for the dev CLI.
+///
+/// Returns `nest/bin` only when `nest` is `.buzz-dev` and `bin/buzz` is a
+/// symlink. A production nest, a missing link, or a regular file returns
+/// `None` so the installed `buzz` stays in place.
+pub(crate) fn dev_cli_priority_dir() -> Option<PathBuf> {
+    dev_cli_priority_dir_from(crate::managed_agents::nest_dir().as_deref())
+}
+
+pub(crate) fn dev_cli_priority_dir_from(nest: Option<&Path>) -> Option<PathBuf> {
+    let nest = nest?;
+    if nest.file_name().and_then(|name| name.to_str()) != Some(".buzz-dev") {
+        return None;
+    }
+    let dir = nest.join("bin");
+    let link = dir.join("buzz");
+    match link.symlink_metadata() {
+        Ok(meta) if meta.file_type().is_symlink() => Some(dir),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::build_augmented_path;
+    use super::{build_augmented_path, dev_cli_priority_dir_from, prepend_path_entry};
+    use std::fs;
     use std::path::PathBuf;
 
     #[cfg(unix)]
@@ -189,6 +245,46 @@ mod tests {
     #[test]
     fn none_when_no_inputs() {
         assert_eq!(build_augmented_path(None, None, None, None), None);
+    }
+
+    #[test]
+    fn prepend_path_entry_puts_the_dir_first() {
+        let rest = std::env::join_paths([PathBuf::from("/usr/bin"), PathBuf::from("/bin")])
+            .expect("join")
+            .to_string_lossy()
+            .into_owned();
+        let result =
+            prepend_path_entry(Some(rest), Some(PathBuf::from("/nest/bin"))).expect("path");
+        let mut parts = std::env::split_paths(&result);
+        assert_eq!(parts.next().unwrap(), PathBuf::from("/nest/bin"));
+        assert_eq!(parts.next().unwrap(), PathBuf::from("/usr/bin"));
+        assert_eq!(parts.next().unwrap(), PathBuf::from("/bin"));
+        assert!(parts.next().is_none());
+    }
+
+    #[test]
+    fn prepend_path_entry_keeps_path_when_dir_is_absent() {
+        let path = Some("/usr/bin".to_string());
+        assert_eq!(prepend_path_entry(path.clone(), None), path);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dev_cli_priority_dir_requires_the_dev_nest_symlink() {
+        let tmp = tempfile::tempdir().unwrap();
+        let prod = tmp.path().join(".buzz");
+        fs::create_dir_all(prod.join("bin")).unwrap();
+        std::os::unix::fs::symlink("/app/buzz", prod.join("bin/buzz")).unwrap();
+        assert_eq!(dev_cli_priority_dir_from(Some(&prod)), None);
+
+        let dev = tmp.path().join(".buzz-dev");
+        assert_eq!(dev_cli_priority_dir_from(Some(&dev)), None);
+        fs::create_dir_all(dev.join("bin")).unwrap();
+        fs::write(dev.join("bin/buzz"), "file").unwrap();
+        assert_eq!(dev_cli_priority_dir_from(Some(&dev)), None);
+        fs::remove_file(dev.join("bin/buzz")).unwrap();
+        std::os::unix::fs::symlink("/app/buzz", dev.join("bin/buzz")).unwrap();
+        assert_eq!(dev_cli_priority_dir_from(Some(&dev)), Some(dev.join("bin")));
     }
 
     #[cfg(unix)]

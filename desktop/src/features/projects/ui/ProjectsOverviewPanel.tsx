@@ -63,7 +63,6 @@ type ProjectsOverviewContextPanelProps = {
   onChatWithAgent: (items: ProjectSelectionItem[]) => void;
   onCreateIssue: () => void;
   onCreateProject: () => void;
-  onCreatePullRequest: () => void;
   onSelectSection: (section: ProjectsOverviewSection) => void;
   profiles?: UserProfileLookup;
   projectReadModels: Project[];
@@ -80,7 +79,6 @@ function OverviewCreateButton({
   onAddRepository,
   onCreateIssue,
   onCreateProject,
-  onCreatePullRequest,
 }: {
   action: Exclude<OverviewContextAction, null>;
   canCreateTarget: boolean;
@@ -88,18 +86,15 @@ function OverviewCreateButton({
   onAddRepository: () => void;
   onCreateIssue: () => void;
   onCreateProject: () => void;
-  onCreatePullRequest: () => void;
 }) {
   const actionHandler =
     action.kind === "issue"
       ? onCreateIssue
-      : action.kind === "pullRequest"
-        ? onCreatePullRequest
-        : action.kind === "project"
-          ? onCreateProject
-          : action.kind === "channel"
-            ? onAddChannel
-            : onAddRepository;
+      : action.kind === "project"
+        ? onCreateProject
+        : action.kind === "channel"
+          ? onAddChannel
+          : onAddRepository;
   const requiresProject =
     action.kind === "channel" || action.kind === "repository";
   return (
@@ -206,7 +201,6 @@ export function ProjectsOverviewContextPanel({
   onChatWithAgent,
   onCreateIssue,
   onCreateProject,
-  onCreatePullRequest,
   onSelectSection,
   profiles,
   projectReadModels,
@@ -256,7 +250,6 @@ export function ProjectsOverviewContextPanel({
         {selectionPresentation && selection ? (
           <ProjectsSelectionCountMenu
             onChatWithAgent={onChatWithAgent}
-            onCreatePullRequest={onCreatePullRequest}
             presentation={selectionPresentation}
             selectionItems={selection.items}
           />
@@ -276,7 +269,6 @@ export function ProjectsOverviewContextPanel({
                 onAddRepository={onAddRepository}
                 onCreateIssue={onCreateIssue}
                 onCreateProject={onCreateProject}
-                onCreatePullRequest={onCreatePullRequest}
               />
             ) : null}
           </div>

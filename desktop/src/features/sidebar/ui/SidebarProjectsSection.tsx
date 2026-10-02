@@ -28,6 +28,10 @@ import { canDeleteProject } from "@/features/projects/projectDeletion";
 import { useProjectOwnerProfiles } from "@/features/projects/useProjectOwnerProfiles";
 import { projectShareLink } from "@/features/projects/lib/projectShareLinks";
 import {
+  AddSurfaceTabMenuItem,
+  SidebarSurfaceTabMenu,
+} from "@/features/sidebar/ui/AddSurfaceTabMenuItem";
+import {
   addProjectToSidebar,
   removeProjectFromSidebar,
 } from "@/features/projects/lib/projectSidebarMembership";
@@ -37,7 +41,6 @@ import { ProjectBrowserDialog } from "@/features/projects/ui/ProjectBrowserDialo
 import { ProjectChannelIcon } from "@/features/projects/ui/ProjectChannelIcon";
 import { useCreateProjectMutation } from "@/features/projects/useCreateProject";
 import { useIdentityQuery } from "@/shared/api/hooks";
-import { FeatureGate } from "@/shared/features";
 import { copyTextToClipboard } from "@/shared/lib/clipboard";
 import { cn } from "@/shared/lib/cn";
 import { getCachedRelayOrigin } from "@/shared/lib/mediaUrl";
@@ -113,19 +116,10 @@ const SECTION_LABEL_CHEVRON_ICON_CLASS =
   "absolute left-1/2 top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2";
 
 /**
- * Collapsible list of the viewer's projects in the left sidebar. Rendered
- * only when the Projects experiment is enabled, and only includes projects
- * the viewer owns or contributes to (optionally owned-only).
+ * Collapsible list of the viewer's projects in the left sidebar. Includes
+ * projects the viewer owns or contributes to (optionally owned-only).
  */
 export function SidebarProjectsSection() {
-  return (
-    <FeatureGate feature="projects">
-      <SidebarProjectsSectionContent />
-    </FeatureGate>
-  );
-}
-
-function SidebarProjectsSectionContent() {
   const projectsQuery = useProjectsQuery();
   const channelsQuery = useChannelsQuery();
   const identityQuery = useIdentityQuery();
@@ -337,25 +331,32 @@ function SidebarProjectsSectionContent() {
                           const ChannelIcon =
                             channel.visibility === "private" ? Lock : Hash;
                           return (
-                            <SidebarMenuItem
+                            <SidebarSurfaceTabMenu
                               key={`${project.id}:${binding.role}:${channel.id}`}
+                              label={`#${channel.name}`}
+                              target={{
+                                kind: "channel",
+                                channelId: channel.id,
+                              }}
                             >
-                              <SidebarMenuButton
-                                className="h-7 pl-7 text-sidebar-foreground/70 data-[active=true]:!bg-transparent data-[active=true]:font-semibold data-[active=true]:text-sidebar-foreground data-[active=true]:shadow-none data-[active=true]:hover:!bg-transparent data-[active=true]:hover:text-sidebar-foreground data-[active=true]:active:!bg-transparent"
-                                data-testid={`sidebar-project-channel-${project.dtag}-${channel.name}`}
-                                isActive={channel.id === routeChannelId}
-                                onClick={() => {
-                                  void goChannel(channel.id);
-                                }}
-                                tooltip={`#${channel.name}`}
-                                type="button"
-                              >
-                                <ChannelIcon className="h-3.5 w-3.5" />
-                                <SidebarMenuLabel>
-                                  {`#${channel.name}`}
-                                </SidebarMenuLabel>
-                              </SidebarMenuButton>
-                            </SidebarMenuItem>
+                              <SidebarMenuItem>
+                                <SidebarMenuButton
+                                  className="h-7 pl-7 text-sidebar-foreground/70 data-[active=true]:!bg-transparent data-[active=true]:font-semibold data-[active=true]:text-sidebar-foreground data-[active=true]:shadow-none data-[active=true]:hover:!bg-transparent data-[active=true]:hover:text-sidebar-foreground data-[active=true]:active:!bg-transparent"
+                                  data-testid={`sidebar-project-channel-${project.dtag}-${channel.name}`}
+                                  isActive={channel.id === routeChannelId}
+                                  onClick={() => {
+                                    void goChannel(channel.id);
+                                  }}
+                                  tooltip={`#${channel.name}`}
+                                  type="button"
+                                >
+                                  <ChannelIcon className="h-3.5 w-3.5" />
+                                  <SidebarMenuLabel>
+                                    {`#${channel.name}`}
+                                  </SidebarMenuLabel>
+                                </SidebarMenuButton>
+                              </SidebarMenuItem>
+                            </SidebarSurfaceTabMenu>
                           );
                         })
                       : null}
@@ -649,6 +650,11 @@ function SidebarProjectRow({
         </SidebarMenuItem>
       </ContextMenuTrigger>
       <ContextMenuContent>
+        <AddSurfaceTabMenuItem
+          divided
+          label={project.name}
+          target={{ kind: "project", projectId: project.id }}
+        />
         <ContextMenuItem onSelect={() => deferMenuAction(onRemove)}>
           <ContextMenuIconSlot>
             <ListMinus className="h-4 w-4" />

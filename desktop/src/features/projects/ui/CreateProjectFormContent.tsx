@@ -1,8 +1,19 @@
 import { ArrowLeft } from "lucide-react";
 import * as React from "react";
 
+import {
+  hulaCreateAttachment,
+  projectFormErrorMessage,
+} from "@/features/projects/lib/hulaCreateForm";
+import {
+  allocateDisplayName,
+  projectNameFromHulaPath,
+} from "@/features/projects/lib/hulaProjectNames";
+import type { ResolvedHulaProject } from "@/features/projects/lib/hulaProjectResolve";
+import { useProjectsQuery } from "@/features/projects/hooks";
 import type { CreateProjectInput } from "@/features/projects/useCreateProject";
 import { CreateProjectFormSettings } from "@/features/projects/ui/CreateProjectFormSettings";
+import { CreateProjectPathField } from "@/features/projects/ui/CreateProjectPathField";
 import { useCreateProjectFormSettings } from "@/features/projects/ui/useCreateProjectFormSettings";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
@@ -33,27 +44,47 @@ export function CreateProjectFormContent({
   onCreated: () => void;
 }) {
   const [name, setName] = React.useState("");
+  const [nameTouched, setNameTouched] = React.useState(false);
+  const [path, setPath] = React.useState("");
+  const [resolved, setResolved] = React.useState<ResolvedHulaProject | null>(
+    null,
+  );
+  const [resolving, setResolving] = React.useState(false);
   const [description, setDescription] = React.useState("");
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
-  const nameInputRef = React.useRef<HTMLInputElement>(null);
   const settings = useCreateProjectFormSettings(active, setDescription);
+  const projectsQuery = useProjectsQuery();
+  const pathPending = path.trim().length > 0 && resolved === null;
 
   React.useEffect(() => {
     if (!active) return;
     setName(initialName);
+    setNameTouched(initialName.trim().length > 0);
+    setPath("");
+    setResolved(null);
+    setResolving(false);
     setDescription("");
     setErrorMessage(null);
-
-    const timerId = globalThis.setTimeout(() => {
-      nameInputRef.current?.focus();
-    }, 50);
-    return () => globalThis.clearTimeout(timerId);
   }, [active, initialName]);
+
+  function handleResolved(next: ResolvedHulaProject) {
+    setResolved(next);
+    if (nameTouched) return;
+    const derived = projectNameFromHulaPath(next.hulaPath);
+    const taken = (projectsQuery.data ?? []).map((project) => project.name);
+    const suggested = derived ? allocateDisplayName(derived, taken) : null;
+    if (suggested) setName(suggested);
+  }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmedName = name.trim();
     if (!trimmedName) return;
+    const attachment = hulaCreateAttachment(path, resolved);
+    if (attachment.error) {
+      setErrorMessage(attachment.error);
+      return;
+    }
 
     setErrorMessage(null);
     try {
@@ -64,12 +95,11 @@ export function CreateProjectFormContent({
         projectVisibility: settings.projectVisibility,
         agents: settings.buildAgents(),
         templateId: settings.templateId,
+        hula: attachment.hula,
       });
       onCreated();
     } catch (error) {
-      setErrorMessage(
-        error instanceof Error ? error.message : "Failed to create project.",
-      );
+      setErrorMessage(projectFormErrorMessage(error));
     }
   }
 
@@ -78,12 +108,23 @@ export function CreateProjectFormContent({
       className="max-w-lg"
       contentClassName="pt-3"
       data-testid="create-project-dialog"
-      headerSubtitle="A project starts as a channel with a repository. People in the channel can talk, clone, and open tasks here."
+      scrollAreaTestId="create-project-body"
+      headerSubtitle="Point at a git directory inside Hula, or name a project and Buzz will create its channel."
       footer={
-        <div className="flex w-full items-center justify-end gap-3">
+        <div className="flex w-full items-center justify-between gap-3">
+          {errorMessage ? (
+            <p className="min-w-0 text-sm text-destructive" role="alert">
+              {errorMessage}
+            </p>
+          ) : (
+            <span />
+          )}
           <Button
+            className="shrink-0"
             data-testid="create-project-submit"
-            disabled={isCreating || name.trim().length === 0}
+            disabled={
+              isCreating || resolving || name.trim().length === 0 || pathPending
+            }
             form="create-project-form"
             type="submit"
           >
@@ -115,6 +156,22 @@ export function CreateProjectFormContent({
           void handleSubmit(event);
         }}
       >
+        <CreateProjectPathField
+          disabled={isCreating}
+          fieldClassName={CREATE_FIELD_SHELL_CLASS}
+          inputClassName={CREATE_FIELD_CONTROL_CLASS}
+          onFindError={setErrorMessage}
+          onResolving={setResolving}
+          onResolved={handleResolved}
+          path={path}
+          resolvedPath={resolved?.hulaPath ?? null}
+          setPath={(value) => {
+            setPath(value);
+            setResolved(null);
+            setErrorMessage(null);
+          }}
+        />
+
         <div className="space-y-1.5">
           <label
             className="text-sm font-medium text-foreground"
@@ -133,7 +190,7 @@ export function CreateProjectFormContent({
               autoComplete="off"
               autoCorrect="off"
               className={cn(
-                "h-8 px-0 py-0 leading-6",
+                "h-8 min-w-0 flex-1 px-0 py-0 leading-6",
                 CREATE_FIELD_CONTROL_CLASS,
               )}
               data-testid="create-project-name"
@@ -141,10 +198,10 @@ export function CreateProjectFormContent({
               id="create-project-name"
               onChange={(event) => {
                 setName(event.target.value);
+                setNameTouched(true);
                 setErrorMessage(null);
               }}
               placeholder="bee-garden-game"
-              ref={nameInputRef}
               spellCheck={false}
               value={name}
             />
@@ -180,10 +237,6 @@ export function CreateProjectFormContent({
         </div>
 
         <CreateProjectFormSettings disabled={isCreating} {...settings} />
-
-        {errorMessage ? (
-          <p className="text-sm text-destructive">{errorMessage}</p>
-        ) : null}
       </form>
     </ChooserDialogContent>
   );

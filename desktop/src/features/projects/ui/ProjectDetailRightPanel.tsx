@@ -9,8 +9,9 @@ import { ProjectAgentChatPanel } from "./ProjectAgentChatPanel";
 import { ProjectRepositoryActionsPanel } from "./ProjectRepositoryActionsPanel";
 import type { ProjectRightPanelMode } from "./ProjectRightPanelControls";
 
-type RepositoryPanelProps = React.ComponentProps<
-  typeof ProjectRepositoryActionsPanel
+type RepositoryPanelProps = Omit<
+  React.ComponentProps<typeof ProjectRepositoryActionsPanel>,
+  "place"
 >;
 
 export function ProjectDetailRightPanel({
@@ -52,8 +53,9 @@ export function ProjectDetailRightPanel({
   }
   return (
     <ProjectRepositoryActionsPanel
-      detached={detachedRepository}
       {...repositoryProps}
+      detached={detachedRepository}
+      place={context}
     />
   );
 }

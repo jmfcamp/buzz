@@ -1,6 +1,25 @@
 import { getThreadReference } from "@/features/messages/lib/threading";
 
 /**
+ * A starred thread fills the main area by itself.
+ * Activity, profile, and channel management keep their own split.
+ * Forum posts and huddle transcripts keep their own layout.
+ */
+export function shouldShowStarredThreadAlone(input: {
+  channelType?: string | null;
+  hasNonThreadAuxiliary: boolean;
+  isHuddleTranscript?: boolean;
+  openThreadRootId: string | null;
+  starredRootIds: ReadonlySet<string>;
+}): boolean {
+  if (input.channelType === "forum" || input.isHuddleTranscript) return false;
+  if (input.hasNonThreadAuxiliary) return false;
+  const rootId = input.openThreadRootId?.trim();
+  if (!rootId) return false;
+  return input.starredRootIds.has(rootId);
+}
+
+/**
  * When the open thread is in Starred threads, the starred row owns the active
  * highlight — the parent channel row below must not also look selected.
  */

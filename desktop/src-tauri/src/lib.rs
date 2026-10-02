@@ -656,6 +656,7 @@ pub fn run() {
             disconnect_openclaw_workspace_mcp,
             refresh_openclaw_workspace_mcp,
             test_openclaw_workspace_mcp,
+            call_openclaw_workspace_mcp_tool,
             assign_bestie,
             clear_bestie_assignment,
             resolve_bestie_conversation,

@@ -6,13 +6,10 @@ import {
   FileCode2,
   FolderOpen,
   GitCommitHorizontal,
-  GitMerge,
-  GitPullRequest,
   Loader2,
   MessageCircle,
   Plus,
   RefreshCw,
-  SquareTerminal,
   UploadCloud,
   Users,
 } from "lucide-react";
@@ -47,10 +44,11 @@ import { ProjectWorkItemCommunicationActions } from "./ProjectWorkItemCommunicat
 import { ProjectWorkItemContextDetails } from "./ProjectWorkItemContextDetails";
 import { ProjectsSelectionCountMenu } from "./ProjectsSelectionCountMenu";
 import {
-  projectReviewActivity,
   projectRightPanelScope,
   projectTaskActivity,
 } from "./projectRightPanelContext";
+import type { ProjectBuzzTermPlace } from "@/features/projects/lib/projectBuzzTermHandoff";
+import { ProjectBuzzTermButton } from "./ProjectBuzzTermButton";
 import { PROJECT_CONTEXT_ACTION_BUTTON_CLASS } from "./projectContextActionStyles";
 
 type ProjectRepositoryActionsPanelProps = {
@@ -65,10 +63,9 @@ type ProjectRepositoryActionsPanelProps = {
   issues: ProjectIssue[];
   onChatWithAgent: (items: ProjectSelectionItem[]) => void;
   onCreateTask: () => void;
-  onCreatePullRequest?: () => void;
   onOpenLocalRepository: () => void;
-  onOpenTerminal: () => void;
   onRepositoryChange: (repositoryId: string) => void;
+  place: ProjectBuzzTermPlace;
   onResetWidth: () => void;
   onResizeStart: (event: React.PointerEvent<HTMLButtonElement>) => void;
   profiles?: UserProfileLookup;
@@ -80,7 +77,6 @@ type ProjectRepositoryActionsPanelProps = {
   selectedPullRequest?: ProjectPullRequest | null;
   snapshot: ProjectRepoSnapshot | null | undefined;
   sourceControls: RepoSourceHeaderControls;
-  terminalTitle?: string;
   widthPx: number;
 };
 
@@ -148,22 +144,19 @@ export function ProjectRepositoryActionsPanel({
   issues,
   onChatWithAgent,
   onCreateTask,
-  onCreatePullRequest,
   onOpenLocalRepository,
-  onOpenTerminal,
   onRepositoryChange,
   onResetWidth,
   onResizeStart,
   profiles,
-  pullRequests,
   project,
   projects,
   repository,
   selectedIssue,
   selectedPullRequest,
+  place,
   snapshot,
   sourceControls,
-  terminalTitle,
   widthPx,
 }: ProjectRepositoryActionsPanelProps) {
   const selection = useProjectSelection();
@@ -174,7 +167,6 @@ export function ProjectRepositoryActionsPanel({
   const scope = projectRightPanelScope(activeTab);
   const branchScoped = scope === "branch";
   const taskActivity = projectTaskActivity(issues);
-  const reviewActivity = projectReviewActivity(pullRequests);
   const cloneAction = sourceControls.localDisabled
     ? sourceControls.onCloneLocal
     : undefined;
@@ -193,15 +185,10 @@ export function ProjectRepositoryActionsPanel({
     branchScoped ? (sourceControls.selectedTag ?? sourceControls.branch) : null,
   );
   const showCreateTask = activeTab === "issues" && !selectionPresentation;
-  const showCreateReview =
-    activeTab === "prs" &&
-    !selectionPresentation &&
-    Boolean(onCreatePullRequest);
   const showActions =
     Boolean(selectedIssue || selectedPullRequest || contextItem) ||
     branchScoped ||
-    showCreateTask ||
-    showCreateReview;
+    showCreateTask;
 
   return (
     <RightAuxiliaryPane
@@ -232,7 +219,6 @@ export function ProjectRepositoryActionsPanel({
             {selectionPresentation && selection ? (
               <ProjectsSelectionCountMenu
                 onChatWithAgent={onChatWithAgent}
-                onCreatePullRequest={onCreatePullRequest}
                 presentation={selectionPresentation}
                 selectionItems={selection.items}
               />
@@ -290,6 +276,7 @@ export function ProjectRepositoryActionsPanel({
                       <RepositoryBranchDropdown
                         branch={sourceControls.branch}
                         branchOptions={sourceControls.branchOptions}
+                        checkedOutBranch={sourceControls.checkedOutBranch}
                         createBranchDisabled={
                           sourceControls.createBranchDisabled
                         }
@@ -381,13 +368,24 @@ export function ProjectRepositoryActionsPanel({
                             : ""}
                         </RepositoryActionButton>
                       ) : null}
-                      <RepositoryActionButton
-                        onClick={onOpenTerminal}
-                        title={terminalTitle ?? "Open terminal"}
-                      >
-                        <SquareTerminal className="h-3.5 w-3.5" />
-                        Terminal
-                      </RepositoryActionButton>
+                      <ProjectBuzzTermButton
+                        channelId={
+                          repository.channelId?.trim() ||
+                          project.projectChannelId?.trim() ||
+                          null
+                        }
+                        channelName={repository.name}
+                        checkedOutBranch={sourceControls.checkedOutBranch}
+                        localCwd={sourceControls.localPath}
+                        openClawPath={
+                          repository.hulaPath?.trim() ||
+                          project.hulaPath?.trim() ||
+                          null
+                        }
+                        place={place}
+                        selectedTag={sourceControls.selectedTag}
+                        viewedBranch={sourceControls.branch}
+                      />
                       {sourceControls.source === "local" ? (
                         <RepositoryActionButton
                           onClick={onOpenLocalRepository}
@@ -423,15 +421,6 @@ export function ProjectRepositoryActionsPanel({
                   >
                     <Plus className="h-3.5 w-3.5" />
                     Create task
-                  </RepositoryActionButton>
-                ) : null}
-                {showCreateReview && onCreatePullRequest ? (
-                  <RepositoryActionButton
-                    onClick={onCreatePullRequest}
-                    title="Create review — choose a repository and branches to compare"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    Create review
                   </RepositoryActionButton>
                 ) : null}
               </RepositoryPanelSection>
@@ -515,45 +504,6 @@ export function ProjectRepositoryActionsPanel({
                             </dt>
                             <dd className="font-medium text-foreground">
                               {taskActivity.completed}
-                            </dd>
-                          </div>
-                        </>
-                      ) : null}
-                    </>
-                  ) : null}
-                  {!selectedIssue &&
-                  !selectedPullRequest &&
-                  activeTab !== "issues" ? (
-                    <>
-                      <div className="flex items-center justify-between gap-3">
-                        <dt className="flex items-center gap-3 text-muted-foreground">
-                          <GitPullRequest className="h-3.5 w-3.5" />
-                          {activeTab === "prs" ? "Reviews" : "Open reviews"}
-                        </dt>
-                        <dd className="font-medium text-foreground">
-                          {activeTab === "prs"
-                            ? reviewActivity.total
-                            : reviewActivity.open}
-                        </dd>
-                      </div>
-                      {activeTab === "prs" ? (
-                        <>
-                          <div className="flex items-center justify-between gap-3">
-                            <dt className="flex items-center gap-3 text-muted-foreground">
-                              <GitPullRequest className="h-3.5 w-3.5" />
-                              Open
-                            </dt>
-                            <dd className="font-medium text-foreground">
-                              {reviewActivity.open}
-                            </dd>
-                          </div>
-                          <div className="flex items-center justify-between gap-3">
-                            <dt className="flex items-center gap-3 text-muted-foreground">
-                              <GitMerge className="h-3.5 w-3.5" />
-                              Merged
-                            </dt>
-                            <dd className="font-medium text-foreground">
-                              {reviewActivity.merged}
                             </dd>
                           </div>
                         </>

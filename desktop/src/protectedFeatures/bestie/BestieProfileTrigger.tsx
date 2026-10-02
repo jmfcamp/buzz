@@ -26,6 +26,7 @@ import {
   setBestiePopoverSize,
   useBestiePopoverSize,
 } from "./bestiePopoverSizePreference";
+import { bestiePopoverShouldIgnoreOutside } from "./bestieLargeTextTarget";
 import { useBestie } from "./useBestie";
 
 /**
@@ -196,10 +197,7 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
   }, []);
 
   const startDrag = React.useCallback(
-    (
-      event: React.PointerEvent<HTMLDivElement>,
-      kind: "width" | "height",
-    ) => {
+    (event: React.PointerEvent<HTMLDivElement>, kind: "width" | "height") => {
       event.preventDefault();
       event.stopPropagation();
       // End any prior gesture before starting a new one.
@@ -271,6 +269,19 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
         ? `Open Assistant chat with ${agent.name} (new message)`
         : `Open Assistant chat with ${agent.name}`;
 
+  const keepPopoverForReader = (event: {
+    preventDefault: () => void;
+    target: EventTarget | null;
+  }) => {
+    if (
+      isResizing ||
+      dragRef.current ||
+      bestiePopoverShouldIgnoreOutside(event.target)
+    ) {
+      event.preventDefault();
+    }
+  };
+
   return (
     <Popover onOpenChange={setOpen} open={open}>
       <PopoverTrigger asChild>
@@ -322,11 +333,8 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
         align="end"
         className="relative z-[300] flex w-auto max-w-none flex-col overflow-visible p-4"
         onClick={(event) => event.stopPropagation()}
-        onInteractOutside={(event) => {
-          if (isResizing || dragRef.current) {
-            event.preventDefault();
-          }
-        }}
+        onFocusOutside={keepPopoverForReader}
+        onInteractOutside={keepPopoverForReader}
         onOpenAutoFocus={(event) => {
           const content = event.currentTarget;
           if (!(content instanceof HTMLElement)) return;
@@ -338,11 +346,7 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
             target.focus();
           }
         }}
-        onPointerDownOutside={(event) => {
-          if (isResizing || dragRef.current) {
-            event.preventDefault();
-          }
-        }}
+        onPointerDownOutside={keepPopoverForReader}
         side="top"
         sideOffset={10}
         style={

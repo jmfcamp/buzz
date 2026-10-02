@@ -22,6 +22,8 @@ export type Repository = {
   channelId?: string | null;
   eventContent?: string;
   eventTags?: string[][];
+  /** OpenClaw path inside Hula. Absent on relay-hosted repositories. */
+  hulaPath?: string | null;
 };
 
 export type Project = {
@@ -47,6 +49,8 @@ export type Project = {
   unavailableRepositoryAddresses?: string[];
   visibility?: "listed" | "unlisted";
   legacy: boolean;
+  /** OpenClaw path of the project root. Absent on projects created by name. */
+  hulaPath?: string | null;
 };
 
 /** True for an announced NIP-MP project, excluding repository-only read models. */
@@ -130,13 +134,21 @@ export function isValidProjectChannelId(value: string): boolean {
 export const PROJECT_RELATED_CHANNEL_TAG = "buzz-related-channel";
 
 /** Cap extra project streams so a tag list cannot grow without bound. */
-export const MAX_PROJECT_RELATED_CHANNELS = 64;
+/** Repo channels and Hula-project channels share this list, besides the home channel. */
+export const MAX_PROJECT_RELATED_CHANNELS = 256;
+
+/** OpenClaw directory for a Hula project or one of its repositories. */
+export const PROJECT_HULA_PATH_TAG = "buzz-hula-path";
+
+/** Byte cap for `buzz-hula-path`. Longer paths are refused. */
+export const MAX_HULA_PATH_BYTES = 2_048;
 
 const SINGLETON_METADATA_TAGS = [
   "name",
   "description",
   "buzz-channel",
   "buzz-visibility",
+  PROJECT_HULA_PATH_TAG,
 ] as const;
 
 const MAX_METADATA_TAG_BYTES: Record<string, number> = {
@@ -144,6 +156,7 @@ const MAX_METADATA_TAG_BYTES: Record<string, number> = {
   description: 2_048,
   "buzz-channel": 256,
   "buzz-visibility": 256,
+  [PROJECT_HULA_PATH_TAG]: MAX_HULA_PATH_BYTES,
 };
 
 /**
@@ -303,6 +316,7 @@ export function eventToRepository(
     channelId: channel && isValidProjectChannelId(channel) ? channel : null,
     eventContent: event.content,
     eventTags: event.tags.map((tag) => [...tag]),
+    hulaPath: getTag(event, PROJECT_HULA_PATH_TAG) ?? null,
     maintainers: getAllTagValues(event, "maintainers")
       .map((maintainer) => maintainer.toLowerCase())
       .filter(isValidPubkey),
@@ -395,6 +409,7 @@ export function eventToExplicitProject(
     ),
     visibility,
     legacy: false,
+    hulaPath: getTag(event, PROJECT_HULA_PATH_TAG) ?? null,
   };
 }
 
@@ -417,6 +432,7 @@ function repositoryToLegacyProject(repository: Repository): Project {
     unavailableRepositoryAddresses: [],
     visibility: "listed",
     legacy: true,
+    hulaPath: repository.hulaPath ?? null,
   };
 }
 

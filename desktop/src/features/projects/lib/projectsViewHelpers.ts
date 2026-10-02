@@ -84,12 +84,12 @@ export function writeStoredViewMode(viewMode: ProjectsViewMode) {
 export function readStoredFilter(): ProjectsFilter {
   try {
     const value = globalThis.localStorage?.getItem(PROJECTS_FILTER_STORAGE_KEY);
+    if (value === "prs") return "all";
     return value === "mine" ||
       value === "local" ||
       value === "projects" ||
       value === "repositories" ||
       value === "channels" ||
-      value === "prs" ||
       value === "issues" ||
       value === "agents" ||
       value === "users"

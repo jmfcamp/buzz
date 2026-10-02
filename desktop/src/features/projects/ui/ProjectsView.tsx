@@ -22,6 +22,7 @@ import { useProjectsRepoSnapshotsQuery } from "@/features/projects/useProjectsRe
 import { buildProjectSelectionAgentContext } from "@/features/projects/lib/projectDetailAgentContext";
 import { buildProjectsActivityDigest } from "@/features/projects/lib/projectsActivityDigest";
 import { matchesProjectsSearch } from "@/features/projects/lib/projectsSearch";
+import { taskStatusWord } from "@/features/projects/lib/taskStatus";
 import type { ProjectSelectionItem } from "@/features/projects/lib/projectSelection";
 import {
   useMemberChannelIds,
@@ -52,12 +53,10 @@ import {
 } from "@/features/projects/ui/ProjectsOverviewItems";
 import { ProjectCreationDialog } from "@/features/projects/ui/ProjectCreationDialog";
 import { CreateProjectIssueDialog } from "@/features/projects/ui/CreateProjectIssueDialog";
-import { CreatePullRequestDialog } from "@/features/projects/ui/CreatePullRequestDialog";
 import { ProjectAgentChatPanel } from "@/features/projects/ui/ProjectAgentChatPanel";
 import { ProjectsCategoryCreateDialogs } from "@/features/projects/ui/ProjectsCategoryCreateDialogs";
 import { ProjectsIssuesList } from "@/features/projects/ui/ProjectsIssuesList";
 import { ProjectsWorkspaceChrome } from "@/features/projects/ui/ProjectDetailChrome";
-import { ProjectsPullRequestsList } from "@/features/projects/ui/ProjectsPullRequestsList";
 import { ProjectsWorkItemsLoadNotice } from "@/features/projects/ui/ProjectsWorkItemsLoadNotice";
 import { ProjectsListHeaderBar } from "@/features/projects/ui/ProjectsListHeaderBar";
 import { ProjectsSectionSearch } from "@/features/projects/ui/ProjectsSectionSearch";
@@ -179,8 +178,6 @@ export function ProjectsView() {
   const [createChannelOpen, setCreateChannelOpen] = React.useState(false);
   const [createRepositoryOpen, setCreateRepositoryOpen] = React.useState(false);
   const [createIssueOpen, setCreateIssueOpen] = React.useState(false);
-  const [createPullRequestOpen, setCreatePullRequestOpen] =
-    React.useState(false);
   const [storedViewMode, setStoredViewMode] =
     React.useState<ProjectsViewMode | null>(() => readStoredViewMode());
   const [sort, setSort] = React.useState<ProjectsSort>(() => readStoredSort());
@@ -429,6 +426,7 @@ export function ProjectsView() {
           issue.title,
           issue.content,
           issue.status,
+          taskStatusWord(issue.status),
           project.name,
           repository.name,
         ]),
@@ -460,13 +458,14 @@ export function ProjectsView() {
   });
   const handleFilterChange = React.useCallback(
     (nextFilter: ProjectsFilter) => {
-      writeStoredFilter(nextFilter);
+      const storedFilter = nextFilter === "prs" ? "all" : nextFilter;
+      writeStoredFilter(storedFilter);
       // Tab content swaps mount hundreds of rows/cards at once; a transition
       // lets React keep the click responsive and paint the previous tab until
       // the new tree is ready instead of blocking the main thread.
       React.startTransition(() => {
         setSelectionAgentContext(null);
-        setFilter(nextFilter);
+        setFilter(storedFilter);
       });
     },
     [setSelectionAgentContext],
@@ -657,7 +656,6 @@ export function ProjectsView() {
       setSelectionAgentContext(buildProjectSelectionAgentContext(items)),
     onCreateIssue: () => setCreateIssueOpen(true),
     onCreateProject: () => setCreateProjectOpen(true),
-    onCreatePullRequest: () => setCreatePullRequestOpen(true),
     profiles,
     projectReadModels,
     projects,
@@ -749,24 +747,6 @@ export function ProjectsView() {
             onOpenChange={setCreateProjectOpen}
             open={createProjectOpen}
           />
-          {createPullRequestOpen ? (
-            <CreatePullRequestDialog
-              onCreated={async (
-                createdProject,
-                createdRepository,
-                pullRequestId,
-              ) => {
-                await goProject(createdProject.id, {
-                  pullRequestId,
-                  repositoryId: createdRepository.id,
-                });
-              }}
-              onOpenChange={setCreatePullRequestOpen}
-              open
-              projects={projects}
-              reposDir={activeCommunity?.reposDir}
-            />
-          ) : null}
           <CreateProjectIssueDialog
             onCreated={async (createdProject, createdRepository, issueId) => {
               await goProject(createdProject.id, {
@@ -801,9 +781,11 @@ export function ProjectsView() {
                   <div className="w-full space-y-3">
                     <div
                       className={cn(
-                        "sticky top-0 z-30 -mx-4 flex h-13 min-w-0 items-center gap-1.5 px-4",
+                        "sticky top-0 z-30 -mx-4 flex h-13 min-w-0 items-center gap-1.5 overflow-hidden px-4",
                         PROJECT_COLUMN_HEADER_BACKDROP_CLASS,
-                        overviewDetached && "rounded-t-2xl",
+                        isNarrowProjectsLayout
+                          ? "rounded-tl-xl"
+                          : "rounded-t-2xl",
                       )}
                       data-testid="projects-page-tabs"
                     >
@@ -840,33 +822,7 @@ export function ProjectsView() {
                           />
                           <section>
                             <div className="space-y-3">
-                              {filter === "prs" ? (
-                                <ProjectsPullRequestsList
-                                  embedded={viewMode === "list"}
-                                  emptyMessage={
-                                    searchQuery.trim()
-                                      ? "No matching reviews"
-                                      : undefined
-                                  }
-                                  error={projectsWorkItemsQuery.error}
-                                  failedSections={
-                                    projectsWorkItemsQuery.data?.pullRequests
-                                      .failedSections ?? []
-                                  }
-                                  isLoading={projectsWorkItemsQuery.isLoading}
-                                  isRetrying={
-                                    projectsWorkItemsQuery.isFetching &&
-                                    !projectsWorkItemsQuery.isLoading
-                                  }
-                                  onOpen={handleOpenPullRequest}
-                                  onRetry={() =>
-                                    void projectsWorkItemsQuery.refetch()
-                                  }
-                                  profiles={profiles}
-                                  pullRequests={visiblePullRequests}
-                                  viewMode={viewMode}
-                                />
-                              ) : filter === "issues" ? (
+                              {filter === "issues" ? (
                                 <ProjectsIssuesList
                                   embedded={viewMode === "list"}
                                   emptyMessage={

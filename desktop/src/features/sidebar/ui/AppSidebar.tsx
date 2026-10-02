@@ -26,6 +26,8 @@ import {
   sortChannelsForSidebar,
 } from "@/features/sidebar/lib/channelSortPreference";
 import { useChannelSortPreference } from "@/features/sidebar/lib/useChannelSortPreference";
+import { withCollapsedPrimaryMenu } from "@/features/sidebar/lib/primaryMenuScrollAway";
+import { usePrimaryMenuScrollAway } from "@/features/sidebar/lib/usePrimaryMenuScrollAway";
 import { useSidebarScrollLock } from "@/features/sidebar/lib/useSidebarScrollLock";
 import { isSidebarBackgroundTarget } from "@/features/sidebar/lib/sidebarBackgroundTarget";
 import {
@@ -44,6 +46,10 @@ import {
   AppSidebarPinnedHeader,
   AppSidebarPrimaryMenu,
 } from "@/features/sidebar/ui/AppSidebarPinnedHeader";
+import {
+  SIDEBAR_MENU_DOCK_UNREAD_TOP_CLASS,
+  SidebarMenuDock,
+} from "@/features/sidebar/ui/SidebarMenuDock";
 import {
   canPreviewUnreadDm,
   MoreUnreadButton,
@@ -181,6 +187,8 @@ export function AppSidebar({
     [directMessages],
   );
   const scrollRef = React.useRef<HTMLDivElement>(null);
+  const menuRef = React.useRef<HTMLDivElement>(null);
+  const menuAway = usePrimaryMenuScrollAway(scrollRef, menuRef);
   useSidebarScrollLock(scrollRef);
   // biome-ignore format: keep compact to stay within file size limit
   const { hasHighPriorityAbove, hasHighPriorityBelow, scrollToChannel, scrollToNextAbove, scrollToNextBelow, unreadAboveCount, unreadBelowCount, unreadMessageBelowChannelIds } = useSidebarUnreadOverflow({ dmChannelIds, highPriorityUnreadChannelIds, previewActivityChannelIds, scrollRef, unreadChannelIds });
@@ -561,6 +569,19 @@ export function AppSidebar({
     },
     [assignChannelGuarded, communityLockedChannelIds, onBrowseChannels],
   );
+  const primaryMenuProps = {
+    onSelectAgents,
+    onSelectBrowsers,
+    onSelectBots,
+    onSelectHome,
+    onSelectPinnedSite,
+    onSelectProjects,
+    onSelectPulse,
+    onSelectWorkflows,
+    projectsOverviewActive,
+    selectedPinId,
+    selectedView,
+  };
 
   return (
     <Sidebar
@@ -612,11 +633,27 @@ export function AppSidebar({
               onClick={scrollToNextAbove}
               position="top"
               testId="sidebar-more-unread-above"
+              topClassName={
+                menuAway ? SIDEBAR_MENU_DOCK_UNREAD_TOP_CLASS : undefined
+              }
             />
           ) : null}
+          <SidebarMenuDock
+            away={menuAway}
+            renderMenu={(collapse) => (
+              <AppSidebarPrimaryMenu
+                {...withCollapsedPrimaryMenu(primaryMenuProps, collapse)}
+                dragRegion={false}
+                includeProjects={false}
+                menuTestId="sidebar-menu-dock-rows"
+                testIdScope="dock"
+              />
+            )}
+            scrollRef={scrollRef}
+          />
 
           <SidebarContent
-            className="buzz-sidebar-scrollbar overscroll-none [overflow-anchor:none]"
+            className="buzz-sidebar-scrollbar relative isolate z-0 overscroll-none [overflow-anchor:none]"
             data-sidebar-background
             ref={scrollRef}
           >
@@ -626,17 +663,9 @@ export function AppSidebar({
               data-testid="sidebar-scroll-content"
             >
               <AppSidebarPrimaryMenu
-                onSelectAgents={onSelectAgents}
-                onSelectBrowsers={onSelectBrowsers}
-                onSelectBots={onSelectBots}
-                onSelectHome={onSelectHome}
-                onSelectPinnedSite={onSelectPinnedSite}
-                onSelectProjects={onSelectProjects}
-                onSelectPulse={onSelectPulse}
-                onSelectWorkflows={onSelectWorkflows}
-                projectsOverviewActive={projectsOverviewActive}
-                selectedPinId={selectedPinId}
-                selectedView={selectedView}
+                {...primaryMenuProps}
+                headerRef={menuRef}
+                inert={menuAway ? true : undefined}
               />
 
               {isLoading ? (

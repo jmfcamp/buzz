@@ -108,7 +108,7 @@ Configuration (flags override env vars):
   BUZZ_PRIVATE_KEY   Nostr private key (hex or nsec)  [required]
   BUZZ_AUTH_TAG      NIP-OA auth tag JSON  [optional]
 
-The 'pack' subcommand runs locally and does not require a relay connection.
+The 'pack' and 'github publish' subcommands run locally and do not require a relay connection.
 
 Exit codes: 0=ok  1=bad input  2=relay/network error  3=auth error  4=other  5=write conflict
 Errors are JSON on stderr: {\"error\": \"<category>\", \"message\": \"<detail>\"}"
@@ -231,6 +231,9 @@ enum Cmd {
     /// Search and share GIFs via the relay's KLIPY proxy
     #[command(subcommand)]
     Gifs(GifsCmd),
+    /// Publish file contents to GitHub with the local gh login. No clone.
+    #[command(subcommand)]
+    Github(GithubCmd),
     /// List, open, and manage direct messages
     #[command(subcommand)]
     Dms(DmsCmd),
@@ -261,9 +264,6 @@ enum Cmd {
     /// Create, get, list, and set status on git issues (NIP-34)
     #[command(subcommand)]
     Issues(IssuesCmd),
-    /// Open, update, list, and set status on git pull requests (NIP-34)
-    #[command(subcommand)]
-    Pr(PrCmd),
     /// Upload and download relay Blossom media
     #[command(subcommand)]
     Media(MediaCmd),
@@ -1627,150 +1627,6 @@ pub enum PatchesCmd {
 }
 
 #[derive(Subcommand)]
-pub enum PrCmd {
-    /// Open a git pull request (NIP-34 kind:1618)
-    #[command(
-        after_help = "Examples:\n  buzz pr open --repo-owner <hex> --repo-id myrepo --subject 'Fix bug' --body-file - --commit $(git rev-parse HEAD) --clone https://relay/git/owner/myrepo --branch-name fix-bug\n  buzz pr update --repo-owner <hex> --repo-id myrepo --pr <event> --pr-author <hex> --commit $(git rev-parse HEAD) --clone https://relay/git/owner/myrepo"
-    )]
-    Open {
-        /// Repo owner pubkey (64-char hex)
-        #[arg(long)]
-        repo_owner: String,
-        /// Repo identifier (d-tag)
-        #[arg(long)]
-        repo_id: String,
-        /// Pull request subject/header
-        #[arg(long, alias = "title")]
-        subject: String,
-        /// Pull request body markdown. Use '-' to read from stdin.
-        #[arg(long, conflicts_with = "body_file")]
-        body: Option<String>,
-        /// Path to pull request body markdown, or '-' to read from stdin.
-        #[arg(long, conflicts_with = "body")]
-        body_file: Option<String>,
-        /// Tip commit of the PR branch
-        #[arg(long)]
-        commit: String,
-        /// Clone URL where the tip commit can be fetched — can be specified multiple times
-        #[arg(long = "clone", required = true)]
-        clone: Vec<String>,
-        /// Recommended branch name
-        #[arg(long)]
-        branch_name: Option<String>,
-        /// Most recent common ancestor with the target branch
-        #[arg(long)]
-        merge_base: Option<String>,
-        /// Earliest-unique-commit of the repo
-        #[arg(long)]
-        euc: Option<String>,
-        /// Label — can be specified multiple times
-        #[arg(long = "label")]
-        label: Vec<String>,
-        /// Additional recipient pubkey(s) — can be specified multiple times
-        #[arg(long = "to")]
-        to: Vec<String>,
-        /// Channel where this pull request originated (NIP-29 h-tag)
-        #[arg(long)]
-        channel: Option<String>,
-        /// Root patch event id this PR revises
-        #[arg(long)]
-        revision_of: Option<String>,
-    },
-    /// Update a git pull request tip (NIP-34 kind:1619)
-    Update {
-        /// Repo owner pubkey (64-char hex)
-        #[arg(long)]
-        repo_owner: String,
-        /// Repo identifier (d-tag)
-        #[arg(long)]
-        repo_id: String,
-        /// Pull request event id being updated
-        #[arg(long)]
-        pr: String,
-        /// Pull request author's pubkey
-        #[arg(long)]
-        pr_author: String,
-        /// Updated tip commit of the PR branch
-        #[arg(long)]
-        commit: String,
-        /// Clone URL where the updated tip commit can be fetched — can be specified multiple times
-        #[arg(long = "clone", required = true)]
-        clone: Vec<String>,
-        /// Markdown context for the update. Use '-' to read from stdin.
-        #[arg(long, conflicts_with = "body_file")]
-        body: Option<String>,
-        /// Path to markdown context for the update, or '-' to read from stdin.
-        #[arg(long, conflicts_with = "body")]
-        body_file: Option<String>,
-        /// Most recent common ancestor with the target branch
-        #[arg(long)]
-        merge_base: Option<String>,
-        /// Earliest-unique-commit of the repo
-        #[arg(long)]
-        euc: Option<String>,
-        /// Additional recipient pubkey(s) — can be specified multiple times
-        #[arg(long = "to")]
-        to: Vec<String>,
-    },
-    /// Get a PR by event id
-    Get {
-        /// PR event id (64-char hex)
-        #[arg(long)]
-        event: String,
-    },
-    /// List PRs for a repo
-    List {
-        /// Repo owner pubkey (64-char hex)
-        #[arg(long)]
-        repo_owner: String,
-        /// Repo identifier (d-tag)
-        #[arg(long)]
-        repo_id: String,
-        /// Filter by PR author pubkey
-        #[arg(long)]
-        author: Option<String>,
-        /// Filter by label
-        #[arg(long)]
-        label: Option<String>,
-        /// Maximum number of results
-        #[arg(long)]
-        limit: Option<u32>,
-    },
-    /// Set status on a PR (open/merged/closed/draft — NIP-34 kind:1630-1633)
-    Status {
-        /// Pull request event id
-        #[arg(long)]
-        pr: String,
-        /// New status
-        #[arg(long, value_parser = ["open", "merged", "closed", "draft"])]
-        status: String,
-        /// Markdown context for the status change. Use '-' to read from stdin.
-        #[arg(long, conflicts_with = "body_file")]
-        body: Option<String>,
-        /// Path to markdown context for the status change, or '-' to read from stdin.
-        #[arg(long, conflicts_with = "body")]
-        body_file: Option<String>,
-        /// Repo owner pubkey — requires --repo-id
-        #[arg(long, requires = "repo_id")]
-        repo_owner: Option<String>,
-        /// Repo identifier (d-tag) — requires --repo-owner
-        #[arg(long, requires = "repo_owner")]
-        repo_id: Option<String>,
-        /// Earliest-unique-commit of the repo
-        #[arg(long)]
-        euc: Option<String>,
-        /// Additional recipient pubkey(s) for the status event (besides the
-        /// repo owner, which is tagged automatically when --repo-owner is
-        /// given) — e.g. PR author/reviewers. Can be specified multiple times.
-        #[arg(long = "to")]
-        to: Vec<String>,
-        /// Merge commit id (status=merged only)
-        #[arg(long)]
-        merge_commit: Option<String>,
-    },
-}
-
-#[derive(Subcommand)]
 pub enum IssuesCmd {
     /// Create a git issue (NIP-34 kind:1621)
     Create {
@@ -1997,6 +1853,47 @@ pub enum MemCmd {
     },
 }
 
+/// Subcommands for `buzz github`.
+///
+/// These run on this machine through `gh`. They do not use the Buzz relay
+/// and they do not clone a repository.
+#[derive(Subcommand)]
+pub enum GithubCmd {
+    /// Create a commit and pull request from file contents on stdin.
+    ///
+    /// Read the files from OpenClaw, then pass them as JSON. The new branch
+    /// is created from the current base. The base branch is not moved.
+    #[command(
+        after_help = "Examples:\n  buzz github publish --repo huladesk/hulabill --branch docs/note --message \"docs: add a note\" --title \"Add a note\" <<'EOF'\n  {\"files\":[{\"path\":\"research/note.md\",\"content\":\"hello\\n\"}]}\nEOF"
+    )]
+    Publish {
+        /// GitHub repository as owner/name.
+        #[arg(long)]
+        repo: String,
+        /// Branch the new commit starts from.
+        #[arg(long, default_value = "main")]
+        base: String,
+        /// New branch name. This branch is created. It is never the base branch.
+        #[arg(long)]
+        branch: String,
+        /// Commit message.
+        #[arg(long)]
+        message: String,
+        /// Pull request title.
+        #[arg(long)]
+        title: String,
+        /// Pull request body.
+        #[arg(long, default_value = "")]
+        body: String,
+        /// JSON file of changes, or - for stdin.
+        #[arg(long, default_value = "-")]
+        files: String,
+        /// Read the base commit and print the plan. Create nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+}
+
 /// Subcommands for `buzz pack`.
 #[derive(Subcommand)]
 pub enum PackCmd {
@@ -2146,11 +2043,34 @@ fn normalize_auth_tag_input(input: &str) -> String {
 async fn run(cli: Cli) -> Result<(), CliError> {
     let relay_url = client::normalize_relay_url(&cli.relay);
 
-    // Pack commands are local-only — no relay connection needed.
+    // Pack and GitHub publish run locally — no relay connection needed.
     if let Cmd::Pack(ref sub) = cli.command {
         return match sub {
             PackCmd::Validate { path } => commands::pack::cmd_validate(path),
             PackCmd::Inspect { path } => commands::pack::cmd_inspect(path),
+        };
+    }
+    if let Cmd::Github(ref sub) = cli.command {
+        return match sub {
+            GithubCmd::Publish {
+                repo,
+                base,
+                branch,
+                message,
+                title,
+                body,
+                files,
+                dry_run,
+            } => commands::github::cmd_publish(commands::github::PublishArgs {
+                repo,
+                base,
+                branch,
+                message,
+                title,
+                body,
+                files,
+                dry_run: *dry_run,
+            }),
         };
     }
 
@@ -2209,12 +2129,11 @@ async fn run(cli: Cli) -> Result<(), CliError> {
         Cmd::Projects(sub) => commands::projects::dispatch(sub, &client).await,
         Cmd::Patches(sub) => commands::patches::dispatch(sub, &client).await,
         Cmd::Issues(sub) => commands::issues::dispatch(sub, &client).await,
-        Cmd::Pr(sub) => commands::pr::dispatch(sub, &client).await,
         Cmd::Media(sub) => commands::upload::dispatch_media(sub, &client).await,
         Cmd::Upload(sub) => commands::upload::dispatch(sub, &client).await,
         Cmd::Mem(sub) => commands::mem::dispatch(sub, &client).await,
         Cmd::Moderation(sub) => commands::moderation::dispatch(sub, &client, &cli.format).await,
-        Cmd::Pack(_) => unreachable!("handled above"),
+        Cmd::Pack(_) | Cmd::Github(_) => unreachable!("handled above"),
     }
 }
 
@@ -2372,6 +2291,7 @@ mod tests {
             "emoji",
             "feed",
             "gifs",
+            "github",
             "issues",
             "media",
             "mem",
@@ -2380,7 +2300,6 @@ mod tests {
             "notes",
             "pack",
             "patches",
-            "pr",
             "projects",
             "reactions",
             "repos",
@@ -2534,10 +2453,6 @@ mod tests {
         protect_names.sort();
         assert_eq!(protect_names, vec!["list", "remove", "set"]);
         assert_eq!(
-            names(&cmd, "pr"),
-            vec!["get", "list", "open", "status", "update"]
-        );
-        assert_eq!(
             names(&cmd, "patches"),
             vec!["get", "list", "send", "status"]
         );
@@ -2560,6 +2475,7 @@ mod tests {
         );
         assert_eq!(names(&cmd, "media"), vec!["get"]);
         assert_eq!(names(&cmd, "upload"), vec!["file"]);
+        assert_eq!(names(&cmd, "github"), vec!["publish"]);
         assert_eq!(names(&cmd, "pack"), vec!["inspect", "validate"]);
         assert_eq!(
             names(&cmd, "moderation"),
@@ -2585,12 +2501,12 @@ mod tests {
             ("dms", 4),
             ("emoji", 5),
             ("feed", 1),
+            ("github", 1),
             ("issues", 6),
             ("media", 1),
             ("messages", 8),
             ("pack", 2),
             ("patches", 4),
-            ("pr", 5),
             ("projects", 8),
             ("reactions", 3),
             ("repos", 6),

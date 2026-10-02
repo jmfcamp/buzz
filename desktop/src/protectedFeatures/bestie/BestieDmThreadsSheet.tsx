@@ -1,12 +1,27 @@
-import { ChevronDown, ChevronRight, MessagesSquare, Plus, SquareArrowOutUpRight, Trash2 } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  MessagesSquare,
+  Plus,
+  SquareArrowOutUpRight,
+  Trash2,
+} from "lucide-react";
 import * as React from "react";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useChannelsQuery } from "@/features/channels/hooks";
-import { getThreadReference, isThreadReply } from "@/features/messages/lib/threading";
+import {
+  getThreadReference,
+  isThreadReply,
+} from "@/features/messages/lib/threading";
 import { getEventById, getHomeFeed } from "@/shared/api/tauri";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import {
+  BestieLargeTextOpenButton,
+  BestieLargeTextReader,
+} from "./BestieLargeTextReader";
+
 import { ensureBestieAgentThreadAccess } from "./bestieThreadAccess";
 import {
   bestieParticipatingThreadInputs,
@@ -46,8 +61,7 @@ function ThreadRow({
   const [expanded, setExpanded] = React.useState(false);
   const needsSummarize = bestieThreadNeedsSummarize(thread);
   const title =
-    thread.channelName?.trim() ||
-    `Thread ${thread.rootEventId.slice(0, 8)}…`;
+    thread.channelName?.trim() || `Thread ${thread.rootEventId.slice(0, 8)}…`;
   const sourceLabel =
     thread.source === "agent"
       ? "In thread"
@@ -55,6 +69,8 @@ function ThreadRow({
         ? "Added"
         : "Ask Assistant";
   const Chevron = expanded ? ChevronDown : ChevronRight;
+  const [reading, setReading] = React.useState(false);
+  const summary = thread.lastSummary?.trim() || "";
 
   return (
     <div
@@ -112,6 +128,12 @@ function ThreadRow({
                 : "Summarize"}
           </Button>
         ) : null}
+        <BestieLargeTextOpenButton
+          label={title}
+          onOpen={() => setReading(true)}
+          open={reading}
+          testId={`bestie-large-text-open-${thread.id}`}
+        />
         <Button
           aria-label="Open thread"
           className="size-6 shrink-0"
@@ -153,6 +175,13 @@ function ThreadRow({
             </p>
           )}
         </div>
+      ) : null}
+      {reading ? (
+        <BestieLargeTextReader
+          body={summary || "No summary yet."}
+          onClose={() => setReading(false)}
+          title={title}
+        />
       ) : null}
     </div>
   );
@@ -288,9 +317,7 @@ export function BestieDmThreadsSheet({
       setAddError(null);
       const parsed = parseBestieThreadAddInput(raw);
       if (!parsed) {
-        setAddError(
-          "Paste a buzz://message link, or channelId and event id.",
-        );
+        setAddError("Paste a buzz://message link, or channelId and event id.");
         return;
       }
       setAddBusy(true);
@@ -312,8 +339,7 @@ export function BestieDmThreadsSheet({
           preview = (event.content ?? "").trim().slice(0, 280);
           const tags = Array.isArray(event.tags) ? event.tags : [];
           if (isThreadReply(tags)) {
-            rootEventId =
-              getThreadReference(tags).rootId ?? parsed.rootEventId;
+            rootEventId = getThreadReference(tags).rootId ?? parsed.rootEventId;
           } else if (
             !parsed.rootEventId ||
             parsed.rootEventId === parsed.messageId
@@ -370,8 +396,8 @@ export function BestieDmThreadsSheet({
         />
       ) : (
         <p className="px-0.5 text-xs text-muted-foreground">
-          Threads Assistant is in (replies) plus Ask Assistant enrollments.
-          Use + to add one they are not in yet and summarize.{" "}
+          Threads Assistant is in (replies) plus Ask Assistant enrollments. Use
+          + to add one they are not in yet and summarize.{" "}
           {onRequestAdd ? (
             <button
               className="underline-offset-2 hover:underline"

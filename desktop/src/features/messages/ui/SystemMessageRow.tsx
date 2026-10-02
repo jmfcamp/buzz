@@ -862,14 +862,12 @@ export const SystemMessageRow = React.memo(function SystemMessageRow({
                 ) {
                   setBadgeBurstEmoji(value);
                 }
+                setIsReactionPickerOpen(false);
                 void handleReactionSelect(value)
                   .then(() => {
                     recordQuickReactionEmoji(value);
                   })
-                  .catch(() => {})
-                  .finally(() => {
-                    setIsReactionPickerOpen(false);
-                  });
+                  .catch(() => {});
               }}
             />
           </PopoverContent>

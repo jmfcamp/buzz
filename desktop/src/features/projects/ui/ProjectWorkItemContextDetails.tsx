@@ -14,6 +14,7 @@ import type {
   ProjectPullRequest,
   Repository,
 } from "@/features/projects/hooks";
+import { taskStatusWord } from "@/features/projects/lib/taskStatus";
 
 function ContextDetailRow({
   icon: Icon,
@@ -50,7 +51,7 @@ export function ProjectWorkItemContextDetails({
         <ContextDetailRow
           icon={CircleDot}
           label="Status"
-          value={issue.status}
+          value={taskStatusWord(issue.status)}
         />
         <ContextDetailRow
           icon={Users}

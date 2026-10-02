@@ -37,7 +37,10 @@ function isFiniteNonNegative(value: unknown): value is number {
 }
 
 /** First non-empty line, trimmed and capped — used when title is blank. */
-export function deriveBestieScratchTitle(body: string, fallback = "Untitled"): string {
+export function deriveBestieScratchTitle(
+  body: string,
+  fallback = "Untitled",
+): string {
   const line =
     body
       .split(/\r?\n/)
@@ -54,7 +57,9 @@ export function bestieScratchSnippet(body: string, max = 96): string {
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 
-export function parseBestieScratchNote(value: unknown): BestieScratchNote | null {
+export function parseBestieScratchNote(
+  value: unknown,
+): BestieScratchNote | null {
   if (typeof value !== "object" || value === null) return null;
   const record = value as Record<string, unknown>;
   if (
@@ -76,6 +81,7 @@ export function parseBestieScratchNote(value: unknown): BestieScratchNote | null
   return {
     body: record.body,
     createdAt: Math.floor(record.createdAt),
+    draft: record.draft === true,
     id: record.id,
     sourceMessageId,
     title,
@@ -124,10 +130,13 @@ function mergeBestieScratchStates(
   };
 }
 
-export function readBestieScratchState(scope: BestieScratchScope): BestieScratchState {
+export function readBestieScratchState(
+  scope: BestieScratchScope,
+): BestieScratchState {
   return readOwnerScopedState({
     empty: emptyBestieScratchState,
-    isEmpty: (state) => state.notes.length === 0 && state.processedMessageIds.length === 0,
+    isEmpty: (state) =>
+      state.notes.length === 0 && state.processedMessageIds.length === 0,
     merge: mergeBestieScratchStates,
     parse: parseBestieScratchState,
     prefix: BESTIE_SCRATCH_STORAGE_PREFIX,
@@ -162,6 +171,7 @@ export function addBestieScratchNote(
   const note: BestieScratchNote = {
     body,
     createdAt: nowSeconds,
+    draft: input.draft === true,
     id: createBestieScratchNoteId(),
     sourceMessageId: input.sourceMessageId ?? null,
     title,
@@ -189,6 +199,7 @@ export function updateBestieScratchNote(
     return {
       ...note,
       body,
+      draft: input.draft === undefined ? note.draft === true : input.draft,
       title: titleRaw || deriveBestieScratchTitle(body),
       updatedAt: nowSeconds,
     };

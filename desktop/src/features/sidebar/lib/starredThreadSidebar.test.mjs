@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { readFileSync } from "node:fs";
+
 import {
   countUnreadForStarredThreadRoot,
   formatSidebarUnreadCount,
+  shouldShowStarredThreadAlone,
   shouldSuppressChannelActiveForStarredThread,
   threadFeedConversationId,
 } from "./starredThreadSidebar.ts";
@@ -48,6 +51,88 @@ describe("countUnreadForStarredThreadRoot", () => {
       countUnreadForStarredThreadRoot([feedItem({ id: "root-a" })], "   "),
       0,
     );
+  });
+});
+
+describe("shouldShowStarredThreadAlone", () => {
+  const starred = new Set(["root-starred"]);
+
+  it("fills the main area for a starred thread from the menu or a tab", () => {
+    assert.equal(
+      shouldShowStarredThreadAlone({
+        hasNonThreadAuxiliary: false,
+        openThreadRootId: "root-starred",
+        starredRootIds: starred,
+      }),
+      true,
+    );
+  });
+
+  it("restores the split when the open thread is no longer starred", () => {
+    assert.equal(
+      shouldShowStarredThreadAlone({
+        hasNonThreadAuxiliary: false,
+        openThreadRootId: "root-starred",
+        starredRootIds: new Set(),
+      }),
+      false,
+    );
+  });
+
+  it("keeps the channel split for an unstarred thread", () => {
+    assert.equal(
+      shouldShowStarredThreadAlone({
+        hasNonThreadAuxiliary: false,
+        openThreadRootId: "root-other",
+        starredRootIds: starred,
+      }),
+      false,
+    );
+    assert.equal(
+      shouldShowStarredThreadAlone({
+        hasNonThreadAuxiliary: false,
+        openThreadRootId: null,
+        starredRootIds: starred,
+      }),
+      false,
+    );
+  });
+
+  it("keeps activity, forum, and huddle layouts", () => {
+    assert.equal(
+      shouldShowStarredThreadAlone({
+        hasNonThreadAuxiliary: true,
+        openThreadRootId: "root-starred",
+        starredRootIds: starred,
+      }),
+      false,
+    );
+    assert.equal(
+      shouldShowStarredThreadAlone({
+        channelType: "forum",
+        hasNonThreadAuxiliary: false,
+        openThreadRootId: "root-starred",
+        starredRootIds: starred,
+      }),
+      false,
+    );
+    assert.equal(
+      shouldShowStarredThreadAlone({
+        hasNonThreadAuxiliary: false,
+        isHuddleTranscript: true,
+        openThreadRootId: "root-starred",
+        starredRootIds: starred,
+      }),
+      false,
+    );
+  });
+
+  it("is what the channel screen uses for the main pane", () => {
+    const source = readFileSync(
+      new URL("../../channels/ui/ChannelScreen.tsx", import.meta.url),
+      "utf8",
+    );
+    assert.match(source, /shouldShowStarredThreadAlone\(/);
   });
 });
 

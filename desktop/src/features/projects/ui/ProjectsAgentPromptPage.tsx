@@ -134,10 +134,6 @@ function buildSuggestions(projects: readonly Project[]) {
   const firstRepo = projects[0]?.name;
   return [
     {
-      label: "Reviews",
-      prompt: "Which reviews need attention today?",
-    },
-    {
       label: "Release check",
       prompt: firstRepo
         ? `Are we safe to cut a release of ${firstRepo} this week?`

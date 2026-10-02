@@ -251,192 +251,197 @@ export function ProjectChannelHome({
       resetKey={`${project.id}:${workspaceSheetTab ?? "home"}`}
     >
       <div
-        className={cn(
-          "relative flex min-h-0 min-w-0 flex-1 overflow-hidden",
-          summaryVisible && "bg-sidebar",
-          summaryVisible && sidebar?.open === false && "pl-2",
-        )}
+        className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
         data-project-context-detached={summaryVisible ? "true" : undefined}
         data-project-detail-screen
         data-repository-healing-enabled={allowRepositoryHealing}
         data-testid="project-channel-home"
       >
+        <ProjectDetailChrome
+          actions={
+            <ProjectHomeHeaderToggle
+              label="Overview"
+              onClick={() => {
+                if (workspaceSheetOpen) {
+                  closeWorkspaceSheet();
+                  return;
+                }
+                setSummaryOpen((open) => !open);
+              }}
+              open={summaryVisible}
+              testId="project-home-drawer-toggle"
+            >
+              <DrawerPanelIcon
+                className="-scale-x-100"
+                side={summaryVisible ? "left" : "right"}
+              />
+            </ProjectHomeHeaderToggle>
+          }
+          activeTabCrumb={null}
+          activeWorkItemCrumb={null}
+          onGoProjectHome={() => undefined}
+          onGoProjects={() => {
+            void goProjects();
+          }}
+          project={project}
+          rounded={summaryVisible}
+        />
         <div
           className={cn(
-            "relative flex min-h-0 min-w-60 flex-1 flex-col overflow-hidden",
-            summaryVisible
-              ? "mb-2 ml-px mt-px rounded-2xl bg-background"
-              : "bg-muted/20",
+            "flex min-h-0 min-w-0 flex-1 overflow-hidden pt-2",
+            summaryVisible && "bg-sidebar pr-2",
+            summaryVisible && sidebar?.open === false && "pl-2",
           )}
         >
-          <ProjectDetailChrome
-            actions={
-              <ProjectHomeHeaderToggle
-                label="Overview"
-                onClick={() => {
-                  if (workspaceSheetOpen) {
-                    closeWorkspaceSheet();
-                    return;
-                  }
-                  setSummaryOpen((open) => !open);
-                }}
-                open={summaryVisible}
-                testId="project-home-drawer-toggle"
-              >
-                <DrawerPanelIcon
-                  className="-scale-x-100"
-                  side={summaryVisible ? "left" : "right"}
-                />
-              </ProjectHomeHeaderToggle>
-            }
-            activeTabCrumb={null}
-            activeWorkItemCrumb={null}
-            onGoProjectHome={() => undefined}
-            onGoProjects={() => {
-              void goProjects();
-            }}
-            project={project}
-          />
-          {waitingForChannel ? (
-            <ViewLoadingFallback kind="channel" />
-          ) : homeChannel ? (
-            <React.Suspense
-              fallback={
-                <ChannelScreenLoadingFallback isHuddleTranscript={false} />
-              }
-            >
-              <ChannelScreenView
-                activeChannel={homeChannel}
-                autoSendDraftKey={
-                  autoSendDraftKey === undefined
-                    ? (search.autoSend ?? null)
-                    : autoSendDraftKey
+          <div
+            className={cn(
+              "relative flex min-h-0 min-w-60 flex-1 flex-col overflow-hidden",
+              summaryVisible
+                ? "mb-2 ml-px rounded-2xl bg-background"
+                : "bg-muted/20",
+            )}
+          >
+            {waitingForChannel ? (
+              <ViewLoadingFallback kind="channel" />
+            ) : homeChannel ? (
+              <React.Suspense
+                fallback={
+                  <ChannelScreenLoadingFallback isHuddleTranscript={false} />
                 }
-                currentIdentity={identityQuery.data}
-                currentProfile={profileQuery.data}
-                idleAuxiliaryPanel={workspaceSheet}
-                idleAuxiliaryHeaderActions={{
-                  actions: (
-                    <>
-                      {workspaceCreateAction ? (
+              >
+                <ChannelScreenView
+                  activeChannel={homeChannel}
+                  autoSendDraftKey={
+                    autoSendDraftKey === undefined
+                      ? (search.autoSend ?? null)
+                      : autoSendDraftKey
+                  }
+                  currentIdentity={identityQuery.data}
+                  currentProfile={profileQuery.data}
+                  idleAuxiliaryPanel={workspaceSheet}
+                  idleAuxiliaryHeaderActions={{
+                    actions: (
+                      <>
+                        {workspaceCreateAction ? (
+                          <Tooltip disableHoverableContent>
+                            <TooltipTrigger asChild>
+                              <Button
+                                aria-label={workspaceCreateAction.label}
+                                className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+                                data-testid="project-home-workspace-sheet-create"
+                                disabled={workspaceCreateAction.disabled}
+                                onClick={workspaceCreateAction.onClick}
+                                size="icon"
+                                title={
+                                  workspaceCreateAction.title ??
+                                  workspaceCreateAction.label
+                                }
+                                type="button"
+                                variant="ghost"
+                              >
+                                <Plus className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {workspaceCreateAction.label}
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : null}
                         <Tooltip disableHoverableContent>
                           <TooltipTrigger asChild>
                             <Button
-                              aria-label={workspaceCreateAction.label}
-                              className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
-                              data-testid="project-home-workspace-sheet-create"
-                              disabled={workspaceCreateAction.disabled}
-                              onClick={workspaceCreateAction.onClick}
+                              aria-label={expandLabel}
+                              className="shrink-0"
+                              data-testid="project-home-workspace-sheet-expand"
+                              onClick={handleExpandWorkspace}
                               size="icon"
-                              title={
-                                workspaceCreateAction.title ??
-                                workspaceCreateAction.label
-                              }
+                              title={expandLabel}
                               type="button"
                               variant="ghost"
                             >
-                              <Plus className="h-4 w-4" />
+                              <Maximize2 />
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>
-                            {workspaceCreateAction.label}
-                          </TooltipContent>
+                          <TooltipContent>{expandLabel}</TooltipContent>
                         </Tooltip>
-                      ) : null}
-                      <Tooltip disableHoverableContent>
-                        <TooltipTrigger asChild>
-                          <Button
-                            aria-label={expandLabel}
-                            className="shrink-0"
-                            data-testid="project-home-workspace-sheet-expand"
-                            onClick={handleExpandWorkspace}
-                            size="icon"
-                            title={expandLabel}
-                            type="button"
-                            variant="ghost"
-                          >
-                            <Maximize2 />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>{expandLabel}</TooltipContent>
-                      </Tooltip>
-                    </>
-                  ),
-                  backLabel: workspaceDetail?.backLabel,
-                  onBack: workspaceDetail?.onBack,
-                }}
-                idleAuxiliaryOverridesThread={workspaceSheetOpen}
-                idleAuxiliaryTitle={
-                  workspaceSheetTab
-                    ? projectHomeWorkspaceSheetTitle(workspaceSheetTab)
-                    : ""
-                }
-                onAddFiles={handleAddFiles}
-                onCloseIdleAuxiliaryPanel={closeWorkspaceSheet}
-                onCloseForumPost={ignoreForumPost}
-                onSelectForumPost={ignoreForumPostSelect}
-                selectedForumPostId={null}
-                targetForumReplyId={null}
-                targetMessageEvents={targetMessageEvents}
-                targetMessageId={
-                  targetMessageId === undefined
-                    ? (search.messageId ?? null)
-                    : targetMessageId
-                }
-              />
-            </React.Suspense>
-          ) : (
-            <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-8">
-              <p className="text-sm text-muted-foreground">
-                This project's channel could not be found.
-              </p>
-            </div>
-          )}
+                      </>
+                    ),
+                    backLabel: workspaceDetail?.backLabel,
+                    onBack: workspaceDetail?.onBack,
+                  }}
+                  idleAuxiliaryOverridesThread={workspaceSheetOpen}
+                  idleAuxiliaryTitle={
+                    workspaceSheetTab
+                      ? projectHomeWorkspaceSheetTitle(workspaceSheetTab)
+                      : ""
+                  }
+                  onAddFiles={handleAddFiles}
+                  onCloseIdleAuxiliaryPanel={closeWorkspaceSheet}
+                  onCloseForumPost={ignoreForumPost}
+                  onSelectForumPost={ignoreForumPostSelect}
+                  selectedForumPostId={null}
+                  targetForumReplyId={null}
+                  targetMessageEvents={targetMessageEvents}
+                  targetMessageId={
+                    targetMessageId === undefined
+                      ? (search.messageId ?? null)
+                      : targetMessageId
+                  }
+                />
+              </React.Suspense>
+            ) : (
+              <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-8">
+                <p className="text-sm text-muted-foreground">
+                  This project's channel could not be found.
+                </p>
+              </div>
+            )}
+          </div>
+          <ProjectRepositoryManagement
+            createOpen={addRepositoryOpen}
+            hideTriggers
+            identityPubkey={identityQuery.data?.pubkey}
+            onChange={handleFilesAdded}
+            onCreateOpenChange={setAddRepositoryOpen}
+            project={project}
+            projects={projects}
+          />
+          <ProjectContextRail
+            animateWidth={!workspaceSheetVisibilityChanged}
+            open={summaryVisible}
+            panelWidthPx={summaryWidth.widthPx}
+            resizing={summaryWidth.isResizing}
+            rounded={false}
+            testId="project-home-summary-rail"
+          >
+            {summaryVisible ? (
+              <ProjectHomeColumn
+                bodyClassName="overflow-y-auto overflow-x-hidden overscroll-contain"
+                canResetWidth={summaryWidth.canReset}
+                onResetWidth={summaryWidth.onResetWidth}
+                onResizeStart={summaryWidth.onResizeStart}
+                testId="project-home-summary-column"
+                widthPx={summaryWidth.widthPx}
+              >
+                <ProjectHomeContextPanel
+                  activeWorkspaceTab={workspaceSheetTab}
+                  channel={homeChannel}
+                  channels={channelsQuery.data ?? []}
+                  identityPubkey={identityQuery.data?.pubkey}
+                  onAddRepository={handleAddFiles}
+                  onOpenChannel={(channelId) => {
+                    void goChannel(channelId);
+                  }}
+                  onOpenRepository={handleOpenRepository}
+                  onOpenWorkspace={handleOpenWorkspace}
+                  onRepositoryChange={handleRepositoryChange}
+                  project={project}
+                  projects={projects}
+                />
+              </ProjectHomeColumn>
+            ) : null}
+          </ProjectContextRail>
         </div>
-        <ProjectRepositoryManagement
-          createOpen={addRepositoryOpen}
-          hideTriggers
-          identityPubkey={identityQuery.data?.pubkey}
-          onChange={handleFilesAdded}
-          onCreateOpenChange={setAddRepositoryOpen}
-          project={project}
-          projects={projects}
-        />
-        <ProjectContextRail
-          animateWidth={!workspaceSheetVisibilityChanged}
-          open={summaryVisible}
-          panelWidthPx={summaryWidth.widthPx}
-          resizing={summaryWidth.isResizing}
-          rounded={false}
-          testId="project-home-summary-rail"
-        >
-          {summaryVisible ? (
-            <ProjectHomeColumn
-              bodyClassName="overflow-y-auto overflow-x-hidden overscroll-contain"
-              canResetWidth={summaryWidth.canReset}
-              onResetWidth={summaryWidth.onResetWidth}
-              onResizeStart={summaryWidth.onResizeStart}
-              testId="project-home-summary-column"
-              widthPx={summaryWidth.widthPx}
-            >
-              <ProjectHomeContextPanel
-                activeWorkspaceTab={workspaceSheetTab}
-                channel={homeChannel}
-                channels={channelsQuery.data ?? []}
-                identityPubkey={identityQuery.data?.pubkey}
-                onAddRepository={handleAddFiles}
-                onOpenChannel={(channelId) => {
-                  void goChannel(channelId);
-                }}
-                onOpenRepository={handleOpenRepository}
-                onOpenWorkspace={handleOpenWorkspace}
-                onRepositoryChange={handleRepositoryChange}
-                project={project}
-                projects={projects}
-              />
-            </ProjectHomeColumn>
-          ) : null}
-        </ProjectContextRail>
       </div>
     </ProjectSelectionProvider>
   );
