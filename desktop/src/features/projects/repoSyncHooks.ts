@@ -23,6 +23,7 @@ export function useProjectRepoSyncStatusQuery(
   reposDir?: string | null,
   branchName?: string | null,
   baseBranch?: string | null,
+  enabled = true,
 ) {
   const selectedBranch = branchName ?? project?.defaultBranch ?? null;
   const refetchInterval = useFocusedRefetchInterval(60_000);
@@ -30,7 +31,7 @@ export function useProjectRepoSyncStatusQuery(
   const host = useProjectRepoHost(project);
 
   return useQuery({
-    enabled: Boolean(host.kind === "buzz" && project?.cloneUrls[0]),
+    enabled: Boolean(enabled && host.kind === "buzz" && project?.cloneUrls[0]),
     queryKey: [
       "project",
       project?.id ?? "none",

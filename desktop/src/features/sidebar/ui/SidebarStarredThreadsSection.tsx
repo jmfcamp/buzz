@@ -4,6 +4,7 @@ import { useLocation } from "@tanstack/react-router";
 
 import { useAppShell } from "@/app/AppShellContext";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import { useOptionalSurfaceTabs } from "@/app/surfaceTabs/SurfaceTabsProvider";
 import type { ActiveChannelTurnSummary } from "@/features/agents/activeAgentTurnsStore";
 import {
   countUnreadForStarredThreadRoot,
@@ -25,6 +26,7 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "@/shared/ui/context-menu";
+import { AddSurfaceTabMenuItem } from "@/features/sidebar/ui/AddSurfaceTabMenuItem";
 import { deferMenuAction } from "@/features/sidebar/ui/sidebarMenuHelpers";
 import {
   SidebarGroup,
@@ -143,6 +145,15 @@ function StarredThreadRow({
         </SidebarMenuItem>
       </ContextMenuTrigger>
       <ContextMenuContent>
+        <AddSurfaceTabMenuItem
+          divided
+          label={displayTitle}
+          target={{
+            kind: "thread",
+            channelId: entry.channelId,
+            rootId: entry.rootId,
+          }}
+        />
         {onRename ? (
           <ContextMenuItem
             data-testid={`starred-thread-rename-${entry.rootId}`}
@@ -183,6 +194,7 @@ export function SidebarStarredThreadsSection({
   onUnstarThread: (rootId: string) => void;
 }) {
   const { goChannel } = useAppNavigation();
+  const surfaceTabs = useOptionalSurfaceTabs();
   const location = useLocation();
   const { unreadThreadFeedItems } = useAppShell();
   const { labelFor, setThreadLabel } = useThreadLabels(currentPubkey);
@@ -202,6 +214,21 @@ export function SidebarStarredThreadsSection({
     }
     return counts;
   }, [items, unreadThreadFeedItems]);
+  const threadTabLabels = React.useMemo(
+    () =>
+      items.map((entry) => ({
+        channelId: entry.channelId,
+        label: starredThreadTitle(entry.title, labelFor(entry.rootId)?.name),
+        rootId: entry.rootId,
+      })),
+    [items, labelFor],
+  );
+  React.useEffect(() => {
+    if (!surfaceTabs) return;
+    for (const item of threadTabLabels) {
+      surfaceTabs.renameThreadTab(item);
+    }
+  }, [surfaceTabs, threadTabLabels]);
   const contentId = "sidebar-starred-threads-list";
 
   if (items.length === 0) {
@@ -264,7 +291,13 @@ export function SidebarStarredThreadsSection({
                     onSelect={() => {
                       void goChannel(entry.channelId, { thread: entry.rootId });
                     }}
-                    onUnstar={() => onUnstarThread(entry.rootId)}
+                    onUnstar={() => {
+                      surfaceTabs?.closeThreadTabs({
+                        channelId: entry.channelId,
+                        rootId: entry.rootId,
+                      });
+                      onUnstarThread(entry.rootId);
+                    }}
                     unreadCount={unreadCountByRootId.get(entry.rootId) ?? 0}
                   />
                 );

@@ -65,6 +65,7 @@ export function MoreUnreadButton({
   position,
   targetChannelId,
   testId,
+  topClassName,
 }: {
   bottomClassName?: string;
   count: number;
@@ -75,9 +76,10 @@ export function MoreUnreadButton({
   position: "top" | "bottom";
   targetChannelId?: string;
   testId: string;
+  topClassName?: string;
 }) {
   const positionClassName =
-    position === "top" ? topChromeInset.top : bottomClassName;
+    position === "top" ? (topClassName ?? topChromeInset.top) : bottomClassName;
   const visibleDmPreviews = visibleUnreadDmPreviews(dmPreviews);
   const resolvedLabel = label ?? `${count} unread`;
   const accessibleLabel = unreadDmAccessibleLabel({

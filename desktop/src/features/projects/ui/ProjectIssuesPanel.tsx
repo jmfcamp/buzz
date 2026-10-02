@@ -29,6 +29,10 @@ import { selectionItemFromTask } from "@/features/projects/lib/projectSelection"
 import { issueShareLink } from "@/features/projects/lib/projectShareLinks";
 import { relativeTime } from "@/features/projects/lib/projectsViewHelpers";
 import {
+  groupByTaskStatus,
+  taskStatusWord,
+} from "@/features/projects/lib/taskStatus";
+import {
   projectTaskCategoryLabel,
   projectTaskUserLabels,
 } from "@/features/projects/projectTaskCategories";
@@ -107,15 +111,6 @@ function issueStatusVisual(status: ProjectIssue["status"]): {
   };
 }
 
-const ISSUE_STATUS_ORDER: readonly ProjectIssue["status"][] = [
-  "In Review",
-  "In Progress",
-  "Triage",
-  "Backlog",
-  "Done",
-  "Closed",
-];
-
 export type ProjectIssuePanelItem = {
   issue: ProjectIssue;
   project: Project;
@@ -185,7 +180,7 @@ function IssueRow({
       }}
       statusIcon={
         <ProjectStatusProgressIcon
-          aria-label={issue.status}
+          aria-label={taskStatusWord(issue.status)}
           className={`h-3.5 w-3.5 shrink-0 ${status.className}`}
           state={status.progress}
         />
@@ -355,7 +350,7 @@ export function ProjectIssueDetail({
       <ProjectDetailMetaList>
         <ProjectDetailMetaRow icon={status.icon} label="Status">
           <span className={`font-medium ${status.className}`}>
-            {issue.status}
+            {taskStatusWord(issue.status)}
           </span>
         </ProjectDetailMetaRow>
         <ProjectDetailMetaRow icon={CircleDot} label="Category">
@@ -426,6 +421,7 @@ export function ProjectIssuesPanel({
   onSelectedIssueIdChange,
   profiles,
   project,
+  repositories,
   selectedIssueId,
 }: {
   error?: unknown;
@@ -434,8 +430,10 @@ export function ProjectIssuesPanel({
   onSelectedIssueIdChange: (id: string | null) => void;
   profiles?: UserProfileLookup;
   project: Project;
+  repositories?: readonly Project[];
   selectedIssueId: string | null;
 }) {
+  const [repoFilter, setRepoFilter] = React.useState("all");
   const issuesQuery = useProjectIssuesQuery(
     issueItems === undefined ? project : null,
   );
@@ -476,18 +474,56 @@ export function ProjectIssuesPanel({
     );
   }
 
-  const groups = ISSUE_STATUS_ORDER.map((status) => ({
-    items: resolvedItems.filter(({ issue }) => issue.status === status),
-    status,
-  })).filter((group) => group.items.length > 0);
-  const rangeItems = resolvedItems.map(({ issue, project: itemProject }) =>
+  const showRepoFilter = (repositories?.length ?? 0) > 1;
+  const filteredItems =
+    !showRepoFilter || repoFilter === "all"
+      ? resolvedItems
+      : resolvedItems.filter(({ issue }) => issue.repoAddress === repoFilter);
+  const groups = groupByTaskStatus(
+    filteredItems.map((item) => ({ ...item, status: item.issue.status })),
+  );
+  const rangeItems = filteredItems.map(({ issue, project: itemProject }) =>
     issueSelectionItem(itemProject, issue),
   );
+  const repoFilterControl = showRepoFilter ? (
+    <div className="px-4 py-3">
+      <label className="sr-only" htmlFor="project-task-repo-filter">
+        Repository
+      </label>
+      <select
+        className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+        data-testid="project-task-repo-filter"
+        id="project-task-repo-filter"
+        onChange={(event) => setRepoFilter(event.target.value)}
+        value={repoFilter}
+      >
+        <option value="all">All repositories</option>
+        {repositories?.map((repository) => (
+          <option key={repository.id} value={repository.repoAddress}>
+            {repository.name}
+          </option>
+        ))}
+      </select>
+    </div>
+  ) : null;
 
   return (
     <div>
-      {groups.map(({ items, status }) => {
-        const visual = issueStatusVisual(status);
+      {repoFilterControl}
+      {filteredItems.length === 0 ? (
+        <ProjectPanelState
+          description="No tasks for this repository."
+          title="No tasks yet"
+        />
+      ) : null}
+      {groups.map(({ items, word }) => {
+        const visual = issueStatusVisual(
+          word === "done"
+            ? "Done"
+            : word === "in progress"
+              ? "In Progress"
+              : "Triage",
+        );
         return (
           <ProjectWorkItemGroup
             count={items.length}
@@ -500,8 +536,8 @@ export function ProjectIssuesPanel({
             items={items.map(({ issue, project: itemProject }) =>
               issueSelectionItem(itemProject, issue),
             )}
-            key={status}
-            label={status}
+            key={word}
+            label={word}
           >
             {items.map(({ issue, project: itemProject }) => (
               <IssueRow

@@ -357,7 +357,13 @@ after(() => dom.window.close());
  * capture, and goChannel is only reached via handleOpenDm (not exercised here).
  */
 async function mountInbox(options = {}) {
-  const { items = [HIDDEN_DM_ITEM], selectedItem = HIDDEN_DM_ITEM } = options;
+  const {
+    doneSet = new Set(),
+    items = [HIDDEN_DM_ITEM],
+    onMarkRead = () => {},
+    onSelect = () => {},
+    selectedItem = HIDDEN_DM_ITEM,
+  } = options;
   seedCommunity();
   openDmCalls = 0;
   const navigations = [];
@@ -383,18 +389,18 @@ async function mountInbox(options = {}) {
       React.createElement(InboxListPane, {
         activeDraftCount: 0,
         draftItems: [],
-        doneSet: new Set(),
+        doneSet,
         filter: "all",
         items,
         onFilterChange() {},
         onDeleteDraft() {},
-        onMarkRead() {},
+        onMarkRead,
         onMarkUnread() {},
         onOpenDirect: nav.handleOpenDirect,
         isReopenPending: nav.isReopenPending,
         isReopenErrored: nav.isReopenErrored,
         onRemindLater() {},
-        onSelect() {},
+        onSelect,
         onSelectDraft() {},
         onSelectReminder() {},
         onUnreadOnlyChange() {},
@@ -793,5 +799,77 @@ test("a failed reopen from an unselected row exposes its own keyboard Retry that
     );
   } finally {
     await inbox.unmount();
+  }
+});
+
+test("unread inbox rows show one Mark as read button that does not open the row", async () => {
+  const marked = [];
+  const selected = [];
+  const inbox = await mountInbox({
+    onMarkRead: (itemId) => {
+      marked.push(itemId);
+    },
+    onSelect: (itemId) => {
+      selected.push(itemId);
+    },
+  });
+  try {
+    const row = inbox.container.querySelector(
+      `[data-testid="home-inbox-item-${SOURCE_EVENT_ID}"]`,
+    );
+    assert.ok(row, "inbox row must render");
+    const button = row.querySelector(
+      `[data-testid="home-inbox-mark-read-${SOURCE_EVENT_ID}"]`,
+    );
+    assert.ok(button instanceof dom.window.HTMLButtonElement);
+    assert.equal(button.getAttribute("aria-label"), "Mark as read");
+    assert.equal(button.textContent.trim(), "");
+    assert.equal(row.querySelectorAll('[aria-label="Mark as read"]').length, 1);
+    assert.equal(row.querySelector('[aria-label="Mark unread"]'), null);
+    assert.ok(
+      button.closest(".absolute.right-3"),
+      "Mark as read sits in the row action cluster",
+    );
+
+    await act(async () => {
+      button.click();
+    });
+    assert.deepEqual(marked, [SOURCE_EVENT_ID]);
+    assert.deepEqual(selected, []);
+
+    marked.length = 0;
+    await act(async () => {
+      button.focus();
+      button.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+        }),
+      );
+    });
+    assert.deepEqual(marked, [SOURCE_EVENT_ID]);
+    assert.deepEqual(selected, []);
+  } finally {
+    await inbox.unmount();
+  }
+
+  const readInbox = await mountInbox({
+    doneSet: new Set([SOURCE_EVENT_ID]),
+  });
+  try {
+    const row = readInbox.container.querySelector(
+      `[data-testid="home-inbox-item-${SOURCE_EVENT_ID}"]`,
+    );
+    assert.ok(row, "read inbox row must render");
+    assert.equal(
+      row.querySelector(
+        `[data-testid="home-inbox-mark-read-${SOURCE_EVENT_ID}"]`,
+      ),
+      null,
+    );
+    assert.ok(row.querySelector('[aria-label="Mark unread"]'));
+  } finally {
+    await readInbox.unmount();
   }
 });

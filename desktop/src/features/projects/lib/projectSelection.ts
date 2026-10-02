@@ -27,11 +27,7 @@ export const EMPTY_PROJECT_SELECTION: ProjectSelectionState = {
   items: [],
 };
 
-export type ProjectSelectionActionId =
-  | "chat-agent"
-  | "copy"
-  | "create-review"
-  | "discuss";
+export type ProjectSelectionActionId = "chat-agent" | "copy" | "discuss";
 
 export type ProjectSelectionAction = {
   id: ProjectSelectionActionId;
@@ -226,13 +222,6 @@ export function projectSelectionPresentation(
     label: "Discuss in a channel",
     testId: "projects-selection-discuss",
   });
-  if (kind === "commit") {
-    actions.push({
-      id: "create-review",
-      label: items.length === 1 ? "Create review" : "Create reviews",
-      testId: "projects-selection-create-review",
-    });
-  }
   if (projectSelectionShareLinks(items).length > 0) {
     actions.push({
       id: "copy",

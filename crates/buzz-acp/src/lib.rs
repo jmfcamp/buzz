@@ -5411,6 +5411,28 @@ mod agent_draft_prompt_tests {
         assert!(prompt.contains("do **not** run `buzz projects create`"));
         assert!(prompt.contains("buzz issues create --channel"));
         assert!(prompt.contains("is not a Buzz repository"));
+        assert!(prompt.contains("openclaw-workspace"));
+        assert!(prompt.contains("Do not clone, fetch, commit, or push that repo on this machine"));
+        assert!(prompt.contains("~/.buzz-dev"));
+        assert!(prompt.contains("The `REPOS/` row does not apply"));
+        assert!(prompt.contains("stop and report the refusal"));
+        assert!(prompt.contains("buzz github publish"));
+        assert!(prompt.contains("gh repo clone"));
+        assert!(prompt.contains("Do not save them into a file"));
+        assert!(prompt.contains("buzz github publish --repo"));
+        // "buzz projects" contains the letters "buzz pr". A real review
+        // command is that prefix followed by a space or the end of a token.
+        let mut rest = prompt;
+        while let Some(index) = rest.find("buzz pr") {
+            let after = rest[index + "buzz pr".len()..].chars().next();
+            assert!(
+                matches!(after, Some(ch) if ch.is_ascii_alphabetic()),
+                "agent prompt still names the buzz pr command"
+            );
+            rest = &rest[index + "buzz pr".len()..];
+        }
+        assert!(prompt.contains("[\"git\",\"fetch\",\"origin\",\"<new-branch>:<new-branch>\"]"));
+        assert!(prompt.contains("It does not check the branch out."));
     }
 
     #[test]

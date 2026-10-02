@@ -24,6 +24,8 @@ import {
   usePopoutThreadOnlyLayout,
 } from "@/features/popout/lib/popoutLayout";
 import { isPopoutForcedSinglePanelView } from "@/features/popout/lib/popoutWindow";
+import { shouldShowStarredThreadAlone } from "@/features/sidebar/lib/starredThreadSidebar";
+import { useThreadStars } from "@/features/sidebar/lib/useThreadStars";
 import { WelcomeAgentCreateDialog } from "@/features/channels/ui/WelcomeAgentCreateDialog";
 import { ForumChannelContent } from "@/features/channels/ui/ForumChannelContent";
 import { MembersSidebar } from "@/features/channels/ui/MembersSidebar";
@@ -771,13 +773,20 @@ export function ChannelScreen({
     channelContentWidthPx < AUXILIARY_PANEL_SINGLE_COLUMN_BREAKPOINT_PX;
   const isPopoutThreadOnly = isPopoutThreadOnlyEarly;
   const isPopoutPlaygroundSplit = usePopoutSplitLayout();
+  const { starredThreadIds } = useThreadStars(currentPubkey);
+  const hasNonThreadAuxiliary = Boolean(
+    openAgentSessionPubkey || profilePanelPubkey || channelManagementOpen,
+  );
   const isSinglePanelView =
+    shouldShowStarredThreadAlone({
+      channelType: activeChannel?.channelType,
+      hasNonThreadAuxiliary,
+      isHuddleTranscript,
+      openThreadRootId: effectiveOpenThreadHeadId,
+      starredRootIds: starredThreadIds,
+    }) ||
     isPopoutForcedSinglePanelView({
-      hasNonThreadAuxiliary: Boolean(
-        openAgentSessionPubkey ||
-          profilePanelPubkey ||
-          channelManagementOpen,
-      ),
+      hasNonThreadAuxiliary,
       hasThreadPanel: Boolean(effectiveOpenThreadHeadId),
       isPopoutPlaygroundSplit,
       isPopoutThreadOnly,

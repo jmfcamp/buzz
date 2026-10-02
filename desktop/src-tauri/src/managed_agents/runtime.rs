@@ -16,7 +16,7 @@ use crate::{
 
 use super::claude_config::apply_claude_model_env;
 mod path;
-pub(in crate::managed_agents) use path::build_augmented_path;
+pub(in crate::managed_agents) use path::augmented_agent_path;
 pub(crate) use path::{compose_path_entries, should_skip_claude_executable, should_use_inherited};
 
 /// Custom ACP harnesses do not run buzz-acp's Git bootstrap. Preserve the
@@ -35,7 +35,6 @@ fn resolve_effective_mcp_command(record_mcp: &str, harness_command: &str) -> Str
         .unwrap_or("")
         .to_string()
 }
-
 
 fn apply_custom_acp_git_credentials(
     command: &mut std::process::Command,
@@ -595,6 +594,7 @@ pub fn spawn_agent_child(
     // relay this child may connect to, regardless of the record/workspace default.
     let effective_relay_url = runtime_key.relay_url.clone();
     // Augment PATH for DMG launches so child processes can find:
+    //   - this dev build's CLI via ~/.buzz-dev/bin (ahead of the installed app)
     //   - bundled CLI via ~/.local/bin symlink
     //   - nvm-managed node/npm (nvm initializes only in interactive shells)
     //   - bundled sidecars (buzz, buzz-acp, etc.) via exe parent (Contents/MacOS/)
@@ -602,7 +602,7 @@ pub fn spawn_agent_child(
     let nvm_bin = dirs::home_dir()
         .as_deref()
         .and_then(super::find_nvm_default_bin);
-    let augmented_path = build_augmented_path(
+    let augmented_path = augmented_agent_path(
         dirs::home_dir(),
         std::env::current_exe()
             .ok()

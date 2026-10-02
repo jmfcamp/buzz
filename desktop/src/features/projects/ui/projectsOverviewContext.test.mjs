@@ -82,7 +82,6 @@ test("activity pod shows workspace details without a create action", () => {
       ["Repositories", 2],
       ["Channels", 2],
       ["Tasks", 5],
-      ["Reviews", 5],
     ],
   );
 });
@@ -120,7 +119,6 @@ test("repositories pod matches repository activity copy and add action", () => {
     [
       ["Repositories", 1],
       ["Active tasks", 1],
-      ["Open reviews", 1],
     ],
   );
 });
@@ -185,7 +183,6 @@ test("repository-only read models count toward repository and channel context", 
     [
       ["Repositories", 2],
       ["Active tasks", 0],
-      ["Open reviews", 0],
     ],
   );
   assert.deepEqual(repositories.people, [REVIEW_AUTHOR]);
@@ -219,7 +216,7 @@ test("tasks pod breaks down active and completed work", () => {
   );
 });
 
-test("reviews pod breaks down open and merged work", () => {
+test("stored reviews filter opens the activity pod", () => {
   const context = projectsOverviewContext({
     filter: "prs",
     issues: [],
@@ -232,16 +229,13 @@ test("reviews pod breaks down open and merged work", () => {
     ],
   });
 
-  assert.equal(context.title, "Reviews");
-  assert.equal(context.detailsTitle, "Review activity");
-  assert.equal(context.action?.label, "Create review");
-  assert.deepEqual(
-    context.stats.map((stat) => [stat.label, stat.count]),
-    [
-      ["Reviews", 4],
-      ["Open", 2],
-      ["Merged", 1],
-    ],
+  assert.equal(context.title, "Activity");
+  assert.equal(context.action, null);
+  assert.equal(
+    context.stats.some(
+      (stat) => stat.section === "prs" || stat.label === "Reviews",
+    ),
+    false,
   );
 });
 

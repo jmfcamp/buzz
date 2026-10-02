@@ -46,9 +46,10 @@ export function useProjectCommitDiffQuery(
   commitHash: string | null,
   repoSource: "remote" | "local",
   reposDir?: string | null,
+  enabled = true,
 ) {
   return useQuery({
-    enabled: Boolean(project && commitHash),
+    enabled: Boolean(enabled && project && commitHash),
     queryKey: [
       "project",
       project?.id ?? "none",

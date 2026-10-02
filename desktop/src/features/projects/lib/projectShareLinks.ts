@@ -88,7 +88,10 @@ export function shareTabForWorkspaceTab(
 
 /** Inverse of `shareTabForWorkspaceTab`, for the receiving side. */
 export function workspaceTabForShareTab(tab: EntityLinkTab): string {
-  return tab === "commits" ? "activity" : tab;
+  if (tab === "commits") return "activity";
+  // Older links used a Buzz reviews tab. Pull requests stay on GitHub.
+  if (tab === "prs") return "overview";
+  return tab;
 }
 
 /**

@@ -4,7 +4,6 @@ import {
   FileCode2,
   FolderGit2,
   GitCommitHorizontal,
-  GitPullRequest,
   Hash,
   Users,
 } from "lucide-react";
@@ -13,6 +12,7 @@ import * as React from "react";
 import { presentContextCount } from "@/features/projects/lib/projectHomeSummary";
 import type { ProjectHomeWorkspaceSheetTab } from "@/features/projects/lib/projectHomeWorkspaceSheet";
 import { resolveProjectDefaultBranch } from "@/features/projects/lib/projectBranches";
+import { useHulaRepositorySnapshots } from "@/features/projects/useHulaRepositoryGit";
 import { listProjectBoundChannels } from "@/features/projects/lib/projectRelatedChannels";
 import {
   useProjectActivitySummariesQuery,
@@ -220,7 +220,12 @@ export function ProjectHomeContextPanel({
   ]).size;
   const activityQuery = useProjectActivitySummariesQuery([project]);
   const activity = activityQuery.data?.[project.id];
-  const repoStateQuery = useRepoStateQuery(firstRepository);
+  const hulaGit = Boolean(project.hulaPath);
+  const hulaSnapshots = useHulaRepositorySnapshots(
+    project.repositories,
+    hulaGit,
+  );
+  const repoStateQuery = useRepoStateQuery(firstRepository, !hulaGit);
   const defaultBranch = firstRepository
     ? resolveProjectDefaultBranch(
         firstRepository.defaultBranch,
@@ -232,7 +237,11 @@ export function ProjectHomeContextPanel({
     defaultBranch,
     null,
     null,
-    Boolean(firstRepository),
+    Boolean(firstRepository) && !hulaGit,
+  );
+  const hulaCommitCount = hulaSnapshots.reduce(
+    (sum, row) => sum + (row.snapshot?.commits.length ?? 0),
+    0,
   );
   const channelsById = new Map(
     channels.map((candidate) => [candidate.id, candidate]),
@@ -274,18 +283,9 @@ export function ProjectHomeContextPanel({
           Tasks
         </ContextNavButton>
         <ContextNavButton
-          count={presentContextCount(activity?.prCount)}
-          disabled={!firstRepository && !onAddRepository}
-          icon={<GitPullRequest />}
-          onClick={() => openWorkspace("prs")}
-          pressed={activeWorkspaceTab === "prs"}
-          testId="project-home-context-reviews"
-          title={addRepositoryTitle}
-        >
-          Reviews
-        </ContextNavButton>
-        <ContextNavButton
-          count={presentContextCount(activity?.commitCount)}
+          count={presentContextCount(
+            hulaGit ? hulaCommitCount : activity?.commitCount,
+          )}
           disabled={!firstRepository && !onAddRepository}
           icon={<GitCommitHorizontal />}
           onClick={() => openWorkspace("commits")}
@@ -296,7 +296,11 @@ export function ProjectHomeContextPanel({
           Commits
         </ContextNavButton>
         <ContextNavButton
-          count={presentContextCount(snapshotQuery.data?.files.length)}
+          count={presentContextCount(
+            hulaGit
+              ? hulaSnapshots[0]?.snapshot?.files.length
+              : snapshotQuery.data?.files.length,
+          )}
           disabled={!firstRepository && !onAddRepository}
           icon={<FileCode2 />}
           onClick={() => openWorkspace("files")}

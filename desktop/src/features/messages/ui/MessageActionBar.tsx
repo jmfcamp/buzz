@@ -482,7 +482,7 @@ export const MessageActionBar = React.memo(function MessageActionBar({
     [reactions],
   );
   const handleReactionSelection = React.useCallback(
-    (emoji: string, closePicker = false) => {
+    (emoji: string) => {
       if (!onReactionSelect) {
         return;
       }
@@ -491,16 +491,16 @@ export const MessageActionBar = React.memo(function MessageActionBar({
         onReactionBadgeBurstRequest?.(emoji);
       }
 
+      // Close before the toggle promise. A slow relay ack must not leave the
+      // reaction picker or the message menu open after the click.
+      setIsReactionPickerOpen(false);
+      setIsDropdownOpen(false);
+
       void onReactionSelect(emoji)
         .then(() => {
           recordQuickReactionEmoji(emoji);
         })
-        .catch(() => {})
-        .finally(() => {
-          if (closePicker) {
-            setIsReactionPickerOpen(false);
-          }
-        });
+        .catch(() => {});
     },
     [onReactionBadgeBurstRequest, onReactionSelect, wouldAddReaction],
   );
@@ -573,14 +573,7 @@ export const MessageActionBar = React.memo(function MessageActionBar({
                     </p>
                   </div>
                 ) : null}
-                <EmojiPicker
-                  autoFocus
-                  onSelect={(value) => {
-                    // `value` is already a `native` glyph or a `:shortcode:` for
-                    // custom emoji; the toggle mutation resolves the URL.
-                    handleReactionSelection(value, true);
-                  }}
-                />
+                <EmojiPicker autoFocus onSelect={handleReactionSelection} />
               </PopoverContent>
             </Popover>
           ) : null}

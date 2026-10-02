@@ -28,6 +28,8 @@ export type ProjectRepoSnapshot = {
   commits: ProjectRepoCommit[];
   files: ProjectRepoFile[];
   contributors: ProjectRepoContributor[];
+  /** True when the commit list is the newest history that fit in one read. */
+  historyTruncated?: boolean;
 };
 
 export type ProjectRepoDiffFile = {

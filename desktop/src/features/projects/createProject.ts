@@ -11,6 +11,8 @@ import {
   projectDtagFromName,
   type ProjectListingVisibility,
 } from "@/features/projects/projectCreation";
+import type { HulaCreateDeps } from "@/features/projects/createHulaProject";
+import type { HulaChannelPlan } from "@/features/projects/lib/hulaProjectPlan";
 import { buildProjectPatchTemplate } from "@/features/projects/projectRepositoryCreation";
 import { buildProjectReadModels } from "@/features/projects/projectModels";
 import { relayClient } from "@/shared/api/relayClient";
@@ -34,6 +36,14 @@ export type CreateProjectInput = {
   projectVisibility?: ProjectListingVisibility;
   agents?: readonly CreateChannelManagedAgentInput[];
   templateId?: string;
+  /**
+   * OpenClaw directory inside Hula. When set, create publishes path records
+   * instead of an empty relay repository.
+   */
+  hula?: {
+    hulaPath: string;
+    repoPaths: readonly string[];
+  };
 };
 
 export type CreateProjectResult = {
@@ -46,6 +56,10 @@ export type CreateProjectResult = {
 export type CreateProjectResumeState = {
   channels: Map<string, Channel>;
   projectIds: Set<string>;
+  /** Channels created for one Hula project, keyed by owner, d tag, and name. */
+  hulaChannels?: Map<string, Channel>;
+  /** Channel plan kept so a retry does not allocate a second set of names. */
+  hulaPlans?: Map<string, HulaChannelPlan>;
 };
 
 function formatAgentFailures(
@@ -60,7 +74,8 @@ function formatAgentFailures(
     .join("; ")}`;
 }
 
-async function publishProjectEvent(event: RelayEvent) {
+/** Publish a kind 30621. Unsupported relays get a project-specific error. */
+export async function publishProjectEvent(event: RelayEvent) {
   try {
     await relayClient.publishEvent(
       event,
@@ -77,7 +92,8 @@ async function publishProjectEvent(event: RelayEvent) {
   }
 }
 
-async function publishRepositoryEvent(event: RelayEvent) {
+/** Publish a kind 30617 repository announcement. */
+export async function publishRepositoryEvent(event: RelayEvent) {
   await relayClient.publishEvent(
     event,
     "Timed out creating the project repository.",
@@ -85,13 +101,19 @@ async function publishRepositoryEvent(event: RelayEvent) {
   );
 }
 
-function readCreatedProject(
+/** Read the project that was just published, including every repository event. */
+export function readCreatedProject(
   projectEvent: RelayEvent,
-  repositoryEvent: RelayEvent | null,
+  repositoryEvent: RelayEvent | readonly RelayEvent[] | null,
 ): Project {
+  const repositoryEvents = !repositoryEvent
+    ? []
+    : Array.isArray(repositoryEvent)
+      ? [...repositoryEvent]
+      : [repositoryEvent];
   const [project] = buildProjectReadModels({
     projectEvents: [projectEvent],
-    repositoryEvents: repositoryEvent ? [repositoryEvent] : [],
+    repositoryEvents,
     relayOrigin: getCachedRelayOrigin(),
   });
   if (!project) {
@@ -111,7 +133,8 @@ async function addRequestedAgents(
   }
 }
 
-async function fetchOwnHead(
+/** The caller's current addressable head for one `d` tag, if the relay has it. */
+export async function fetchOwnHead(
   kind: number,
   ownerPubkey: string,
   dtag: string,
@@ -199,7 +222,8 @@ async function ensureDefaultRepository({
   return readCreatedProject(projectEvent, repositoryEvent);
 }
 
-async function finishCreate(
+/** Add requested agents, then drop the resume keys for this project. */
+export async function finishCreate(
   channel: Channel | null,
   project: Project,
   input: CreateProjectInput,
@@ -215,11 +239,22 @@ async function finishCreate(
   return { channel, project };
 }
 
-/** Creates the home channel, a bound default repository, and the NIP-MP project. */
+/**
+ * Creates the home channel and the NIP-MP project.
+ * A Hula path publishes one path record per git directory.
+ * A name alone still publishes an empty relay repository.
+ *
+ * `hulaDeps` is the OpenClaw and relay seam tests replace.
+ */
 export async function createProject(
   input: CreateProjectInput,
   resume: CreateProjectResumeState,
+  hulaDeps?: HulaCreateDeps,
 ): Promise<CreateProjectResult> {
+  if (input.hula) {
+    const { createHulaProject } = await import("./createHulaProject");
+    return createHulaProject(input, resume, hulaDeps);
+  }
   const identity = await getIdentity();
   const dtagPreview = projectDtagFromName(input.name);
   if (!dtagPreview) {

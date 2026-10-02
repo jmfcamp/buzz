@@ -7,6 +7,7 @@ import { useChannelsQuery } from "@/features/channels/hooks";
 import type { Project, Repository } from "@/features/projects/hooks";
 import { useUsersBatchQuery } from "@/features/profile/hooks";
 import { ownsAuthorAgent } from "@/features/profile/lib/identity";
+import { showRelayRepositoryControls } from "@/features/projects/lib/projectRepositoryControls";
 import { useAddProjectRepositoryMutation } from "@/features/projects/useAddProjectRepository";
 import { useAttachProjectRepositoryMutation } from "@/features/projects/useAttachProjectRepository";
 import { useBindProjectRepositoryChannelMutation } from "@/features/projects/useBindProjectRepositoryChannel";
@@ -93,6 +94,10 @@ export function ProjectRepositoryManagement({
     Boolean(repository) &&
     accessChannels.length > 0 &&
     identityPubkey?.toLowerCase() === repository?.owner.toLowerCase();
+  const showRelayControls = showRelayRepositoryControls({
+    projectHulaPath: project.hulaPath,
+    repositoryHulaPath: repository?.hulaPath,
+  });
   const attachCandidates = React.useMemo(() => {
     const currentAddresses = new Set(project.repositoryAddresses);
     const candidates = new Map<string, Repository>();
@@ -142,7 +147,7 @@ export function ProjectRepositoryManagement({
         project={project}
         repositories={attachCandidates}
       />
-      {!hideTriggers ? (
+      {!hideTriggers && showRelayControls ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -185,7 +190,7 @@ export function ProjectRepositoryManagement({
           </DropdownMenuContent>
         </DropdownMenu>
       ) : null}
-      {canManageAccess ? (
+      {canManageAccess && showRelayControls ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button

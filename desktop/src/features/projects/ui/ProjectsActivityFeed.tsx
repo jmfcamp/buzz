@@ -18,6 +18,7 @@ import type {
 } from "@/features/projects/hooks";
 import type { ProjectsOverviewAgentContextItem } from "@/features/projects/lib/projectDetailAgentContext";
 import { matchesProjectsSearch } from "@/features/projects/lib/projectsSearch";
+import { taskStatusWord } from "@/features/projects/lib/taskStatus";
 import {
   formatExactTimestamp,
   markdownToPlainText,
@@ -241,7 +242,7 @@ function buildActivityItems({
       action: "created a task in",
       title: issue.title,
       body: issue.content,
-      detail: issue.status,
+      detail: taskStatusWord(issue.status),
       target,
     });
     for (const comment of issue.comments) {
@@ -364,6 +365,11 @@ function ActivityCard({
         "group relative block w-full rounded-xl bg-transparent text-left transition-colors hover:bg-muted/20",
         compact ? "py-3 pr-3" : "py-4 pr-4",
       )}
+      data-project-event-id={
+        item.target.type === "pull-request"
+          ? item.target.pullRequest.id
+          : undefined
+      }
       data-testid="projects-activity-card"
     >
       <button

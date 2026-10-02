@@ -26,7 +26,6 @@ import { useProjectDiscussInChannel } from "./useProjectDiscussInChannel";
 
 function selectionActionIcon(id: ProjectSelectionAction["id"]) {
   if (id === "chat-agent") return Bot;
-  if (id === "create-review") return GitPullRequest;
   return Link2;
 }
 
@@ -43,12 +42,10 @@ function selectionKindIcon(kind: ProjectSelectionItem["kind"] | undefined) {
 /** Inline actions for the current Projects selection. */
 export function ProjectsSelectionCountMenu({
   onChatWithAgent,
-  onCreatePullRequest,
   presentation,
   selectionItems,
 }: {
   onChatWithAgent: (items: ProjectSelectionItem[]) => void;
-  onCreatePullRequest?: () => void;
   presentation: ProjectSelectionPresentation;
   selectionItems: ProjectSelectionItem[];
 }) {
@@ -79,13 +76,9 @@ export function ProjectsSelectionCountMenu({
           links.join("\n"),
           links.length === 1 ? "Link copied to clipboard" : "Links copied",
         );
-        return;
-      }
-      if (actionId === "create-review") {
-        onCreatePullRequest?.();
       }
     },
-    [onChatWithAgent, onCreatePullRequest, selection, selectionItems],
+    [onChatWithAgent, selection, selectionItems],
   );
 
   return (
@@ -110,37 +103,32 @@ export function ProjectsSelectionCountMenu({
         </h2>
       </div>
       <div className="space-y-2.5 pt-3">
-        {presentation.actions
-          .filter(
-            (action) =>
-              action.id !== "create-review" || Boolean(onCreatePullRequest),
-          )
-          .map((action) => {
-            if (action.id === "discuss") {
-              return (
-                <ProjectSelectionDiscussAction
-                  items={selectionItems}
-                  key={action.id}
-                  onSelectChannel={discussInChannel}
-                />
-              );
-            }
-            const Icon = selectionActionIcon(action.id);
+        {presentation.actions.map((action) => {
+          if (action.id === "discuss") {
             return (
-              <Button
-                className="-mx-2 h-7 w-[calc(100%+1rem)] justify-start gap-3 rounded-md px-2 text-left text-sm font-normal hover:bg-muted/70 [&_svg]:h-4 [&_svg]:w-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground"
-                data-testid={action.testId}
+              <ProjectSelectionDiscussAction
+                items={selectionItems}
                 key={action.id}
-                onClick={() => handleAction(action.id)}
-                size="sm"
-                type="button"
-                variant="ghost"
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {action.label}
-              </Button>
+                onSelectChannel={discussInChannel}
+              />
             );
-          })}
+          }
+          const Icon = selectionActionIcon(action.id);
+          return (
+            <Button
+              className="-mx-2 h-7 w-[calc(100%+1rem)] justify-start gap-3 rounded-md px-2 text-left text-sm font-normal hover:bg-muted/70 [&_svg]:h-4 [&_svg]:w-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground"
+              data-testid={action.testId}
+              key={action.id}
+              onClick={() => handleAction(action.id)}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {action.label}
+            </Button>
+          );
+        })}
         <Button
           className="-mx-2 h-7 w-[calc(100%+1rem)] justify-start gap-3 rounded-md px-2 text-left text-sm font-normal hover:bg-muted/70 [&_svg]:h-4 [&_svg]:w-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground"
           data-testid="projects-selection-clear"

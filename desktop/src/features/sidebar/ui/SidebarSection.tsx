@@ -550,6 +550,7 @@ export function SidebarSection({
                     <ContextMenuContent>
                       <ChannelContextMenuItems
                         channel={channel}
+                        tabLabel={channelLabels?.[channel.id] ?? channel.name}
                         hasUnread={unreadChannelIds.has(channel.id)}
                         isMuted={mutedChannelIds?.has(channel.id)}
                         onMarkChannelRead={onMarkChannelRead}

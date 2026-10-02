@@ -528,6 +528,7 @@ export function InboxListPane({
             <InboxRowActionButton
               label="Mark as read"
               onClick={() => onMarkRead(item.id)}
+              testId={`home-inbox-mark-read-${item.id}`}
             >
               <MailOpen className="!h-4 !w-4" />
             </InboxRowActionButton>
@@ -775,18 +776,21 @@ function InboxRowActionButton({
   disabled = false,
   label,
   onClick,
+  testId,
 }: {
   active?: boolean;
   children: React.ReactNode;
   disabled?: boolean;
   label: string;
   onClick: () => void;
+  testId?: string;
 }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <button
           aria-label={label}
+          data-testid={testId}
           className={cn(
             "flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40",
             active && "bg-blue-500/10 text-blue-500 hover:text-blue-500",

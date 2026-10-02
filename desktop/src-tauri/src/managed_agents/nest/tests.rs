@@ -428,6 +428,92 @@ fn ensure_cli_symlink_does_not_clobber_regular_file_prod() {
 
 #[cfg(unix)]
 #[test]
+fn ensure_cli_symlink_dev_links_nest_buzz_and_leaves_installed_buzz_alone() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    let exe_parent = tmp.path().join("MacOS");
+    fs::create_dir_all(&exe_parent).unwrap();
+    fs::write(exe_parent.join("buzz"), "dev-binary").unwrap();
+
+    ensure_cli_symlink_at(&exe_parent, true, &home).unwrap();
+
+    assert!(
+        !home.join(".local/bin/buzz").exists(),
+        "dev boot must leave the installed buzz name alone"
+    );
+    let dev_link = home.join(".local/bin").join(cli_link_name(true));
+    assert_eq!(fs::read_link(&dev_link).unwrap(), exe_parent.join("buzz"));
+    let nest_buzz = home.join(".buzz-dev/bin/buzz");
+    assert_eq!(fs::read_link(&nest_buzz).unwrap(), exe_parent.join("buzz"));
+
+    let exe_parent_2 = tmp.path().join("MacOS2");
+    fs::create_dir_all(&exe_parent_2).unwrap();
+    fs::write(exe_parent_2.join("buzz"), "newer").unwrap();
+    ensure_cli_symlink_at(&exe_parent_2, true, &home).unwrap();
+    assert_eq!(
+        fs::read_link(&nest_buzz).unwrap(),
+        exe_parent_2.join("buzz")
+    );
+    assert_eq!(fs::read_link(&dev_link).unwrap(), exe_parent_2.join("buzz"));
+    assert!(!home.join(".local/bin/buzz").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn ensure_cli_symlink_prod_does_not_create_the_dev_nest_link() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    let exe_parent = tmp.path().join("MacOS");
+    fs::create_dir_all(&exe_parent).unwrap();
+    fs::write(exe_parent.join("buzz"), "prod-binary").unwrap();
+
+    ensure_cli_symlink_at(&exe_parent, false, &home).unwrap();
+
+    let prod_link = home.join(".local/bin").join(cli_link_name(false));
+    assert_eq!(fs::read_link(&prod_link).unwrap(), exe_parent.join("buzz"));
+    assert!(!home.join(".buzz-dev/bin/buzz").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn ensure_cli_symlink_dev_keeps_a_regular_nest_file_and_repoints_its_named_link() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    let exe_parent = tmp.path().join("MacOS");
+    fs::create_dir_all(&exe_parent).unwrap();
+    let binary = exe_parent.join("buzz");
+    fs::write(&binary, "dev-binary").unwrap();
+
+    let nest_buzz = home.join(".buzz-dev/bin/buzz");
+    fs::create_dir_all(nest_buzz.parent().unwrap()).unwrap();
+    fs::write(&nest_buzz, "user file").unwrap();
+
+    let dev_name = home.join(".local/bin").join(cli_link_name(true));
+    fs::create_dir_all(dev_name.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink("/old/buzz", &dev_name).unwrap();
+
+    ensure_cli_symlink_at(&exe_parent, true, &home).unwrap();
+
+    assert_eq!(fs::read_to_string(&nest_buzz).unwrap(), "user file");
+    assert_eq!(fs::read_link(&dev_name).unwrap(), binary);
+}
+
+#[cfg(unix)]
+#[test]
+fn ensure_cli_symlink_missing_sidecar_creates_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    let exe_parent = tmp.path().join("MacOS");
+    fs::create_dir_all(&exe_parent).unwrap();
+
+    ensure_cli_symlink_at(&exe_parent, true, &home).unwrap();
+
+    assert!(!home.join(".local").exists());
+    assert!(!home.join(".buzz-dev").exists());
+}
+
+#[cfg(unix)]
+#[test]
 fn ensure_cli_symlink_does_not_clobber_regular_file_dev() {
     let tmp = tempfile::tempdir().unwrap();
     let local_bin = tmp.path().join("local_bin");

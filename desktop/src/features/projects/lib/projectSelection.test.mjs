@@ -114,12 +114,12 @@ test("selection presentation names the cluster and its actions", () => {
   assert.deepEqual(presentation?.people, ["aa", "bb"]);
 });
 
-test("commit clusters offer create-review instead of a generic copy-only set", () => {
+test("commit clusters offer chat, discuss, and copy", () => {
   const presentation = projectSelectionPresentation([commit]);
   assert.equal(presentation?.title, "1 commit");
   assert.deepEqual(
     presentation?.actions.map((action) => action.id),
-    ["chat-agent", "discuss", "create-review", "copy"],
+    ["chat-agent", "discuss", "copy"],
   );
 });
 

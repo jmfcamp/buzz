@@ -1,6 +1,10 @@
 import * as React from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
+import {
+  SurfaceTabHomeButton,
+  SurfaceTabStrip,
+} from "@/app/surfaceTabs/SurfaceTabChrome";
 import { isMacPlatform } from "@/shared/lib/platform";
 import { useIsFullscreen } from "@/shared/lib/useIsFullscreen";
 import { Button } from "@/shared/ui/button";
@@ -27,6 +31,10 @@ const HISTORY_ICON_BUTTON_CLASS =
   "h-[28px] w-[24px] rounded-[4px] text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&_svg]:size-[16px]";
 
 function preventTopChromeWheel(event: WheelEvent) {
+  const target = event.target;
+  if (target instanceof Element && target.closest("[data-surface-tab-strip]")) {
+    return;
+  }
   event.preventDefault();
 }
 
@@ -130,7 +138,12 @@ export function AppTopChrome({
         } as React.CSSProperties
       }
     >
-      <div className={cn("flex items-center gap-0.5", navRowAlignmentClass)}>
+      <div
+        className={cn(
+          "flex shrink-0 items-center gap-0.5",
+          navRowAlignmentClass,
+        )}
+      >
         <TopChromeSidebarTrigger />
         <Button
           aria-label="Go back"
@@ -154,7 +167,9 @@ export function AppTopChrome({
         >
           <ChevronRight />
         </Button>
+        <SurfaceTabHomeButton className={TOP_CHROME_ICON_BUTTON_CLASS} />
       </div>
+      <SurfaceTabStrip className={navRowAlignmentClass ?? undefined} />
       <div
         className={cn("flex min-w-0 flex-1 items-center", navRowAlignmentClass)}
         data-tauri-drag-region

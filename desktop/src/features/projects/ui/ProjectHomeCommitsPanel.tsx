@@ -92,6 +92,9 @@ export function ProjectHomeCommitsPanel({
       <ActivityPanel
         commitItems={commitItems}
         error={null}
+        historyTruncated={loaded.some(
+          (result) => result.snapshot?.historyTruncated === true,
+        )}
         isLoading={false}
         onSelectCommit={onSelectCommit}
         profiles={profiles}

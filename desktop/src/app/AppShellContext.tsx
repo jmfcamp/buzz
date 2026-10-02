@@ -7,6 +7,7 @@ import type { FeedItem } from "@/shared/api/types";
 import type { SettingsSection } from "@/features/settings/ui/SettingsPanels";
 
 const EMPTY_SET = new Set<string>();
+const EMPTY_COUNT_MAP = new Map<string, number>();
 
 type AppShellContextValue = {
   markAllChannelsRead: () => void;
@@ -69,6 +70,11 @@ type AppShellContextValue = {
   // channel so simply landing in it does not hide the wayfinding signal.
   unreadThreadFeedItems: FeedItem[];
   unreadThreadChannelIds: ReadonlySet<string>;
+  // Same unread sets the left panel uses for bold names and count chips.
+  // Top tabs read these so a pinned row keeps that mark.
+  unreadChannelIds: ReadonlySet<string>;
+  unreadChannelCounts: ReadonlyMap<string, number>;
+  dmChannelIds: ReadonlySet<string>;
   // Ordinary unread channel-level activity. Sidebar rows use this for text
   // emphasis only; thread activity owns the dot.
   topLevelUnreadChannelIds: ReadonlySet<string>;
@@ -109,6 +115,9 @@ const AppShellContext = React.createContext<AppShellContextValue>({
   locallyUnreadFeedItems: [],
   unreadThreadFeedItems: [],
   unreadThreadChannelIds: EMPTY_SET,
+  unreadChannelIds: EMPTY_SET,
+  unreadChannelCounts: EMPTY_COUNT_MAP,
+  dmChannelIds: EMPTY_SET,
   topLevelUnreadChannelIds: EMPTY_SET,
   hasSidebarUnreadProjections: false,
   feedItemState: {

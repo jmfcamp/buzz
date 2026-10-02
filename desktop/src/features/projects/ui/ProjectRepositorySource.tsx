@@ -3,6 +3,7 @@ import {
   Cloud,
   DownloadCloud,
   ExternalLink,
+  FolderOpen,
   GitBranch,
   Globe,
   HardDrive,
@@ -40,6 +41,7 @@ export function RepositoryBranchDropdown({
   branchOptions,
   selectedTag,
   tagOptions = [],
+  checkedOutBranch,
   createBranchDisabled,
   createBranchTitle,
   deleteBranchDisabled,
@@ -51,6 +53,8 @@ export function RepositoryBranchDropdown({
 }: {
   branch: string;
   branchOptions: string[];
+  /** Branch still checked out on disk. The menu can show a different branch. */
+  checkedOutBranch?: string | null;
   selectedTag?: string | null;
   tagOptions?: Array<{ name: string; commit: string }>;
   createBranchDisabled?: boolean;
@@ -64,6 +68,7 @@ export function RepositoryBranchDropdown({
 }) {
   const selectableBranches =
     branchOptions.length > 0 ? branchOptions : [branch];
+  const checkoutName = checkedOutBranch?.trim() ?? "";
   const selectedValue = selectedTag ? `tag:${selectedTag}` : `branch:${branch}`;
   const RefIcon = selectedTag ? Tag : GitBranch;
   if (!branch) {
@@ -104,6 +109,16 @@ export function RepositoryBranchDropdown({
             <DropdownMenuRadioItem key={option} value={`branch:${option}`}>
               <GitBranch className="mr-1.5 h-3.5 w-3.5 text-muted-foreground" />
               <span className="min-w-0 flex-1 truncate">{option}</span>
+              {checkoutName.length > 0 && option === checkoutName ? (
+                <span
+                  className="ml-2 inline-flex shrink-0 items-center gap-1 font-medium text-foreground text-xs"
+                  data-testid="project-branch-checked-out"
+                  title="Checked out. Choose this to see the current files."
+                >
+                  <FolderOpen aria-hidden="true" className="h-3.5 w-3.5" />
+                  Current
+                </span>
+              ) : null}
             </DropdownMenuRadioItem>
           ))}
           {tagOptions.length > 0 ? (
@@ -212,7 +227,58 @@ export type RepoSourceHeaderControls = {
   onFetch?: () => void;
   fetchPending?: boolean;
   fetchTitle?: string;
+  /**
+   * Remote/local menu. OpenClaw reads one checkout, so that menu stays hidden.
+   * Omitted means the menu is shown.
+   */
+  showSourcePicker?: boolean;
+  /**
+   * Branch checked out in the OpenClaw workspace. The picker can show another
+   * branch without moving that checkout.
+   */
+  checkedOutBranch?: string | null;
 };
+
+/**
+ * Same branch control, pointed at an OpenClaw checkout.
+ * Push, pull, clone, and creating or deleting a branch are omitted.
+ * Fetch reads the checkout again. It does not move HEAD.
+ */
+export function openClawRepoSourceControls(
+  controls: RepoSourceHeaderControls,
+  fetch: {
+    onFetch: () => void;
+    pending: boolean;
+    /** Name from `git status`. Null when that read has no branch. */
+    checkedOutBranch?: string | null;
+  },
+): RepoSourceHeaderControls {
+  return {
+    ...controls,
+    aheadCount: null,
+    behindCount: null,
+    canPull: false,
+    canPush: false,
+    checkedOutBranch: fetch.checkedOutBranch?.trim() || null,
+    fetchPending: fetch.pending,
+    fetchTitle: "Read the OpenClaw checkout again",
+    localDisabled: true,
+    onCloneLocal: undefined,
+    onCreateBranch: undefined,
+    onDeleteBranch: undefined,
+    onFetch: fetch.onFetch,
+    onPull: undefined,
+    onPush: undefined,
+    onSourceChange: () => undefined,
+    remoteKind: undefined,
+    remoteLabel: "OpenClaw",
+    showSourcePicker: false,
+    remoteUnavailableReason: undefined,
+    selectedTag: null,
+    source: "remote",
+    tagOptions: [],
+  };
+}
 
 /** Compact dropdown picking the repository source (remote or local). */
 export function RepoSourceDropdown({
@@ -220,6 +286,7 @@ export function RepoSourceDropdown({
 }: {
   controls: RepoSourceHeaderControls;
 }) {
+  if (controls.showSourcePicker === false) return null;
   const isLocal = controls.source === "local";
   const cloneLocal = controls.localDisabled && controls.onCloneLocal;
   const localPath = controls.localPath?.trim() || null;

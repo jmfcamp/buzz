@@ -575,11 +575,10 @@ test("reopening the same entity link reapplies its workspace state", async ({
   };
 
   await emitEntityLink(repoLink);
-  const pullRequestsTab = page.getByRole("tab", {
-    name: "Review",
-    exact: true,
-  });
-  await expect(pullRequestsTab).toHaveAttribute("aria-selected", "true");
+  const overviewTab = page.getByRole("tab", { name: "Overview", exact: true });
+  const reviewTab = page.getByRole("tab", { name: "Review", exact: true });
+  await expect(overviewTab).toHaveAttribute("aria-selected", "true");
+  await expect(reviewTab).toHaveCount(0);
 
   const breadcrumb = page.getByRole("navigation", {
     name: "Project breadcrumb",
@@ -588,24 +587,20 @@ test("reopening the same entity link reapplies its workspace state", async ({
   await expect(page.getByTestId("project-channel-home")).toBeVisible();
 
   await emitEntityLink(repoLink);
-  await expect(pullRequestsTab).toHaveAttribute("aria-selected", "true");
+  await expect(overviewTab).toHaveAttribute("aria-selected", "true");
+  await expect(reviewTab).toHaveCount(0);
 
   const filesTab = page.getByRole("tab", { name: "Files", exact: true });
   await filesTab.click();
   await expect(filesTab).toHaveAttribute("aria-selected", "true");
 
   await emitEntityLink(repoLink);
-  await expect(pullRequestsTab).toHaveAttribute("aria-selected", "true");
+  await expect(overviewTab).toHaveAttribute("aria-selected", "true");
+  await expect(reviewTab).toHaveCount(0);
 
   await emitEntityLink(prLink);
-  const prHeading = page
-    .getByTestId("project-pull-request-detail")
-    .getByRole("heading", { name: PR_SUBJECT });
-  await expect(prHeading).toBeVisible();
-  await breadcrumb.getByRole("button", { name: "Review", exact: true }).click();
-  await expect(prHeading).toHaveCount(0);
-  await emitEntityLink(prLink);
-  await expect(prHeading).toBeVisible();
+  await expect(overviewTab).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByTestId("project-pull-request-detail")).toHaveCount(0);
 
   await emitEntityLink(issueLink);
   const issueHeading = page
@@ -738,8 +733,11 @@ test("cold-start entity links drain after the React listener mounts", async ({
   await page.goto("/", { waitUntil: "domcontentloaded" });
 
   await expect(
-    page.getByRole("tab", { name: "Review", exact: true }),
+    page.getByRole("tab", { name: "Overview", exact: true }),
   ).toHaveAttribute("aria-selected", "true");
+  await expect(
+    page.getByRole("tab", { name: "Review", exact: true }),
+  ).toHaveCount(0);
   await expect
     .poll(() =>
       page.evaluate(() =>

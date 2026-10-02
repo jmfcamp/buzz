@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -7,9 +8,14 @@ import {
   useProjectPullRequestsQuery,
   useRepoStateQuery,
 } from "@/features/projects/hooks";
+import { loadHulaCommit } from "@/features/projects/lib/hulaFiles";
 import { selectProjectRepository } from "@/features/projects/projectModels";
 import { useCreateProjectPullRequestMutation } from "@/features/projects/pullRequestMutations";
 import { useProjectRepoSyncStatusQuery } from "@/features/projects/repoSyncHooks";
+import {
+  hulaGitExec,
+  useHulaRepositoryRefs,
+} from "@/features/projects/useHulaRepositoryGit";
 
 import {
   CreateProjectWorkItemDialog,
@@ -56,14 +62,27 @@ export function CreatePullRequestDialog({
     ) ?? repositoryOptions[0];
   const project = selection?.project;
   const repository = selection?.repository;
-  const repoStateQuery = useRepoStateQuery(repository);
+  const hulaRoot = repository?.hulaPath ?? null;
+  const hulaRefs = useHulaRepositoryRefs(hulaRoot);
+  const repoStateQuery = useRepoStateQuery(repository, !hulaRoot);
   const pullRequestsQuery = useProjectPullRequestsQuery(repository);
   const initialSyncQuery = useProjectRepoSyncStatusQuery(
     repository,
     reposDir,
     repository?.defaultBranch,
+    undefined,
+    !hulaRoot,
   );
   const branchOptions = React.useMemo(() => {
+    if (hulaRoot) {
+      return [
+        ...new Set(
+          [hulaRefs.headBranch, ...hulaRefs.branches].filter(
+            (name): name is string => Boolean(name),
+          ),
+        ),
+      ];
+    }
     const names = [
       repository?.defaultBranch,
       ...(repoStateQuery.data?.branches.map((branch) => branch.name) ?? []),
@@ -71,6 +90,9 @@ export function CreatePullRequestDialog({
     ].filter((name): name is string => Boolean(name));
     return [...new Set(names)];
   }, [
+    hulaRefs.branches,
+    hulaRefs.headBranch,
+    hulaRoot,
     initialSyncQuery.data?.localBranch,
     repository?.defaultBranch,
     repoStateQuery.data?.branches,
@@ -84,7 +106,17 @@ export function CreatePullRequestDialog({
     reposDir,
     sourceBranch || null,
     targetBranch || null,
+    !hulaRoot,
   );
+  const sourceCommitQuery = useQuery({
+    enabled: Boolean(hulaRoot && sourceBranch),
+    queryKey: ["hula-commit", hulaRoot, sourceBranch],
+    queryFn: () =>
+      hulaRoot && sourceBranch
+        ? loadHulaCommit(hulaRoot, sourceBranch, hulaGitExec)
+        : null,
+    staleTime: 30_000,
+  });
   const createMutation = useCreateProjectPullRequestMutation(repository);
 
   React.useEffect(() => {
@@ -96,10 +128,32 @@ export function CreatePullRequestDialog({
   }, [initialProjectId, open, projects]);
 
   React.useEffect(() => {
-    if (!repository) return;
+    if (!repository || repository.hulaPath) return;
     setTargetBranch(repository.defaultBranch);
     setSourceBranch("");
   }, [repository]);
+  React.useEffect(() => {
+    if (!hulaRoot) return;
+    const names = hulaRefs.branches;
+    const preferred =
+      (repository?.defaultBranch && names.includes(repository.defaultBranch)
+        ? repository.defaultBranch
+        : null) ??
+      hulaRefs.headBranch ??
+      names[0] ??
+      "";
+    if (!preferred) return;
+    setTargetBranch((current) =>
+      current && (names.includes(current) || current === preferred)
+        ? current
+        : preferred,
+    );
+  }, [
+    hulaRefs.branches,
+    hulaRefs.headBranch,
+    hulaRoot,
+    repository?.defaultBranch,
+  ]);
 
   React.useEffect(() => {
     if (
@@ -114,12 +168,15 @@ export function CreatePullRequestDialog({
     );
   }, [branchOptions, sourceBranch, targetBranch]);
 
-  const sourceCommit =
+  const relaySourceCommit =
     repoStateQuery.data?.branches.find((branch) => branch.name === sourceBranch)
       ?.commit ??
     (sourceSyncQuery.data?.remoteBranch === sourceBranch
       ? sourceSyncQuery.data.remoteHead
       : null);
+  const sourceCommit = hulaRoot
+    ? (sourceCommitQuery.data?.hash ?? null)
+    : relaySourceCommit;
   const hasOpenPullRequest = (pullRequestsQuery.data ?? []).some(
     (pullRequest) =>
       (pullRequest.status === "Open" || pullRequest.status === "Draft") &&
@@ -136,9 +193,17 @@ export function CreatePullRequestDialog({
           ? "The base and compare branches must be different."
           : hasOpenPullRequest
             ? "An open review already compares these branches."
-            : !sourceCommit
-              ? "The compare branch must be pushed before opening a review."
-              : null;
+            : hulaRoot && sourceBranch && sourceCommitQuery.isPending
+              ? "Reading the compare branch."
+              : hulaRoot && sourceCommitQuery.error
+                ? sourceCommitQuery.error instanceof Error
+                  ? sourceCommitQuery.error.message
+                  : "Could not read that branch."
+                : !sourceCommit
+                  ? hulaRoot
+                    ? "That branch has no commits."
+                    : "The compare branch must be pushed before opening a review."
+                  : null;
   const description =
     repository && sourceBranch && targetBranch
       ? `${repository.name}: ${sourceBranch} → ${targetBranch}${sourceCommit ? ` at ${sourceCommit.slice(0, 7)}` : ""}`
@@ -153,7 +218,7 @@ export function CreatePullRequestDialog({
       branch: sourceBranch,
       targetBranch,
       commit: sourceCommit,
-      mergeBase: sourceSyncQuery.data?.mergeBase ?? null,
+      mergeBase: hulaRoot ? null : (sourceSyncQuery.data?.mergeBase ?? null),
       reviewers: [],
     });
     toast.success("Review created.");

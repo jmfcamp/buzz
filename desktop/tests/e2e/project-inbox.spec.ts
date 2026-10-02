@@ -20,30 +20,15 @@ test("Buzz Git pull request renders and stays actionable in Inbox", async ({
 
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.getByTestId("open-projects-view").click();
-  await page.getByRole("button", { name: "Repositories", exact: true }).click();
-  const repositoryCardBody = page
-    .getByTestId("repository-card-buzz")
-    .getByTestId("projects-grid-card-body");
-  const repositoryCardBodyBounds = await repositoryCardBody.boundingBox();
-  expect(repositoryCardBodyBounds).not.toBeNull();
-  await page.mouse.click(
-    (repositoryCardBodyBounds?.x ?? 0) +
-      (repositoryCardBodyBounds?.width ?? 0) / 2,
-    (repositoryCardBodyBounds?.y ?? 0) +
-      (repositoryCardBodyBounds?.height ?? 0) / 2,
-  );
-  await page.getByRole("tab", { name: "Review" }).click();
 
-  const alicePullRequest = page
-    .getByTestId("project-pull-request-row")
+  const aliceReview = page
+    .locator('[data-testid="projects-activity-card"][data-project-event-id]')
     .filter({
       has: page.getByRole("button", { name: "alice", exact: true }),
     })
     .first();
-  await expect(alicePullRequest).toBeVisible({ timeout: 10_000 });
-  const pullRequestId = await alicePullRequest.getAttribute(
-    "data-project-event-id",
-  );
+  await expect(aliceReview).toBeVisible({ timeout: 10_000 });
+  const pullRequestId = await aliceReview.getAttribute("data-project-event-id");
   expect(pullRequestId).toBeTruthy();
 
   await page.getByRole("button", { name: "Inbox", exact: true }).click();

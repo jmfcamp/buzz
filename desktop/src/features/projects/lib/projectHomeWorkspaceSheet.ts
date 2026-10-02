@@ -1,6 +1,5 @@
 export const PROJECT_HOME_WORKSPACE_SHEET_TABS = [
   "issues",
-  "prs",
   "commits",
   "files",
   "contributors",
@@ -23,7 +22,6 @@ const WORKSPACE_SHEET_TITLES: Record<ProjectHomeWorkspaceSheetTab, string> = {
   contributors: "People",
   files: "Files",
   issues: "Tasks",
-  prs: "Reviews",
 };
 
 export function projectHomeWorkspaceSheetTitle(

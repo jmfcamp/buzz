@@ -5,6 +5,7 @@ import {
   PRIMARY_MENU_ITEMS,
   primaryMenuItemAfter,
   primaryMenuLabels,
+  scopedPrimaryMenuTestId,
 } from "./primaryMenu.ts";
 
 test("primary menu order: Agents, Bots, then Browsers (Assistant is injected in chrome)", () => {
@@ -35,6 +36,17 @@ test("primary menu order: Agents, Bots, then Browsers (Assistant is injected in 
   assert.ok(
     browsersIndex <
       PRIMARY_MENU_ITEMS.findIndex((item) => item.id === "workflows"),
+  );
+});
+
+test("a dock copy prefixes test ids and the in-flow menu does not", () => {
+  assert.equal(
+    scopedPrimaryMenuTestId(undefined, "open-buzz-term-view"),
+    "open-buzz-term-view",
+  );
+  assert.equal(
+    scopedPrimaryMenuTestId("dock", "open-buzz-term-view"),
+    "dock-open-buzz-term-view",
   );
 });
 

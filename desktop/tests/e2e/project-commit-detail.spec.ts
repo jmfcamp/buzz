@@ -179,52 +179,15 @@ test("top-level project lists show metadata and overflow actions", async ({
   ).toBeVisible();
   await page.keyboard.press("Escape");
 
-  await page.getByRole("button", { name: "Reviews", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Filter reviews" }),
-  ).toHaveCount(0);
-  await page.getByTestId("projects-overview-create-pull-request").click();
-  await expect(page.getByTestId("create-pull-request-dialog")).toBeVisible();
-  await expect(
-    page.getByTestId("create-pull-request-repository"),
-  ).toBeVisible();
-  await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Tasks", exact: true }).click();
   await page.getByTestId("projects-overview-create-issue").click();
   await expect(page.getByTestId("create-issue-repository")).toBeVisible();
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "Reviews", exact: true }).click();
-  const pullRequestRow = page
-    .locator('[data-testid^="projects-pr-row-"]')
-    .first();
-  const pullRequestPositions = await trailingPositions(pullRequestRow);
-  await pullRequestRow
-    .getByRole("button", { name: /More options for/ })
-    .click();
-  await expect(
-    page.getByRole("menuitem", {
-      name: /Open review|View (draft|merge|closed)/,
-    }),
-  ).toBeVisible();
-  await page.keyboard.press("Escape");
-
-  await page.getByRole("button", { name: "Tasks", exact: true }).click();
   await expect(page.getByRole("button", { name: "Filter tasks" })).toHaveCount(
     0,
   );
   const issueRow = page.locator('[data-testid^="projects-issue-row-"]').first();
   await expect(issueRow).toBeVisible();
-  const issuePositions = await trailingPositions(issueRow);
-
-  expect(
-    Math.abs(pullRequestPositions.dateX - issuePositions.dateX),
-  ).toBeLessThanOrEqual(ALIGNMENT_TOLERANCE_PX);
-  expect(
-    Math.abs(pullRequestPositions.menuX - issuePositions.menuX),
-  ).toBeLessThanOrEqual(ALIGNMENT_TOLERANCE_PX);
-  expect(
-    Math.abs(pullRequestPositions.rowHeight - issuePositions.rowHeight),
-  ).toBeLessThanOrEqual(ALIGNMENT_TOLERANCE_PX);
   await page.setViewportSize({ height: 720, width: 900 });
   await expect(
     page.getByTestId("projects-overview-layout"),
@@ -1289,9 +1252,7 @@ test("project discussion row opens its channel thread in context", async ({
   await expect(panel).toBeHidden();
 });
 
-test("pull request and issue feeds use compact work item rows", async ({
-  page,
-}) => {
+test("issue feeds use compact work item rows", async ({ page }) => {
   await enableProjectsFeature(page);
   await installMockBridge(page);
   await page.goto("/", { waitUntil: "domcontentloaded" });
@@ -1309,44 +1270,7 @@ test("pull request and issue feeds use compact work item rows", async ({
   await expect(projectEntry).toBeVisible({ timeout: 10_000 });
   await projectEntry.click();
 
-  // Reviews use the compact single-line work-item row.
   await page.getByTestId("project-home-context-repo-buzz").click();
-  await page.getByRole("tab", { name: "Review" }).click();
-  const prRows = page.getByTestId("project-pull-request-row");
-  await expect(prRows.first()).toBeVisible({ timeout: 10_000 });
-  await expect(
-    prRows.first().getByRole("button", { name: /^#/ }),
-  ).toBeVisible();
-  expect((await prRows.first().boundingBox())?.height).toBeLessThanOrEqual(40);
-  await expect(
-    prRows.first().getByTestId("project-pull-request-comments"),
-  ).toHaveText("0");
-  await expect(
-    prRows.first().getByTestId("project-pull-request-row-date"),
-  ).toHaveClass(/text-muted-foreground\/55/);
-  await expect(
-    page.getByTestId("project-work-item-group-header").first(),
-  ).toBeVisible();
-  await expect(
-    prRows.first().locator("[data-projects-text-priority='primary']"),
-  ).toHaveCSS("font-weight", "400");
-  await waitForAnimations(page);
-  await page.screenshot({ fullPage: false, path: `${SHOTS}/03-prs-feed.png` });
-
-  // The inline #id opens the review detail, same as clicking the title.
-  await prRows.first().getByRole("button", { name: /^#/ }).click();
-  await expect(
-    page.getByRole("navigation", { name: "Project breadcrumb" }),
-  ).toContainText("Review");
-
-  // Step back to the feed so the community tabs are available again.
-  await page
-    .getByRole("navigation", { name: "Project breadcrumb" })
-    .getByRole("button", { name: "Review", exact: true })
-    .click();
-  await expect(prRows.first()).toBeVisible();
-
-  // Tasks share the same compact structure.
   await page.getByRole("tab", { name: "Tasks" }).click();
   const issueRows = page.getByTestId("project-issue-row");
   await expect(issueRows.first()).toBeVisible({ timeout: 10_000 });

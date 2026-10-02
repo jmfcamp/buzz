@@ -9,10 +9,7 @@ import { uniqueProjectRelatedChannelCount } from "@/features/projects/lib/projec
 import type { ProjectsFilter } from "@/features/projects/lib/projectsViewHelpers";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 
-import {
-  projectReviewActivity,
-  projectTaskActivity,
-} from "./projectRightPanelContext";
+import { projectTaskActivity } from "./projectRightPanelContext";
 import { projectsSectionTitle } from "./projectsSectionMeta";
 
 export type ProjectsOverviewSection =
@@ -32,7 +29,7 @@ export type OverviewContextStatIcon =
   | "merged";
 
 export type OverviewContextAction = {
-  kind: "channel" | "issue" | "project" | "pullRequest" | "repository";
+  kind: "channel" | "issue" | "project" | "repository";
   label: string;
   testId: string;
 } | null;
@@ -62,19 +59,13 @@ type OverviewContextInput = {
   summaries?: Record<string, ProjectActivitySummary>;
 };
 
-function summaryWorkItemCounts(
+function summaryIssueCount(
   projects: Project[],
   summaries: Record<string, ProjectActivitySummary> | undefined,
 ) {
   return projects.reduce(
-    (stats, project) => {
-      const summary = summaries?.[project.id];
-      return {
-        issues: stats.issues + (summary?.issueCount ?? 0),
-        prs: stats.prs + (summary?.prCount ?? 0),
-      };
-    },
-    { issues: 0, prs: 0 },
+    (count, project) => count + (summaries?.[project.id]?.issueCount ?? 0),
+    0,
   );
 }
 
@@ -94,18 +85,6 @@ function resolvedTaskActivity(
     active: summaryIssueCount,
     completed: 0,
     total: summaryIssueCount,
-  };
-}
-
-function resolvedReviewActivity(
-  pullRequests: ProjectPullRequest[],
-  summaryPrCount: number,
-) {
-  if (pullRequests.length > 0) return projectReviewActivity(pullRequests);
-  return {
-    merged: 0,
-    open: summaryPrCount,
-    total: summaryPrCount,
   };
 }
 
@@ -220,18 +199,12 @@ function overviewContextPeople({
 export function projectsOverviewContext(
   input: OverviewContextInput,
 ): OverviewContextPresentation {
-  const {
-    filter,
-    issues,
-    projectReadModels,
-    projects,
-    pullRequests,
-    summaries,
-  } = input;
+  const { filter, issues, projectReadModels, projects, summaries } = input;
   const readModels = projectReadModels ?? projects;
-  const summaryCounts = summaryWorkItemCounts(projects, summaries);
-  const tasks = resolvedTaskActivity(issues, summaryCounts.issues);
-  const reviews = resolvedReviewActivity(pullRequests, summaryCounts.prs);
+  const tasks = resolvedTaskActivity(
+    issues,
+    summaryIssueCount(projects, summaries),
+  );
   const channelCount = uniqueProjectRelatedChannelCount(readModels);
   const repositories = repositoryCount(readModels);
   const people = overviewContextPeople(input);
@@ -257,12 +230,6 @@ export function projectsOverviewContext(
           icon: "tasks",
           label: "Active tasks",
           section: "issues",
-        },
-        {
-          count: reviews.open,
-          icon: "reviews",
-          label: "Open reviews",
-          section: "prs",
         },
       ],
       title: "Repositories",
@@ -335,40 +302,7 @@ export function projectsOverviewContext(
     };
   }
 
-  if (filter === "prs") {
-    return {
-      action: {
-        kind: "pullRequest",
-        label: "Create review",
-        testId: "projects-overview-create-pull-request",
-      },
-      detailsTitle: "Review activity",
-      people,
-      stats: [
-        {
-          count: reviews.total,
-          icon: "reviews",
-          label: "Reviews",
-          section: "prs",
-        },
-        {
-          count: reviews.open,
-          icon: "reviews",
-          label: "Open",
-          section: "prs",
-        },
-        {
-          count: reviews.merged,
-          icon: "merged",
-          label: "Merged",
-          section: "prs",
-        },
-      ],
-      title: "Reviews",
-    };
-  }
-
-  if (filter === "all") {
+  if (filter === "all" || filter === "prs") {
     return {
       action: null,
       detailsTitle: "Details",
@@ -397,12 +331,6 @@ export function projectsOverviewContext(
           icon: "tasks",
           label: "Tasks",
           section: "issues",
-        },
-        {
-          count: reviews.total,
-          icon: "reviews",
-          label: "Reviews",
-          section: "prs",
         },
       ],
       title: "Activity",

@@ -1,6 +1,7 @@
 import { Star } from "lucide-react";
 import * as React from "react";
 
+import { useOptionalSurfaceTabs } from "@/app/surfaceTabs/SurfaceTabsProvider";
 import { summarizeThreadRoot } from "@/features/messages/lib/sentFromThread";
 import { useThreadStars } from "@/features/sidebar/lib/useThreadStars";
 import { Button } from "@/shared/ui/button";
@@ -30,9 +31,13 @@ export function ThreadStarButton({
   testId = "thread-star-button",
 }: ThreadStarButtonProps) {
   const { isThreadStarred, toggleThreadStar } = useThreadStars(currentPubkey);
+  const surfaceTabs = useOptionalSurfaceTabs();
   const starred = isThreadStarred(rootId);
 
   const handleClick = React.useCallback(() => {
+    if (starred) {
+      surfaceTabs?.closeThreadTabs({ channelId, rootId });
+    }
     const title = summarizeThreadRoot(rootBody) ?? "Thread";
     toggleThreadStar({
       rootId,
@@ -40,7 +45,15 @@ export function ThreadStarButton({
       title,
       channelName,
     });
-  }, [channelId, channelName, rootBody, rootId, toggleThreadStar]);
+  }, [
+    channelId,
+    channelName,
+    rootBody,
+    rootId,
+    starred,
+    surfaceTabs,
+    toggleThreadStar,
+  ]);
 
   const label = starred ? "Unstar thread" : "Star thread";
 

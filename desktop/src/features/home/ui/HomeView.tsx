@@ -27,7 +27,7 @@ import { useInboxEditMessage } from "@/features/home/useInboxEditMessage";
 import { useOwnedAgentPubkeys } from "@/features/home/useOwnedAgentPubkeys";
 import {
   filterInboxItems,
-  matchesInboxFilter,
+  selectVisibleInboxItems,
 } from "@/features/home/lib/inboxViewHelpers";
 import { resolveInboxFilterSelection } from "@/features/home/lib/inboxSelection";
 import { useHomeInboxReadState } from "@/features/home/useHomeInboxReadState";
@@ -429,7 +429,8 @@ export function HomeView({
       undoDoneLocal: undoDone,
       undoUnreadLocal: undoUnread,
     });
-  // Resolve selection before filtering so unread-only can retain its active row.
+  // Selection is known before the unread filter. The open row stays only
+  // while another unread row remains.
   const selectedItemFromAll = React.useMemo(
     () =>
       selectedEventId
@@ -448,22 +449,24 @@ export function HomeView({
   const selectedConversationId =
     selectedItemFromAll?.conversationId ?? latchedConversationId;
 
-  const filteredItems = React.useMemo(() => {
-    return inboxItems.filter(
-      (item) =>
-        matchesInboxFilter(item, filter, ownedAgentPubkeys) &&
-        (!unreadOnly ||
-          !effectiveDoneSet.has(item.id) ||
-          item.conversationId === selectedConversationId),
-    );
-  }, [
-    effectiveDoneSet,
-    filter,
-    inboxItems,
-    ownedAgentPubkeys,
-    selectedConversationId,
-    unreadOnly,
-  ]);
+  const filteredItems = React.useMemo(
+    () =>
+      selectVisibleInboxItems(inboxItems, {
+        doneIds: effectiveDoneSet,
+        filter,
+        ownedAgentPubkeys,
+        selectedConversationId,
+        unreadOnly,
+      }),
+    [
+      effectiveDoneSet,
+      filter,
+      inboxItems,
+      ownedAgentPubkeys,
+      selectedConversationId,
+      unreadOnly,
+    ],
+  );
   // A filter change may only retain detail for a conversation that remains
   // visible. The filter handler selects the next valid row in the same update,
   // so the detail pane never renders a stale conversation between states.
@@ -564,13 +567,13 @@ export function HomeView({
 
   const handleFilterChange = React.useCallback(
     (nextFilter: InboxFilter) => {
-      const nextItems = inboxItems.filter(
-        (item) =>
-          matchesInboxFilter(item, nextFilter, ownedAgentPubkeys) &&
-          (!unreadOnly ||
-            !effectiveDoneSet.has(item.id) ||
-            item.conversationId === selectedConversationId),
-      );
+      const nextItems = selectVisibleInboxItems(inboxItems, {
+        doneIds: effectiveDoneSet,
+        filter: nextFilter,
+        ownedAgentPubkeys,
+        selectedConversationId,
+        unreadOnly,
+      });
       const selection = resolveInboxFilterSelection({
         isNarrow: isNarrowHomeViewport,
         items: nextItems,

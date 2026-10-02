@@ -169,7 +169,7 @@ async function reveal(page: Page) {
     .toBeGreaterThanOrEqual(180);
 }
 
-test("project terminal button opens Buzz Term for the repository", async ({
+test("project page shortcut opens Buzz Term for the repository", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
@@ -186,10 +186,9 @@ test("project terminal button opens Buzz Term for the repository", async ({
   await expect(projectEntry).toBeVisible({ timeout: 10_000 });
   await projectEntry.click();
   await page.getByTestId("project-home-context-repo-buzz").click();
+  await expect(page.getByTestId("project-detail-chrome")).toBeVisible();
 
-  const terminalButton = page.getByTestId("project-terminal-toggle");
-  await expect(terminalButton).toBeEnabled();
-  await terminalButton.click();
+  await page.keyboard.press("Meta+j");
   await expect(page.locator(TERM)).toHaveAttribute(
     "data-terminal-mode",
     "docked",

@@ -136,6 +136,22 @@ describe("MoreUnreadButton model", () => {
     assert.deepEqual(stackOrder, [3, 2, 1]);
   });
 
+  it("drops the top pill below an anchored menu row", () => {
+    const markup = renderToStaticMarkup(
+      MoreUnreadButton({
+        count: 1,
+        emphasis: "default",
+        onClick() {},
+        position: "top",
+        testId: "more-unread",
+        topClassName: "top-9",
+      }),
+    );
+
+    assert.match(markup, /class="[^"]*\btop-9\b/);
+    assert.doesNotMatch(markup, /\btop-0\b/);
+  });
+
   it("keeps channel-based previews distinct for repeated participants", () => {
     const previews = [preview("dm-one", "Alice"), preview("dm-two", "Alice")];
     assert.deepEqual(

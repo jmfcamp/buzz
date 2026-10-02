@@ -9,6 +9,10 @@ import {
   useUnassignProjectIssueMutation,
 } from "@/features/projects/issueAssignments";
 import type { ProjectIssue } from "@/features/projects/projectIssues.mjs";
+import {
+  isTaskAssigneeCandidate,
+  viewerCanSelfAssignTask,
+} from "@/features/projects/lib/taskStatus";
 import { useUserSearchQuery } from "@/features/profile/hooks";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import type { UserSearchResult } from "@/shared/api/types";
@@ -92,9 +96,9 @@ export function IssueAssigneeFacepile({
 /** Assignee avatars and the assignment picker for an issue.
  *
  * The issue author, repo owner, or managed-agent owner
- * (`canAssignOthers`) get the full people/agent picker. Everyone else
- * who is signed in gets a self-assign button — readers trust an
- * assignment whose only assignee is its signer (see `projectIssues.mjs`).
+ * (`canAssignOthers`) can assign an agent or community bot.
+ * Assign to me is shown only when the signed-in profile is an agent.
+ * A person who is already assigned stays visible so they can be removed.
  */
 export function IssueAssigneesRow({
   canAssignOthers,
@@ -141,7 +145,11 @@ export function IssueAssigneesRow({
     () =>
       (userSearchQuery.data ?? []).filter((user) => {
         const pubkey = normalizePubkey(user.pubkey);
-        return !currentAssignees.has(pubkey) && !isArchivedDiscovery(pubkey);
+        return (
+          isTaskAssigneeCandidate(user) &&
+          !currentAssignees.has(pubkey) &&
+          !isArchivedDiscovery(pubkey)
+        );
       }),
     [currentAssignees, isArchivedDiscovery, userSearchQuery.data],
   );
@@ -208,7 +216,10 @@ export function IssueAssigneesRow({
     if (!pickerOpen) setAssigneeQuery("");
   }, [pickerOpen]);
 
-  const canSelfAssign = viewer !== null && !currentAssignees.has(viewer);
+  const canSelfAssign =
+    viewer !== null &&
+    viewerCanSelfAssignTask(viewer ? profiles?.[viewer] : undefined) &&
+    !currentAssignees.has(viewer);
   const isSelfAssigned = viewer !== null && currentAssignees.has(viewer);
 
   if (issue.assignees.length === 0 && !canAssignOthers && !canSelfAssign) {
@@ -334,7 +345,7 @@ export function IssueAssigneesRow({
             <DialogHeader className="border-b border-border/60 px-6 py-5 pr-14">
               <DialogTitle>Assign task</DialogTitle>
               <DialogDescription>
-                Choose a person or agent to work on this task.
+                Choose an agent or community bot to work on this task.
               </DialogDescription>
             </DialogHeader>
             <div className="flex items-center gap-2 border-b border-border/60 px-6 py-3">
@@ -344,7 +355,7 @@ export function IssueAssigneesRow({
                 className="h-8 border-0 px-0 text-sm shadow-none focus-visible:ring-0"
                 data-testid="project-assignee-search"
                 onChange={(event) => setAssigneeQuery(event.target.value)}
-                placeholder="Search people and agents"
+                placeholder="Search agents"
                 value={assigneeQuery}
               />
             </div>
@@ -390,7 +401,7 @@ export function IssueAssigneesRow({
                 })
               ) : (
                 <p className="px-3 py-4 text-sm text-muted-foreground">
-                  No matching people or agents.
+                  No matching agents.
                 </p>
               )}
             </div>

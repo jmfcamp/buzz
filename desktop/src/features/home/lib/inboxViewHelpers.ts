@@ -38,6 +38,52 @@ export function hasInboxThreadContext(
   );
 }
 
+type UnreadInboxRow = {
+  id: string;
+  conversationId: string;
+  categories: readonly string[];
+  groupItems?: readonly FeedItem[];
+  item?: FeedItem;
+};
+
+/**
+ * Rows for the current inbox filter. Unread-only keeps the open row while
+ * another unread row remains, so its detail stays put. The last read row
+ * leaves, and the list can go empty.
+ */
+export function selectVisibleInboxItems<T extends UnreadInboxRow>(
+  items: readonly T[],
+  {
+    doneIds,
+    filter,
+    ownedAgentPubkeys,
+    selectedConversationId,
+    unreadOnly,
+  }: {
+    doneIds: ReadonlySet<string>;
+    filter: InboxFilter;
+    ownedAgentPubkeys?: ReadonlySet<string>;
+    selectedConversationId: string | null;
+    unreadOnly: boolean;
+  },
+): T[] {
+  const matched = items.filter((item) =>
+    matchesInboxFilter(item, filter, ownedAgentPubkeys),
+  );
+  if (!unreadOnly) return matched;
+  const keepSelectedReadRow =
+    selectedConversationId !== null &&
+    matched.some(
+      (item) =>
+        !doneIds.has(item.id) && item.conversationId !== selectedConversationId,
+    );
+  return matched.filter(
+    (item) =>
+      !doneIds.has(item.id) ||
+      (keepSelectedReadRow && item.conversationId === selectedConversationId),
+  );
+}
+
 export function matchesInboxFilter(
   item: {
     categories: readonly string[];

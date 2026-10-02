@@ -54,6 +54,7 @@ test("parseBestieScratchState accepts valid payloads only", () => {
   });
   assert.equal(parsed.notes.length, 1);
   assert.equal(parsed.notes[0].title, "Idea");
+  assert.equal(parsed.notes[0].draft, false);
   assert.deepEqual(parsed.processedMessageIds, ["m1"]);
 });
 
@@ -74,6 +75,13 @@ test("read/write round-trip through localStorage", () => {
   let state = emptyBestieScratchState();
   state = addBestieScratchNote(state, { body: "Park me", title: "" }, 10);
   assert.equal(state.notes[0].title, "Park me");
+  assert.equal(state.notes[0].draft, false);
+  state = updateBestieScratchNote(
+    state,
+    { draft: true, id: state.notes[0].id },
+    11,
+  );
+  assert.equal(state.notes[0].draft, true);
   state = updateBestieScratchNote(
     state,
     { body: "Updated body", id: state.notes[0].id, title: "Updated" },
@@ -84,6 +92,7 @@ test("read/write round-trip through localStorage", () => {
   assert.equal(loaded.notes.length, 1);
   assert.equal(loaded.notes[0].title, "Updated");
   assert.equal(loaded.notes[0].body, "Updated body");
+  assert.equal(loaded.notes[0].draft, true);
   const cleared = removeBestieScratchNote(loaded, loaded.notes[0].id);
   assert.equal(cleared.notes.length, 0);
 });

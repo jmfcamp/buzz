@@ -75,6 +75,7 @@ test("project home canvas fills project, repository, and channel values", () => 
   assert.match(content, /11111111-1111-4111-8111-111111111111/);
   assert.equal(content.includes("{{"), false);
   assert.match(content, /buzz issues status --issue <id>/);
-  assert.match(content, /buzz pr open --repo-owner/);
+  assert.equal(content.includes("buzz pr"), false);
+  assert.equal(content.includes("Open a review"), false);
   assert.match(content, /buzz canvas set .* --content -/);
 });

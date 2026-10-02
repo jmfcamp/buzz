@@ -7,6 +7,7 @@ import type {
 } from "@/features/projects/hooks";
 import type { ProjectsOverviewAgentContextItem } from "@/features/projects/lib/projectDetailAgentContext";
 import { collectProjectRelatedChannelRows } from "@/features/projects/lib/projectRelatedChannels";
+import { taskStatusWord } from "@/features/projects/lib/taskStatus";
 import type { ProjectsFilter } from "@/features/projects/lib/projectsViewHelpers";
 import type { Channel } from "@/shared/api/types";
 import { buildProjectsActivityAgentContextItems } from "./ProjectsActivityFeed";
@@ -75,6 +76,7 @@ export function buildProjectsViewAgentContextItems({
         `Project: ${project.name}`,
         `Repository: ${repository.name}`,
         issue.status,
+        taskStatusWord(issue.status),
         issue.content,
       ]),
       kind: "task",

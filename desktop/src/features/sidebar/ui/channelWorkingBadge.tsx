@@ -29,25 +29,31 @@ export function ChannelWorkingBadge({
   isActive,
   summary,
   testId,
+  variant = "sidebar",
 }: {
   channelName: string;
   isActive: boolean;
   summary: ActiveChannelTurnSummary;
   /** Override test id (defaults to channel-working-<channelName>). */
   testId?: string;
+  /** `tab` stays visible in the top row. `sidebar` hides in the icon rail. */
+  variant?: "sidebar" | "tab";
 }) {
   const now = useNow(1000);
   const elapsed = formatElapsed(now - summary.anchorAt);
   const label =
     summary.agentCount > 1 ? `${elapsed} (${summary.agentCount})` : elapsed;
   const title = formatWorkingTooltip(summary);
+  const onSidebar = variant === "sidebar";
 
   return (
     <span
       className={cn(
-        "max-w-32 shrink-0 truncate rounded-full px-1.5 py-0.5 text-2xs font-medium leading-none tabular-nums motion-safe:animate-pulse group-data-[collapsible=icon]:hidden",
-        "hidden sm:inline-flex",
-        isActive
+        "max-w-32 shrink-0 truncate rounded-full px-1.5 py-0.5 text-2xs font-medium leading-none tabular-nums motion-safe:animate-pulse",
+        onSidebar
+          ? "hidden sm:inline-flex group-data-[collapsible=icon]:hidden"
+          : "inline-flex",
+        isActive && onSidebar
           ? "bg-sidebar-active-foreground/20 text-sidebar-active-foreground"
           : "bg-primary/10 text-primary",
       )}

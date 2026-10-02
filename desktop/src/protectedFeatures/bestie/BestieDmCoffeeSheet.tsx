@@ -3,12 +3,17 @@ import * as React from "react";
 
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
+import {
+  BestieLargeTextOpenButton,
+  BestieLargeTextReader,
+} from "./BestieLargeTextReader";
+
 import { BESTIE_COFFEE_LIVE_LABEL } from "./bestieCoffeeLive";
-import { removeBestieCoffeeEntryForScope, useBestieCoffee } from "./bestieCoffeeStore";
-import type {
-  BestieCoffeeEntry,
-  BestieCoffeeScope,
-} from "./bestieCoffeeTypes";
+import {
+  removeBestieCoffeeEntryForScope,
+  useBestieCoffee,
+} from "./bestieCoffeeStore";
+import type { BestieCoffeeEntry, BestieCoffeeScope } from "./bestieCoffeeTypes";
 
 function formatCoffeeDate(ranAt: number): string {
   return new Date(ranAt * 1000).toLocaleString(undefined, {
@@ -28,32 +33,40 @@ function CoffeeRow({
   onRemove: () => void;
   onToggle: () => void;
 }) {
+  const [reading, setReading] = React.useState(false);
+  const when = formatCoffeeDate(entry.ranAt);
+  const heading = entry.source === "brew" ? `${when} · Brew` : when;
   return (
     <div
       className="rounded-md border border-border/60 bg-muted/25"
       data-testid={`bestie-coffee-item-${entry.id}`}
     >
-      <button
-        aria-expanded={expanded}
-        className="flex w-full items-start gap-2 px-2 py-1.5 text-left"
-        data-testid={`bestie-coffee-toggle-${entry.id}`}
-        onClick={onToggle}
-        type="button"
-      >
-        <ChevronDown
-          className={cn(
-            "mt-0.5 size-3.5 shrink-0 text-muted-foreground transition-transform",
-            !expanded && "-rotate-90",
-          )}
+      <div className="flex items-start gap-1 px-1 py-1">
+        <button
+          aria-expanded={expanded}
+          className="flex min-w-0 flex-1 items-start gap-2 px-1 py-0.5 text-left"
+          data-testid={`bestie-coffee-toggle-${entry.id}`}
+          onClick={onToggle}
+          type="button"
+        >
+          <ChevronDown
+            className={cn(
+              "mt-0.5 size-3.5 shrink-0 text-muted-foreground transition-transform",
+              !expanded && "-rotate-90",
+            )}
+          />
+          <div className="min-w-0 flex-1">
+            <p className="text-2xs text-muted-foreground">{heading}</p>
+            <p className="text-sm leading-snug">{entry.brief}</p>
+          </div>
+        </button>
+        <BestieLargeTextOpenButton
+          label={heading}
+          onOpen={() => setReading(true)}
+          open={reading}
+          testId={`bestie-large-text-open-${entry.id}`}
         />
-        <div className="min-w-0 flex-1">
-          <p className="text-2xs text-muted-foreground">
-            {formatCoffeeDate(entry.ranAt)}
-            {entry.source === "brew" ? " · Brew" : ""}
-          </p>
-          <p className="text-sm leading-snug">{entry.brief}</p>
-        </div>
-      </button>
+      </div>
       {expanded ? (
         <div
           className="border-t border-border/50 px-2 py-2"
@@ -76,6 +89,14 @@ function CoffeeRow({
             </Button>
           </div>
         </div>
+      ) : null}
+      {reading ? (
+        <BestieLargeTextReader
+          body={entry.fullOutput.trim() || entry.brief}
+          mono
+          onClose={() => setReading(false)}
+          title={heading}
+        />
       ) : null}
     </div>
   );
@@ -129,13 +150,12 @@ export function BestieDmCoffeeSheet({
             className="text-xs text-muted-foreground"
             data-testid="bestie-coffee-brewing"
           >
-            <span aria-hidden="true">{BESTIE_COFFEE_LIVE_LABEL}</span>{" "}
-            Running /hula-coffee…
+            <span aria-hidden="true">{BESTIE_COFFEE_LIVE_LABEL}</span> Running
+            /hula-coffee…
           </span>
         ) : (
           <span className="text-2xs text-muted-foreground">
-            Daily at{" "}
-            {String(state.prefs.hour).padStart(2, "0")}:
+            Daily at {String(state.prefs.hour).padStart(2, "0")}:
             {String(state.prefs.minute).padStart(2, "0")} local when online
           </span>
         )}
