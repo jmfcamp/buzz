@@ -1,7 +1,7 @@
 //! File-backed Buzz browser Observe/Drive tools (grant-gated).
 //! Desktop mirrors grants/events under `{BUZZ_BROWSER_AGENT_DIR|/app-data/browser-agent}`.
 
-use rmcp::model::{CallToolResult, Content};
+use rmcp::model::{CallToolResult, ContentBlock};
 use rmcp::ErrorData;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -384,7 +384,7 @@ pub fn observe_poll(p: ObservePollParams) -> Result<CallToolResult, ErrorData> {
         },
         "runbookNote": "runbook.agentBrief + active procedures + driveProtocol. Prefer surfaceId. browser_snapshot waits inline. browser_record_start/stop_and_post are OPT-IN section clips only — call when the runbook/user asks for that section; never auto-start on Drive grant. browser_fill_field for forms. browser_runbook_propose auto-activates unless the title is human-persisted. Agent brief is human-owned."
     });
-    Ok(CallToolResult::success(vec![Content::text(
+    Ok(CallToolResult::success(vec![ContentBlock::text(
         body.to_string(),
     )]))
 }
@@ -411,7 +411,7 @@ pub fn grants(_p: GrantsParams) -> Result<CallToolResult, ErrorData> {
             }
         }
     }
-    Ok(CallToolResult::success(vec![Content::text(
+    Ok(CallToolResult::success(vec![ContentBlock::text(
         json!({ "grants": out }).to_string(),
     )]))
 }
@@ -485,7 +485,7 @@ pub fn tabs(p: TabsParams) -> Result<CallToolResult, ErrorData> {
         })),
         "note": "Main tab (isMain/mainTabSid) is primary focus. Extra tabs come from in-page window.open / target=_blank. Use browser_switch_tab to focus a tab (rebinds Observe/Drive). Poll browser_observe_poll for kind=tab_opened / tab_switched."
     });
-    Ok(CallToolResult::success(vec![Content::text(
+    Ok(CallToolResult::success(vec![ContentBlock::text(
         body.to_string(),
     )]))
 }
@@ -540,7 +540,7 @@ pub fn switch_tab(p: SwitchTabParams) -> Result<CallToolResult, ErrorData> {
         .map_err(|e| ErrorData::internal_error(format!("write tab-switch-request: {e}"), None))?;
     f.write_all(req.to_string().as_bytes())
         .map_err(|e| ErrorData::internal_error(format!("write tab-switch-request: {e}"), None))?;
-    Ok(CallToolResult::success(vec![Content::text(
+    Ok(CallToolResult::success(vec![ContentBlock::text(
         json!({
             "ok": true,
             "queued": true,
@@ -607,7 +607,7 @@ pub fn get_viewport(p: GetViewportParams) -> Result<CallToolResult, ErrorData> {
         })),
         "note": "Viewport mirrors Desktop Stage (Desktop | Responsive | Mobile). Use browser_set_viewport while Driving to change it."
     });
-    Ok(CallToolResult::success(vec![Content::text(
+    Ok(CallToolResult::success(vec![ContentBlock::text(
         body.to_string(),
     )]))
 }
@@ -728,7 +728,7 @@ pub fn set_viewport(p: SetViewportParams) -> Result<CallToolResult, ErrorData> {
         .map_err(|e| ErrorData::internal_error(format!("write viewport-request: {e}"), None))?;
     f.write_all(req.to_string().as_bytes())
         .map_err(|e| ErrorData::internal_error(format!("write viewport-request: {e}"), None))?;
-    Ok(CallToolResult::success(vec![Content::text(
+    Ok(CallToolResult::success(vec![ContentBlock::text(
         json!({
             "ok": true,
             "queued": true,
@@ -1054,7 +1054,7 @@ fn drive_wait_response(
                 "elapsedMs": started.elapsed().as_millis() as u64,
             })
         };
-        return Ok(CallToolResult::success(vec![Content::text(
+        return Ok(CallToolResult::success(vec![ContentBlock::text(
             body.to_string(),
         )]));
     }
@@ -1105,7 +1105,7 @@ fn drive_wait_response(
         "elapsedMs": started.elapsed().as_millis() as u64,
         "snapshot": snapshot,
     });
-    Ok(CallToolResult::success(vec![Content::text(
+    Ok(CallToolResult::success(vec![ContentBlock::text(
         body.to_string(),
     )]))
 }
@@ -1323,7 +1323,7 @@ pub fn snapshot(p: SnapshotParams) -> Result<CallToolResult, ErrorData> {
         ),
     };
 
-    Ok(CallToolResult::success(vec![Content::text(
+    Ok(CallToolResult::success(vec![ContentBlock::text(
         json!({
             "ok": ok,
             "webviewLabel": label,
@@ -1460,7 +1460,7 @@ pub fn record_start(p: RecordStartParams) -> Result<CallToolResult, ErrorData> {
             }),
         ),
     };
-    Ok(CallToolResult::success(vec![Content::text(
+    Ok(CallToolResult::success(vec![ContentBlock::text(
         json!({
             "ok": ok,
             "requestId": request_id,
@@ -1529,7 +1529,7 @@ pub fn record_stop_and_post(p: RecordStopParams) -> Result<CallToolResult, Error
             }),
         ),
     };
-    Ok(CallToolResult::success(vec![Content::text(
+    Ok(CallToolResult::success(vec![ContentBlock::text(
         json!({
             "ok": ok,
             "requestId": request_id,
@@ -2198,7 +2198,7 @@ pub fn runbook_get(p: RunbookGetParams) -> Result<CallToolResult, ErrorData> {
             "surfaceId": grant_surface_id(&grant),
             "procedure": procedure,
         });
-        return Ok(CallToolResult::success(vec![Content::text(
+        return Ok(CallToolResult::success(vec![ContentBlock::text(
             body.to_string(),
         )]));
     }
@@ -2208,7 +2208,7 @@ pub fn runbook_get(p: RunbookGetParams) -> Result<CallToolResult, ErrorData> {
         "runbook": inject,
         "note": "Pass procedure_id to fetch full steps for one active/pending/archived entry."
     });
-    Ok(CallToolResult::success(vec![Content::text(
+    Ok(CallToolResult::success(vec![ContentBlock::text(
         body.to_string(),
     )]))
 }
@@ -2323,7 +2323,7 @@ pub fn runbook_propose(p: RunbookProposeParams) -> Result<CallToolResult, ErrorD
         "title": title,
         "note": "Desktop auto-activates agent procedures. Persisted (human-locked) titles are rejected. Agent brief is human-owned."
     });
-    Ok(CallToolResult::success(vec![Content::text(
+    Ok(CallToolResult::success(vec![ContentBlock::text(
         body.to_string(),
     )]))
 }
