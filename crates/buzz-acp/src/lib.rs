@@ -2112,7 +2112,7 @@ fn any_respawn_in_flight(crash_history: &[SlotCircuit]) -> bool {
 /// Workers started on demand when a distinct session scope is waiting and
 /// every configured worker is busy. `--agents` above this is honored; the
 /// CLI maximum (32) is never exceeded.
-const DYNAMIC_AGENT_CAP: u32 = 4;
+const DYNAMIC_AGENT_CAP: u32 = 6;
 
 /// Maximum ACP subprocesses this process will run.
 ///
@@ -6317,7 +6317,8 @@ mod dynamic_worker_tests {
     #[test]
     fn dynamic_worker_limit_honors_configured_above_cap() {
         assert_eq!(dynamic_worker_limit(1), DYNAMIC_AGENT_CAP as usize);
-        assert_eq!(dynamic_worker_limit(4), 4);
+        assert_eq!(dynamic_worker_limit(4), DYNAMIC_AGENT_CAP as usize);
+        assert_eq!(dynamic_worker_limit(6), 6);
         assert_eq!(dynamic_worker_limit(8), 8);
         assert_eq!(dynamic_worker_limit(32), 32);
     }
