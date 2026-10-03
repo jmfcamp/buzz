@@ -1243,6 +1243,20 @@ impl AgentPool {
         &mut self.agents
     }
 
+    /// Number of worker slots, including empty ones reserved for a spawn.
+    pub(crate) fn slot_count(&self) -> usize {
+        self.agents.len()
+    }
+
+    /// Append an empty slot and return its index. The caller spawns into it
+    /// and [`return_agent`](Self::return_agent) fills it. Used when a distinct
+    /// session scope is waiting and every existing worker is busy.
+    pub(crate) fn push_empty_slot(&mut self) -> usize {
+        let idx = self.agents.len();
+        self.agents.push(None);
+        idx
+    }
+
     /// Remove the session for `channel_id` from all idle agents.
     ///
     /// Called when the agent is removed from a channel — stale sessions
@@ -1276,7 +1290,7 @@ impl AgentPool {
     /// [`invalidate_channel_sessions`](Self::invalidate_channel_sessions): under
     /// thread policy an idle `!rotate` in thread A must rotate only thread A's
     /// session, leaving sibling threads in the same channel untouched. Under the
-    /// default channel policy the scope is `Conversation(channel_id)` — the sole
+    /// channel policy the scope is `Conversation(channel_id)` — the sole
     /// scope for the channel — so this matches the channel-wide behavior.
     /// Returns the number of workers that held a session for the scope.
     pub fn invalidate_scope_session(&mut self, scope: &SessionScope) -> usize {

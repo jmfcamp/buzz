@@ -130,7 +130,7 @@ All configuration is via environment variables (or CLI flags — every env var h
 
 | Flag | Env Var | Default | Description |
 |------|---------|---------|-------------|
-| `--agents` | `BUZZ_ACP_AGENTS` | `1` | Number of agent subprocesses (1–32). |
+| `--agents` | `BUZZ_ACP_AGENTS` | `1` | Agent subprocesses to start (1–32). If every worker is busy and a different thread or channel has pending work, the pool grows up to 4 (or up to `--agents` when that is higher) so the second scope is not stuck behind one long turn. |
 | `--lazy-pool` | `BUZZ_ACP_LAZY_POOL` | `false` | Connect, subscribe, and queue accepted work before starting ACP/LLM subprocesses. The first accepted event wakes one pool initialization task; failures retry with bounded exponential backoff while work remains. |
 | `--heartbeat-interval` | `BUZZ_ACP_HEARTBEAT_INTERVAL` | `0` | Seconds between heartbeat prompts. `0` = disabled. Must be `0` or ≥10 when enabled. |
 | `--heartbeat-prompt` | `BUZZ_ACP_HEARTBEAT_PROMPT` | (built-in) | Custom heartbeat prompt text. Conflicts with `--heartbeat-prompt-file`. |
@@ -171,7 +171,7 @@ The gate applies to **all** inbound events — @mentions, DMs, thread replies, a
 | `!cancel` | Cancels the current in-flight turn for the command's resolved session scope, if any. |
 | `!rotate` | Rotates the ACP session for the command's resolved session scope. If a turn is in flight, it is cancelled and that scoped session is invalidated when the task returns; otherwise the cached scoped session is invalidated immediately. The next queued/received event in that scope starts a fresh session. |
 
-Under the default `channel` policy, a session scope is the whole channel, so these commands retain their channel-wide behavior. Under the `thread` policy, post the command as a reply in the target thread so `!cancel` or `!rotate` affects only that thread. DMs remain one conversation scope. `!cancel` is a no-op when its scope is idle.
+The default session policy is `thread`: each channel thread is its own ACP session, and a mention in another thread gets its own reply instead of being steer-merged into the in-flight turn. Set `--session-policy channel` / `BUZZ_ACP_SESSION_POLICY=channel` to roll back to one session per channel. Direct messages stay one conversation scope either way. Post `!cancel` or `!rotate` in the target thread so only that thread is affected. Under `channel` policy those commands are channel-wide, because the scope is the whole channel. `!cancel` is a no-op when its scope is idle.
 
 Owner control commands must be kind:9 stream messages from the owner, must have body exactly `!cancel`, `!rotate`, or `!shutdown` after trimming, and must mention this agent with a separate `p` tag. They are consumed by the harness instead of being forwarded to the agent. An inline `@Name` changes the body and does not match. With the Buzz CLI, target a thread while preserving the exact command body by passing the mention separately:
 
@@ -224,7 +224,7 @@ buzz-acp --agents 2 --heartbeat-interval 300 \
 
 ### Shared Identity
 
-All N agents authenticate as the **same Nostr bot identity** — users see one bot regardless of how many agents are running. The same channel is never processed by two agents simultaneously (the queue enforces this). Cross-channel message ordering is not guaranteed when N>1.
+All workers authenticate as the **same Nostr bot identity** — users see one bot regardless of how many subprocesses are running. The same session scope (one thread, or a whole channel under `channel` policy, or a DM) is never processed by two workers at once. Different threads in one channel, and different channels, run concurrently up to the worker limit above. Cross-scope ordering is not guaranteed when more than one worker is busy.
 
 ### Heartbeat Semantics
 
@@ -271,10 +271,10 @@ Forum event kinds:
 
 ## How It Works
 
-1. **Startup** — Spawns N agent subprocesses (default 1), sends ACP `initialize` to each, connects to the relay with NIP-42 auth.
+1. **Startup** — Spawns the configured agent subprocesses (default 1; more are started on demand up to the cap in the agents table), sends ACP `initialize` to each, connects to the relay with NIP-42 auth.
 2. **Channel discovery** — Queries the relay REST API for accessible channels, subscribes to each.
 3. **Event loop** — Listens for @mention events (kind 9 with the agent's pubkey in a `#p` tag). Events queue per channel.
-4. **Prompting** — When events are pending and no prompt is in flight for that channel, drains all queued events for the oldest channel into a single batched prompt via ACP `session/prompt`.
+4. **Prompting** — When events are pending and no prompt is in flight for that session scope, drains the oldest ready scope into one batched prompt via ACP `session/prompt`. A mention in a different thread or channel does not cancel the turn already running.
 5. **Agent response** — The agent processes the prompt and streams ACP assistant text. After a completed turn, the harness publishes that text as a kind:9 to the triggering room/thread (same destination as `[Context]`). If the agent also successfully CLI-sent a kind:9 in that channel after the mention, the harness skips so the reply is not double-posted. Extra CLI actions (search, reactions, additional posts) still work when the agent process has `BUZZ_*` env.
 6. **Recovery** — If the agent crashes, the harness respawns it. If the relay disconnects, the harness reconnects with a `since` filter to avoid missing events.
    If the inbound queue overflows, the harness attempts replay for affected
@@ -291,7 +291,7 @@ Forum event kinds:
 
 Heartbeat turns have no triggering channel and are not last-mile published; those still need the CLI when the agent has keys.
 
-Each channel has at most one prompt in flight. Multiple channels can be processed concurrently when agents > 1.
+Each session scope has at most one prompt in flight. Different threads and different channels run concurrently, up to the worker cap (at least 4 when more than one scope is waiting).
 
 > **Note:** On startup, the harness replays all unprocessed @mentions since the last run. Expect a burst of activity if there are stale events in the channel.
 
