@@ -10,9 +10,11 @@
 //! not the product design — it puts private keys in tool transcripts. This
 //! module exists so agents do not need to do that.
 //!
-//! Desktop managed agents that still CLI-send a channel message during the
-//! turn are not double-posted: if this identity already published a kind:9
-//! in the triggering channel after the mention, the harness skips.
+//! Desktop managed agents that still CLI-send during the turn are not
+//! double-posted: if this identity already published a kind:9 in the *same
+//! thread* after the mention, the harness skips. A kind:9 in another thread
+//! of the same channel does not count — channel-wide dedup silenced a second
+//! thread that was admitted alongside the first.
 
 use std::time::Duration;
 
@@ -51,12 +53,15 @@ pub fn assistant_text_is_publishable(text: &str) -> bool {
     !normalize_reply(text).is_empty()
 }
 
-/// Skip harness publish when this identity already landed a channel message
-/// after the triggering mention (CLI send, prior last-mile attempt, etc.).
+/// Skip harness publish when this identity already landed a reply in this
+/// destination after the triggering mention (CLI send, prior last-mile
+/// attempt, etc.).
 ///
+/// `existing_self_replies` is already scoped to that destination: the same
+/// thread when [`ReplyDestination::reply_to`] is set, otherwise the channel.
 /// Any non-empty result set is a skip — not only an exact content match —
 /// so Desktop agents that CLI-send a polished reply different from their
-/// streamed ACP text do not get a second primary post.
+/// streamed ACP text do not get a second primary post in that destination.
 pub fn should_publish_assistant_reply(text: &str, existing_self_replies: &[String]) -> bool {
     assistant_text_is_publishable(text) && existing_self_replies.is_empty()
 }
@@ -145,7 +150,7 @@ async fn query_self_replies(
     use nostr::Filter;
 
     let h_tag = SingleLetterTag::lowercase(Alphabet::H);
-    let filter = Filter::new()
+    let mut filter = Filter::new()
         .kind(nostr::Kind::Custom(
             buzz_core::kind::KIND_STREAM_MESSAGE as u16,
         ))
@@ -154,12 +159,79 @@ async fn query_self_replies(
         .since(Timestamp::from(dest.since))
         .limit(20);
 
+    // Threaded destinations only look at kind:9s that tag this thread root.
+    // `build_message` / `ThreadRef` stores a flat reply as
+    // `["e", root, "", "reply"]` (root == parent) and a nested reply as
+    // `["e", root, "", "root"]` plus a reply marker. `#e` matches either, so
+    // another thread's kind:9 in the same channel cannot fill the limit or
+    // look like "already landed".
+    //
+    // `reply_destination` always sets `reply_to`: it passes no profile
+    // lookup, so `resolve_reply_anchor` treats the sender as human-facing and
+    // anchors the thread root or the triggering event. `None` is only
+    // reachable when a caller builds [`ReplyDestination`] directly. That
+    // unthreaded destination keeps the channel-wide query so one
+    // channel-level CLI-send still dedups.
+    if let Some(root) = dest.reply_to.as_deref() {
+        let e_tag = SingleLetterTag::lowercase(Alphabet::E);
+        filter = filter.custom_tags(e_tag, [root.to_string()]);
+    }
+
     let json = tokio::time::timeout(LAST_MILE_TIMEOUT, rest.query(std::slice::from_ref(&filter)))
         .await
         .map_err(|_| anyhow::anyhow!("dedup query timed out"))?
         .map_err(|e| anyhow::anyhow!("dedup query failed: {e}"))?;
 
-    Ok(contents_from_query_response(&json))
+    Ok(self_reply_contents(&json, dest))
+}
+
+/// Contents of kind:9s that should suppress a publish to `dest`.
+///
+/// When `reply_to` is set, only events whose NIP-10 thread root is that id
+/// count. A channel-level kind:9 (no reply marker) and a kind:9 rooted in a
+/// different thread do not. When `reply_to` is `None`, every returned event
+/// counts — the historical channel-wide behavior for an unthreaded destination.
+fn self_reply_contents(json: &serde_json::Value, dest: &ReplyDestination) -> Vec<String> {
+    json.as_array()
+        .map(|events| {
+            events
+                .iter()
+                .filter(|ev| reply_matches_destination(ev, dest))
+                .filter_map(|ev| ev.get("content")?.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn reply_matches_destination(event: &serde_json::Value, dest: &ReplyDestination) -> bool {
+    let Some(root) = dest.reply_to.as_deref() else {
+        return true;
+    };
+    event_thread_root(event).is_some_and(|got| got.eq_ignore_ascii_case(root))
+}
+
+/// Thread root the relay stored on a kind:9, via the shared NIP-10 resolver.
+///
+/// Flat replies (`root == parent`) carry only `["e", root, "", "reply"]`, and
+/// that reply id *is* the root. Nested replies carry a `root` marker. A lone
+/// `root` marker or no `e` tag is channel-level (`None`).
+fn event_thread_root(event: &serde_json::Value) -> Option<String> {
+    let tags = event.get("tags")?.as_array()?;
+    let owned: Vec<Vec<String>> = tags
+        .iter()
+        .filter_map(|tag| {
+            let parts = tag.as_array()?;
+            Some(
+                parts
+                    .iter()
+                    .filter_map(|part| part.as_str().map(str::to_string))
+                    .collect(),
+            )
+        })
+        .collect();
+    buzz_core::nip10::parse_thread_markers_from_parts(owned.iter().map(Vec::as_slice))
+        .resolve()
+        .map(|(root, _parent)| root)
 }
 
 /// Extract `content` strings from a `POST /query` array response.
@@ -402,7 +474,7 @@ mod tests {
         String::from_utf8(buf).ok()
     }
 
-    async fn spawn_mock_relay(query_body: &'static str) -> MockRelay {
+    async fn spawn_mock_relay(query_body: String) -> MockRelay {
         use tokio::io::AsyncWriteExt;
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -457,7 +529,7 @@ mod tests {
 
     #[tokio::test]
     async fn harness_publishes_assistant_text_when_query_is_empty() {
-        let mock = spawn_mock_relay("[]").await;
+        let mock = spawn_mock_relay("[]".to_string()).await;
         let rest = test_rest(mock.base_url.clone());
         let event = make_event("@bot status?", vec![]);
         let trigger = event.id.to_hex();
@@ -489,11 +561,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn harness_skips_publish_when_agent_already_sent() {
-        let mock = spawn_mock_relay(r#"[{"id":"aa","content":"All green."}]"#).await;
-        let rest = test_rest(mock.base_url.clone());
+    async fn harness_skips_publish_when_agent_already_sent_in_same_thread() {
         let batch = batch_with(make_event("@bot status?", vec![]));
         let dest = reply_destination(&batch).expect("destination");
+        let root = dest.reply_to.clone().expect("threaded destination");
+        // Flat kind:9: root == parent, stored as a reply marker (ThreadRef).
+        let body =
+            format!(r#"[{{"id":"aa","content":"All green.","tags":[["e","{root}","","reply"]]}}]"#);
+        let mock = spawn_mock_relay(body).await;
+        let rest = test_rest(mock.base_url.clone());
 
         publish_assistant_reply(&rest, &dest, "All green.")
             .await
@@ -502,7 +578,104 @@ mod tests {
         let submitted = mock.submitted.lock().expect("lock").clone();
         assert!(
             submitted.is_empty(),
-            "must not double-post when a kind:9 from this identity already landed"
+            "must not double-post when a kind:9 from this identity already landed in this thread"
+        );
+    }
+
+    #[tokio::test]
+    async fn harness_publishes_when_existing_kind9_is_in_another_thread() {
+        let batch = batch_with(make_event("@bot status?", vec![]));
+        let dest = reply_destination(&batch).expect("destination");
+        let other = "ab".repeat(32);
+        let body = format!(
+            r#"[{{"id":"aa","content":"reply in the other thread","tags":[["e","{other}","","reply"]]}}]"#
+        );
+        let mock = spawn_mock_relay(body).await;
+        let rest = test_rest(mock.base_url.clone());
+
+        publish_assistant_reply(&rest, &dest, "All green.")
+            .await
+            .expect("other thread must not suppress");
+
+        let submitted = mock.submitted.lock().expect("lock").clone();
+        assert_eq!(
+            submitted.len(),
+            1,
+            "a kind:9 in a different thread must not silence this one"
+        );
+    }
+
+    #[test]
+    fn same_thread_existing_reply_skips_other_thread_does_not() {
+        let root = "aa".repeat(32);
+        let other = "bb".repeat(32);
+        let parent = "cc".repeat(32);
+        let dest = ReplyDestination {
+            channel_id: Uuid::new_v4(),
+            reply_to: Some(root.clone()),
+            since: 0,
+        };
+        let text = "The deploy is green.";
+
+        let same_flat = serde_json::json!([{
+            "content": "already sent",
+            "tags": [["e", root, "", "reply"]]
+        }]);
+        assert!(
+            !should_publish_assistant_reply(text, &self_reply_contents(&same_flat, &dest)),
+            "flat same-thread kind:9 (reply marker is the root) must skip"
+        );
+
+        let same_nested = serde_json::json!([{
+            "content": "already sent",
+            "tags": [["e", root, "", "root"], ["e", parent, "", "reply"]]
+        }]);
+        assert!(
+            !should_publish_assistant_reply(text, &self_reply_contents(&same_nested, &dest)),
+            "nested same-thread kind:9 (root marker) must skip"
+        );
+
+        let other_thread = serde_json::json!([{
+            "content": "other thread",
+            "tags": [["e", other, "", "reply"]]
+        }]);
+        assert!(
+            should_publish_assistant_reply(text, &self_reply_contents(&other_thread, &dest)),
+            "a kind:9 rooted in another thread must not skip"
+        );
+
+        let channel_level = serde_json::json!([{
+            "content": "channel broadcast",
+            "tags": [["h", dest.channel_id.to_string()]]
+        }]);
+        assert!(
+            should_publish_assistant_reply(text, &self_reply_contents(&channel_level, &dest)),
+            "a channel-level kind:9 must not skip a threaded reply"
+        );
+
+        assert!(
+            should_publish_assistant_reply(
+                text,
+                &self_reply_contents(&serde_json::json!([]), &dest)
+            ),
+            "empty result still publishes"
+        );
+
+        // Unthreaded destination keeps channel-wide dedup.
+        let unthreaded = ReplyDestination {
+            reply_to: None,
+            ..dest.clone()
+        };
+        assert!(
+            !should_publish_assistant_reply(text, &self_reply_contents(&other_thread, &unthreaded)),
+            "reply_to None still skips on any recent kind:9"
+        );
+        assert!(
+            !should_publish_assistant_reply(
+                text,
+                &self_reply_contents(&channel_level, &unthreaded)
+            ),
+            "reply_to None still skips on a channel-level kind:9"
         );
     }
 }
