@@ -102,7 +102,7 @@ export function ChannelScreen({
   autoSendDraftKey,
   currentIdentity,
   currentProfile,
-  headerEndActions, idleAuxiliaryPanel,
+  headerDetail, headerEndActions, idleAuxiliaryPanel,
   idleAuxiliaryHeaderActions, idleAuxiliaryOverridesThread,
   idleAuxiliaryExpanded, idleAuxiliaryCoverAppChrome, idleAuxiliaryBodyClassName, idleAuxiliaryTitle,
   onAddFiles, onCloseIdleAuxiliaryPanel,
@@ -845,7 +845,7 @@ export function ChannelScreen({
         activeDmHeaderParticipants={activeDmHeaderParticipants}
         activeDmPresenceStatus={activeDmPresenceStatus}
         chromeWrapperRef={channelHeaderChromeRef}
-        {...{ currentPubkey, headerEndActions }}
+        {...{ currentPubkey, headerDetail, headerEndActions }}
         isAddBotOpen={isAddBotOpen}
         isJoining={joinChannelMutation.isPending}
         onAddBotOpenChange={setIsAddBotOpen}
@@ -866,6 +866,7 @@ export function ChannelScreen({
       activeDmPresenceStatus,
       channelHeaderChromeRef,
       currentPubkey,
+      headerDetail,
       headerEndActions,
       isAddBotOpen,
       joinChannelMutation.isPending,

@@ -9,6 +9,7 @@ import {
 } from "../../shared/constants/kinds.ts";
 
 const OWNER = "a".repeat(64);
+const DRI = "c".repeat(64);
 const HOME = "11111111-1111-4111-8111-111111111111";
 const DESKTOP = "22222222-2222-4222-8222-222222222222";
 const ROOT = "Hula/projects/claimminer";
@@ -92,6 +93,7 @@ function input() {
   return {
     name: "claimminer",
     description: "Claims",
+    driPubkey: DRI,
     hula: {
       hulaPath: ROOT,
       repoPaths: [ROOT, `${ROOT}/desktop`],
@@ -113,6 +115,7 @@ test("a Hula project publishes path records and one project, with no clone URL",
   assert.equal(created[0].channelType, "stream");
   assert.deepEqual(order, ["repo", "repo", "project"]);
   assert.equal(result.project.hulaPath, ROOT);
+  assert.equal(result.project.dri, DRI);
   assert.equal(
     result.project.repositories.some((repository) =>
       repository.cloneUrls.some((url) => url.includes("/git/")),
@@ -149,7 +152,11 @@ test("an existing project with the same name is not given a path", async () => {
   ];
   await assert.rejects(
     () =>
-      createProject(input(), { channels: new Map(), projectIds: new Set() }, deps),
+      createProject(
+        input(),
+        { channels: new Map(), projectIds: new Set() },
+        deps,
+      ),
     /already have a project named "claimminer"/,
   );
   assert.deepEqual(order, []);
@@ -170,7 +177,11 @@ test("a saved channel plan joins the existing channel instead of creating anothe
     hulaPlans: new Map([[`${OWNER}:claimminer`, plan]]),
   };
   await createProject(
-    { name: "claimminer", hula: { hulaPath: ROOT, repoPaths: [ROOT] } },
+    {
+      name: "claimminer",
+      driPubkey: DRI,
+      hula: { hulaPath: ROOT, repoPaths: [ROOT] },
+    },
     resume,
     deps,
   );
@@ -201,7 +212,11 @@ test("a published head for a different path is left alone", async () => {
   await assert.rejects(
     () =>
       createProject(
-        { name: "claimminer", hula: { hulaPath: ROOT, repoPaths: [ROOT] } },
+        {
+          name: "claimminer",
+          driPubkey: DRI,
+          hula: { hulaPath: ROOT, repoPaths: [ROOT] },
+        },
         { channels: new Map(), projectIds: new Set() },
         deps,
       ),

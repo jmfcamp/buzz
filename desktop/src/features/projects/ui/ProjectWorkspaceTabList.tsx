@@ -49,3 +49,30 @@ export function ProjectTabsList({ onBack }: { onBack: () => void }) {
     </div>
   );
 }
+
+export const PROJECT_CHANNEL_SECTIONS = [
+  { label: "Chat", value: "chat" },
+  { label: "Read Me", value: "overview" },
+  { label: "Files", value: "files" },
+  { label: "Commits", value: "activity" },
+  { label: "Tasks", value: "issues" },
+  { label: "Channels", value: "channels" },
+  { label: "Contributors", value: "contributors" },
+] as const;
+
+/** Channel-home switcher. Chat first, then the repository workspace sections. */
+export function ProjectChannelSectionList() {
+  return (
+    <TabsList className="h-full min-w-0 max-w-full flex-none justify-start gap-1.5 overflow-x-auto bg-transparent p-0 scrollbar-none">
+      {PROJECT_CHANNEL_SECTIONS.map((section) => (
+        <TabsTrigger
+          className={PROJECT_TAB_TRIGGER_CLASS}
+          key={section.value}
+          value={section.value}
+        >
+          <ProjectTabLabel>{section.label}</ProjectTabLabel>
+        </TabsTrigger>
+      ))}
+    </TabsList>
+  );
+}

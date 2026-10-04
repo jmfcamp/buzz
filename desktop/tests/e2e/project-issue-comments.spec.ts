@@ -21,7 +21,11 @@ async function openBuzzProject(page: import("@playwright/test").Page) {
     .first();
   await expect(projectEntry).toBeVisible({ timeout: 10_000 });
   await projectEntry.click();
-  await page.getByTestId("project-home-context-repo-buzz").click();
+  // Codebase name stays on the channel home. Issue actions live on the
+  // repository page reached by expanding the home Files sheet.
+  await page.getByTestId("project-home-context-files").click();
+  await page.getByTestId("project-home-workspace-sheet-expand").click();
+  await expect(page.getByTestId("project-workspace-back")).toBeVisible();
 }
 
 test("issue detail can open agent chat or seed a channel question", async ({

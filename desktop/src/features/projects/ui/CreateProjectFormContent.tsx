@@ -13,6 +13,7 @@ import type { ResolvedHulaProject } from "@/features/projects/lib/hulaProjectRes
 import { useProjectsQuery } from "@/features/projects/hooks";
 import type { CreateProjectInput } from "@/features/projects/useCreateProject";
 import { CreateProjectFormSettings } from "@/features/projects/ui/CreateProjectFormSettings";
+import { ProjectDriField } from "@/features/projects/ui/ProjectDriField";
 import { CreateProjectPathField } from "@/features/projects/ui/CreateProjectPathField";
 import { useCreateProjectFormSettings } from "@/features/projects/ui/useCreateProjectFormSettings";
 import { cn } from "@/shared/lib/cn";
@@ -51,6 +52,7 @@ export function CreateProjectFormContent({
   );
   const [resolving, setResolving] = React.useState(false);
   const [description, setDescription] = React.useState("");
+  const [driPubkey, setDriPubkey] = React.useState("");
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const settings = useCreateProjectFormSettings(active, setDescription);
   const projectsQuery = useProjectsQuery();
@@ -64,6 +66,7 @@ export function CreateProjectFormContent({
     setResolved(null);
     setResolving(false);
     setDescription("");
+    setDriPubkey("");
     setErrorMessage(null);
   }, [active, initialName]);
 
@@ -85,6 +88,10 @@ export function CreateProjectFormContent({
       setErrorMessage(attachment.error);
       return;
     }
+    if (!driPubkey) {
+      setErrorMessage("Choose a directly responsible individual.");
+      return;
+    }
 
     setErrorMessage(null);
     try {
@@ -96,6 +103,8 @@ export function CreateProjectFormContent({
         agents: settings.buildAgents(),
         templateId: settings.templateId,
         hula: attachment.hula,
+        driPubkey,
+        codingAgentPubkey: settings.codingAgentPubkey || undefined,
       });
       onCreated();
     } catch (error) {
@@ -123,7 +132,11 @@ export function CreateProjectFormContent({
             className="shrink-0"
             data-testid="create-project-submit"
             disabled={
-              isCreating || resolving || name.trim().length === 0 || pathPending
+              isCreating ||
+              resolving ||
+              name.trim().length === 0 ||
+              pathPending ||
+              driPubkey.length === 0
             }
             form="create-project-form"
             type="submit"
@@ -207,6 +220,17 @@ export function CreateProjectFormContent({
             />
           </div>
         </div>
+
+        <ProjectDriField
+          disabled={isCreating}
+          fieldClassName={CREATE_FIELD_SHELL_CLASS}
+          inputClassName={CREATE_FIELD_CONTROL_CLASS}
+          onChange={(pubkey) => {
+            setDriPubkey(pubkey);
+            setErrorMessage(null);
+          }}
+          value={driPubkey}
+        />
 
         <div className="space-y-1.5">
           <label

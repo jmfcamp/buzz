@@ -59,7 +59,6 @@ type ProjectsOverviewContextPanelProps = {
   canCreateTarget: boolean;
   issues: ProjectIssue[];
   onAddChannel: () => void;
-  onAddRepository: () => void;
   onChatWithAgent: (items: ProjectSelectionItem[]) => void;
   onCreateIssue: () => void;
   onCreateProject: () => void;
@@ -76,14 +75,12 @@ function OverviewCreateButton({
   action,
   canCreateTarget,
   onAddChannel,
-  onAddRepository,
   onCreateIssue,
   onCreateProject,
 }: {
   action: Exclude<OverviewContextAction, null>;
   canCreateTarget: boolean;
   onAddChannel: () => void;
-  onAddRepository: () => void;
   onCreateIssue: () => void;
   onCreateProject: () => void;
 }) {
@@ -92,11 +89,8 @@ function OverviewCreateButton({
       ? onCreateIssue
       : action.kind === "project"
         ? onCreateProject
-        : action.kind === "channel"
-          ? onAddChannel
-          : onAddRepository;
-  const requiresProject =
-    action.kind === "channel" || action.kind === "repository";
+        : onAddChannel;
+  const requiresProject = action.kind === "channel";
   return (
     <Button
       aria-label={action.label}
@@ -197,7 +191,6 @@ export function ProjectsOverviewContextPanel({
   filter,
   issues,
   onAddChannel,
-  onAddRepository,
   onChatWithAgent,
   onCreateIssue,
   onCreateProject,
@@ -266,7 +259,6 @@ export function ProjectsOverviewContextPanel({
                 action={context.action}
                 canCreateTarget={canCreateTarget}
                 onAddChannel={onAddChannel}
-                onAddRepository={onAddRepository}
                 onCreateIssue={onCreateIssue}
                 onCreateProject={onCreateProject}
               />

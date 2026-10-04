@@ -44,6 +44,10 @@ import { useThreadViewMode } from "@/features/channels/lib/threadViewModePrefere
 import { useThreadViewModeSwitch } from "@/features/channels/ui/useThreadViewModeSwitch";
 import { useFocusDrawerPresence } from "@/features/channels/ui/useFocusDrawerPresence";
 import { useChannelWorkingAgentPubkeys } from "@/features/agents/agentWorkingSignal";
+import { checkoutWorkCardMessageId } from "@/features/projects/lib/checkoutWork";
+import { CheckoutWorkCard } from "@/features/projects/ui/CheckoutWorkViews";
+import { useCheckoutWorkContext } from "@/features/projects/ui/checkoutWorkContext";
+import { normalizePubkey } from "@/shared/lib/pubkey";
 import { useCardMintJobs } from "@/features/agents/cardMintStore";
 import { BotActivityComposerAction } from "@/features/channels/ui/BotActivityBar";
 import { ChannelComposerActivityAccessory } from "@/features/channels/ui/ChannelComposerActivityAccessory";
@@ -345,6 +349,7 @@ export const ChannelPane = React.memo(function ChannelPane({
   const composerWorkingBotPubkeys = useChannelWorkingAgentPubkeys(
     activeChannel?.id ?? null,
   );
+  const checkoutWork = useCheckoutWorkContext();
   const hasComposerBotActivity = composerWorkingBotPubkeys.length > 0;
   const hasCardMintActivity = useCardMintJobs().length > 0;
   const hasComposerBottomActivity =
@@ -405,6 +410,40 @@ export const ChannelPane = React.memo(function ChannelPane({
       profiles,
       threadSummaries,
     });
+
+  const checkoutCardMessageId = React.useMemo(() => {
+    if (!checkoutWork?.card) return null;
+    return checkoutWorkCardMessageId(
+      visibleMessages.map((message) => {
+        const pubkey = message.pubkey ? normalizePubkey(message.pubkey) : "";
+        const isAgent =
+          message.isAgent === true ||
+          message.role === "bot" ||
+          (pubkey.length > 0 &&
+            (knownAgentPubkeys.has(pubkey) ||
+              profiles?.[pubkey]?.isAgent === true));
+        return { id: message.id, isAgent, pending: message.pending };
+      }),
+      composerWorkingBotPubkeys.length > 0,
+    );
+  }, [
+    checkoutWork?.card,
+    composerWorkingBotPubkeys.length,
+    knownAgentPubkeys,
+    profiles,
+    visibleMessages,
+  ]);
+  const messageFooters = React.useMemo(() => {
+    if (!checkoutWork?.card || !checkoutCardMessageId) return undefined;
+    return {
+      [checkoutCardMessageId]: (
+        <CheckoutWorkCard
+          card={checkoutWork.card}
+          onOpenCommit={checkoutWork.onOpenCommit}
+        />
+      ),
+    };
+  }, [checkoutCardMessageId, checkoutWork]);
   useRenderScopedReactionHydration({
     activeChannel,
     mainTimelineEntries,
@@ -809,6 +848,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                   mainEntries={mainTimelineEntries}
                   threadSummaries={threadSummaries}
                   messages={visibleMessages}
+                  messageFooters={messageFooters}
                   firstUnreadMessageId={firstUnreadMessageId}
                   unreadCount={unreadCount}
                   onDelete={onDelete}

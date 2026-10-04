@@ -37,7 +37,13 @@ import {
   RepositoryGridCard,
   RepositoryListRow,
 } from "@/features/projects/ui/RepositoryCards";
+import {
+  nestRepositoryListRows,
+  repositoryRowRoleLabel,
+  type NestedRepositoryRow,
+} from "@/features/projects/lib/repositoryListRoles";
 import { useIncrementalMount } from "@/shared/hooks/useIncrementalMount";
+import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 
 const RESPONSIVE_CARD_GRID_CLASS =
@@ -95,6 +101,29 @@ function projectSelectionItems(projects: readonly Project[]) {
       title: project.name,
     }),
   );
+}
+
+type RepositoryOverviewRow = { project: Project; repository: Repository };
+
+function groupRepositoryRows(
+  rows: readonly NestedRepositoryRow<RepositoryOverviewRow>[],
+  currentPubkey: string | undefined,
+) {
+  const mine: NestedRepositoryRow<RepositoryOverviewRow>[] = [];
+  const other: NestedRepositoryRow<RepositoryOverviewRow>[] = [];
+  let bucket: NestedRepositoryRow<RepositoryOverviewRow>[] | null = null;
+  for (const item of rows) {
+    if (!item.nested) {
+      bucket = repositoryIsMine(item.row.repository, currentPubkey)
+        ? mine
+        : other;
+    }
+    (bucket ?? mine).push(item);
+  }
+  return [
+    { items: mine, title: "Mine" },
+    { items: other, title: "Other repositories" },
+  ].filter((group) => group.items.length > 0);
 }
 
 function repositorySelectionItems(
@@ -321,88 +350,86 @@ export function ProjectsOverviewRepositoryItems({
   viewMode: ProjectsViewMode;
   visibleRepositories: Array<{ project: Project; repository: Repository }>;
 }) {
+  // Mainline order stays as sorted. Subrepositories are pulled under the
+  // mainline they belong to. See nestRepositoryListRows.
+  const nestedRepositories = React.useMemo(
+    () => nestRepositoryListRows(visibleRepositories),
+    [visibleRepositories],
+  );
   // Shared, identity-stable selection array (see ProjectsOverviewProjectItems).
   const selectionRangeItems = React.useMemo(
     () =>
-      visibleRepositories.map((row) =>
+      nestedRepositories.map((item) =>
         selectionItemFromRepository({
-          channelId: row.repository.channelId ?? row.project.projectChannelId,
-          id: row.repository.id,
-          owner: row.repository.owner,
-          shareLink: repositoryShareLink(row.repository),
-          title: row.repository.name,
+          channelId:
+            item.row.repository.channelId ?? item.row.project.projectChannelId,
+          id: item.row.repository.id,
+          owner: item.row.repository.owner,
+          shareLink: repositoryShareLink(item.row.repository),
+          title: item.row.repository.name,
         }),
       ),
-    [visibleRepositories],
+    [nestedRepositories],
   );
   // Mount cards progressively (see ProjectsOverviewProjectItems).
   // Small first window: see ProjectsOverviewProjectItems.
   // Dormant outside grid layout; see ProjectsOverviewProjectItems.
   const mountedCount = useIncrementalMount(
-    visibleRepositories.length,
+    nestedRepositories.length,
     12,
     36,
     viewMode === "grid",
   );
-  const mountedRepositories = React.useMemo(
-    () => visibleRepositories.slice(0, mountedCount),
-    [mountedCount, visibleRepositories],
-  );
   const mountedRepositoryAddresses = React.useMemo(
     () =>
       new Set(
-        mountedRepositories.map(({ repository }) => repository.repoAddress),
+        nestedRepositories
+          .slice(0, mountedCount)
+          .map((item) => item.row.repository.repoAddress),
       ),
-    [mountedRepositories],
+    [mountedCount, nestedRepositories],
   );
   if (visibleRepositories.length === 0) {
     return <EmptyFilteredState />;
   }
-  const groups = [
-    {
-      items: visibleRepositories.filter(({ repository }) =>
-        repositoryIsMine(repository, currentPubkey),
-      ),
-      title: "Mine",
-    },
-    {
-      items: visibleRepositories.filter(
-        ({ repository }) => !repositoryIsMine(repository, currentPubkey),
-      ),
-      title: "Other repositories",
-    },
-  ].filter((group) => group.items.length > 0);
+  const groups = groupRepositoryRows(nestedRepositories, currentPubkey);
   if (viewMode === "grid") {
     return (
       <div className="space-y-0">
         {groups.map((group) => (
           <CollectionGroup
             icon={<FolderGit2 className="h-4 w-4" />}
-            items={repositorySelectionItems(group.items)}
+            items={repositorySelectionItems(
+              group.items.map((item) => item.row),
+            )}
             key={group.title}
             title={group.title}
           >
             <div className={RESPONSIVE_CARD_GRID_CLASS}>
               {group.items
-                .filter(({ repository }) =>
-                  mountedRepositoryAddresses.has(repository.repoAddress),
+                .filter((item) =>
+                  mountedRepositoryAddresses.has(
+                    item.row.repository.repoAddress,
+                  ),
                 )
-                .map(({ project, repository }) => (
+                .map((item) => (
                   <div
                     className="[contain-intrinsic-size:auto_11rem] [content-visibility:auto]"
-                    key={repository.repoAddress}
+                    data-repository-role={item.role.kind}
+                    key={item.row.repository.repoAddress}
                   >
                     <RepositoryGridCard
                       hasLocal={hasLocalRepositoryCheckout(
-                        repository,
+                        item.row.repository,
                         localRepoNames,
                       )}
                       onOpen={onOpen}
                       onOpenTerminal={onOpenTerminal}
                       profiles={profiles}
-                      project={project}
-                      repository={repository}
-                      summary={summaries?.[repository.repoAddress]}
+                      project={item.row.project}
+                      repository={item.row.repository}
+                      roleLabel={repositoryRowRoleLabel(item.role)}
+                      summary={summaries?.[item.row.repository.repoAddress]}
                     />
                   </div>
                 ))}
@@ -417,28 +444,33 @@ export function ProjectsOverviewRepositoryItems({
       {groups.map((group) => (
         <CollectionGroup
           icon={<FolderGit2 className="h-4 w-4" />}
-          items={repositorySelectionItems(group.items)}
+          items={repositorySelectionItems(group.items.map((item) => item.row))}
           key={group.title}
           title={group.title}
         >
           <div>
-            {group.items.map(({ project, repository }) => (
+            {group.items.map((item) => (
               <div
-                className="[contain-intrinsic-size:auto_3.5rem] [content-visibility:auto]"
-                key={repository.repoAddress}
+                className={cn(
+                  "[contain-intrinsic-size:auto_3.5rem] [content-visibility:auto]",
+                  item.nested && "ml-6 border-l border-border/60",
+                )}
+                data-repository-role={item.role.kind}
+                key={item.row.repository.repoAddress}
               >
                 <RepositoryListRow
                   hasLocal={hasLocalRepositoryCheckout(
-                    repository,
+                    item.row.repository,
                     localRepoNames,
                   )}
                   onOpen={onOpen}
                   onOpenTerminal={onOpenTerminal}
                   profiles={profiles}
-                  project={project}
-                  repository={repository}
+                  project={item.row.project}
+                  repository={item.row.repository}
+                  roleLabel={repositoryRowRoleLabel(item.role)}
                   selectionRangeItems={selectionRangeItems}
-                  summary={summaries?.[repository.repoAddress]}
+                  summary={summaries?.[item.row.repository.repoAddress]}
                 />
               </div>
             ))}

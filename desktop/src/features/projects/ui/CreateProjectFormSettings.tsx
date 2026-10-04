@@ -2,9 +2,11 @@ import { ChevronDown, Plus } from "lucide-react";
 import * as React from "react";
 
 import { ChannelPermissionsSettings } from "@/features/channels/ui/ChannelPermissionsSettings";
+import { useCodingAgentOptions } from "@/features/projects/useCodingAgentOptions";
 import type { CreateProjectFormSettingsState } from "@/features/projects/ui/useCreateProjectFormSettings";
 import { TemplateFormDialog } from "@/features/settings/ui/ChannelTemplatesSettingsCard";
 import { Button } from "@/shared/ui/button";
+import { UserAvatar } from "@/shared/ui/UserAvatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,14 +26,11 @@ const SETTINGS_ROW_CLASS =
   "flex min-h-12 items-center justify-between gap-4 rounded-xl border border-input bg-background px-3 py-3";
 
 export function CreateProjectFormSettings({
-  agentPersonaId,
   disabled,
   handleTemplateChange,
   handleTemplateCreated,
-  personas,
   projectVisibility,
   runtimesAvailable,
-  setAgentPersonaId,
   setChannelVisibility,
   setProjectVisibility,
   setTeamId,
@@ -40,18 +39,39 @@ export function CreateProjectFormSettings({
   templateId,
   templates,
   channelVisibility,
+  codingAgentPubkey,
+  setCodingAgentPubkey,
 }: CreateProjectFormSettingsState & { disabled: boolean }) {
+  const {
+    failed: codingAgentFailed,
+    options: codingAgentOptions,
+    ready: codingAgentReady,
+  } = useCodingAgentOptions();
+
+  React.useEffect(() => {
+    if (!codingAgentReady || !codingAgentPubkey) return;
+    if (
+      !codingAgentOptions.some((option) => option.pubkey === codingAgentPubkey)
+    ) {
+      setCodingAgentPubkey("");
+    }
+  }, [
+    codingAgentOptions,
+    codingAgentPubkey,
+    codingAgentReady,
+    setCodingAgentPubkey,
+  ]);
+
   const [isCreateTemplateOpen, setIsCreateTemplateOpen] = React.useState(false);
-  const selectedPersona = personas.find(
-    (persona) => persona.id === agentPersonaId,
-  );
   const selectedTeam = teams.find((team) => team.id === teamId);
   const selectedTemplate = templates.find(
     (template) => template.id === templateId,
   );
+  const selectedCodingAgent = codingAgentOptions.find(
+    (option) => option.pubkey === codingAgentPubkey,
+  );
   const listingLabel = projectVisibility === "unlisted" ? "Unlisted" : "Listed";
-  const agentLabel = selectedPersona?.displayName ?? "None";
-  const agentDisabled = disabled || (!runtimesAvailable && personas.length > 0);
+  const agentLabel = selectedCodingAgent?.label ?? "None";
   const teamDisabled = disabled || (!runtimesAvailable && teams.length > 0);
 
   return (
@@ -210,7 +230,7 @@ export function CreateProjectFormSettings({
         </DropdownMenu>
       </div>
 
-      <div className={cn(SETTINGS_ROW_CLASS, agentDisabled && "opacity-50")}>
+      <div className={cn(SETTINGS_ROW_CLASS, disabled && "opacity-50")}>
         <span className="text-sm font-medium text-foreground">
           Coding agent
         </span>
@@ -220,16 +240,25 @@ export function CreateProjectFormSettings({
               aria-label={`Coding agent: ${agentLabel}`}
               className="-mr-2.5 ml-auto h-9 min-w-0 max-w-[60%] justify-end px-2.5 text-right text-sm font-medium text-foreground hover:bg-muted/50"
               data-testid="create-project-agent"
-              disabled={agentDisabled}
+              disabled={disabled}
               type="button"
               variant="ghost"
             >
+              {selectedCodingAgent ? (
+                <UserAvatar
+                  avatarUrl={selectedCodingAgent.avatarUrl}
+                  displayName={selectedCodingAgent.label}
+                  shape="squircle"
+                  size="xs"
+                />
+              ) : null}
               <span className="truncate text-right">{agentLabel}</span>
               <ChevronDown className="size-4 shrink-0 text-muted-foreground/70" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="end"
+            className="max-h-64 overflow-y-auto"
             onCloseAutoFocus={(event) => event.preventDefault()}
             style={{
               minWidth: "var(--radix-dropdown-menu-trigger-width)",
@@ -237,9 +266,9 @@ export function CreateProjectFormSettings({
           >
             <DropdownMenuRadioGroup
               onValueChange={(value) =>
-                setAgentPersonaId(value === NONE_AGENT_VALUE ? "" : value)
+                setCodingAgentPubkey(value === NONE_AGENT_VALUE ? "" : value)
               }
-              value={agentPersonaId || NONE_AGENT_VALUE}
+              value={codingAgentPubkey || NONE_AGENT_VALUE}
             >
               <DropdownMenuRadioItem
                 data-testid="create-project-agent-option-none"
@@ -247,16 +276,38 @@ export function CreateProjectFormSettings({
               >
                 None
               </DropdownMenuRadioItem>
-              {personas.map((persona) => (
+              {codingAgentOptions.map((option) => (
                 <DropdownMenuRadioItem
-                  data-testid={`create-project-agent-option-${persona.id}`}
-                  key={persona.id}
-                  value={persona.id}
+                  className="gap-2"
+                  data-testid={`create-project-agent-option-${option.pubkey}`}
+                  key={option.pubkey}
+                  value={option.pubkey}
                 >
-                  {persona.displayName}
+                  <UserAvatar
+                    avatarUrl={option.avatarUrl}
+                    displayName={option.label}
+                    shape="squircle"
+                    size="xs"
+                  />
+                  <span className="min-w-0 flex-1 truncate">
+                    {option.label}
+                  </span>
                 </DropdownMenuRadioItem>
               ))}
             </DropdownMenuRadioGroup>
+            {!codingAgentReady && !codingAgentFailed ? (
+              <DropdownMenuItem disabled>Loading bots…</DropdownMenuItem>
+            ) : null}
+            {codingAgentFailed ? (
+              <DropdownMenuItem disabled>
+                Couldn&apos;t load bots.
+              </DropdownMenuItem>
+            ) : null}
+            {codingAgentReady && codingAgentOptions.length === 0 ? (
+              <DropdownMenuItem disabled>
+                No local or community bots.
+              </DropdownMenuItem>
+            ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

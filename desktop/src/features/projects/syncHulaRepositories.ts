@@ -3,10 +3,19 @@ import {
   allocateDisplayName,
   hulaDirectoryPath,
   repoChannelName,
+  repositoryNameFromHulaPath,
 } from "@/features/projects/lib/hulaProjectNames";
 import { allocateRepositoryDtag } from "@/features/projects/lib/hulaProjectPlan";
 import { listGitRepositories } from "@/features/projects/lib/hulaProjectResolve";
 import { openClawWorkspaceClient } from "@/features/projects/lib/openClawWorkspaceClient";
+import { ensureProjectCodingAgentMember } from "@/features/projects/lib/projectCodingAgentMembership";
+import { replaceProjectCodingAgentTag } from "@/features/projects/lib/projectCodingAgent";
+import {
+  isValidProjectDri,
+  replaceProjectDriTag,
+  requireProjectDri,
+  withProjectDriTag,
+} from "@/features/projects/lib/projectDri";
 import { projectDtagFromName } from "@/features/projects/projectCreation";
 import type { ProjectEventTemplate } from "@/features/projects/projectCreation";
 import type { Project } from "@/features/projects/projectModels";
@@ -16,6 +25,8 @@ import {
   MAX_PROJECT_RELATED_CHANNELS,
   PROJECT_HULA_PATH_TAG,
   PROJECT_RELATED_CHANNEL_TAG,
+  readProjectCodingAgent,
+  readProjectDri,
   validateProjectEventEnvelope,
 } from "@/features/projects/projectModels";
 import { buildProjectPatchTemplate } from "@/features/projects/projectRepositoryCreation";
@@ -30,6 +41,7 @@ import {
   joinChannel,
   signRelayEvent,
 } from "@/shared/api/tauri";
+import { getIdentity } from "@/shared/api/tauriIdentity";
 import type { Channel, RelayEvent } from "@/shared/api/types";
 import {
   KIND_PROJECT_ANNOUNCEMENT,
@@ -45,6 +57,8 @@ type HulaSyncDeps = {
   signRelayEvent: (template: ProjectEventTemplate) => Promise<RelayEvent>;
   publishProjectEvent: (event: RelayEvent) => Promise<void>;
   publishRepositoryEvent: (event: RelayEvent) => Promise<void>;
+  /** Logged-in desktop user. Used to backfill a missing DRI. Tests omit it. */
+  getIdentity?: () => Promise<{ pubkey: string }>;
 };
 
 const defaultHulaSyncDeps: HulaSyncDeps = {
@@ -57,6 +71,7 @@ const defaultHulaSyncDeps: HulaSyncDeps = {
   signRelayEvent,
   publishProjectEvent,
   publishRepositoryEvent,
+  getIdentity,
 };
 
 /**
@@ -68,6 +83,8 @@ export function buildHulaMembershipPatch(input: {
   ownerPubkey: string;
   relatedChannelIds: readonly string[];
   repositoryAddresses: string[];
+  /** Logged-in owner pubkey used when the live announcement has no DRI. */
+  driPubkey?: string | null;
 }): ProjectEventTemplate {
   const patched = buildProjectPatchTemplate({
     liveHead: input.liveHead,
@@ -93,13 +110,201 @@ export function buildHulaMembershipPatch(input: {
       `A project can link at most ${MAX_PROJECT_RELATED_CHANNELS} channels.`,
     );
   }
+  const withDri = input.driPubkey
+    ? withProjectDriTag(tags, input.driPubkey)
+    : tags;
+  validateProjectEventEnvelope(withDri, patched.content);
+  return { kind: patched.kind, content: patched.content, tags: withDri };
+}
+
+/**
+ * Republish the project announcement with the logged-in user as DRI when the
+ * stored tag is missing and that user owns the project. Does nothing when a
+ * valid DRI is already on the live head. Returns true only when a replacement
+ * event was published.
+ */
+export async function publishMissingProjectDri(
+  project: Pick<Project, "dtag" | "dri" | "owner">,
+  identityPubkey: string,
+  deps: Pick<
+    HulaSyncDeps,
+    "fetchOwnHead" | "publishProjectEvent" | "signRelayEvent"
+  > = defaultHulaSyncDeps,
+): Promise<boolean> {
+  const owner = project.owner.trim().toLowerCase();
+  const identity = identityPubkey.trim().toLowerCase();
+  if (!isValidProjectDri(identity) || identity !== owner) return false;
+  if (isValidProjectDri(project.dri)) return false;
+  const liveHead = await deps.fetchOwnHead(
+    KIND_PROJECT_ANNOUNCEMENT,
+    owner,
+    project.dtag,
+  );
+  if (!liveHead || readProjectDri(liveHead.tags)) return false;
+  const repositoryAddresses = liveHead.tags
+    .filter((tag) => tag[0] === "a" && tag[1])
+    .map((tag) => tag[1]);
+  const patched = buildProjectPatchTemplate({
+    liveHead,
+    ownerPubkey: owner,
+    repositoryAddresses,
+  });
+  const tags = withProjectDriTag(patched.tags, identity);
   validateProjectEventEnvelope(tags, patched.content);
-  return { kind: patched.kind, content: patched.content, tags };
+  const event = await deps.signRelayEvent({
+    kind: patched.kind,
+    content: patched.content,
+    tags,
+  });
+  await deps.publishProjectEvent(event);
+  return true;
+}
+
+/**
+ * Set or change the DRI on the live project announcement.
+ * The chosen pubkey is whatever the picker saved, not the logged-in user.
+ * Only the project owner can sign the replacement.
+ */
+export async function publishProjectDri(
+  project: Pick<Project, "dtag" | "owner">,
+  driPubkey: string,
+  deps: Pick<
+    HulaSyncDeps,
+    "fetchOwnHead" | "getIdentity" | "publishProjectEvent" | "signRelayEvent"
+  > = defaultHulaSyncDeps,
+): Promise<string> {
+  const dri = requireProjectDri(driPubkey);
+  const identity =
+    (await deps.getIdentity?.())?.pubkey.trim().toLowerCase() ?? "";
+  const owner = project.owner.trim().toLowerCase();
+  if (!isValidProjectDri(identity) || identity !== owner) {
+    throw new Error("Only the project owner can set the DRI.");
+  }
+  const liveHead = await deps.fetchOwnHead(
+    KIND_PROJECT_ANNOUNCEMENT,
+    owner,
+    project.dtag,
+  );
+  if (!liveHead) {
+    throw new Error(
+      "Could not find this project on the relay. Refresh and try again.",
+    );
+  }
+  if (readProjectDri(liveHead.tags) === dri) return dri;
+  const repositoryAddresses = liveHead.tags
+    .filter((tag) => tag[0] === "a" && tag[1])
+    .map((tag) => tag[1]);
+  const patched = buildProjectPatchTemplate({
+    liveHead,
+    ownerPubkey: owner,
+    repositoryAddresses,
+  });
+  const tags = replaceProjectDriTag(patched.tags, dri);
+  validateProjectEventEnvelope(tags, patched.content);
+  const event = await deps.signRelayEvent({
+    kind: patched.kind,
+    content: patched.content,
+    tags,
+  });
+  await deps.publishProjectEvent(event);
+  return dri;
+}
+
+type PublishCodingAgentDeps = Pick<
+  HulaSyncDeps,
+  "fetchOwnHead" | "getIdentity" | "publishProjectEvent" | "signRelayEvent"
+> & {
+  /**
+   * Adds the bot to the project channel. Must not publish a project event,
+   * so a membership write cannot drop the DRI tag.
+   */
+  ensureChannelMember: (channelId: string, pubkey: string) => Promise<string>;
+};
+
+const defaultPublishCodingAgentDeps: PublishCodingAgentDeps = {
+  fetchOwnHead,
+  getIdentity,
+  publishProjectEvent,
+  signRelayEvent,
+  ensureChannelMember: ensureProjectCodingAgentMember,
+};
+
+/**
+ * Set or change the coding agent on the live project announcement.
+ * Channel membership is updated first and does not rewrite the announcement.
+ * The replacement event changes only the `coding-agent` tag, so `dri` stays.
+ * Only the project owner can sign the replacement.
+ */
+export async function publishProjectCodingAgent(
+  project: Pick<Project, "dtag" | "owner" | "projectChannelId">,
+  codingAgentPubkey: string,
+  deps: PublishCodingAgentDeps = defaultPublishCodingAgentDeps,
+): Promise<string> {
+  const identity =
+    (await deps.getIdentity?.())?.pubkey.trim().toLowerCase() ?? "";
+  const owner = project.owner.trim().toLowerCase();
+  if (!isValidProjectDri(identity) || identity !== owner) {
+    throw new Error("Only the project owner can set the coding agent.");
+  }
+  const channelId = project.projectChannelId?.trim() ?? "";
+  if (!channelId) {
+    throw new Error("This project has no channel for a coding agent.");
+  }
+  const codingAgent = await deps.ensureChannelMember(
+    channelId,
+    codingAgentPubkey,
+  );
+  const liveHead = await deps.fetchOwnHead(
+    KIND_PROJECT_ANNOUNCEMENT,
+    owner,
+    project.dtag,
+  );
+  if (!liveHead) {
+    throw new Error(
+      "Could not find this project on the relay. Refresh and try again.",
+    );
+  }
+  if (readProjectCodingAgent(liveHead.tags) === codingAgent) return codingAgent;
+  const repositoryAddresses = liveHead.tags
+    .filter((tag) => tag[0] === "a" && tag[1])
+    .map((tag) => tag[1]);
+  const patched = buildProjectPatchTemplate({
+    liveHead,
+    ownerPubkey: owner,
+    repositoryAddresses,
+  });
+  const tags = replaceProjectCodingAgentTag(patched.tags, codingAgent);
+  validateProjectEventEnvelope(tags, patched.content);
+  const event = await deps.signRelayEvent({
+    kind: patched.kind,
+    content: patched.content,
+    tags,
+  });
+  await deps.publishProjectEvent(event);
+  return codingAgent;
+}
+
+async function loggedInOwnerDri(
+  project: Pick<Project, "dri" | "owner">,
+  deps: HulaSyncDeps,
+): Promise<string | null> {
+  if (isValidProjectDri(project.dri) || !deps.getIdentity) return null;
+  const identity = (await deps.getIdentity()).pubkey.trim().toLowerCase();
+  if (
+    !isValidProjectDri(identity) ||
+    identity !== project.owner.trim().toLowerCase()
+  ) {
+    return null;
+  }
+  return identity;
 }
 
 /**
  * Publish path records for git directories that appeared after create,
- * then patch the project once. Throws on failure. Returns how many were added.
+ * then patch the project once. Also replaces a repository announcement whose
+ * displayed name is not its OpenClaw directory. The project name and the
+ * repository `d` tag stay put. Throws on failure. Returns how many repository
+ * announcements were published.
  */
 export async function syncMissingHulaRepositories(
   project: Project,
@@ -117,7 +322,6 @@ export async function syncMissingHulaRepositories(
     if (normalized) known.add(normalized);
   }
   const missing = discovered.filter((path) => !known.has(path));
-  if (missing.length === 0) return 0;
   if (
     project.repositoryAddresses.length + missing.length >
     MAX_PROJECT_MEMBERS
@@ -133,6 +337,14 @@ export async function syncMissingHulaRepositories(
     throw new Error(
       `A project can link at most ${MAX_PROJECT_RELATED_CHANNELS} channels.`,
     );
+  }
+
+  const renamed = await correctStoredRepositoryNames(project, deps);
+  const driPubkey = await loggedInOwnerDri(project, deps);
+  if (missing.length === 0) {
+    if (!driPubkey) return renamed;
+    const wrote = await publishMissingProjectDri(project, driPubkey, deps);
+    return renamed + (wrote ? 1 : 0);
   }
 
   const directory = await deps.getOpenChannelDirectory();
@@ -180,7 +392,7 @@ export async function syncMissingHulaRepositories(
         content: "",
         tags: [
           ["d", dtag],
-          ["name", subPath],
+          ["name", repositoryNameFromHulaPath(path) ?? subPath],
           ["buzz-channel", channel.id],
           [PROJECT_HULA_PATH_TAG, path],
         ],
@@ -216,6 +428,7 @@ export async function syncMissingHulaRepositories(
     liveHead,
     ownerPubkey: project.owner,
     relatedChannelIds: related,
+    driPubkey,
     repositoryAddresses: [
       ...new Set([
         ...project.repositoryAddresses,
@@ -225,7 +438,60 @@ export async function syncMissingHulaRepositories(
   });
   const projectEvent = await deps.signRelayEvent(patched);
   await deps.publishProjectEvent(projectEvent);
-  return added.length;
+  return added.length + renamed;
+}
+
+/**
+ * Replace the `name` tag when it is not the workspace directory.
+ * Other tags, including `d`, are copied from the live announcement.
+ */
+async function correctStoredRepositoryNames(
+  project: Project,
+  deps: HulaSyncDeps,
+): Promise<number> {
+  let corrected = 0;
+  for (const repository of project.repositories) {
+    if (!repository.hulaPath || !repository.dtag) continue;
+    const expected = repositoryNameFromHulaPath(repository.hulaPath);
+    if (!expected || expected === repository.name) continue;
+    const head = await deps.fetchOwnHead(
+      KIND_REPO_ANNOUNCEMENT,
+      project.owner.toLowerCase(),
+      repository.dtag,
+    );
+    if (!head) continue;
+    const current = head.tags.find((tag) => tag[0] === "name")?.[1];
+    if (current === expected) continue;
+    const event = await deps.signRelayEvent(
+      repositoryAnnouncementWithDirectoryName(head, expected),
+    );
+    await deps.publishRepositoryEvent(event);
+    corrected += 1;
+  }
+  return corrected;
+}
+
+function repositoryAnnouncementWithDirectoryName(
+  head: RelayEvent,
+  name: string,
+): ProjectEventTemplate {
+  let wroteName = false;
+  const tags: string[][] = [];
+  for (const tag of head.tags) {
+    if (tag[0] === "name") {
+      if (wroteName) continue;
+      tags.push(["name", name]);
+      wroteName = true;
+      continue;
+    }
+    tags.push([...tag]);
+  }
+  if (!wroteName) tags.push(["name", name]);
+  return {
+    kind: KIND_REPO_ANNOUNCEMENT,
+    content: head.content,
+    tags,
+  };
 }
 
 function assertPathLength(hulaPath: string) {

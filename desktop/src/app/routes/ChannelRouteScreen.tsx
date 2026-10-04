@@ -18,6 +18,7 @@ import {
   useProjectsQuery,
 } from "@/features/projects/hooks";
 import { findProjectHomeByChannelId } from "@/features/projects/lib/projectHomeChannel";
+import { findSubrepositoryChannelBinding } from "@/features/projects/lib/subrepositoryChannel";
 import {
   isProjectCollectionAuthoritative,
   isProjectRelayValidated,
@@ -159,6 +160,21 @@ export function ChannelRouteScreen({
   );
   const projectHome =
     enumeratedProjectHome ?? projectHomeLookupQuery.data ?? null;
+  // goChannel opens this route. A repository buzz-channel is not the project
+  // home, so the generic channel screen would drop the workspace rail.
+  // Bind that channel back to its subrepository and keep the transcript here.
+  const subrepositoryChannel =
+    projectHome || isHuddleTranscript
+      ? null
+      : findSubrepositoryChannelBinding(channelId, projectsQuery.data ?? []);
+  const projectWorkspace = projectHome
+    ? { project: projectHome, repositoryId: null }
+    : subrepositoryChannel
+      ? {
+          project: subrepositoryChannel.project,
+          repositoryId: subrepositoryChannel.repository.id,
+        }
+      : null;
   const [targetMessageEvents, setTargetMessageEvents] = React.useState<
     RelayEvent[]
   >(() => {
@@ -295,13 +311,16 @@ export function ChannelRouteScreen({
     );
   }
 
-  if (projectHome && !isHuddleTranscript) {
+  if (projectWorkspace && !isHuddleTranscript) {
     return (
       <ProjectChannelHome
-        allowRepositoryHealing={isProjectRelayValidated(projectHome)}
+        allowRepositoryHealing={isProjectRelayValidated(
+          projectWorkspace.project,
+        )}
         autoSendDraftKey={autoSendDraftKey}
-        project={projectHome}
-        projects={projectsQuery.data ?? [projectHome]}
+        project={projectWorkspace.project}
+        projects={projectsQuery.data ?? [projectWorkspace.project]}
+        scopedRepositoryId={projectWorkspace.repositoryId}
         targetMessageEvents={targetMessageEvents}
         targetMessageId={targetMessageId}
       />

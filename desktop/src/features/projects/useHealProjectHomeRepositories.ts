@@ -1,7 +1,12 @@
 import * as React from "react";
 
+import { useQueryClient } from "@tanstack/react-query";
+
+import { isValidProjectDri } from "@/features/projects/lib/projectDri";
 import { homeRepositoriesToBind } from "@/features/projects/lib/projectCollection";
 import type { Project } from "@/features/projects/projectModels";
+import { projectsQueryKey } from "@/features/projects/projectDeletionMutation";
+import { publishMissingProjectDri } from "@/features/projects/syncHulaRepositories";
 import { useAttachProjectRepositoryMutation } from "@/features/projects/useAttachProjectRepository";
 import { relayClient } from "@/shared/api/relayClient";
 import { KIND_PROJECT_ANNOUNCEMENT } from "@/shared/constants/kinds";
@@ -37,6 +42,7 @@ export function useHealProjectHomeRepositories(
   identityPubkey?: string,
 ) {
   const attachMutation = useAttachProjectRepositoryMutation();
+  const queryClient = useQueryClient();
   const attemptedRef = React.useRef(new Set<string>());
   const mutateAsync = attachMutation.mutateAsync;
 
@@ -76,10 +82,33 @@ export function useHealProjectHomeRepositories(
           // Already bound, raced, or not owner-writable this session.
         }
       }
+      if (
+        cancelled ||
+        !identityPubkey ||
+        isValidProjectDri(project.dri) ||
+        attemptedRef.current.has(`${project.projectAddress}:dri`)
+      ) {
+        return;
+      }
+      attemptedRef.current.add(`${project.projectAddress}:dri`);
+      try {
+        const wrote = await publishMissingProjectDri(project, identityPubkey);
+        if (wrote) {
+          void queryClient.invalidateQueries({ queryKey: projectsQueryKey });
+        }
+      } catch {
+        attemptedRef.current.delete(`${project.projectAddress}:dri`);
+      }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [identityPubkey, mutateAsync, project, projectDataIsAuthoritative]);
+  }, [
+    identityPubkey,
+    mutateAsync,
+    project,
+    projectDataIsAuthoritative,
+    queryClient,
+  ]);
 }

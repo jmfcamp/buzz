@@ -12,6 +12,7 @@ import {
   portholeTarget,
   projectNameFromHulaPath,
   repoChannelName,
+  repositoryNameFromHulaPath,
 } from "./hulaProjectNames.ts";
 
 test("a projects directory is named by its folder", () => {
@@ -47,7 +48,11 @@ test("repo and hula-project channels use the project prefix", () => {
     "claimminer_hulahealth_integration-services",
   );
   assert.equal(
-    hulaProjectChannelName("claimminer", "integration-services", "payment-batch"),
+    hulaProjectChannelName(
+      "claimminer",
+      "integration-services",
+      "payment-batch",
+    ),
     "claimminer_integration-services_payment-batch",
   );
   assert.equal(
@@ -84,8 +89,23 @@ test("the next project name is the smallest free suffix", () => {
     allocateDisplayName("claimminer", ["claimminer", "claimminer (3)"]),
     "claimminer (2)",
   );
+  assert.equal(allocateDisplayName("claimminer", ["Claimminer"]), "claimminer");
+});
+
+test("a repository is named for its workspace directory, not the project path", () => {
   assert.equal(
-    allocateDisplayName("claimminer", ["Claimminer"]),
-    "claimminer",
+    repositoryNameFromHulaPath("Hula/projects/HulaBill"),
+    "HulaBill",
   );
+  assert.equal(
+    repositoryNameFromHulaPath(
+      "/home/ubuntu/.openclaw/workspace/Hula/projects/HulaBill/services",
+    ),
+    "services",
+  );
+  assert.equal(
+    repositoryNameFromHulaPath("Hula/projects/products_hulabill"),
+    "products_hulabill",
+  );
+  assert.equal(repositoryNameFromHulaPath("not-hula"), null);
 });

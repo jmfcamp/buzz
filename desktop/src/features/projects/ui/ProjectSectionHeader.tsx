@@ -16,6 +16,7 @@ export function ProjectSectionHeader({
     disabled?: boolean;
     label: string;
     onClick: () => void;
+    testId?: string;
     title?: string;
   };
   className?: string;
@@ -45,6 +46,7 @@ export function ProjectSectionHeader({
         <Button
           aria-label={action.label}
           className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+          data-testid={action.testId}
           disabled={action.disabled}
           onClick={action.onClick}
           size="icon"

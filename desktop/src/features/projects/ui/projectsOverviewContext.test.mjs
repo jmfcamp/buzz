@@ -102,7 +102,7 @@ test("projects pod keeps create-project and drops task/review totals", () => {
   );
 });
 
-test("repositories pod matches repository activity copy and add action", () => {
+test("repositories pod matches repository activity copy without an add action", () => {
   const context = projectsOverviewContext({
     filter: "repositories",
     issues: [makeIssue("In Progress"), makeIssue("Done")],
@@ -112,8 +112,7 @@ test("repositories pod matches repository activity copy and add action", () => {
 
   assert.equal(context.title, "Repositories");
   assert.equal(context.detailsTitle, "Repository activity");
-  assert.equal(context.action?.kind, "repository");
-  assert.equal(context.action?.label, "Add repository");
+  assert.equal(context.action, null);
   assert.deepEqual(
     context.stats.map((stat) => [stat.label, stat.count]),
     [

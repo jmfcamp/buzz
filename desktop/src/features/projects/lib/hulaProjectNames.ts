@@ -44,6 +44,23 @@ export function projectNameFromHulaPath(hulaPath: string): string | null {
   return rest.replaceAll("/", "_");
 }
 
+/**
+ * Repository announcement name for one OpenClaw checkout.
+ * This is the workspace directory, not the project name. A git remote that
+ * uses another repo name is not consulted: the workspace identifies the
+ * checkout by this directory.
+ */
+export function repositoryNameFromHulaPath(hulaPath: string): string | null {
+  const path = hulaDirectoryPath(hulaPath);
+  if (!path) return null;
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  if (!name || name === "." || name === "..") return null;
+  if (new TextEncoder().encode(name).byteLength > 256) {
+    throw new Error("The repository name is too long.");
+  }
+  return name;
+}
+
 /** Channel for one repo directory under the project. */
 export function repoChannelName(
   projectName: string,

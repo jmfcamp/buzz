@@ -51,6 +51,17 @@ export type Project = {
   legacy: boolean;
   /** OpenClaw path of the project root. Absent on projects created by name. */
   hulaPath?: string | null;
+  /**
+   * Directly responsible individual. Lowercase pubkey from the `dri` tag.
+   * Absent on announcements created before a DRI was required.
+   */
+  dri?: string | null;
+  /**
+   * Coding agent. Lowercase pubkey from the `coding-agent` tag.
+   * Absent on announcements created before one was chosen. Channel membership
+   * is separate: changing this tag does not rewrite `dri`.
+   */
+  codingAgent?: string | null;
 };
 
 /** True for an announced NIP-MP project, excluding repository-only read models. */
@@ -112,6 +123,22 @@ function isValidPubkey(value: string): boolean {
   return /^[a-fA-F0-9]{64}$/.test(value);
 }
 
+/** Lowercase pubkey from a `dri` tag, or null when the tag is absent or not a key. */
+export function readProjectDri(
+  tags: readonly (readonly string[])[],
+): string | null {
+  const value = tags.find((tag) => tag[0] === PROJECT_DRI_TAG)?.[1];
+  return value && isValidPubkey(value) ? value.toLowerCase() : null;
+}
+
+/** Lowercase pubkey from a `coding-agent` tag, or null when it is absent or not a key. */
+export function readProjectCodingAgent(
+  tags: readonly (readonly string[])[],
+): string | null {
+  const value = tags.find((tag) => tag[0] === PROJECT_CODING_AGENT_TAG)?.[1];
+  return value && isValidPubkey(value) ? value.toLowerCase() : null;
+}
+
 /**
  * Validates a pubkey as a lowercase-only 64-hex string, per NIP-MP rule
  * `member-coordinate-malformed`: owner hex MUST be lowercase so that `#a`
@@ -140,6 +167,18 @@ export const MAX_PROJECT_RELATED_CHANNELS = 256;
 /** OpenClaw directory for a Hula project or one of its repositories. */
 export const PROJECT_HULA_PATH_TAG = "buzz-hula-path";
 
+/**
+ * Directly responsible individual. One pubkey, same shape as other project
+ * metadata tags: `["dri", pubkey]`.
+ */
+export const PROJECT_DRI_TAG = "dri";
+
+/**
+ * Coding agent. One pubkey, same shape as `dri`: `["coding-agent", pubkey]`.
+ * Local bots and community bots only. Independent of the DRI tag.
+ */
+export const PROJECT_CODING_AGENT_TAG = "coding-agent";
+
 /** Byte cap for `buzz-hula-path`. Longer paths are refused. */
 export const MAX_HULA_PATH_BYTES = 2_048;
 
@@ -149,6 +188,8 @@ const SINGLETON_METADATA_TAGS = [
   "buzz-channel",
   "buzz-visibility",
   PROJECT_HULA_PATH_TAG,
+  PROJECT_DRI_TAG,
+  PROJECT_CODING_AGENT_TAG,
 ] as const;
 
 const MAX_METADATA_TAG_BYTES: Record<string, number> = {
@@ -157,6 +198,8 @@ const MAX_METADATA_TAG_BYTES: Record<string, number> = {
   "buzz-channel": 256,
   "buzz-visibility": 256,
   [PROJECT_HULA_PATH_TAG]: MAX_HULA_PATH_BYTES,
+  [PROJECT_DRI_TAG]: 64,
+  [PROJECT_CODING_AGENT_TAG]: 64,
 };
 
 /**
@@ -410,6 +453,8 @@ export function eventToExplicitProject(
     visibility,
     legacy: false,
     hulaPath: getTag(event, PROJECT_HULA_PATH_TAG) ?? null,
+    dri: readProjectDri(event.tags),
+    codingAgent: readProjectCodingAgent(event.tags),
   };
 }
 
@@ -433,6 +478,8 @@ function repositoryToLegacyProject(repository: Repository): Project {
     visibility: "listed",
     legacy: true,
     hulaPath: repository.hulaPath ?? null,
+    dri: null,
+    codingAgent: null,
   };
 }
 

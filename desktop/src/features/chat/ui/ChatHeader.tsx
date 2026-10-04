@@ -27,6 +27,8 @@ type ChatHeaderProps = {
   chromeWrapperRef?: React.Ref<HTMLDivElement>;
   title: string;
   description?: string;
+  /** Compact facts under the title. Project channels use this for the primary codebase. */
+  detail?: React.ReactNode;
   channelType?: ChannelType;
   visibility?: ChannelVisibility;
   leadingContent?: React.ReactNode;
@@ -92,6 +94,7 @@ export function ChatHeader({
   chromeWrapperRef,
   title,
   description,
+  detail,
   channelType,
   visibility,
   leadingContent,
@@ -171,6 +174,7 @@ export function ChatHeader({
           {actions ? <div className="shrink-0">{actions}</div> : null}
         </div>
       </div>
+      {detail ? <div className="min-w-0 pb-0.5">{detail}</div> : null}
     </header>
   );
 

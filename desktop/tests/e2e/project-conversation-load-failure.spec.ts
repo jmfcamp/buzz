@@ -148,7 +148,10 @@ test.describe("project conversation load failure", () => {
       .first();
     await expect(projectEntry).toBeVisible({ timeout: 10_000 });
     await projectEntry.click();
-    await page.getByTestId("project-home-context-repo-buzz").click();
+    // Channel rows open the repository side panel, which only mounts on the
+    // full workspace. Expand the home Files sheet to get there.
+    await page.getByTestId("project-home-context-files").click();
+    await page.getByTestId("project-home-workspace-sheet-expand").click();
     await page.getByRole("tab", { name: "Channels", exact: true }).click();
     const channelRow = page
       .getByTestId("project-channel-row")

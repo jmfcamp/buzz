@@ -2,6 +2,7 @@ import { useEffect, useEffectEvent } from "react";
 import {
   type QueryClient,
   useMutation,
+  useQueries,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
@@ -313,6 +314,45 @@ export function useChannelMessagesQuery(channel: Channel | null) {
     },
     staleTime: 5 * 60 * 1_000,
     gcTime: 60 * 60 * 1_000,
+  });
+}
+
+/**
+ * The project activity pane needs the same cached channel-message query for
+ * several project channels at once. Keep its hydration/reconciliation path in
+ * lockstep with useChannelMessagesQuery above.
+ */
+export function useChannelMessagesQueries(channelIds: readonly string[]) {
+  const queryClient = useQueryClient();
+  return useQueries({
+    queries: channelIds.map((channelId) => ({
+      enabled: channelId.length > 0,
+      queryKey: channelMessagesKey(channelId),
+      queryFn: async ({ signal }: { signal: AbortSignal }) => {
+        await channelHeadHydration(queryClient);
+        if (consumeHydratedChannel(queryClient, channelId)) {
+          return (
+            queryClient.getQueryData<RelayEvent[]>(
+              channelMessagesKey(channelId),
+            ) ?? []
+          );
+        }
+        const previousMessages =
+          queryClient.getQueryData<RelayEvent[]>(
+            channelMessagesKey(channelId),
+          ) ?? [];
+        const events = await getChannelWindowEvents(channelId);
+        return reconcileFetchedChannelWindow(
+          queryClient,
+          channelId,
+          events,
+          previousMessages,
+          signal,
+        );
+      },
+      staleTime: 5 * 60 * 1_000,
+      gcTime: 60 * 60 * 1_000,
+    })),
   });
 }
 

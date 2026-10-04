@@ -13356,6 +13356,7 @@ export function maybeInstallE2eTauriMocks() {
           ],
         };
       case "get_project_local_repo_diff":
+      case "get_project_checkout_work":
         return null;
       case "get_project_repo_sync_status":
         return (
