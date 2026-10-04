@@ -35,23 +35,23 @@ Treat the OpenClaw remote Hula root (`Hula/` under the workspace) as the **only*
 
 **No local copy.** Making a pull request is not a reason to download the repo. Do not `git clone`, `gh repo clone`, `git fetch`, `git pull`, `git archive`, or download a tarball, zip, or patch of a Hula or huladesk repo onto this Mac. Do not write those files under `REPOS/`, `~/.buzz-dev`, `~/.buzz`, `.scratch/`, `/tmp`, or any other Mac path. The workspace layout row that says to clone into `REPOS/` does not apply while `openclaw-workspace` is available. Do not copy the repo into an empty Buzz git repo.
 
-**If `exec` refuses a command, stop and report the refusal.** Do not clone, and do not `git commit` or `git push` on this Mac. `git add`, `git commit`, `git checkout`, and `git push` are not available on OpenClaw.
+**If `exec` refuses a command, stop and report the refusal.** Do not clone onto this Mac. Do not finish the step in a Mac shell. Run the skill's own `git` and `gh` lines through OpenClaw `exec`, one commit per skill step. Do not replace those lines with `buzz github publish`.
 
 The host already injects Hula-root `CLAUDE.md` at spawn. Whenever you **navigate / focus work into a new subdirectory** under `Hula/` (for example the user asks to work in `Hula/products/<repo>`, or you choose that focus yourself), **before planning in that directory** call MCP tool `project_instructions` on `openclaw-workspace` with `path` set to that workspace-relative directory. Follow every `CLAUDE.md` in the returned chain (already ordered root → leaf). Call again whenever focus moves to a different subdirectory.
 
 **Primary skills source:** call MCP tools `skills_list` then `skills_get` on `openclaw-workspace` (exact gateway tool names). Do not treat local `~/.claude/skills` as the source of truth — the skill pack is under the OpenClaw workspace (`SKILL_ROOTS`).
 
-**Remote commands:** use MCP tool `exec` on `openclaw-workspace` (argv array only). Allowlisted examples include `npm test`, `npm run lint`, `npm run build`, `git status`, `git diff`, and `git log`. Always pass `cwd` as a workspace-relative path under `Hula/` (or the focused package). Never run the local Mac shell for repo work. The only local Mac command allowed for that repo is `buzz github publish`.
+**Remote commands:** use MCP tool `exec` on `openclaw-workspace` (argv array only). Allowlisted examples include `npm test`, `npm run lint`, `npm run build`, and the skill's `git` and `gh` forms (`git fetch origin main:main`, `git checkout main`, `git pull` / `git pull --ff-only`, `git checkout -b`, `git add` of named paths, `git commit -m`, `git commit -am`, `git push`, `git push -u origin <branch>`, `git push origin --delete <branch>`, `git worktree add .worktrees/<key> -b <branch> <ref>`, `git -C <repo>` for those forms, `gh pr create`, `gh pr ready`, `gh pr edit`, `gh pr checks`, `gh pr merge`). Always pass `cwd` as a workspace-relative path under `Hula/` (or the focused package). Never run the local Mac shell for repo work.
 
-**GitHub pull request as the Mac user.** Edit the files with `openclaw-workspace`. Read them back with `read_file`. Pass those bytes only on the stdin of this command. Do not save them into a file on this Mac first.
+**Follow the Hula skill.** When a Hula skill says `git checkout -b`, `git commit`, `git push`, or `gh pr create`, run that line through `exec`. Do not invent another lifecycle and do not run a conflicting git command. Create the branch only the way that skill creates it: worktree `.worktrees/<key>` on `<handle>/<KEY-N>-<slug>`, or `plan/<slug>/...` for a plan skill, and do not invent a branch name.
 
-buzz github publish --repo <owner/name> --base <base-branch> --branch <new-branch> --message \"<commit message>\" --title \"<pull request title>\" <<'EOF'
-{\"files\":[{\"path\":\"relative/path.md\",\"content\":\"<exact file text>\"}]}
-EOF
+Each step that would `git add` and `git commit` is its own `exec`: `git add` of only the paths that step names, then `git commit -m` or `git commit -am` with that step's message. Do not `git add -A` unrelated files. Do not collapse earlier skill commits into one commit of whatever is dirty. Pass `gitIdentity` as the Mac `gh` user (name and email). The gateway sets author and committer from that and `commit.gpgsign=false`. Do not pass `--author` and do not sign as the agent.
 
-`<new-branch>` must be a new branch. It must not be `main`, `master`, or the base branch. A deleted path is `{\"path\":\"relative/path.md\",\"delete\":true}`. The command uses the `gh` login on this Mac. It creates the branch and the pull request. It does not clone, and it does not move the base branch. If this command is missing or it fails, stop and report the error. A handoff note that says `export → local commit → push` is not this path. Do not perform it.
+At the skill step that opens the pull request, run that skill's `gh pr create` through `exec`, including `Fixes <KEY-N>` when the skill body says so, with `--draft` when the skill says draft. `hula-impl-start` is draft. Only `hula-impl-ship` marks the pull request ready (`gh pr ready`). Later skill steps that say `gh pr edit`, `gh pr checks`, or `gh pr merge` run through `exec` the same way. The ship ledger commit is `impl: confirm shipped` on `main`, then `git push` of `main`.
 
-After that command prints success, store the new branch on OpenClaw. Run MCP `exec` with `cwd` set to that repo and argv `[\"git\",\"fetch\",\"origin\",\"<new-branch>:<new-branch>\"]`. That updates the local branch. It does not check the branch out. It does not download the repo onto this Mac. If that branch is the one already checked out, the fetch is refused. Stop and report that refusal.
+These commands do not clone onto this Mac and they do not force-push. If `exec` is missing or it fails, stop and report the error. A handoff that says export to a Mac clone and do not push, or `export → local commit → push`, is not this path. Do not perform it.
+
+After the commit, the OpenClaw checkout already has it. Do not fetch the branch again unless you need a different remote update. Do not check a feature branch out onto `main` or `master` except when the skill says to, including the ship ledger commit.
 
 If a skill reports a Mac cwd under `/Users` or `~/Documents/Hula`, treat that as failure and recover by re-targeting through `openclaw-workspace` MCP.
 ";
@@ -755,16 +755,23 @@ mod tests {
         assert!(text.contains("stop and report the refusal"));
         assert!(text.contains("clone into `REPOS/` does not apply"));
         assert!(text.contains("export → local commit → push"));
-        assert!(text.contains("buzz github publish"));
+        assert!(text.contains("Do not replace those lines with `buzz github publish`"));
+        assert!(!text.contains("buzz github publish --repo"));
         assert!(text.contains("gh repo clone"));
-        assert!(text.contains("Do not save them into a file"));
-        assert!(text.contains("buzz github publish --repo"));
-        assert!(text.contains("\"<commit message>\""));
-        assert!(text.contains("{\"files\":["));
-        assert!(text.contains(
-            "[\"git\",\"fetch\",\"origin\",\"<new-branch>:<new-branch>\"]"
-        ));
-        assert!(text.contains("It does not check the branch out."));
+        assert!(text.contains("one commit per skill step"));
+        assert!(text.contains("gitIdentity"));
+        assert!(text.contains("commit.gpgsign=false"));
+        assert!(text.contains("--draft"));
+        assert!(text.contains("hula-impl-start"));
+        assert!(text.contains("hula-impl-ship"));
+        assert!(text.contains("Fixes <KEY-N>"));
+        assert!(text.contains(".worktrees/<key>"));
+        assert!(text.contains("plan/<slug>/..."));
+        assert!(text.contains("Do not `git add -A`"));
+        assert!(text.contains("do not invent a branch name"));
+        assert!(text.contains("impl: confirm shipped"));
+        assert!(text.contains("Mac `gh` user"));
+        assert!(!text.contains("{\"files\":["));
         // Forbids treating local Mac checkout as project root.
         assert!(
             text.to_lowercase().contains("never")
@@ -849,16 +856,17 @@ mod tests {
         let rec = bare_record(true);
         let base = Some("persona base".into());
         let standing = maybe_inject_openclaw_workspace_prompt(&rec, None, base.clone());
-        assert!(standing.as_ref().unwrap().contains("OpenClaw workspace (Hula)"));
+        assert!(standing
+            .as_ref()
+            .unwrap()
+            .contains("OpenClaw workspace (Hula)"));
         assert!(!standing
             .as_ref()
             .unwrap()
             .contains(HULA_CLAUDE_MD_INJECT_MARKER));
 
-        let with_claude = merge_host_injected_claude_md(
-            standing.clone(),
-            Some("# Remote CLAUDE.md\nBe kind."),
-        );
+        let with_claude =
+            merge_host_injected_claude_md(standing.clone(), Some("# Remote CLAUDE.md\nBe kind."));
         assert_ne!(
             standing, with_claude,
             "standing stamp must differ from host-injected CLAUDE.md prompt"
