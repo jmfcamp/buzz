@@ -549,4 +549,3 @@ fn migrate_add_turn_id_to_metric_index(conn: &Connection) -> Result<(), String> 
         .map_err(|e| format!("migration M5: commit: {e}"))?;
     Ok(())
 }
-

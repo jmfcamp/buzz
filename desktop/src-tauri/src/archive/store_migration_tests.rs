@@ -866,7 +866,6 @@ fn migration_m3_reopen_twice_is_idempotent() {
     );
 }
 
-
 /// Pre-M5 DBs lack `turn_id`. SCHEMA must not CREATE INDEX on that column
 /// before M5 runs — that used to fail `open_archive_db` and hide all token chips.
 #[test]
@@ -972,5 +971,8 @@ fn m5_open_archive_db_upgrades_pre_turn_id_schema() {
         )
         .unwrap();
     // derived 10+5 encoded sortable — just assert non-null
-    assert!(total.is_some(), "total must be derived from in+out when publisher omits it");
+    assert!(
+        total.is_some(),
+        "total must be derived from in+out when publisher omits it"
+    );
 }

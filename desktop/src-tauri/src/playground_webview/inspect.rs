@@ -277,7 +277,8 @@ pub fn schedule_inspect_stage_restore(app: AppHandle, sid: String, window_label:
 }
 
 pub fn playground_inspector_is_visible(app: &AppHandle, sid: &str, _window_label: &str) -> bool {
-    let Some(webview) = find_playground_webview_for_sid(app, sid).map(|(_, webview)| webview) else {
+    let Some(webview) = find_playground_webview_for_sid(app, sid).map(|(_, webview)| webview)
+    else {
         return false;
     };
     inspector_is_visible(&webview)
@@ -302,7 +303,8 @@ fn inspector_is_visible(webview: &Webview) -> bool {
 
 #[allow(dead_code)]
 fn redetach_macos_inspector(app: &AppHandle, sid: &str, _window_label: &str) {
-    let Some(webview) = find_playground_webview_for_sid(app, sid).map(|(_, webview)| webview) else {
+    let Some(webview) = find_playground_webview_for_sid(app, sid).map(|(_, webview)| webview)
+    else {
         return;
     };
     redetach_inspector_for_webview(&webview);

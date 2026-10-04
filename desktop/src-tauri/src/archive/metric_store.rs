@@ -148,14 +148,14 @@ impl AgentMetricIndexRow {
         let turn_output = turn.and_then(|t| t.output_tokens);
         // Publishers (e.g. claude-agent-acp) often omit totalTokens; derive so
         // per-message chips still show an accurate count.
-        let turn_total = turn
-            .and_then(|t| t.total_tokens)
-            .or_else(|| match (turn_input, turn_output) {
-                (Some(i), Some(o)) => Some(i.saturating_add(o)),
-                (Some(i), None) => Some(i),
-                (None, Some(o)) => Some(o),
-                (None, None) => None,
-            });
+        let turn_total =
+            turn.and_then(|t| t.total_tokens)
+                .or_else(|| match (turn_input, turn_output) {
+                    (Some(i), Some(o)) => Some(i.saturating_add(o)),
+                    (Some(i), None) => Some(i),
+                    (None, Some(o)) => Some(o),
+                    (None, None) => None,
+                });
 
         Self {
             id: id.to_string(),
@@ -519,7 +519,13 @@ pub(super) fn load_by_session_turn_id(
     let mut stmt = stmt_prepare(conn, &sql)?;
     let mut rows = stmt
         .query_map(
-            params![identity_pubkey, relay_url, agent_pubkey, session_id, turn_id],
+            params![
+                identity_pubkey,
+                relay_url,
+                agent_pubkey,
+                session_id,
+                turn_id
+            ],
             row_from_sql,
         )
         .map_err(|e| format!("query load_by_session_turn_id: {e}"))?;

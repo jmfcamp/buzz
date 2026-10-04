@@ -54,11 +54,7 @@ pub struct BrowserAgentGrantStore {
 
 impl BrowserAgentGrantStore {
     pub fn get(&self, webview_label: &str) -> Option<BrowserAgentGrant> {
-        self.grants
-            .lock()
-            .ok()?
-            .get(webview_label)
-            .cloned()
+        self.grants.lock().ok()?.get(webview_label).cloned()
     }
 
     pub fn list_for_agent(&self, agent_pubkey: &str) -> Vec<BrowserAgentGrant> {
@@ -90,9 +86,7 @@ impl BrowserAgentGrantStore {
             .map_err(|_| "browser agent grant lock poisoned".to_string())?;
         if let Some(existing) = map.get(&grant.webview_label) {
             if existing.agent_pubkey != grant.agent_pubkey && !allow_replace {
-                return Err(
-                    "another agent already holds this browser; confirm replace".into(),
-                );
+                return Err("another agent already holds this browser; confirm replace".into());
             }
         }
         let previous = map.insert(grant.webview_label.clone(), grant);
@@ -112,19 +106,14 @@ impl BrowserAgentGrantStore {
             .filter(|(_, g)| g.surface_id == surface_id)
             .map(|(k, _)| k.clone())
             .collect();
-        keys.into_iter()
-            .filter_map(|k| map.remove(&k))
-            .collect()
+        keys.into_iter().filter_map(|k| map.remove(&k)).collect()
     }
-
 
     pub fn get_for_surface(&self, surface_id: &str) -> Option<BrowserAgentGrant> {
         let Ok(map) = self.grants.lock() else {
             return None;
         };
-        map.values()
-            .find(|g| g.surface_id == surface_id)
-            .cloned()
+        map.values().find(|g| g.surface_id == surface_id).cloned()
     }
 
     /// Move a surface grant onto `new_label` (detach / host switch). Idempotent when
@@ -254,7 +243,10 @@ mod tests {
     fn one_agent_replace_requires_flag() {
         let store = BrowserAgentGrantStore::default();
         store
-            .set(sample("playground-a", "aa", BrowserAgentMode::Observe), false)
+            .set(
+                sample("playground-a", "aa", BrowserAgentMode::Observe),
+                false,
+            )
             .unwrap();
         let err = store
             .set(sample("playground-a", "bb", BrowserAgentMode::Drive), false)
@@ -263,17 +255,17 @@ mod tests {
         store
             .set(sample("playground-a", "bb", BrowserAgentMode::Drive), true)
             .unwrap();
-        assert_eq!(
-            store.get("playground-a").unwrap().agent_pubkey,
-            "bb"
-        );
+        assert_eq!(store.get("playground-a").unwrap().agent_pubkey, "bb");
     }
 
     #[test]
     fn observe_grant_allows_observe_not_drive() {
         let store = BrowserAgentGrantStore::default();
         store
-            .set(sample("playground-a", "aa", BrowserAgentMode::Observe), false)
+            .set(
+                sample("playground-a", "aa", BrowserAgentMode::Observe),
+                false,
+            )
             .unwrap();
         assert!(store
             .require_mode("playground-a", "aa", BrowserAgentMode::Observe)
@@ -301,7 +293,10 @@ mod tests {
     fn clear_surface_removes_all_labels() {
         let store = BrowserAgentGrantStore::default();
         store
-            .set(sample("playground-demo", "aa", BrowserAgentMode::Observe), false)
+            .set(
+                sample("playground-demo", "aa", BrowserAgentMode::Observe),
+                false,
+            )
             .unwrap();
         store
             .set(
@@ -318,7 +313,10 @@ mod tests {
     fn rebind_moves_grant_across_window_labels() {
         let store = BrowserAgentGrantStore::default();
         store
-            .set(sample("playground-demo", "aa", BrowserAgentMode::Drive), false)
+            .set(
+                sample("playground-demo", "aa", BrowserAgentMode::Drive),
+                false,
+            )
             .unwrap();
         let next = store
             .rebind_surface_to_label("demo", "playground-demo--pop")

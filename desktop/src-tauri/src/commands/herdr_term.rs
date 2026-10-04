@@ -104,8 +104,7 @@ fn session_server_running(bin: &PathBuf, session: Option<&str>) -> bool {
         if in_server && trimmed.starts_with("status:") {
             return trimmed["status:".len()..].trim() == "running";
         }
-        if in_server && !trimmed.is_empty() && !line.starts_with(' ') && !line.starts_with('\t')
-        {
+        if in_server && !trimmed.is_empty() && !line.starts_with(' ') && !line.starts_with('\t') {
             break;
         }
     }
@@ -254,7 +253,12 @@ pub fn term_open_in_herdr(request: HerdrOpenRequest) -> Result<serde_json::Value
     args.push("workspace".into());
     args.push("create".into());
     args.push("--focus".into());
-    if let Some(cwd) = request.cwd.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(cwd) = request
+        .cwd
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         args.push("--cwd".into());
         args.push(cwd.to_string());
     }
@@ -286,7 +290,10 @@ pub fn term_open_in_herdr(request: HerdrOpenRequest) -> Result<serde_json::Value
     };
 
     let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).map_err(|e| {
-        format!("herdr workspace create returned non-JSON: {e}; raw={}", stdout.trim())
+        format!(
+            "herdr workspace create returned non-JSON: {e}; raw={}",
+            stdout.trim()
+        )
     })?;
     let workspace_id = parsed
         .pointer("/result/workspace/workspace_id")

@@ -99,3 +99,12 @@ fn toggle_maximize(window: &tauri::Window) {
         }
     }
 }
+
+/// Reloads the webview that invoked this command.
+///
+/// Same path as the native context-menu Reload item (the Tauri webview
+/// reload), not a data refetch and not a process restart.
+#[tauri::command]
+pub fn reload_webview(webview: tauri::Webview) -> Result<(), String> {
+    webview.reload().map_err(|error| error.to_string())
+}

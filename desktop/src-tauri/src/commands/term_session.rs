@@ -84,10 +84,7 @@ fn sanitize_sid(sid: &str) -> Result<String, String> {
     Ok(trimmed.to_string())
 }
 
-fn wire_buzz_dev_mcp(
-    app: &AppHandle,
-    config_dir: &PathBuf,
-) -> Result<(PathBuf, bool), String> {
+fn wire_buzz_dev_mcp(app: &AppHandle, config_dir: &PathBuf) -> Result<(PathBuf, bool), String> {
     let signer_root = user_signer::ensure_root(app)?;
     let mcp_bin = resolve_command("buzz-dev-mcp").ok_or_else(|| {
         "buzz-dev-mcp binary not found (build desktop sidecars / buzz-dev-mcp)".to_string()
@@ -208,4 +205,3 @@ mod tests {
         assert!(!s.contains("To post back into Buzz, call `buzz_draft_message` only"));
     }
 }
-

@@ -119,7 +119,13 @@ pub fn validate_action(action: &DriveAction) -> Result<String, String> {
         }
         "scroll" => {}
         "navigate" => {
-            if action.url.as_deref().map(str::trim).unwrap_or("").is_empty() {
+            if action
+                .url
+                .as_deref()
+                .map(str::trim)
+                .unwrap_or("")
+                .is_empty()
+            {
                 return Err("navigate requires url".into());
             }
         }
@@ -128,10 +134,7 @@ pub fn validate_action(action: &DriveAction) -> Result<String, String> {
             if key.is_empty() {
                 return Err("key requires key".into());
             }
-            if !SUPPORTED_KEYS
-                .iter()
-                .any(|k| k.eq_ignore_ascii_case(key))
-            {
+            if !SUPPORTED_KEYS.iter().any(|k| k.eq_ignore_ascii_case(key)) {
                 return Err(format!(
                     "unsupported key {key:?}; supported: {}",
                     SUPPORTED_KEYS.join(", ")
@@ -179,7 +182,11 @@ const SUPPORTED_KEYS: &[&str] = &[
 ];
 
 pub fn ensure_action_id(action: &mut DriveAction) -> String {
-    if let Some(id) = action.id.as_ref().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    if let Some(id) = action
+        .id
+        .as_ref()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
     {
         action.id = Some(id.clone());
         return id;
@@ -235,7 +242,11 @@ pub fn action_js(action: &DriveAction) -> Result<String, String> {
                 Some(s) => serde_json::to_string(s).map_err(|e| e.to_string())?,
                 None => "null".into(),
             };
-            let fn_name = if kind == "click" { "clickAt" } else { "hoverAt" };
+            let fn_name = if kind == "click" {
+                "clickAt"
+            } else {
+                "hoverAt"
+            };
             format!("a.{fn_name}({x_js},{y_js},{id_js},{selector_js},{ref_js})")
         }
         "type" => {
@@ -277,9 +288,7 @@ pub fn action_js(action: &DriveAction) -> Result<String, String> {
                 .map(|v| v.to_string())
                 .unwrap_or_else(|| "null".into());
             let clear = action.clear.unwrap_or(true);
-            format!(
-                "a.fillField({text_js},{selector_js},{ref_js},{x_js},{y_js},{id_js},{clear})"
-            )
+            format!("a.fillField({text_js},{selector_js},{ref_js},{x_js},{y_js},{id_js},{clear})")
         }
         "scroll" => {
             let dx = action.dx.unwrap_or(0.0);
@@ -443,7 +452,9 @@ mod tests {
 
     #[test]
     fn unknown_kind_rejected() {
-        assert!(validate_action(&base("teleport")).unwrap_err().contains("unknown"));
+        assert!(validate_action(&base("teleport"))
+            .unwrap_err()
+            .contains("unknown"));
     }
 
     #[test]
@@ -452,7 +463,10 @@ mod tests {
         a.selector = Some("#save".into());
         assert!(validate_action(&a).is_ok());
         let js = action_js(&a).unwrap();
-        assert!(js.contains("clickAt(null,null,\"t1\",\"#save\",null)"), "{js}");
+        assert!(
+            js.contains("clickAt(null,null,\"t1\",\"#save\",null)"),
+            "{js}"
+        );
     }
 
     #[test]

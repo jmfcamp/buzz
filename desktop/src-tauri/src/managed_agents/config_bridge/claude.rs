@@ -176,7 +176,6 @@ pub(crate) fn upsert_http_mcp_server(
     Ok(path)
 }
 
-
 /// Upsert a stdio MCP server into `.claude.json` (creates parents/file).
 /// `env` is merged into the server entry (e.g. `BUZZ_USER_SIGNER_DIR`).
 pub(crate) fn upsert_stdio_mcp_server(

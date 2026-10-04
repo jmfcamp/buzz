@@ -12,9 +12,9 @@ mod deep_link;
 mod egress_guard;
 mod event_sync;
 mod events;
-mod html_preview;
 #[cfg_attr(not(test), allow(dead_code))]
 mod hpke_key_backup;
+mod html_preview;
 mod huddle;
 mod identity_storage;
 mod initial_window;
@@ -584,6 +584,7 @@ pub fn run() {
             unarchive_builderlab_community,
             transfer_builderlab_community,
             title_bar_double_click,
+            reload_webview,
             get_identity,
             get_nsec,
             generate_backup_passphrase,

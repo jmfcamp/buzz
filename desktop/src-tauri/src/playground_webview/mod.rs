@@ -290,10 +290,7 @@ pub(crate) fn find_playground_webview_for_sid(
 }
 
 /// Last full stage bounds remembered for `sid` (never keeper 64×64).
-pub(crate) fn last_usable_bounds_for_sid(
-    app: &AppHandle,
-    sid: &str,
-) -> Option<PlaygroundBounds> {
+pub(crate) fn last_usable_bounds_for_sid(app: &AppHandle, sid: &str) -> Option<PlaygroundBounds> {
     let manager = app.try_state::<PlaygroundWebviewManager>()?;
     let sessions = manager.sessions.lock().ok()?;
     sessions
@@ -314,10 +311,7 @@ pub(crate) fn webview_logical_size(webview: &Webview) -> Option<(f64, f64)> {
 /// Best-effort: heal to last full bounds and `show()` a parked playground
 /// webview so Drive snapshot/click/record get a real viewport. Frontend still
 /// mounts PlaygroundStage via `browser-agent-ensure-visible`.
-pub(crate) fn ensure_playground_webview_shown(
-    app: &AppHandle,
-    label: &str,
-) -> Result<(), String> {
+pub(crate) fn ensure_playground_webview_shown(app: &AppHandle, label: &str) -> Result<(), String> {
     let webview = app
         .get_webview(label)
         .ok_or_else(|| format!("webview {label} is not open"))?;
@@ -358,10 +352,7 @@ pub(crate) fn apply_background_capture_bounds(
     apply_bounds(app, &sid, &window_label, &bounds)
 }
 
-fn playground_parent_is(
-    webview: &Webview,
-    window_label: &str,
-) -> bool {
+fn playground_parent_is(webview: &Webview, window_label: &str) -> bool {
     playground_parent_window_label(webview) == window_label
 }
 
@@ -377,9 +368,7 @@ fn reparent_playground_webview(
     let window = app
         .get_window(window_label)
         .ok_or_else(|| format!("{window_label} window is not available"))?;
-    webview
-        .reparent(&window)
-        .map_err(|error| error.to_string())
+    webview.reparent(&window).map_err(|error| error.to_string())
 }
 
 fn playground_parent_window_label(webview: &Webview) -> String {
@@ -845,7 +834,9 @@ pub async fn playground_webview_show(
             }
         } else if let Some(state) = app.try_state::<crate::browser_agent::BrowserAgentState>() {
             crate::browser_agent::viewport_gate::park_preserving_drive_paint(
-                &app, &state, &live_label,
+                &app,
+                &state,
+                &live_label,
             )?;
         } else {
             webview.hide().map_err(|error| error.to_string())?;
@@ -922,9 +913,7 @@ pub async fn playground_webview_show(
                 url: url.to_string(),
             };
             if let Err(error) = new_tab_app.emit("playground-webview-new-tab", &payload) {
-                eprintln!(
-                    "buzz-desktop: playground-webview-new-tab emit failed: {error}"
-                );
+                eprintln!("buzz-desktop: playground-webview-new-tab emit failed: {error}");
             }
             NewWindowResponse::Deny
         });
@@ -1044,8 +1033,7 @@ pub async fn playground_webview_close(
     // Dispose closes the one live webview for this sid from any host. Hide
     // remains window-scoped; close is session teardown.
     let _ = window_label;
-    let closed_label = if let Some((label, webview)) = find_playground_webview_for_sid(&app, &sid)
-    {
+    let closed_label = if let Some((label, webview)) = find_playground_webview_for_sid(&app, &sid) {
         webview.close().map_err(|error| error.to_string())?;
         Some(label)
     } else {
@@ -1332,7 +1320,8 @@ pub async fn playground_webview_dom_hash(
     let sid = sanitize_sid(&sid)?;
     let _window_label = normalize_window_label(window_label.as_deref());
     let start_url = parse_playground_url(&start_url)?;
-    let Some(webview) = find_playground_webview_for_sid(&app, &sid).map(|(_, webview)| webview) else {
+    let Some(webview) = find_playground_webview_for_sid(&app, &sid).map(|(_, webview)| webview)
+    else {
         return Ok(String::new());
     };
     let cookie_url = start_url.clone();

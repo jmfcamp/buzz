@@ -537,10 +537,17 @@ test("Inbox Add as Tab fills the window and Home restores the panel", async () =
   const { fireEvent, screen, waitFor } = ui;
   renderHarness(ui, "tabs-inbox");
 
+  const sidebarToggle = screen.getByRole("button", { name: "Toggle Sidebar" });
+  const refresh = screen.getByRole("button", { name: "Refresh" });
+  const back = screen.getByTestId("global-back");
   const forward = screen.getByTestId("global-forward");
   const home = screen.getByRole("button", { name: "Home" });
   assert.equal(home.getAttribute("aria-pressed"), "true");
   assert.equal(home.getAttribute("title"), "Normal view");
+  assert.equal(refresh.getAttribute("title"), "Refresh");
+  assert.ok(sidebarToggle.compareDocumentPosition(refresh) & FOLLOWING);
+  assert.ok(refresh.compareDocumentPosition(back) & FOLLOWING);
+  assert.ok(back.compareDocumentPosition(forward) & FOLLOWING);
   assert.ok(forward.compareDocumentPosition(home) & FOLLOWING);
   assert.equal(screen.queryByRole("tab"), null);
   assert.equal(screen.getByTestId("sidebar-open").textContent, "open");

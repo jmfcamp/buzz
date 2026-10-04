@@ -972,7 +972,6 @@ fn feed_item_from_event(ev: &nostr::Event, category: FeedItemCategory) -> FeedIt
 #[path = "messages_tests.rs"]
 mod tests;
 
-
 /// Host-side Drive screen posts: agent-signed channel/thread message with imeta.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn post_managed_agent_message_with_media(

@@ -144,11 +144,7 @@ pub fn screen_post_key(url: &str, title: Option<&str>) -> String {
 
 /// Whether a new settle should run given the last successful post.
 /// `force` (reload / explicit load settle) bypasses same-key skip.
-pub fn should_schedule_drive_screen(
-    last_key: Option<&str>,
-    new_key: &str,
-    force: bool,
-) -> bool {
+pub fn should_schedule_drive_screen(last_key: Option<&str>, new_key: &str, force: bool) -> bool {
     if new_key.is_empty() || new_key.starts_with("about:blank") {
         return false;
     }
@@ -229,10 +225,7 @@ pub fn drive_path_bullet(payload: &Value) -> Option<String> {
         .to_ascii_lowercase();
     match action.as_str() {
         "navigate" => {
-            let url = payload
-                .get("url")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let url = payload.get("url").and_then(|v| v.as_str()).unwrap_or("");
             Some(format!("Opened {}", short_url(url)))
         }
         "click" | "clickat" => Some(format!("Clicked {}", hit_label(payload))),
@@ -352,7 +345,10 @@ pub fn schedule_drive_screen_post(
     }
     let post_key = screen_post_key(url, title);
     if !should_schedule_drive_screen(
-        state.drive_screens.last_posted_key(webview_label).as_deref(),
+        state
+            .drive_screens
+            .last_posted_key(webview_label)
+            .as_deref(),
         &post_key,
         force,
     ) {
@@ -428,10 +424,8 @@ async fn wait_for_drive_screen_ready(
                 saw_complete = true;
                 streak = streak.saturating_add(1);
                 if streak >= DRIVE_SCREEN_READY_STREAK {
-                    tokio::time::sleep(std::time::Duration::from_millis(
-                        DRIVE_SCREEN_SETTLE_MS,
-                    ))
-                    .await;
+                    tokio::time::sleep(std::time::Duration::from_millis(DRIVE_SCREEN_SETTLE_MS))
+                        .await;
                     return state.drive_screens.generation(label) == gen;
                 }
             }
@@ -446,8 +440,7 @@ async fn wait_for_drive_screen_ready(
             }
         }
 
-        tokio::time::sleep(std::time::Duration::from_millis(DRIVE_SCREEN_READY_POLL_MS))
-            .await;
+        tokio::time::sleep(std::time::Duration::from_millis(DRIVE_SCREEN_READY_POLL_MS)).await;
     }
 }
 
@@ -486,7 +479,12 @@ async fn post_drive_screen(
                 .map(|s| s.to_string());
             Some((url, title))
         })
-        .unwrap_or_else(|| (scheduled_url.to_string(), scheduled_title.map(|s| s.to_string())));
+        .unwrap_or_else(|| {
+            (
+                scheduled_url.to_string(),
+                scheduled_title.map(|s| s.to_string()),
+            )
+        });
     let key = screen_post_key(&url, title.as_deref());
     if state.drive_screens.last_posted_key(label).as_deref() == Some(key.as_str()) {
         return Ok(());
@@ -570,10 +568,7 @@ mod tests {
             screen_url_key("https://ex.test/a#section"),
             "https://ex.test/a"
         );
-        assert_eq!(
-            screen_url_key("https://ex.test/a"),
-            "https://ex.test/a"
-        );
+        assert_eq!(screen_url_key("https://ex.test/a"), "https://ex.test/a");
         assert_eq!(screen_url_key("https://ex.test/a#"), "https://ex.test/a");
     }
 
@@ -628,11 +623,8 @@ mod tests {
             at_ms: 1,
             payload: Some(json!({"ok":true,"kind":"click","hit":{"name":"Next"}})),
         }];
-        let caption = build_drive_screen_caption(
-            "https://ex.test/step-2",
-            Some("Step two"),
-            &events,
-        );
+        let caption =
+            build_drive_screen_caption("https://ex.test/step-2", Some("Step two"), &events);
         assert!(caption.contains("**Browser progress** — Step two"));
         assert!(caption.contains("ex.test/step-2"));
         assert!(caption.contains("- Clicked Next"));

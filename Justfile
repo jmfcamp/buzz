@@ -792,7 +792,14 @@ desktop-standalone *ARGS: _ensure-sidecar-stubs
     fi
     source ../scripts/instance-env.sh
     INSTANCE_ID=$(node -e "console.log(JSON.parse(process.env.BUZZ_TAURI_CONFIG).identifier)")
-    export BUZZ_DEV_KEYRING_SERVICE="buzz-desktop-dev.${BUZZ_INSTANCE_SLUG:-main}"
+    # Main checkout keys live in buzz-desktop-dev.main. A linked worktree gets
+    # its own service. instance-env.sh clears a leftover slug first, so a dirty
+    # terminal cannot point the main app at a worktree keyring.
+    if [[ -n "${BUZZ_INSTANCE_SLUG:-}" ]]; then
+        export BUZZ_DEV_KEYRING_SERVICE="buzz-desktop-dev.${BUZZ_INSTANCE_SLUG}"
+    else
+        export BUZZ_DEV_KEYRING_SERVICE="buzz-desktop-dev.main"
+    fi
     if [[ -n "{{fresh}}" ]]; then
         ../scripts/reset-desktop-standalone-state.sh "$INSTANCE_ID" "$BUZZ_DEV_KEYRING_SERVICE"
     fi

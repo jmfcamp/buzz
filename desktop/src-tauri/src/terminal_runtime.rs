@@ -15,13 +15,13 @@ use uuid::Uuid;
 
 use crate::terminal_transport::{FramePublisher, OfferError, Publication, SubscriptionId};
 
+mod mouse_report;
 mod scroll_sign;
 mod wheel_dispatch;
-mod mouse_report;
 
+use mouse_report::{encode_mouse_event, MouseAction, MouseButton};
 use scroll_sign::{scroll_by_dom_lines, DomLines};
 use wheel_dispatch::{plan as plan_wheel, WheelAction};
-use mouse_report::{encode_mouse_event, MouseAction, MouseButton};
 
 const MAX_LIVE_SESSIONS: usize = 20;
 const MAX_INPUT_BYTES: usize = 1024 * 1024;
@@ -506,7 +506,12 @@ pub(crate) fn terminal_attach(
             }
         }
     }
-    if let Some(cwd) = request.cwd.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(cwd) = request
+        .cwd
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         let path = std::path::Path::new(cwd);
         if path.is_dir() {
             command.cwd(cwd);
@@ -611,7 +616,8 @@ pub(crate) fn terminal_attach(
             if let Some(publication) = publication {
                 let subscription = publication.subscription_id;
                 let result = wire_publication(publication).and_then(|mut message| {
-                    let (bracketed_paste, focus_reporting, mouse_reporting) = reader_terminal.input_modes();
+                    let (bracketed_paste, focus_reporting, mouse_reporting) =
+                        reader_terminal.input_modes();
                     message.bracketed_paste = bracketed_paste;
                     message.focus_reporting = focus_reporting;
                     message.mouse_reporting = mouse_reporting;
@@ -838,7 +844,6 @@ pub(crate) fn terminal_scroll(
         }
     })
 }
-
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

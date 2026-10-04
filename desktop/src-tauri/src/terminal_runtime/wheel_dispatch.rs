@@ -39,10 +39,7 @@ pub(super) fn plan(terminal: &Terminal, dom_lines: DomLines) -> WheelAction {
     }
 
     if terminal.alt_screen() && terminal.alternate_scroll() {
-        return WheelAction::Pty(encode_alternate_scroll(
-            lines,
-            terminal.app_cursor(),
-        ));
+        return WheelAction::Pty(encode_alternate_scroll(lines, terminal.app_cursor()));
     }
 
     WheelAction::Scrollback(dom_lines)
