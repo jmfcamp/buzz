@@ -19,6 +19,11 @@ import * as React from "react";
 
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
+import { BestieLinkedText } from "./BestieLinkedText";
+import {
+  BestieLargeTextOpenButton,
+  BestieLargeTextReader,
+} from "./BestieLargeTextReader";
 import { Input } from "@/shared/ui/input";
 import { groupBestieTodos } from "./bestieTodoGrouping";
 import { todayLocalDayKey } from "./bestieListStorage";
@@ -69,6 +74,7 @@ function TodoRow({
     transition,
     isDragging,
   } = useSortable({ id: item.id, data: { item } });
+  const [reading, setReading] = React.useState(false);
 
   return (
     <div
@@ -105,8 +111,25 @@ function TodoRow({
         <Check className="size-3.5" />
       </Button>
       <div className="min-w-0 flex-1">
-        <p className="text-sm leading-snug">{item.text}</p>
+        <p className="text-sm leading-snug">
+          <BestieLinkedText text={item.text} />
+        </p>
       </div>
+      <BestieLargeTextOpenButton
+        label="To-do"
+        onOpen={() => setReading(true)}
+        open={reading}
+        testId={`bestie-todo-read-${item.id}`}
+      />
+      {reading ? (
+        <BestieLargeTextReader
+          body={item.text}
+          onClose={() => setReading(false)}
+          title="To-do"
+        >
+          <BestieLinkedText className="text-sm" text={item.text} />
+        </BestieLargeTextReader>
+      ) : null}
       <Button
         aria-label={item.starred ? "Unstar to-do" : "Star to-do"}
         aria-pressed={item.starred}
@@ -199,6 +222,63 @@ function TodoGroup({
 /**
  * To-dos sheet: starred pin block, day groups (Today first), drag across groups.
  */
+function DoneTodoRow({
+  item,
+  onRemove,
+  onReopen,
+}: {
+  item: BestieListItem;
+  onRemove: () => void;
+  onReopen: () => void;
+}) {
+  const [reading, setReading] = React.useState(false);
+  return (
+    <div
+      className="flex items-center gap-2 rounded-md px-2 py-1 opacity-60"
+      data-testid={`bestie-list-item-${item.id}`}
+    >
+      <Button
+        aria-label="Reopen item"
+        className="size-6 shrink-0"
+        onClick={onReopen}
+        size="icon-xs"
+        type="button"
+        variant="ghost"
+      >
+        <Check className="size-3.5 text-primary" />
+      </Button>
+      <p className="min-w-0 flex-1 truncate text-sm line-through">
+        <BestieLinkedText text={item.text} />
+      </p>
+      <BestieLargeTextOpenButton
+        label="To-do"
+        onOpen={() => setReading(true)}
+        open={reading}
+        testId={`bestie-todo-read-${item.id}`}
+      />
+      {reading ? (
+        <BestieLargeTextReader
+          body={item.text}
+          onClose={() => setReading(false)}
+          title="To-do"
+        >
+          <BestieLinkedText className="text-sm" text={item.text} />
+        </BestieLargeTextReader>
+      ) : null}
+      <Button
+        aria-label="Remove item"
+        className="size-6 shrink-0"
+        onClick={onRemove}
+        size="icon-xs"
+        type="button"
+        variant="ghost"
+      >
+        <Trash2 className="size-3.5" />
+      </Button>
+    </div>
+  );
+}
+
 export function BestieDmTodosSheet({
   adding,
   onRequestAdd,
@@ -409,37 +489,14 @@ export function BestieDmTodosSheet({
             Done
           </p>
           {doneTodos.map((item) => (
-            <div
+            <DoneTodoRow
               key={item.id}
-              className="flex items-center gap-2 rounded-md px-2 py-1 opacity-60"
-              data-testid={`bestie-list-item-${item.id}`}
-            >
-              <Button
-                aria-label="Reopen item"
-                className="size-6 shrink-0"
-                onClick={() =>
-                  setBestieListItemStatusForScope(scope, item.id, "open")
-                }
-                size="icon-xs"
-                type="button"
-                variant="ghost"
-              >
-                <Check className="size-3.5 text-primary" />
-              </Button>
-              <p className="min-w-0 flex-1 truncate text-sm line-through">
-                {item.text}
-              </p>
-              <Button
-                aria-label="Remove item"
-                className="size-6 shrink-0"
-                onClick={() => removeBestieListItemForScope(scope, item.id)}
-                size="icon-xs"
-                type="button"
-                variant="ghost"
-              >
-                <Trash2 className="size-3.5" />
-              </Button>
-            </div>
+              item={item}
+              onRemove={() => removeBestieListItemForScope(scope, item.id)}
+              onReopen={() =>
+                setBestieListItemStatusForScope(scope, item.id, "open")
+              }
+            />
           ))}
         </div>
       ) : null}

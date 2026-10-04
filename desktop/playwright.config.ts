@@ -50,6 +50,7 @@ const config = defineConfig({
         "**/community-bots.spec.ts",
         "**/messaging.spec.ts",
         "**/bestie.spec.ts",
+        "**/bestie-message-context.spec.ts",
         "**/message-feedback-snapshots.spec.ts",
         "**/message-copy-link.spec.ts",
         "**/custom-emoji.spec.ts",

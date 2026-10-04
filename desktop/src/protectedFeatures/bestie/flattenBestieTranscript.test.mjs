@@ -4,7 +4,9 @@ import test from "node:test";
 import {
   collectBestieSessionThreadRootIds,
   filterBestieSessionMessages,
+  filterMessagesInBestieThread,
   flattenBestieTranscriptMessages,
+  resolveBestieComposerThread,
   resolveBestieSendParentEventId,
 } from "./flattenBestieTranscript.ts";
 
@@ -101,6 +103,117 @@ test("second send continues the same session thread root", () => {
     resolveBestieSendParentEventId({ sessionRootId: "session-root-1" }),
     "session-root-1",
   );
+});
+
+test("a message ask starts its own thread and ignores the bottom session", () => {
+  assert.deepEqual(
+    resolveBestieComposerThread({
+      footerSessionRootId: "footer-root",
+      isMessageAsk: true,
+      messageThreadRootId: null,
+    }),
+    { create: "message", parentEventId: null },
+  );
+});
+
+test("reopening the same message continues that message thread", () => {
+  assert.deepEqual(
+    resolveBestieComposerThread({
+      footerSessionRootId: "footer-root",
+      isMessageAsk: true,
+      messageThreadRootId: "message-root",
+    }),
+    { create: "none", parentEventId: "message-root" },
+  );
+});
+
+test("the bottom assistant continues its own session", () => {
+  assert.deepEqual(
+    resolveBestieComposerThread({
+      footerSessionRootId: "footer-root",
+      isMessageAsk: false,
+      messageThreadRootId: "message-root",
+    }),
+    { create: "none", parentEventId: "footer-root" },
+  );
+  assert.deepEqual(
+    resolveBestieComposerThread({
+      footerSessionRootId: null,
+      isMessageAsk: false,
+    }),
+    { create: "footer", parentEventId: null },
+  );
+});
+
+test("a message thread shows only that root and its replies", () => {
+  const visible = filterMessagesInBestieThread(
+    [
+      message({ createdAt: 1, id: "footer-root" }),
+      message({
+        createdAt: 2,
+        id: "footer-reply",
+        parentId: "footer-root",
+        rootId: "footer-root",
+      }),
+      message({ createdAt: 3, id: "ask-root" }),
+      message({
+        createdAt: 4,
+        id: "ask-reply",
+        parentId: "ask-root",
+        rootId: "ask-root",
+      }),
+      message({ createdAt: 5, id: "other-ask" }),
+    ],
+    "ask-root",
+  );
+  assert.deepEqual(
+    visible.map((entry) => entry.id),
+    ["ask-root", "ask-reply"],
+  );
+});
+
+test("the bottom transcript hides message-ask threads", () => {
+  const filtered = filterBestieSessionMessages(
+    [
+      message({ createdAt: 10, id: "footer-root" }),
+      message({
+        createdAt: 11,
+        id: "footer-reply",
+        parentId: "footer-root",
+        rootId: "footer-root",
+      }),
+      message({ createdAt: 12, id: "ask-root" }),
+      message({
+        createdAt: 13,
+        id: "ask-reply",
+        parentId: "ask-root",
+        rootId: "ask-root",
+      }),
+    ],
+    {
+      baselineMessageIds: new Set(),
+      firstMessageCreatedAt: 10,
+      sessionRootId: "footer-root",
+    },
+    { excludeRootIds: new Set(["ask-root"]) },
+  );
+  assert.deepEqual(
+    filtered.map((entry) => entry.id),
+    ["footer-root", "footer-reply"],
+  );
+  const roots = collectBestieSessionThreadRootIds(
+    {
+      baselineMessageIds: new Set(),
+      firstMessageCreatedAt: 10,
+      sessionRootId: "footer-root",
+    },
+    [
+      { createdAt: 10, id: "footer-root", parentId: null },
+      { createdAt: 12, id: "ask-root", parentId: null },
+    ],
+    new Set(["ask-root"]),
+  );
+  assert.deepEqual(roots, ["footer-root"]);
 });
 
 test("collectBestieSessionThreadRootIds includes session root and legacy roots", () => {

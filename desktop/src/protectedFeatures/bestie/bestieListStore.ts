@@ -18,6 +18,10 @@ import {
 } from "./bestieListStorage";
 import { parseBestieListActionsFromMessage } from "./parseBestieListActions";
 import {
+  takeBestieAskSourceLink,
+  withBestieSourceMessageLink,
+} from "./bestieMessageContext";
+import {
   parseBestieReminderMeridiemReply,
   parseBestieUserListIntent,
   reconcileReminderDueAtWithStatedMeridiem,
@@ -163,10 +167,12 @@ export function applyBestieListActionsFromAgentMessage(
   const pending = next.pendingReminderConfirm;
   for (const action of actions) {
     if (action.op === "add") {
+      const sourceLink = takeBestieAskSourceLink(scope, nowMs);
       for (const item of action.items) {
         let addInput = {
           ...item,
           sourceMessageId: messageId,
+          text: withBestieSourceMessageLink(item.text, sourceLink),
         };
         if (item.kind === "reminder") {
           const bareClock =

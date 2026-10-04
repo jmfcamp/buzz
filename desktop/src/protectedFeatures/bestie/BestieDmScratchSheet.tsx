@@ -2,6 +2,7 @@ import { StickyNote, Trash2 } from "lucide-react";
 import * as React from "react";
 
 import { cn } from "@/shared/lib/cn";
+import { BestieLinkedText } from "./BestieLinkedText";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Textarea } from "@/shared/ui/textarea";
@@ -11,10 +12,7 @@ import {
 } from "./BestieLargeTextReader";
 import { bestieScratchChord } from "./bestieScratchHotkeys";
 
-import {
-  bestieScratchSnippet,
-  deriveBestieScratchTitle,
-} from "./bestieScratchStorage";
+import { deriveBestieScratchTitle } from "./bestieScratchStorage";
 import {
   addBestieScratchNoteForScope,
   removeBestieScratchNoteForScope,
@@ -50,7 +48,6 @@ function ScratchListRow({
   onSave: (input: { body: string; draft?: boolean; title: string }) => void;
   readerOpenRef: React.MutableRefObject<boolean>;
 }) {
-  const snippet = bestieScratchSnippet(note.body);
   const [reading, setReading] = React.useState(false);
   const [confirmingDelete, setConfirmingDelete] = React.useState(false);
   const deleteRef = React.useRef<HTMLButtonElement>(null);
@@ -77,23 +74,26 @@ function ScratchListRow({
       className="group flex items-start gap-2 rounded-md border border-border/60 bg-muted/25 px-2 py-1.5"
       data-testid={`bestie-scratch-item-${note.id}`}
     >
-      <button
-        className="min-w-0 flex-1 text-left"
-        data-testid={`bestie-scratch-open-${note.id}`}
-        onClick={onOpen}
-        type="button"
-      >
-        <p className="flex items-center gap-1.5 text-sm font-medium leading-snug">
-          <StickyNote className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="truncate">{note.title}</span>
-          {isDraft ? <ScratchDraftChip id={note.id} /> : null}
-        </p>
-        {snippet && snippet !== note.title ? (
-          <p className="mt-0.5 line-clamp-2 text-2xs text-muted-foreground">
-            {snippet}
+      <div className="min-w-0 flex-1">
+        <button
+          className="w-full text-left"
+          data-testid={`bestie-scratch-open-${note.id}`}
+          onClick={onOpen}
+          type="button"
+        >
+          <p className="flex items-center gap-1.5 text-sm font-medium leading-snug">
+            <StickyNote className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="truncate">{note.title}</span>
+            {isDraft ? <ScratchDraftChip id={note.id} /> : null}
           </p>
+        </button>
+        {note.body.trim() ? (
+          <BestieLinkedText
+            className="mt-0.5 line-clamp-3 text-2xs text-muted-foreground"
+            text={note.body}
+          />
         ) : null}
-      </button>
+      </div>
       <BestieLargeTextOpenButton
         label={note.title}
         onOpen={() => setReading(true)}

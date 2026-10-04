@@ -58,6 +58,7 @@ export function BestieLargeTextOpenButton({
  */
 export function BestieLargeTextReader({
   body,
+  children,
   editable = false,
   mono = false,
   onClose,
@@ -67,6 +68,7 @@ export function BestieLargeTextReader({
   title,
 }: {
   body: string;
+  children?: React.ReactNode;
   editable?: boolean;
   mono?: boolean;
   onClose: () => void;
@@ -239,6 +241,7 @@ export function BestieLargeTextReader({
           </div>
         ) : (
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+            {children ?? (
             <pre
               className={cn(
                 "whitespace-pre-wrap text-sm leading-normal text-foreground",
@@ -248,6 +251,7 @@ export function BestieLargeTextReader({
             >
               {body}
             </pre>
+            )}
           </div>
         )}
       </div>

@@ -15,6 +15,10 @@ import {
   parseBestieScratchActionsFromMessage,
 } from "./parseBestieScratchActions";
 import {
+  takeBestieAskSourceLink,
+  withBestieSourceMessageLink,
+} from "./bestieMessageContext";
+import {
   parseBestieUserScratchIntent,
   type BestieUserScratchIntent,
 } from "./parseBestieUserScratchIntent";
@@ -128,8 +132,10 @@ export function applyBestieScratchActionsFromAgentMessage(
   for (const action of actions) {
     if (action.op === "add") {
       const before = next;
+      const sourceLink = takeBestieAskSourceLink(scope);
       next = addBestieScratchNote(next, {
         ...action.note,
+        body: withBestieSourceMessageLink(action.note.body, sourceLink),
         sourceMessageId: messageId,
       });
       if (next !== before) applied += 1;
