@@ -32,7 +32,6 @@ export type ChannelScreenProps = {
   idleAuxiliaryBodyClassName?: string;
   idleAuxiliaryTitle?: string;
   headerEndActions?: ReactNode;
-  onAddFiles?: () => void;
   /** Rendered under the channel title. Project home uses this for the primary codebase. */
   headerDetail?: ReactNode;
   onCloseIdleAuxiliaryPanel?: () => void;

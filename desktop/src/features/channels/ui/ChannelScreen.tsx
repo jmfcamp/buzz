@@ -105,7 +105,7 @@ export function ChannelScreen({
   headerDetail, headerEndActions, idleAuxiliaryPanel,
   idleAuxiliaryHeaderActions, idleAuxiliaryOverridesThread,
   idleAuxiliaryExpanded, idleAuxiliaryCoverAppChrome, idleAuxiliaryBodyClassName, idleAuxiliaryTitle,
-  onAddFiles, onCloseIdleAuxiliaryPanel,
+  onCloseIdleAuxiliaryPanel,
   onCloseForumPost, onSelectForumPost,
   selectedForumPostId, targetForumReplyId,
   targetMessageEvents, targetMessageId,
@@ -950,7 +950,6 @@ export function ChannelScreen({
                   fetchOlder={fetchOlder}
                   header={channelHeader}
                   {...{ idleAuxiliaryHeaderActions: resolvedIdleAuxiliaryHeaderActions, idleAuxiliaryOverridesThread: resolvedIdleAuxiliaryOverridesThread, idleAuxiliaryExpanded: resolvedIdleAuxiliaryExpanded, idleAuxiliaryCoverAppChrome: resolvedIdleAuxiliaryCoverAppChrome, idleAuxiliaryBodyClassName: resolvedIdleAuxiliaryBodyClassName, idleAuxiliaryPanel: resolvedIdleAuxiliaryPanel, idleAuxiliaryTitle: resolvedIdleAuxiliaryTitle, hasOlderMessages, historyExhausted }}
-                  {...{ onAddFiles }}
                   onAddAgent={handleOpenAddBot}
                   onBrowseChannels={openBrowseChannels}
                   onCreateChannel={openCreateChannel}

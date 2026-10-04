@@ -457,32 +457,50 @@ async function expectIntroActionCardLayout(
   page: import("@playwright/test").Page,
   actionTestId: string,
 ) {
-  const actionBox = await page.getByTestId(actionTestId).boundingBox();
+  const action = page.getByTestId(actionTestId);
+  const actionBox = await action.boundingBox();
   const iconBox = await page.getByTestId(`${actionTestId}-icon`).boundingBox();
+  const title = page.getByTestId(`${actionTestId}-title`);
+  const titleBox = await title.boundingBox();
+  const introIconBox = await page
+    .getByTestId("message-channel-intro-icon")
+    .boundingBox();
+  const nameBox = await page
+    .getByTestId("message-channel-intro")
+    .locator("p")
+    .first()
+    .boundingBox();
 
-  if (!actionBox || !iconBox) {
-    throw new Error(`Could not measure intro action card: ${actionTestId}`);
+  if (!actionBox || !iconBox || !titleBox || !introIconBox || !nameBox) {
+    throw new Error(`Could not measure intro action pill: ${actionTestId}`);
   }
 
-  expect(actionBox.height).toBeGreaterThan(actionBox.width);
-  expect(Math.round(actionBox.width)).toBe(192);
+  expect(actionBox.width).toBeGreaterThan(actionBox.height);
+  expect(Math.round(actionBox.height)).toBe(Math.round(introIconBox.height));
+  expect(Math.round(introIconBox.height)).toBe(60);
   expect(Math.round(iconBox.width)).toBe(40);
   expect(Math.round(iconBox.height)).toBe(40);
-  const introIconRadius = await page
-    .getByTestId("message-channel-intro-icon")
-    .evaluate((element) => window.getComputedStyle(element).borderRadius);
-  const actionRadius = await page
-    .getByTestId(actionTestId)
-    .evaluate((element) => window.getComputedStyle(element).borderRadius);
-  expect(actionRadius).toBe(introIconRadius);
-  await expect(page.getByTestId(`${actionTestId}-title`)).toHaveCSS(
-    "white-space",
-    "normal",
+  expect(iconBox.x + iconBox.width).toBeLessThanOrEqual(titleBox.x + 1);
+  expect(actionBox.x).toBeGreaterThanOrEqual(
+    introIconBox.x + introIconBox.width - 1,
   );
-  await expect(page.getByTestId(`${actionTestId}-description`)).toHaveCSS(
-    "white-space",
-    "normal",
+  expect(actionBox.y).toBeLessThan(introIconBox.y + introIconBox.height);
+  expect(actionBox.y + actionBox.height).toBeGreaterThan(introIconBox.y);
+  expect(nameBox.y).toBeGreaterThanOrEqual(
+    introIconBox.y + introIconBox.height - 1,
   );
+  const chipRadius = await page
+    .getByTestId(`${actionTestId}-icon`)
+    .evaluate((element) => window.getComputedStyle(element).borderRadius);
+  expect(chipRadius).toBe("9999px");
+  await expect(title).toHaveCSS("white-space", "nowrap");
+  const description = page.getByTestId(`${actionTestId}-description`);
+  const descriptionBox = await description.boundingBox();
+  if (!descriptionBox) {
+    throw new Error(`Could not measure intro action subtitle: ${actionTestId}`);
+  }
+  expect(descriptionBox.y).toBeGreaterThanOrEqual(titleBox.y + titleBox.height - 1);
+  await expect(description).toHaveCSS("white-space", "nowrap");
 }
 
 async function expectIntroActionsShareRow(
@@ -1899,10 +1917,11 @@ test("empty channel shows intro actions", async ({ page }) => {
     addAgentsAction.getByText("Add agent", { exact: true }),
   ).toBeVisible();
   await expect(
-    addAgentsAction.getByText("Add an agent here.", {
-      exact: true,
-    }),
+    addAgentsAction.getByText("Add an agent here.", { exact: true }),
   ).toBeVisible();
+  await expect(page.getByTestId("channel-intro-action-add-files")).toHaveCount(
+    0,
+  );
   await expect(
     page.getByTestId("channel-intro-action-add-people"),
   ).toBeVisible();
