@@ -5765,14 +5765,27 @@ mod agent_draft_prompt_tests {
         assert!(prompt.contains("buzz issues create --channel"));
         assert!(prompt.contains("is not a Buzz repository"));
         assert!(prompt.contains("openclaw-workspace"));
-        assert!(prompt.contains("Do not clone, fetch, commit, or push that repo on this machine"));
+        assert!(prompt.contains("Do not clone or push that repo from a Mac shell"));
         assert!(prompt.contains("~/.buzz-dev"));
         assert!(prompt.contains("The `REPOS/` row does not apply"));
         assert!(prompt.contains("stop and report the refusal"));
-        assert!(prompt.contains("buzz github publish"));
+        assert!(prompt.contains("Do not replace those lines with `buzz github publish`"));
+        assert!(!prompt.contains("buzz github publish --repo"));
         assert!(prompt.contains("gh repo clone"));
-        assert!(prompt.contains("Do not save them into a file"));
-        assert!(prompt.contains("buzz github publish --repo"));
+        assert!(prompt.contains("one commit per skill step"));
+        assert!(prompt.contains("gitIdentity"));
+        assert!(prompt.contains("commit.gpgsign=false"));
+        assert!(prompt.contains("--draft"));
+        assert!(prompt.contains("hula-impl-start"));
+        assert!(prompt.contains("hula-impl-ship"));
+        assert!(prompt.contains("Fixes <KEY-N>"));
+        assert!(prompt.contains(".worktrees/<key>"));
+        assert!(prompt.contains("plan/<slug>/..."));
+        assert!(prompt.contains("Do not `git add -A`"));
+        assert!(prompt.contains("do not invent a branch name"));
+        assert!(prompt.contains("impl: confirm shipped"));
+        assert!(prompt.contains("that identity does not apply"));
+        assert!(prompt.contains("The runtime sets your git commit identity"));
         // "buzz projects" contains the letters "buzz pr". A real review
         // command is that prefix followed by a space or the end of a token.
         let mut rest = prompt;
@@ -5784,8 +5797,8 @@ mod agent_draft_prompt_tests {
             );
             rest = &rest[index + "buzz pr".len()..];
         }
-        assert!(prompt.contains("[\"git\",\"fetch\",\"origin\",\"<new-branch>:<new-branch>\"]"));
-        assert!(prompt.contains("It does not check the branch out."));
+        assert!(prompt.contains("Mac `gh` user"));
+        assert!(!prompt.contains("{\"files\":["));
     }
 
     #[test]
