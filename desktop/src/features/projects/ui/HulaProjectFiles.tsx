@@ -4,6 +4,8 @@ import * as React from "react";
 import {
   hulaBlobText,
   hulaFilesErrorMessage,
+  hulaFilesUseWorktreeDisk,
+  hulaOpenFilePath,
   hulaShowFileArgv,
   loadHulaFilesSnapshot,
 } from "@/features/projects/lib/hulaFiles";
@@ -18,7 +20,8 @@ import { RepositoryFilesPanel } from "./ProjectRepositoryPanel";
 
 /**
  * OpenClaw files in the same table the repository Files tab uses.
- * The rows are the git tree at this checkout. Opening a file reads that blob.
+ * At HEAD, rows are the worktree on disk (with git status). Other refs use the
+ * tracked tree. Opening a file reads disk at HEAD, otherwise the blob.
  * It does not change the checkout.
  */
 export function HulaProjectFiles({
@@ -54,10 +57,17 @@ export function HulaProjectFiles({
         { list: callOpenClawWorkspaceTool, ref: gitRef },
       ),
   });
+  const useDisk = hulaFilesUseWorktreeDisk(gitRef, callOpenClawWorkspaceTool);
   const fileContentSource = React.useMemo(
     () => ({
       cacheKey: ["hula-openclaw-file", rootPath, gitRef] as const,
       load: async (path: string) => {
+        if (useDisk) {
+          const full = hulaOpenFilePath(rootPath, path);
+          if (!full) return null;
+          const text = await openClawWorkspaceClient.readFile(full);
+          return text == null ? null : hulaBlobText(text);
+        }
         const argv = hulaShowFileArgv(gitRef, path);
         if (!argv) return null;
         const result = await openClawWorkspaceClient.exec(argv, rootPath);
@@ -67,7 +77,7 @@ export function HulaProjectFiles({
         return hulaBlobText(result.stdout);
       },
     }),
-    [gitRef, rootPath],
+    [gitRef, rootPath, useDisk],
   );
   const snapshot = snapshotQuery.data ?? null;
 

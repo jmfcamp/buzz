@@ -8,6 +8,7 @@ import type {
   ProjectRepoContributor,
   ProjectRepoDiff,
   ProjectRepoFile,
+  ProjectRepoFileGitStatus,
   ProjectRepoSnapshot,
 } from "@/shared/api/projectGitTypes";
 
@@ -20,7 +21,7 @@ export type HulaFileEntry = {
   children?: HulaFileEntry[];
 };
 
-/** How far a size walk goes. The file list itself comes from git, not this walk. */
+/** How far a worktree walk goes for disk file lists and sizes. */
 const HULA_SIZE_WALK_DEPTH = 32;
 
 /**
@@ -152,6 +153,18 @@ export const HULA_STATUS_ARGV = [
   "status",
   "--porcelain",
   "--untracked-files=no",
+] as const;
+
+/**
+ * Worktree status used when Files lists disk paths at HEAD.
+ * Includes untracked and ignored paths so ignored files can be classified.
+ */
+export const HULA_WORKTREE_STATUS_ARGV = [
+  "git",
+  "status",
+  "--porcelain",
+  "--untracked-files=all",
+  "--ignored",
 ] as const;
 
 const ENTRY_TYPES = new Set<HulaFileEntry["type"]>([
@@ -490,9 +503,28 @@ type ExecCall = (
 }>;
 
 /**
- * Git snapshot for one OpenClaw checkout.
- * The file list is the tracked tree at `ref`. Opening a file reads that blob.
- * A failed history read still returns the files. This does not change the checkout.
+ * Whether Files should list the worktree on disk.
+ * Checkout/worktree browse targets use HEAD. An unchecked-out branch keeps
+ * the git tree at that ref (no disk listing), even when `root` is a checkout.
+ */
+export function hulaFilesUseWorktreeDisk(
+  ref: string | null | undefined,
+  list?: DirectoryCall | null,
+): boolean {
+  if (!list) return false;
+  try {
+    return hulaGitRef(ref) === "HEAD";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Git snapshot for one OpenClaw path.
+ * At HEAD with a directory listing, files come from disk and git status layers
+ * tracked/untracked/ignored/modified. For any other ref, files are the tracked
+ * tree at that ref. A failed history read still returns the files.
+ * This does not change the checkout.
  */
 export async function loadHulaFilesSnapshot(
   root: string,
@@ -502,6 +534,28 @@ export async function loadHulaFilesSnapshot(
   const normalized = hulaDirectoryPath(root);
   if (!normalized) throw new Error("Choose a directory inside Hula.");
   const ref = hulaGitRef(options?.ref);
+  const useDisk = hulaFilesUseWorktreeDisk(ref, options?.list ?? null);
+  if (useDisk && options?.list) {
+    const [named, listed, status, diskFiles] = await Promise.all([
+      readHulaCommitLog(normalized, ref, exec),
+      readHulaCommitList(normalized, ref, exec),
+      readWorktreeStatus(normalized, exec),
+      readWorktreeFiles(normalized, options.list),
+    ]);
+    const commits = listed.failed
+      ? named.commits.map(toRepoCommit)
+      : listed.commits;
+    const historyTruncated = listed.failed ? named.truncated : listed.truncated;
+    return {
+      latestCommit: commits[0] ?? null,
+      commits,
+      files: mergeHulaDiskFilesWithGit(diskFiles, named.commits, status),
+      contributors: contributorsFromLog(
+        listed.failed ? named.commits : commits,
+      ),
+      ...(historyTruncated ? { historyTruncated: true } : {}),
+    };
+  }
   const [paths, named, listed, dirty, sizes] = await Promise.all([
     readTrackedPaths(normalized, ref, exec),
     readHulaCommitLog(normalized, ref, exec),
@@ -588,6 +642,96 @@ export function parseGitDirtyPaths(stdout: string): Set<string> {
     if (normalized) dirty.add(normalized);
   }
   return dirty;
+}
+
+export type HulaGitStatusOverlay = {
+  /** Exact path → status from porcelain. */
+  byPath: Map<string, ProjectRepoFileGitStatus>;
+  /** Ignored directory prefixes (no trailing slash). */
+  ignoredDirs: string[];
+};
+
+/**
+ * Parse `git status --porcelain --untracked-files=all --ignored`.
+ * Directory entries (`!! dir/`) become ignored-dir prefixes for descendants.
+ */
+export function parseGitStatusOverlay(stdout: string): HulaGitStatusOverlay {
+  const byPath = new Map<string, ProjectRepoFileGitStatus>();
+  const ignoredDirs: string[] = [];
+  for (const raw of stdout.split(/\r?\n/)) {
+    if (raw.length < 4) continue;
+    const code = raw.slice(0, 2);
+    const pathPart = raw.slice(3).trim();
+    const renamed = pathPart.split(" -> ");
+    const target = unquoteGitPath(renamed[renamed.length - 1] ?? "");
+    if (!target) continue;
+    if (target.endsWith("/")) {
+      const dir = normalizeRepoPath(target.replace(/\/+$/, ""));
+      if (dir && code === "!!") ignoredDirs.push(dir);
+      continue;
+    }
+    const normalized = normalizeRepoPath(target);
+    if (!normalized) continue;
+    byPath.set(normalized, statusFromPorcelainCode(code));
+  }
+  ignoredDirs.sort((left, right) => right.length - left.length);
+  return { byPath, ignoredDirs };
+}
+
+function statusFromPorcelainCode(code: string): ProjectRepoFileGitStatus {
+  if (code === "!!") return "ignored";
+  if (code === "??") return "untracked";
+  return "modified";
+}
+
+/** Resolve overlay status for one disk path. Missing → clean tracked. */
+export function hulaGitStatusForPath(
+  path: string,
+  overlay: HulaGitStatusOverlay | null,
+): ProjectRepoFileGitStatus {
+  if (!overlay) return "tracked";
+  const exact = overlay.byPath.get(path);
+  if (exact) return exact;
+  for (const dir of overlay.ignoredDirs) {
+    if (path === dir || path.startsWith(`${dir}/`)) return "ignored";
+  }
+  return "tracked";
+}
+
+/**
+ * Merge disk file paths with git status and last-commit metadata.
+ * Pure helper for unit tests. Disk is the source of truth for which paths exist.
+ */
+export function mergeHulaDiskFilesWithGit(
+  diskFiles: readonly { path: string; size: number | null }[],
+  commits: readonly HulaLogCommit[],
+  overlay: HulaGitStatusOverlay | null,
+): ProjectRepoFile[] {
+  const byPath = new Map<string, ProjectRepoCommit>();
+  for (const commit of commits) {
+    const latest = toRepoCommit(commit);
+    for (const file of commit.files) {
+      if (!byPath.has(file)) byPath.set(file, latest);
+    }
+  }
+  return diskFiles.map((file) => {
+    const gitStatus = overlay
+      ? hulaGitStatusForPath(file.path, overlay)
+      : undefined;
+    const latestCommit =
+      gitStatus === "untracked" || gitStatus === "ignored"
+        ? null
+        : (byPath.get(file.path) ?? null);
+    return {
+      path: file.path,
+      kind: "blob",
+      size: file.size,
+      previewContent: null,
+      lastChangedAt: latestCommit?.timestamp ?? null,
+      latestCommit,
+      ...(gitStatus ? { gitStatus } : {}),
+    };
+  });
 }
 
 async function readTrackedPaths(
@@ -684,22 +828,50 @@ async function readDirtyPaths(
   }
 }
 
+async function readWorktreeStatus(
+  cwd: string,
+  exec: ExecCall,
+): Promise<HulaGitStatusOverlay | null> {
+  try {
+    const result = await exec(HULA_WORKTREE_STATUS_ARGV, cwd);
+    if (typeof result.exitCode === "number" && result.exitCode !== 0) {
+      return null;
+    }
+    return parseGitStatusOverlay(result.stdout);
+  } catch {
+    return null;
+  }
+}
+
+/** Disk files under `root` via OpenClaw `list_directory`. Skips `.git`. */
+async function readWorktreeFiles(
+  root: string,
+  list: DirectoryCall,
+): Promise<{ path: string; size: number | null }[]> {
+  const response = await list("list_directory", {
+    path: root,
+    depth: HULA_SIZE_WALK_DEPTH,
+    namesOnly: false,
+  });
+  if (response.isError) {
+    throw new Error(
+      openClawToolText(response.result) || "Could not list that directory.",
+    );
+  }
+  const entries = hulaDirectoryEntries(openClawToolJson(response.result));
+  return hulaRelativeFiles(root, entries).filter(
+    (file) => file.path !== ".git" && !file.path.startsWith(".git/"),
+  );
+}
+
 async function readWorktreeSizes(
   root: string,
   list: DirectoryCall | undefined,
 ): Promise<Map<string, number | null>> {
   if (!list) return new Map();
   try {
-    const response = await list("list_directory", {
-      path: root,
-      depth: HULA_SIZE_WALK_DEPTH,
-      namesOnly: false,
-    });
-    if (response.isError) return new Map();
-    const entries = hulaDirectoryEntries(openClawToolJson(response.result));
-    return new Map(
-      hulaRelativeFiles(root, entries).map((file) => [file.path, file.size]),
-    );
+    const files = await readWorktreeFiles(root, list);
+    return new Map(files.map((file) => [file.path, file.size]));
   } catch {
     return new Map();
   }
