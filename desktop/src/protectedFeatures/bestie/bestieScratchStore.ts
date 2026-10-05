@@ -135,7 +135,7 @@ export function applyBestieScratchActionsFromAgentMessage(
       const sourceLink = takeBestieAskSourceLink(scope);
       next = addBestieScratchNote(next, {
         ...action.note,
-        body: withBestieSourceMessageLink(action.note.body, sourceLink),
+        body: withBestieSourceMessageLink(action.note.body ?? "", sourceLink),
         sourceMessageId: messageId,
       });
       if (next !== before) applied += 1;
