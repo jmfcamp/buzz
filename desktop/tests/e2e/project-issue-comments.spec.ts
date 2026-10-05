@@ -23,7 +23,7 @@ async function openBuzzProject(page: import("@playwright/test").Page) {
   await projectEntry.click();
   // Codebase name stays on the channel home. Issue actions live on the
   // repository page reached by expanding the home Files sheet.
-  await page.getByTestId("project-home-context-files").click();
+  await page.getByTestId("project-home-context-commits").click();
   await page.getByTestId("project-home-workspace-sheet-expand").click();
   await expect(page.getByTestId("project-workspace-back")).toBeVisible();
 }

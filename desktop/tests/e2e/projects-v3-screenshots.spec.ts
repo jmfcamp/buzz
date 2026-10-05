@@ -37,7 +37,7 @@ async function expectProjectContextGroups(
     "Actions",
     "Assignment",
     "Discussion",
-    "People",
+    "Contributors",
     "Task details",
     "Review details",
     "Review activity",
@@ -80,7 +80,7 @@ async function openBuzzProject(
   if (surface === "repository") {
     // The codebase name stays on the channel. The full workspace is the
     // sheet's expand path, which still leaves the channel home.
-    await page.getByTestId("project-home-context-files").click();
+    await page.getByTestId("project-home-context-commits").click();
     await page.getByTestId("project-home-workspace-sheet-expand").click();
     await expect(page.getByTestId("project-workspace-back")).toBeVisible();
     await page.getByRole("tab", { name: "Overview", exact: true }).click();

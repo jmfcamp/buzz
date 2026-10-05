@@ -375,7 +375,7 @@ test("creating a project opens its channel conversation", async ({ page }) => {
       .getByRole("heading", { name: "Workspace" }),
   ).toHaveCount(0);
   await expect(page.getByTestId("project-home-context-tasks")).toBeEnabled();
-  await expect(page.getByTestId("project-home-context-people")).toContainText(
+  await expect(page.getByTestId("project-home-context-contributors")).toContainText(
     "1",
   );
   await expect(page.getByTestId("project-home-drawer-toggle")).toHaveAttribute(
@@ -399,11 +399,11 @@ test("creating a project opens its channel conversation", async ({ page }) => {
     .getByTestId("auxiliary-panel-close")
     .click();
   await expect(page.getByTestId("channel-management-sheet")).toHaveCount(0);
-  await page.getByTestId("project-home-context-files").click();
+  await page.getByTestId("project-home-context-commits").click();
   await expect(page.getByTestId("project-home-workspace-sheet")).toBeVisible();
   await expect(
     page.getByTestId("project-home-workspace-sheet"),
-  ).toHaveAttribute("data-tab", "files");
+  ).toHaveAttribute("data-tab", "commits");
   await expect(page.getByTestId("focus-thread-drawer")).toBeVisible();
   await expect(page.getByTestId("project-home-summary-column")).toHaveCount(0);
   await page
@@ -1044,14 +1044,14 @@ test("commit detail opens from the commits feed with a diff", async ({
   await expect(page.getByTestId("project-home-summary-column")).toBeVisible();
   // Commit breadcrumbs and the workspace tab strip still live on the full
   // repository page. Expand the home sheet; the codebase name no longer goes there.
-  await page.getByTestId("project-home-context-files").click();
+  await page.getByTestId("project-home-context-commits").click();
   await page.getByTestId("project-home-workspace-sheet-expand").click();
   await expect(page.getByTestId("project-workspace-back")).toBeVisible();
   await expect(page.getByTestId("app-sidebar")).toBeVisible();
   await page.getByTestId("project-workspace-back").click();
   await expect(page.getByTestId("project-channel-home")).toBeVisible();
   await expect(page.getByTestId("app-sidebar")).toBeVisible();
-  await page.getByTestId("project-home-context-files").click();
+  await page.getByTestId("project-home-context-commits").click();
   await page.getByTestId("project-home-workspace-sheet-expand").click();
   await expect(page.getByTestId("project-workspace-back")).toBeVisible();
   await page.getByRole("tab", { name: "Overview", exact: true }).click();
@@ -1252,7 +1252,7 @@ test("project discussion row opens its channel thread in context", async ({
     )
     .first()
     .click();
-  await page.getByTestId("project-home-context-files").click();
+  await page.getByTestId("project-home-context-commits").click();
   await page.getByTestId("project-home-workspace-sheet-expand").click();
   await page.getByRole("tab", { name: "Commits" }).click();
   const commitRow = page.getByTestId("project-activity-feed-item").first();
