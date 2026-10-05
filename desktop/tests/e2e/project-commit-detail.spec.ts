@@ -23,6 +23,15 @@ async function openCreateProjectDialog(page: import("@playwright/test").Page) {
   await page.getByTestId("projects-overview-create-project").click();
 }
 
+async function chooseCreateProjectDri(page: import("@playwright/test").Page) {
+  await page.getByTestId("create-project-dri").click();
+  const option = page
+    .locator("[data-testid^='create-project-dri-option-']")
+    .first();
+  await expect(option).toBeVisible();
+  await option.click();
+}
+
 async function addProjectToSidebar(
   page: import("@playwright/test").Page,
   dtag: string,
@@ -180,9 +189,6 @@ test("top-level project lists show metadata and overflow actions", async ({
   await page.keyboard.press("Escape");
 
   await page.getByRole("button", { name: "Tasks", exact: true }).click();
-  await page.getByTestId("projects-overview-create-issue").click();
-  await expect(page.getByTestId("create-issue-repository")).toBeVisible();
-  await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "Filter tasks" })).toHaveCount(
     0,
   );
@@ -192,9 +198,8 @@ test("top-level project lists show metadata and overflow actions", async ({
   await expect(
     page.getByTestId("projects-overview-layout"),
   ).not.toHaveAttribute("data-project-context-detached", "true");
-  await expect(page.getByTestId("projects-overview-context-rail")).toHaveCSS(
-    "width",
-    "0px",
+  await expect(page.getByTestId("projects-overview-context-rail")).toHaveCount(
+    0,
   );
   await page.getByTestId("projects-section-projects").click();
   const responsiveRepositoryRow = page
@@ -235,6 +240,7 @@ test("creating a project opens its channel conversation", async ({ page }) => {
   );
   await expect(page.getByTestId("create-project-team")).toHaveText("None");
   await expect(page.getByTestId("create-project-agent")).toHaveText("None");
+  await chooseCreateProjectDri(page);
   await page.getByTestId("create-project-submit").click();
 
   await expect(page.getByTestId("create-project-dialog")).toBeHidden();
@@ -263,14 +269,13 @@ test("creating a project opens its channel conversation", async ({ page }) => {
   ).toBeVisible();
   await expect(
     page.getByTestId("channel-intro-action-add-files"),
-  ).toBeVisible();
-  await expect(
-    page.getByTestId("channel-intro-action-add-files-title"),
-  ).toHaveText("Add files");
-  await page.getByTestId("channel-intro-action-add-files").click();
-  await expect(page.getByTestId("add-project-repository-dialog")).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(page.getByTestId("add-project-repository-dialog")).toBeHidden();
+  ).toHaveCount(0);
+  await expect(page.getByTestId("message-channel-intro")).not.toContainText(
+    "Add files",
+  );
+  await expect(page.getByTestId("message-channel-intro")).not.toContainText(
+    "Add a repo",
+  );
   await expect(page.getByTestId("project-home-summary-column")).toBeVisible();
   await expect(
     page
@@ -319,16 +324,12 @@ test("creating a project opens its channel conversation", async ({ page }) => {
   await expect(
     channelSection.getByTestId("project-home-context-home-channel"),
   ).toBeVisible();
-  const codebaseSection = page.getByTestId("project-home-context-codebase");
-  const codebaseSectionToggle = codebaseSection.getByRole("button", {
-    name: "Codebase",
-    exact: true,
-  });
-  await codebaseSectionToggle.click();
+  await expect(page.getByTestId("project-home-context-codebase")).toHaveCount(
+    0,
+  );
   await expect(
-    codebaseSection.getByTestId("project-home-context-repo-multi-repo-demo"),
+    page.getByRole("button", { name: "Subrepositories" }),
   ).toHaveCount(0);
-  await codebaseSectionToggle.click();
   const channelAction = page.getByTestId("add-project-channel").locator("..");
   const repositoryAction = page
     .getByTestId("add-project-repository")
@@ -343,7 +344,7 @@ test("creating a project opens its channel conversation", async ({ page }) => {
   await expect(repositoryAction).toHaveCSS("opacity", "0");
   await page.getByTestId("project-home-context-channel").hover();
   await expect(channelAction).toHaveCSS("opacity", "1");
-  await page.getByTestId("project-home-context-codebase").hover();
+  await page.getByTestId("project-home-repository-actions").hover();
   await expect(repositoryAction).toHaveCSS("opacity", "1");
   await page.getByTestId("project-home-context-channel").hover();
   await page.getByTestId("add-project-channel").click();
@@ -359,9 +360,12 @@ test("creating a project opens its channel conversation", async ({ page }) => {
   await expect(
     page.getByTestId("sidebar-project-expand-multi-repo-demo"),
   ).toHaveCount(0);
-  await expect(page.getByTestId("project-home-context-codebase")).toContainText(
-    "multi-repo-demo",
+  await expect(page.getByTestId("project-home-context-codebase")).toHaveCount(
+    0,
   );
+  await expect(
+    page.getByTestId("project-channel-primary-codebase"),
+  ).toContainText("multi-repo-demo");
   await expect(
     page.getByTestId("project-home-context-workspace"),
   ).toBeVisible();
@@ -371,7 +375,7 @@ test("creating a project opens its channel conversation", async ({ page }) => {
       .getByRole("heading", { name: "Workspace" }),
   ).toHaveCount(0);
   await expect(page.getByTestId("project-home-context-tasks")).toBeEnabled();
-  await expect(page.getByTestId("project-home-context-people")).toContainText(
+  await expect(page.getByTestId("project-home-context-contributors")).toContainText(
     "1",
   );
   await expect(page.getByTestId("project-home-drawer-toggle")).toHaveAttribute(
@@ -395,11 +399,11 @@ test("creating a project opens its channel conversation", async ({ page }) => {
     .getByTestId("auxiliary-panel-close")
     .click();
   await expect(page.getByTestId("channel-management-sheet")).toHaveCount(0);
-  await page.getByTestId("project-home-context-files").click();
+  await page.getByTestId("project-home-context-commits").click();
   await expect(page.getByTestId("project-home-workspace-sheet")).toBeVisible();
   await expect(
     page.getByTestId("project-home-workspace-sheet"),
-  ).toHaveAttribute("data-tab", "files");
+  ).toHaveAttribute("data-tab", "commits");
   await expect(page.getByTestId("focus-thread-drawer")).toBeVisible();
   await expect(page.getByTestId("project-home-summary-column")).toHaveCount(0);
   await page
@@ -438,6 +442,7 @@ test("creating a project opens its channel conversation", async ({ page }) => {
     .click();
   await openCreateProjectDialog(page);
   await page.getByTestId("create-project-name").fill("multi-repo-demo");
+  await chooseCreateProjectDri(page);
   await page.getByTestId("create-project-submit").click();
   await expect(page.getByTestId("create-project-dialog")).toBeVisible();
   await expect(
@@ -469,6 +474,7 @@ test("unsupported relays cannot create a channel-first project", async ({
   await page.getByTestId("open-projects-view").click();
   await openCreateProjectDialog(page);
   await page.getByTestId("create-project-name").fill("legacy-fallback");
+  await chooseCreateProjectDri(page);
   await page.getByTestId("create-project-submit").click();
 
   await expect(page.getByTestId("create-project-dialog")).toBeVisible();
@@ -501,11 +507,13 @@ test("project creation can retry after its repository publication fails", async 
   await page.getByTestId("open-projects-view").click();
   await openCreateProjectDialog(page);
   await page.getByTestId("create-project-name").fill("retry-project");
+  await chooseCreateProjectDri(page);
   await page.getByTestId("create-project-submit").click();
 
   await expect(page.getByTestId("create-project-dialog")).toBeVisible();
   await expect(page.getByText("mock project event rejection")).toBeVisible();
 
+  await chooseCreateProjectDri(page);
   await page.getByTestId("create-project-submit").click();
   await expect(page.getByTestId("create-project-dialog")).toBeHidden();
   await expect(page.getByTestId("project-channel-home")).toBeVisible();
@@ -526,6 +534,7 @@ test("project creation is idempotent after a lost publish acknowledgement", asyn
   await page.getByTestId("open-projects-view").click();
   await openCreateProjectDialog(page);
   await page.getByTestId("create-project-name").fill("lost-ack-project");
+  await chooseCreateProjectDri(page);
   await page.getByTestId("create-project-submit").click();
 
   await expect(page.getByTestId("create-project-dialog")).toBeVisible();
@@ -533,6 +542,7 @@ test("project creation is idempotent after a lost publish acknowledgement", asyn
     page.getByText("mock lost project acknowledgement"),
   ).toBeVisible();
 
+  await chooseCreateProjectDri(page);
   await page.getByTestId("create-project-submit").click();
   await expect(page.getByTestId("create-project-dialog")).toBeHidden();
   await expect(page.getByTestId("project-channel-home")).toBeVisible();
@@ -753,6 +763,7 @@ test("project workspace sheet stays independent from an open thread", async ({
   await page.getByTestId("open-projects-view").click();
   await openCreateProjectDialog(page);
   await page.getByTestId("create-project-name").fill("sheet-motion-demo");
+  await chooseCreateProjectDri(page);
   await page.getByTestId("create-project-submit").click();
   await expect(page.getByTestId("project-channel-home")).toBeVisible();
   await page.setViewportSize({ height: 720, width: 820 });
@@ -958,7 +969,12 @@ test("commit detail opens from the commits feed with a diff", async ({
   await expect(projectEntry).toBeVisible({ timeout: 10_000 });
   await projectEntry.click();
   await page.getByTestId("project-home-context-repo-buzz").click();
-  await page.getByTestId("project-workspace-back").click();
+  await expect(page.getByTestId("project-channel-home")).toBeVisible();
+  await expect(
+    page.getByRole("tab", { name: "Chat", exact: true }),
+  ).toHaveAttribute("data-state", "active");
+  await expect(page.getByTestId("project-home-summary-column")).toBeVisible();
+  await expect(page.getByTestId("project-workspace-back")).toHaveCount(0);
   await page.getByTestId("project-home-context-tasks").click();
   await expect(page.getByTestId("project-home-workspace-sheet")).toBeVisible();
   const focusDrawer = page.getByTestId("focus-thread-drawer");
@@ -1026,14 +1042,19 @@ test("commit detail opens from the commits feed with a diff", async ({
     .click();
   await expect(page.getByTestId("project-home-workspace-sheet")).toHaveCount(0);
   await expect(page.getByTestId("project-home-summary-column")).toBeVisible();
-  await page.getByTestId("project-home-context-repo-buzz").click();
-  await expect(page.getByTestId("app-sidebar")).toBeVisible();
+  // Commit breadcrumbs and the workspace tab strip still live on the full
+  // repository page. Expand the home sheet; the codebase name no longer goes there.
+  await page.getByTestId("project-home-context-commits").click();
+  await page.getByTestId("project-home-workspace-sheet-expand").click();
   await expect(page.getByTestId("project-workspace-back")).toBeVisible();
+  await expect(page.getByTestId("app-sidebar")).toBeVisible();
   await page.getByTestId("project-workspace-back").click();
   await expect(page.getByTestId("project-channel-home")).toBeVisible();
   await expect(page.getByTestId("app-sidebar")).toBeVisible();
-  await page.getByTestId("project-home-context-repo-buzz").click();
+  await page.getByTestId("project-home-context-commits").click();
+  await page.getByTestId("project-home-workspace-sheet-expand").click();
   await expect(page.getByTestId("project-workspace-back")).toBeVisible();
+  await page.getByRole("tab", { name: "Overview", exact: true }).click();
 
   await page.getByRole("tab", { name: "Commits" }).click();
   const commitRows = page.getByTestId("project-activity-feed-item");
@@ -1231,7 +1252,8 @@ test("project discussion row opens its channel thread in context", async ({
     )
     .first()
     .click();
-  await page.getByTestId("project-home-context-repo-buzz").click();
+  await page.getByTestId("project-home-context-commits").click();
+  await page.getByTestId("project-home-workspace-sheet-expand").click();
   await page.getByRole("tab", { name: "Commits" }).click();
   const commitRow = page.getByTestId("project-activity-feed-item").first();
   await commitRow

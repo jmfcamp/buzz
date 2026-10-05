@@ -89,22 +89,16 @@ mod tests {
     #[test]
     fn no_report_without_mouse_mode() {
         let term = term_with(b"");
-        assert!(encode_mouse_event(
-            &term,
-            MouseButton::Left,
-            MouseAction::Press,
-            2,
-            3,
-            0
-        )
-        .is_none());
+        assert!(
+            encode_mouse_event(&term, MouseButton::Left, MouseAction::Press, 2, 3, 0).is_none()
+        );
     }
 
     #[test]
     fn sgr_press_and_release() {
         let term = term_with(b"\x1b[?1000h\x1b[?1006h");
-        let press = encode_mouse_event(&term, MouseButton::Left, MouseAction::Press, 4, 5, 0)
-            .unwrap();
+        let press =
+            encode_mouse_event(&term, MouseButton::Left, MouseAction::Press, 4, 5, 0).unwrap();
         assert_eq!(String::from_utf8_lossy(&press), "\u{1b}[<0;4;5M");
         let release =
             encode_mouse_event(&term, MouseButton::Left, MouseAction::Release, 4, 5, 0).unwrap();

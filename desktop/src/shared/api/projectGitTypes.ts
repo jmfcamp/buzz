@@ -7,6 +7,13 @@ export type ProjectRepoCommit = {
   subject: string;
 };
 
+/** Working-tree git state layered onto a disk file listing. */
+export type ProjectRepoFileGitStatus =
+  | "tracked"
+  | "modified"
+  | "untracked"
+  | "ignored";
+
 export type ProjectRepoFile = {
   path: string;
   kind: string;
@@ -14,6 +21,8 @@ export type ProjectRepoFile = {
   previewContent: string | null;
   lastChangedAt: number | null;
   latestCommit: ProjectRepoCommit | null;
+  /** Present when the snapshot listed a worktree on disk. */
+  gitStatus?: ProjectRepoFileGitStatus;
 };
 
 export type ProjectRepoContributor = {

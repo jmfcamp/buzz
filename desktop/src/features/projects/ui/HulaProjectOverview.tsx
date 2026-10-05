@@ -171,6 +171,7 @@ async function worktreesFor(hulaPath: string): Promise<WorktreeRecord[]> {
         head: null,
         branch,
         detached: branch === null,
+        prunable: false,
       },
     ];
   } catch {

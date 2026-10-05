@@ -269,23 +269,20 @@ fn snapshot_wkwebview_full_page(webview: &Webview) -> Result<Vec<u8>, String> {
         Ok(size) => size,
         Err(_) => {
             // Soft fallback: viewport snapshot still beats a hard failure for thumbs.
-            return take_wk_snapshot(webview, Some(FULL_PAGE_SNAPSHOT_WIDTH_PX), std::time::Duration::from_secs(8));
+            return take_wk_snapshot(
+                webview,
+                Some(FULL_PAGE_SNAPSHOT_WIDTH_PX),
+                std::time::Duration::from_secs(8),
+            );
         }
     };
     let _ = content_w;
 
-    let scale = webview
-        .window()
-        .scale_factor()
-        .unwrap_or(1.0)
-        .max(0.5);
-    let physical = webview
-        .size()
-        .map_err(|error| error.to_string())?;
+    let scale = webview.window().scale_factor().unwrap_or(1.0).max(0.5);
+    let physical = webview.size().map_err(|error| error.to_string())?;
     let viewport_w = (physical.width as f64 / scale).max(1.0);
     let viewport_h = (physical.height as f64 / scale).max(1.0);
-    let (target_w, target_h) =
-        full_page_capture_logical_size(viewport_w, viewport_h, content_h);
+    let (target_w, target_h) = full_page_capture_logical_size(viewport_w, viewport_h, content_h);
 
     let resized = (target_h - viewport_h).abs() > 0.5 || (target_w - viewport_w).abs() > 0.5;
     if resized {
@@ -294,7 +291,11 @@ fn snapshot_wkwebview_full_page(webview: &Webview) -> Result<Vec<u8>, String> {
             .map_err(|error| error.to_string())?;
     }
 
-    let result = take_wk_snapshot(webview, Some(FULL_PAGE_SNAPSHOT_WIDTH_PX), std::time::Duration::from_secs(8));
+    let result = take_wk_snapshot(
+        webview,
+        Some(FULL_PAGE_SNAPSHOT_WIDTH_PX),
+        std::time::Duration::from_secs(8),
+    );
 
     if resized {
         let _ = webview.set_size(LogicalSize::new(viewport_w, viewport_h));

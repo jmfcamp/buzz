@@ -3,13 +3,17 @@ import test from "node:test";
 
 import {
   __resetBestieAttentionStoreForTests,
+  clearBestieListIntroNotice,
   clearBestieUnreadMessage,
   getBestieHasUnreadMessage,
+  getBestieListIntroBannerText,
   getBestieSeenAgentCreatedAt,
   ingestBestieAgentMessageCreatedAt,
   isBestieSurfaceOpen,
   markBestieAgentMessagesSeen,
   noteBestieAgentMessageCreatedAt,
+  noteBestieListOnlyAttention,
+  noteBestieRealMessageAttention,
   setBestiePopoverOpen,
   setBestieViewingDm,
 } from "./bestieAttentionStore.ts";
@@ -69,4 +73,57 @@ test("markBestieAgentMessagesSeen clears stale attention", () => {
   assert.equal(getBestieHasUnreadMessage(), true);
   markBestieAgentMessagesSeen(10);
   assert.equal(getBestieHasUnreadMessage(), false);
+});
+
+const oneReminder = {
+  job: 0,
+  reminder: 1,
+  scratch: 0,
+  thread: 0,
+  todo: 0,
+};
+
+test("list-only notice stays while Assistant is open and clears after close", async () => {
+  __resetBestieAttentionStoreForTests();
+  noteBestieListOnlyAttention(oneReminder);
+  assert.equal(getBestieListIntroBannerText(), "Added a reminder");
+  setBestiePopoverOpen(true);
+  assert.equal(getBestieHasUnreadMessage(), false);
+  assert.equal(getBestieListIntroBannerText(), "Added a reminder");
+  // StrictMode replays open → closed → open. The banner must survive that.
+  setBestiePopoverOpen(false);
+  setBestiePopoverOpen(true);
+  assert.equal(getBestieListIntroBannerText(), "Added a reminder");
+  setBestiePopoverOpen(false);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(getBestieListIntroBannerText(), null);
+});
+
+test("real message suppresses the list-only banner", () => {
+  __resetBestieAttentionStoreForTests();
+  noteBestieListOnlyAttention(oneReminder);
+  noteBestieRealMessageAttention();
+  assert.equal(getBestieListIntroBannerText(), null);
+  noteBestieListOnlyAttention({
+    job: 0,
+    reminder: 0,
+    scratch: 1,
+    thread: 0,
+    todo: 0,
+  });
+  assert.equal(getBestieListIntroBannerText(), null);
+});
+
+test("dismiss clears the list-only banner immediately", () => {
+  __resetBestieAttentionStoreForTests();
+  noteBestieListOnlyAttention(oneReminder);
+  clearBestieListIntroNotice();
+  assert.equal(getBestieListIntroBannerText(), null);
+});
+
+test("list-only notice is not recorded while Assistant is open", () => {
+  __resetBestieAttentionStoreForTests();
+  setBestiePopoverOpen(true);
+  noteBestieListOnlyAttention(oneReminder);
+  assert.equal(getBestieListIntroBannerText(), null);
 });

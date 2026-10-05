@@ -2,6 +2,7 @@ import { Bell, Briefcase, Check, Coffee, ListTodo, MessagesSquare, Plus, StickyN
 import * as React from "react";
 
 import { cn } from "@/shared/lib/cn";
+import { BestieLinkedText } from "./BestieLinkedText";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import {
@@ -165,7 +166,7 @@ function ListRow({
               isReminder ? `bestie-reminder-text-${item.id}` : undefined
             }
           >
-            {item.text}
+            <BestieLinkedText text={item.text} />
           </p>
           {isReminder && item.dueAt != null && !done ? (
             <BestieDueCountdownChip

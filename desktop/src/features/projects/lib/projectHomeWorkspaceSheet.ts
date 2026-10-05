@@ -19,7 +19,7 @@ export function isProjectHomeWorkspaceSheetTab(
 
 const WORKSPACE_SHEET_TITLES: Record<ProjectHomeWorkspaceSheetTab, string> = {
   commits: "Commits",
-  contributors: "People",
+  contributors: "Contributors",
   files: "Files",
   issues: "Tasks",
 };

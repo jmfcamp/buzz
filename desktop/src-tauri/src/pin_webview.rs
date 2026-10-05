@@ -666,10 +666,7 @@ pub async fn pin_webview_show(
                 }
                 // Prefer Finished over on_navigation for Drive screen settle
                 // (title + real document complete), matching playground.
-                crate::browser_agent::ensure_instrumentation_for_label(
-                    &load_app,
-                    &load_label,
-                );
+                crate::browser_agent::ensure_instrumentation_for_label(&load_app, &load_label);
                 crate::browser_agent::record_nav_from_page(&load_app, &load_label);
             }
         });

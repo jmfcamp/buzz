@@ -98,6 +98,8 @@ export function WorkspaceTabs({
   selectedIssueId,
   roundColumnHeader = false,
   sharedHeaderBackdrop,
+  hideTabList = false,
+  controlledTab,
   pullRequests,
   onSelectedCommitHashChange,
   onFilesContextChange,
@@ -153,6 +155,13 @@ export function WorkspaceTabs({
   /** Reports the active tab so the screen breadcrumb can mirror it. */
   onSelectedTabChange?: (tab: string) => void;
   onBack: () => void;
+  /**
+   * Parent renders the section switcher (Chat, Read Me, …).
+   * The workspace strip, including Back and Overview, stays hidden.
+   */
+  hideTabList?: boolean;
+  /** Workspace-vocabulary tab owned by that parent switcher. */
+  controlledTab?: string;
   /** Selects a member repository. Does not change the OpenClaw checkout. */
   onSelectHulaRepository?: (repositoryId: string) => void;
   /** OpenClaw ref for Files, commits, and contributors. `HEAD` is the checkout. */
@@ -291,15 +300,19 @@ export function WorkspaceTabs({
     [pullRequests, selectedCommitHash],
   );
   const isDetailSelected = Boolean(selectedIssueId || selectedCommitHash);
-  const [selectedTab, setSelectedTab] = React.useState(() =>
+  const [uncontrolledTab, setUncontrolledTab] = React.useState(() =>
     openWorkspaceTab(initialTab),
   );
+  const selectedTab = controlledTab
+    ? openWorkspaceTab(controlledTab)
+    : uncontrolledTab;
   // Follow later share-link navigations to the same project (the search
   // param changes without a remount).
   // biome-ignore lint/correctness/useExhaustiveDependencies: request key intentionally retriggers an unchanged tab.
   React.useEffect(() => {
-    if (initialTab) setSelectedTab(openWorkspaceTab(initialTab));
-  }, [initialTab, initialTabRequestKey]);
+    if (controlledTab) return;
+    if (initialTab) setUncontrolledTab(openWorkspaceTab(initialTab));
+  }, [controlledTab, initialTab, initialTabRequestKey]);
   const [createIssueOpen, setCreateIssueOpen] = React.useState(false);
   const previousCreateIssueRequestKey = React.useRef(createIssueRequestKey);
 
@@ -314,20 +327,18 @@ export function WorkspaceTabs({
   }, [onSelectedTabChange, selectedTab]);
 
   React.useEffect(() => {
-    if (selectedIssueId) {
-      setSelectedTab("issues");
-    }
-  }, [selectedIssueId]);
+    if (controlledTab || !selectedIssueId) return;
+    setUncontrolledTab("issues");
+  }, [controlledTab, selectedIssueId]);
 
   React.useEffect(() => {
-    if (selectedCommitHash) {
-      setSelectedTab("activity");
-    }
-  }, [selectedCommitHash]);
+    if (controlledTab || !selectedCommitHash) return;
+    setUncontrolledTab("activity");
+  }, [controlledTab, selectedCommitHash]);
 
   const handleTabChange = React.useCallback(
     (nextTab: string) => {
-      setSelectedTab(openWorkspaceTab(nextTab));
+      setUncontrolledTab(openWorkspaceTab(nextTab));
       onSelectedPullRequestIdChange(null);
       if (nextTab !== "issues") {
         onSelectedIssueIdChange(null);
@@ -389,7 +400,7 @@ export function WorkspaceTabs({
       onValueChange={handleTabChange}
       value={selectedTab}
     >
-      {!isDetailSelected ? (
+      {!hideTabList && !isDetailSelected ? (
         <div
           className={`sticky top-0 z-30 -mx-4 flex h-13 min-w-0 items-center gap-1 overflow-hidden px-4 ${
             roundColumnHeader ? "rounded-t-2xl" : ""

@@ -2,7 +2,13 @@ import {
   KIND_PROJECT_ANNOUNCEMENT,
   KIND_REPO_ANNOUNCEMENT,
 } from "@/shared/constants/kinds";
-import { isValidProjectChannelId } from "./projectModels";
+import { requireProjectDri } from "@/features/projects/lib/projectDri";
+import { requireProjectCodingAgent } from "@/features/projects/lib/projectCodingAgent";
+import {
+  PROJECT_CODING_AGENT_TAG,
+  PROJECT_DRI_TAG,
+  isValidProjectChannelId,
+} from "./projectModels";
 
 export type ProjectEventTemplate = {
   kind: number;
@@ -129,6 +135,8 @@ export function buildProjectAnnouncementTemplate({
   projectChannelId,
   projectVisibility = "listed",
   repositoryAddresses = [],
+  driPubkey,
+  codingAgentPubkey,
 }: {
   description?: string;
   name: string;
@@ -136,6 +144,10 @@ export function buildProjectAnnouncementTemplate({
   projectChannelId: string;
   projectVisibility?: ProjectListingVisibility;
   repositoryAddresses?: readonly string[];
+  /** Required for a new project. Omitted only by callers that are not creating. */
+  driPubkey?: string;
+  /** Local bot or community bot. Omitted when create leaves the field as None. */
+  codingAgentPubkey?: string;
 }): ProjectAnnouncementTemplate {
   const {
     dtag,
@@ -170,6 +182,15 @@ export function buildProjectAnnouncementTemplate({
   }
   if (projectVisibility === "unlisted") {
     projectTags.push(["buzz-visibility", "unlisted"]);
+  }
+  if (driPubkey !== undefined) {
+    projectTags.push([PROJECT_DRI_TAG, requireProjectDri(driPubkey)]);
+  }
+  if (codingAgentPubkey) {
+    projectTags.push([
+      PROJECT_CODING_AGENT_TAG,
+      requireProjectCodingAgent(codingAgentPubkey),
+    ]);
   }
   for (const address of [...repositoryAddresses].sort()) {
     projectTags.push(["a", address]);
@@ -240,12 +261,16 @@ export function buildProjectBootstrapTemplates({
   ownerPubkey,
   projectChannelId,
   projectVisibility = "listed",
+  driPubkey,
+  codingAgentPubkey,
 }: {
   description?: string;
   name: string;
   ownerPubkey: string;
   projectChannelId: string;
   projectVisibility?: ProjectListingVisibility;
+  driPubkey?: string;
+  codingAgentPubkey?: string;
 }): ProjectBootstrapTemplates {
   const repository = buildDefaultProjectRepositoryTemplate({
     description,
@@ -260,6 +285,8 @@ export function buildProjectBootstrapTemplates({
     projectChannelId,
     projectVisibility,
     repositoryAddresses: [repository.repositoryAddress],
+    driPubkey,
+    codingAgentPubkey,
   });
   return {
     ...announcement,

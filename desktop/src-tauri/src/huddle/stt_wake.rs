@@ -662,9 +662,7 @@ mod tests {
         assert!(out.starts_with("Hey Fable, summarize that"));
         assert!(out.contains("[Huddle wake — read channel context]"));
         assert!(out.contains("Channel: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"));
-        assert!(out.contains(
-            "buzz messages get --channel aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-        ));
+        assert!(out.contains("buzz messages get --channel aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"));
         assert!(!out.contains("[Huddle transcript — full meeting context so far]"));
         assert!(!out.contains("we discussed the roadmap"));
     }
@@ -676,12 +674,9 @@ mod tests {
             "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
             Some("deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"),
         );
-        assert!(out.contains(
-            "Thread: deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
-        ));
-        assert!(out.contains(
-            "buzz messages get --channel aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-        ));
+        assert!(out
+            .contains("Thread: deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"));
+        assert!(out.contains("buzz messages get --channel aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"));
     }
 
     #[test]

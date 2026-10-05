@@ -6,6 +6,10 @@ import {
   type Project,
   type Repository,
 } from "@/features/projects/hooks";
+import {
+  resolveCheckoutFilesContext,
+  type CheckoutFilesContext,
+} from "@/features/projects/lib/checkoutWork";
 import { hulaFilesRootPath } from "@/features/projects/lib/hulaFiles";
 import { resolveProjectDefaultBranch } from "@/features/projects/lib/projectBranches";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
@@ -16,12 +20,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
+import { CheckoutFilesContextStrip } from "./CheckoutWorkViews";
+import { useCheckoutWorkContext } from "./checkoutWorkContext";
 import { HulaProjectFiles } from "./HulaProjectFiles";
 import { ProjectRepositoryManagement } from "./ProjectRepositoryManagement";
 import { RepositoryFilesPanel } from "./ProjectRepositoryPanel";
 import { useRepositoryFileContentSource } from "./useRepositoryFileContentSource";
 
 export function ProjectHomeCodebasePanel({
+  checkoutContext,
+  gitRef,
   identityPubkey,
   onFilesContextChange,
   onOpenCommit,
@@ -31,7 +39,12 @@ export function ProjectHomeCodebasePanel({
   project,
   projects,
   repository,
+  rootPath,
 }: {
+  /** Rail selection the tree was opened for; else matched from root + ref. */
+  checkoutContext?: CheckoutFilesContext | null;
+  /** Git ref for the tree (branch name or HEAD). Defaults to HEAD. */
+  gitRef?: string;
   identityPubkey?: string;
   onFilesContextChange?: (context: {
     kind: "file" | "folder";
@@ -45,11 +58,22 @@ export function ProjectHomeCodebasePanel({
   project: Project;
   projects: Project[];
   repository: Repository | null;
+  /** Override Hula root (e.g. a linked worktree path). */
+  rootPath?: string;
 }) {
-  const hulaFilesRoot = hulaFilesRootPath(
-    project.hulaPath,
-    repository?.hulaPath,
-  );
+  const hulaFilesRoot =
+    rootPath?.trim() ||
+    hulaFilesRootPath(project.hulaPath, repository?.hulaPath);
+  const filesGitRef = gitRef?.trim() || "HEAD";
+  const rail = useCheckoutWorkContext()?.rail ?? null;
+  const railCatalog = rail?.catalog ?? null;
+  const filesContext =
+    checkoutContext ??
+    resolveCheckoutFilesContext(
+      { root: hulaFilesRoot, gitRef: filesGitRef },
+      railCatalog,
+      { pullRequests: rail?.pullRequests ?? [] },
+    );
   const repoStateQuery = useRepoStateQuery(repository, !hulaFilesRoot);
   const defaultBranch = repository
     ? resolveProjectDefaultBranch(repository.defaultBranch, repoStateQuery.data)
@@ -96,6 +120,11 @@ export function ProjectHomeCodebasePanel({
       className="flex min-h-0 flex-1 flex-col overflow-hidden"
       data-testid="project-home-codebase-panel"
     >
+      {filesContext ? (
+        <div className="shrink-0 px-4 pb-2">
+          <CheckoutFilesContextStrip context={filesContext} />
+        </div>
+      ) : null}
       {project.repositories.length > 1 ? (
         <div className="shrink-0 px-4 pb-2">
           <DropdownMenu>
@@ -129,6 +158,7 @@ export function ProjectHomeCodebasePanel({
         {hulaFilesRoot ? (
           <HulaProjectFiles
             fallbackAuthorPubkey={repository.owner}
+            gitRef={filesGitRef}
             onContextChange={onFilesContextChange}
             onOpenCommit={onOpenCommit}
             profiles={profiles}

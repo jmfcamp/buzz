@@ -45,6 +45,7 @@ type ChannelScreenHeaderProps = {
   chromeWrapperRef?: React.Ref<HTMLDivElement>;
   currentPubkey?: string;
   headerEndActions?: React.ReactNode;
+  headerDetail?: React.ReactNode;
   isAddBotOpen?: boolean;
   isJoining?: boolean;
   showHeaderContent?: boolean;
@@ -66,6 +67,7 @@ export function ChannelScreenHeader({
   chromeWrapperRef,
   currentPubkey,
   headerEndActions,
+  headerDetail,
   isAddBotOpen,
   isJoining = false,
   onAddBotOpenChange,
@@ -159,6 +161,7 @@ export function ChannelScreenHeader({
       actions={actions}
       channelType={activeChannel?.channelType}
       description={getChannelDescription(activeChannel)}
+      detail={headerDetail}
       leadingContent={
         activeChannel?.channelType === "dm" ? (
           isGroupDm ? (

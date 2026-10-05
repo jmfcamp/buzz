@@ -2,6 +2,7 @@
  * Assistant popover — detect new messages the user is not currently looking at.
  */
 
+import { isBestieListOnlyAttentionMessage } from "./bestieListIntroNotice";
 import { BESTIE_COFFEE_RUN_MARKER } from "./bestieCoffeeSchedule";
 import { BESTIE_JOB_RUN_MARKER } from "./bestieJobSchedule";
 import { BESTIE_LIVE_LIST_STATE_TURN_HINT_MARKER } from "./bestieOutboundHints";
@@ -115,6 +116,8 @@ function isSkipped(
     return true;
   }
   if (isBestiePopoverSystemNoise(message.body)) return true;
+  // Fence-only list adds are not a chat message. The list-intro banner covers them.
+  if (isBestieListOnlyAttentionMessage(message.body)) return true;
   return false;
 }
 

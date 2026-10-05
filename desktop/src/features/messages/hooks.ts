@@ -2,6 +2,7 @@ import { useEffect, useEffectEvent } from "react";
 import {
   type QueryClient,
   useMutation,
+  useQueries,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
@@ -59,6 +60,7 @@ import { getChannelWindowEvents } from "@/shared/api/channelWindow";
 import type { Channel, Identity, RelayEvent } from "@/shared/api/types";
 // Same .mjs the renderer uses, so the cache-update projection can't drift
 // from the on-render overlay.
+import { noteChannelMembershipChange } from "@/shared/api/channelMembershipWrites";
 import { applyEditTagOverlay } from "@/features/messages/lib/applyEditTagOverlay.mjs";
 import {
   emptyChannelWindowStore,
@@ -315,6 +317,45 @@ export function useChannelMessagesQuery(channel: Channel | null) {
   });
 }
 
+/**
+ * The project activity pane needs the same cached channel-message query for
+ * several project channels at once. Keep its hydration/reconciliation path in
+ * lockstep with useChannelMessagesQuery above.
+ */
+export function useChannelMessagesQueries(channelIds: readonly string[]) {
+  const queryClient = useQueryClient();
+  return useQueries({
+    queries: channelIds.map((channelId) => ({
+      enabled: channelId.length > 0,
+      queryKey: channelMessagesKey(channelId),
+      queryFn: async ({ signal }: { signal: AbortSignal }) => {
+        await channelHeadHydration(queryClient);
+        if (consumeHydratedChannel(queryClient, channelId)) {
+          return (
+            queryClient.getQueryData<RelayEvent[]>(
+              channelMessagesKey(channelId),
+            ) ?? []
+          );
+        }
+        const previousMessages =
+          queryClient.getQueryData<RelayEvent[]>(
+            channelMessagesKey(channelId),
+          ) ?? [];
+        const events = await getChannelWindowEvents(channelId);
+        return reconcileFetchedChannelWindow(
+          queryClient,
+          channelId,
+          events,
+          previousMessages,
+          signal,
+        );
+      },
+      staleTime: 5 * 60 * 1_000,
+      gcTime: 60 * 60 * 1_000,
+    })),
+  });
+}
+
 export function useChannelSubscription(channel: Channel | null) {
   const queryClient = useQueryClient();
   const channelId = channel?.id ?? null;
@@ -377,11 +418,10 @@ export function useChannelSubscription(channel: Channel | null) {
         if (
           payload.type === "member_joined" ||
           payload.type === "member_left" ||
-          payload.type === "member_removed"
+          payload.type === "member_removed" ||
+          payload.type === "admin_kick"
         ) {
-          void queryClient.invalidateQueries({
-            queryKey: ["channels", channelId, "members"],
-          });
+          noteChannelMembershipChange(channelId);
           void queryClient.invalidateQueries({
             queryKey: ["channels"],
             exact: true,

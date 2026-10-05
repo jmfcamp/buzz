@@ -669,6 +669,29 @@ export async function signProjectIssueAssignment(input: {
   await invokeTauri<void>("sign_project_issue_assignment", { input });
 }
 
+export type ProjectCheckoutWorkRaw = {
+  path: string;
+  status: string;
+  numstat: string;
+  log: string;
+};
+
+/** Read-only `git status`, `git diff --numstat HEAD`, and `git log --numstat`. */
+export async function getProjectCheckoutWork(input: {
+  reposDir?: string | null;
+  projectDtag: string;
+  cloneUrl?: string | null;
+}): Promise<ProjectCheckoutWorkRaw | null> {
+  return invokeTauri<ProjectCheckoutWorkRaw | null>(
+    "get_project_checkout_work",
+    {
+      reposDir: input.reposDir ?? null,
+      projectDtag: input.projectDtag,
+      cloneUrl: input.cloneUrl ?? null,
+    },
+  );
+}
+
 export async function signProjectIssueUnassignment(input: {
   targetOwner: string;
   repoAddress: string;

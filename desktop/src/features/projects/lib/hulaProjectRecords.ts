@@ -12,6 +12,7 @@ import {
   validateProjectEventEnvelope,
 } from "@/features/projects/projectModels";
 import type { PlannedHulaRepo } from "@/features/projects/lib/hulaProjectPlan";
+import { repositoryNameFromHulaPath } from "@/features/projects/lib/hulaProjectNames";
 
 export type HulaRepositoryRecord = {
   dtag: string;
@@ -34,13 +35,19 @@ export function buildHulaProjectRecords(input: {
   name: string;
   ownerPubkey: string;
   projectVisibility?: ProjectListingVisibility;
+  driPubkey: string;
+  /** Optional. A local bot or community bot pubkey. Does not change `dri`. */
+  codingAgentPubkey?: string;
   repos: readonly (PlannedHulaRepo & { channelId: string })[];
 }): HulaProjectRecords {
   const owner = input.ownerPubkey.trim().toLowerCase();
   const repositories = input.repos.map((repo) => {
     assertHulaPath(repo.hulaPath);
     const address = `${KIND_REPO_ANNOUNCEMENT}:${owner}:${repo.dtag}`;
-    const repoName = repo.subPath || input.name.trim();
+    const repoName =
+      repositoryNameFromHulaPath(repo.hulaPath) ||
+      repo.subPath ||
+      input.name.trim();
     const tags: string[][] = [
       ["d", repo.dtag],
       ["name", repoName],
@@ -70,6 +77,8 @@ export function buildHulaProjectRecords(input: {
     projectChannelId: input.homeChannelId,
     projectVisibility: input.projectVisibility ?? "listed",
     repositoryAddresses: repositories.map((repo) => repo.address),
+    driPubkey: input.driPubkey,
+    codingAgentPubkey: input.codingAgentPubkey,
   });
   const rootRecord = repositories.find((repo) => repo.dtag === root.dtag);
   if (!rootRecord) {

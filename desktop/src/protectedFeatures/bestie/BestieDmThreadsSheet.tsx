@@ -28,7 +28,14 @@ import {
   parseBestieThreadAddInput,
 } from "./bestieThreadDiscover";
 import { BESTIE_THREAD_SUMMARIZE_EVENT } from "./bestieThreadProtocol";
-import { bestieThreadNeedsSummarize } from "./bestieThreadSummarizeEligibility";
+import {
+  BESTIE_THREAD_ACTIVITY_POLL_MS,
+  refreshBestieTrackedThreadActivity,
+} from "./bestieThreadActivityRefresh";
+import {
+  bestieThreadNeedsSummarize,
+  bestieThreadSummarizeIdleLabel,
+} from "./bestieThreadSummarizeEligibility";
 import { BESTIE_THREAD_SUMMARIZE_LIVE_LABEL } from "./bestieThreadSummarizeLive";
 import { sortedBestieThreads } from "./bestieThreadStorage";
 import {
@@ -57,8 +64,6 @@ function ThreadRow({
   thread: BestieTrackedThread;
 }) {
   const { goChannel } = useAppNavigation();
-  // Rows start collapsed; click the thread header to expand and read summary.
-  const [expanded, setExpanded] = React.useState(false);
   const needsSummarize = bestieThreadNeedsSummarize(thread);
   const title =
     thread.channelName?.trim() || `Thread ${thread.rootEventId.slice(0, 8)}…`;
@@ -68,9 +73,13 @@ function ThreadRow({
       : thread.source === "add"
         ? "Added"
         : "Ask Assistant";
-  const Chevron = expanded ? ChevronDown : ChevronRight;
+  const [expanded, setExpanded] = React.useState(false);
   const [reading, setReading] = React.useState(false);
   const summary = thread.lastSummary?.trim() || "";
+  const Chevron = expanded ? ChevronDown : ChevronRight;
+  const openThread = () => {
+    void goChannel(thread.channelId, { thread: thread.rootEventId });
+  };
 
   return (
     <div
@@ -78,28 +87,35 @@ function ThreadRow({
       data-testid={`bestie-thread-item-${thread.id}`}
     >
       <div className="flex items-start gap-2">
-        <button
-          aria-expanded={expanded}
-          className="min-w-0 flex-1 text-left"
-          data-testid={`bestie-thread-toggle-${thread.id}`}
-          onClick={() => setExpanded((value) => !value)}
-          type="button"
-        >
-          <p className="flex items-center gap-1 text-sm font-medium leading-snug">
-            <Chevron className="size-3.5 shrink-0 text-muted-foreground" />
-            <span className="truncate">{title}</span>
-          </p>
-          <p className="mt-0.5 line-clamp-2 pl-5 text-2xs text-muted-foreground">
-            {thread.preview || "No preview"}
-          </p>
-          <p className="mt-0.5 pl-5 text-2xs text-muted-foreground">
+        <div className="flex min-w-0 flex-1 items-start gap-1">
+          <button
+            aria-expanded={expanded}
+            aria-label={expanded ? "Hide summary" : "Show summary"}
+            className="mt-0.5 shrink-0 text-muted-foreground"
+            data-testid={`bestie-thread-toggle-${thread.id}`}
+            onClick={() => setExpanded((value) => !value)}
+            type="button"
+          >
+            <Chevron className="size-3.5" />
+          </button>
+          <div className="min-w-0 flex-1">
+          <button
+            className="block max-w-full truncate text-left text-sm font-medium text-primary underline decoration-primary/40 underline-offset-2"
+            data-testid={`bestie-thread-link-${thread.id}`}
+            onClick={openThread}
+            type="button"
+          >
+            {title}
+          </button>
+          <p className="mt-0.5 text-2xs text-muted-foreground">
             {sourceLabel} · Added{" "}
             {new Date(thread.addedAt * 1000).toLocaleString()}
             {thread.lastSummaryAt
               ? ` · summarized ${new Date(thread.lastSummaryAt * 1000).toLocaleString()}`
               : ""}
           </p>
-        </button>
+          </div>
+        </div>
         {needsSummarize || summarizeLive ? (
           <Button
             className="h-7 shrink-0 px-2 text-xs"
@@ -125,7 +141,7 @@ function ThreadRow({
               ? BESTIE_THREAD_SUMMARIZE_LIVE_LABEL
               : pending
                 ? "…"
-                : "Summarize"}
+                : bestieThreadSummarizeIdleLabel(thread)}
           </Button>
         ) : null}
         <BestieLargeTextOpenButton
@@ -138,9 +154,7 @@ function ThreadRow({
           aria-label="Open thread"
           className="size-6 shrink-0"
           data-testid={`bestie-thread-open-${thread.id}`}
-          onClick={() =>
-            void goChannel(thread.channelId, { thread: thread.rootEventId })
-          }
+          onClick={openThread}
           size="icon-xs"
           type="button"
           variant="ghost"
@@ -160,21 +174,24 @@ function ThreadRow({
         </Button>
       </div>
       {expanded ? (
-        <div className="mt-1.5 border-t border-border/40 pt-1.5 pl-5">
-          {thread.lastSummary ? (
-            <p
-              className="whitespace-pre-wrap text-sm leading-snug text-muted-foreground"
-              data-testid={`bestie-thread-summary-${thread.id}`}
-            >
-              {thread.lastSummary}
-            </p>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              No summary yet
-              {needsSummarize ? " — use Summarize when ready." : "."}
-            </p>
-          )}
-        </div>
+      <div className="mt-1.5 border-t border-border/40 pt-1.5">
+        {summary ? (
+          <p
+            className="whitespace-pre-wrap text-sm leading-snug text-muted-foreground"
+            data-testid={`bestie-thread-summary-${thread.id}`}
+          >
+            {summary}
+          </p>
+        ) : (
+          <p
+            className="text-xs text-muted-foreground"
+            data-testid={`bestie-thread-summary-${thread.id}`}
+          >
+            No summary yet
+            {needsSummarize ? " — use Summarize when ready." : "."}
+          </p>
+        )}
+      </div>
       ) : null}
       {reading ? (
         <BestieLargeTextReader
@@ -311,6 +328,27 @@ export function BestieDmThreadsSheet({
       cancelled = true;
     };
   }, [channelsQuery.data, scope]);
+
+  // Every 15 minutes (and once on mount): detect post-summary replies from anyone.
+  React.useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      if (cancelled) return;
+      try {
+        await refreshBestieTrackedThreadActivity(scope);
+      } catch {
+        // Best-effort; never throw out of the interval.
+      }
+    };
+    void run();
+    const timer = window.setInterval(() => {
+      void run();
+    }, BESTIE_THREAD_ACTIVITY_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [scope]);
 
   const handleAdd = React.useCallback(
     async (raw: string) => {

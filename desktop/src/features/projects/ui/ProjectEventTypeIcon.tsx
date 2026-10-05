@@ -18,6 +18,7 @@ export type ProjectEventKind =
   | "pull-request"
   | "issue"
   | "comment"
+  | "chat"
   | "approval"
   | "changes-requested"
   | "review-request";
@@ -63,6 +64,12 @@ export const PROJECT_EVENT_VISUALS: Record<
     iconClassName: "text-muted-foreground",
     badgeClassName: "bg-muted text-muted-foreground",
     detailClassName: "border-border/60 text-muted-foreground",
+  },
+  chat: {
+    icon: MessageSquare,
+    iconClassName: "text-blue-600 dark:text-blue-400",
+    badgeClassName: "bg-blue-600/10 text-blue-700 dark:text-blue-300",
+    detailClassName: "border-blue-600/30 text-blue-700 dark:text-blue-300",
   },
   approval: {
     icon: Check,

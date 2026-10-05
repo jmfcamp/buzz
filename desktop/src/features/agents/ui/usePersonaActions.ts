@@ -1,4 +1,5 @@
 import * as React from "react";
+import { isRelayRemovedError } from "@/features/agents/managedAgentRelayCleanup";
 import { useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -278,7 +279,7 @@ export function usePersonaActions() {
             created,
             targetChannel,
           );
-          if (created.spawnError) {
+          if (created.spawnError && !isRelayRemovedError(created.spawnError)) {
             setPersonaErrorMessage(
               `${persona.displayName} was created, but it did not start: ${created.spawnError}`,
             );

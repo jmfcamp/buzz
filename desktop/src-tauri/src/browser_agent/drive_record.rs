@@ -112,11 +112,7 @@ fn parse_record_request(raw: &str) -> Result<RecordRequest, String> {
     let action = match action.as_str() {
         "start" => RecordAction::Start,
         "stop" => RecordAction::Stop,
-        other => {
-            return Err(format!(
-                "record action must be start|stop, got {other:?}"
-            ))
-        }
+        other => return Err(format!("record action must be start|stop, got {other:?}")),
     };
     let request_id = value
         .get("requestId")
@@ -614,38 +610,29 @@ async fn stop_and_post(
     };
 
     let filename = format!("drive-record-{}.mp4", &request.request_id);
-    let blob = match crate::commands::media::upload_video_bytes(
-        body,
-        Some(filename),
-        &app_state,
-    )
-    .await
-    {
-        Ok(b) => b,
-        Err(e) => {
-            mirror_recording_status(root, label, None);
-            push_record_event(
-                app,
-                state,
-                label,
-                "record_error",
-                json!({
-                    "ok": false,
-                    "requestId": request.request_id,
-                    "error": format!("upload failed: {e}"),
-                    "frames": frame_count,
-                }),
-            );
-            return;
-        }
-    };
+    let blob =
+        match crate::commands::media::upload_video_bytes(body, Some(filename), &app_state).await {
+            Ok(b) => b,
+            Err(e) => {
+                mirror_recording_status(root, label, None);
+                push_record_event(
+                    app,
+                    state,
+                    label,
+                    "record_error",
+                    json!({
+                        "ok": false,
+                        "requestId": request.request_id,
+                        "error": format!("upload failed: {e}"),
+                        "frames": frame_count,
+                    }),
+                );
+                return;
+            }
+        };
 
     let (url, title) = latest_nav(state, label);
-    let caption = build_record_caption(
-        &url,
-        title.as_deref(),
-        request.caption.as_deref(),
-    );
+    let caption = build_record_caption(&url, title.as_deref(), request.caption.as_deref());
     let content = format!("{caption}\n\n![video]({})", blob.url);
     let media = vec![drive_screen::imeta_tag_for_blob(&blob)];
     let duration_ms = now_ms().saturating_sub(session.started_at_ms);

@@ -311,7 +311,6 @@ fn truncate_payload(value: Value) -> Value {
     }
 }
 
-
 /// Whether an HTML `target` attribute should open a sibling tab (not same-frame).
 pub fn is_new_tab_link_target(target: &str) -> bool {
     let t = target.trim().to_ascii_lowercase();
@@ -1228,7 +1227,7 @@ pub fn snapshot_collect_js() -> String {
   } catch (e2) {}
   return raw;
 })();"#
-    .to_string()
+        .to_string()
 }
 
 /// Legacy cookie-only path (kept for callers that only eval fire-and-forget).
@@ -1338,7 +1337,6 @@ mod tests {
     }
 
     #[test]
-
     #[test]
     fn set_root_seeds_next_id_from_existing_jsonl() {
         let dir = tempfile::tempdir().unwrap();
@@ -1369,7 +1367,10 @@ mod tests {
         let path = dir.path().join("playground-a").join("events.jsonl");
         assert!(path.is_file());
         buf.clear("playground-a");
-        assert!(!path.is_file(), "clear must drop stale jsonl for MCP watermarks");
+        assert!(
+            !path.is_file(),
+            "clear must drop stale jsonl for MCP watermarks"
+        );
     }
 
     #[test]
@@ -1428,8 +1429,10 @@ mod tests {
             resolve_new_tab_url("/x", "https://ex.test/a"),
             Some("https://ex.test/x".into())
         );
-        assert_eq!(resolve_new_tab_url("http://ex.test/a", "https://ex.test/"), None);
+        assert_eq!(
+            resolve_new_tab_url("http://ex.test/a", "https://ex.test/"),
+            None
+        );
         assert_eq!(resolve_new_tab_url("about:blank", "https://ex.test/"), None);
     }
 }
-

@@ -168,6 +168,8 @@ export async function createHulaProject(
     name,
     ownerPubkey: owner,
     projectVisibility: input.projectVisibility ?? "listed",
+    driPubkey: input.driPubkey,
+    codingAgentPubkey: input.codingAgentPubkey,
     repos: plan.repos.map((repo) => ({
       ...repo,
       channelId: channels.get(repo.channelName)?.id ?? "",

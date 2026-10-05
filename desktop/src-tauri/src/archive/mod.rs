@@ -866,13 +866,19 @@ pub struct AgentTurnMetricNear {
     pub match_kind: String,
 }
 
-fn row_to_near(row: &metric_store::AgentMetricIndexRow, delta: i64, match_kind: &str) -> AgentTurnMetricNear {
-    let turn_total = row.turn_total_tokens.or_else(|| match (row.turn_input_tokens, row.turn_output_tokens) {
-        (Some(i), Some(o)) => Some(i.saturating_add(o)),
-        (Some(i), None) => Some(i),
-        (None, Some(o)) => Some(o),
-        (None, None) => None,
-    });
+fn row_to_near(
+    row: &metric_store::AgentMetricIndexRow,
+    delta: i64,
+    match_kind: &str,
+) -> AgentTurnMetricNear {
+    let turn_total =
+        row.turn_total_tokens
+            .or_else(|| match (row.turn_input_tokens, row.turn_output_tokens) {
+                (Some(i), Some(o)) => Some(i.saturating_add(o)),
+                (Some(i), None) => Some(i),
+                (None, Some(o)) => Some(o),
+                (None, None) => None,
+            });
     AgentTurnMetricNear {
         id: row.id.clone(),
         reported_at: row.reported_at.unwrap_or(row.event_created_at),
@@ -937,13 +943,9 @@ fn agent_turn_metric_near(
 
     // Session unknown but harness turn id unique for this agent → still exact.
     if let Some(turn_id) = turn {
-        if let Some(row) = metric_store::load_by_turn_id_unique(
-            conn,
-            identity_pk,
-            relay_url,
-            &pk,
-            turn_id,
-        )? {
+        if let Some(row) =
+            metric_store::load_by_turn_id_unique(conn, identity_pk, relay_url, &pk, turn_id)?
+        {
             let reported = row.reported_at.unwrap_or(row.event_created_at);
             let delta = (reported - request.around_sec).abs();
             return Ok(Some(row_to_near(&row, delta, "exact")));
@@ -954,14 +956,8 @@ fn agent_turn_metric_near(
     let window = request.window_sec.unwrap_or(180).clamp(15, 900);
     let start = request.around_sec.saturating_sub(window);
     let end = request.around_sec.saturating_add(window).saturating_add(1);
-    let rows = metric_store::load_window_valid_rows(
-        conn,
-        identity_pk,
-        relay_url,
-        start,
-        end,
-        Some(&pk),
-    )?;
+    let rows =
+        metric_store::load_window_valid_rows(conn, identity_pk, relay_url, start, end, Some(&pk))?;
 
     let mut ranked: Vec<(&metric_store::AgentMetricIndexRow, i64, bool)> = Vec::new();
     for row in &rows {

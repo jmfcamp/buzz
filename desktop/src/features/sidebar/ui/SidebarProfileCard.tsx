@@ -25,7 +25,8 @@ type SidebarProfileCardProps = {
   isPresencePending?: boolean;
   onOpenAddCommunity: () => void;
   onOpenSettings: (section?: SettingsSection) => void;
-  onRemoveCommunity: (id: string) => Promise<LeaveCommunityResult | undefined>;
+  onLeaveCommunity: (id: string) => Promise<LeaveCommunityResult | undefined>;
+  onRemoveCommunityFromDevice: (id: string) => Promise<void>;
   onSendFeedback?: () => void;
   onSetPresenceStatus?: (status: PresenceStatus) => void;
   onSetUserStatus: (status: UserStatusInput) => void;
@@ -48,7 +49,8 @@ export function SidebarProfileCard({
   onOpenAddCommunity,
   onOpenSettings,
   onSendFeedback,
-  onRemoveCommunity,
+  onLeaveCommunity,
+  onRemoveCommunityFromDevice,
   onSetPresenceStatus,
   onSetUserStatus,
   onClearUserStatus,
@@ -178,7 +180,8 @@ export function SidebarProfileCard({
                   setProfilePopoverOpen(false);
                   onOpenSettings("community-members");
                 }}
-                onRemoveCommunity={onRemoveCommunity}
+                onLeaveCommunity={onLeaveCommunity}
+                onRemoveCommunityFromDevice={onRemoveCommunityFromDevice}
                 onSwitchCommunity={onSwitchCommunity}
                 onUpdateCommunity={onUpdateCommunity}
                 variant="profile-menu"

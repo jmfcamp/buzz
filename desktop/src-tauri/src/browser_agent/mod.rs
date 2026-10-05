@@ -231,9 +231,8 @@ pub fn ensure_instrumentation_for_label(app: &AppHandle, webview_label: &str) {
                     state.observe.clear(prior);
                     if state.drive_records.migrate_label(prior, label) {
                         viewport_gate::clear_background_paint(&state, prior);
-                        let _ = viewport_gate::prepare_background_drive_viewport(
-                            app, &state, label,
-                        );
+                        let _ =
+                            viewport_gate::prepare_background_drive_viewport(app, &state, label);
                         let old_rec = root.join(prior).join("recording.json");
                         let new_dir = root.join(label);
                         let _ = std::fs::create_dir_all(&new_dir);
@@ -243,7 +242,12 @@ pub fn ensure_instrumentation_for_label(app: &AppHandle, webview_label: &str) {
                     }
                 }
             }
-            mirror_grant(&root, Some(&rebound), label, webview_is_hidden(&state, label));
+            mirror_grant(
+                &root,
+                Some(&rebound),
+                label,
+                webview_is_hidden(&state, label),
+            );
         }
         if let Some(prior) = prior_label {
             if prior != label {
@@ -380,7 +384,12 @@ pub async fn browser_agent_grant_set(
         .grants
         .set(grant.clone(), input.allow_replace.unwrap_or(false))?;
     let root = ensure_data_root(&app, &state)?;
-    mirror_grant(&root, Some(&grant), &label, webview_is_hidden(&state, &label));
+    mirror_grant(
+        &root,
+        Some(&grant),
+        &label,
+        webview_is_hidden(&state, &label),
+    );
     let drive = drive_lock_enabled(&grant);
     install_instrumentation(&app, &label, drive)?;
     if matches!(grant.mode, BrowserAgentMode::Drive) {
@@ -464,9 +473,8 @@ pub async fn browser_agent_rebind_surface(
                 // Follow active tab: keep Record capturing the focused webview.
                 if state.drive_records.migrate_label(prior, &new_label) {
                     viewport_gate::clear_background_paint(&state, prior);
-                    let _ = viewport_gate::prepare_background_drive_viewport(
-                        &app, &state, &new_label,
-                    );
+                    let _ =
+                        viewport_gate::prepare_background_drive_viewport(&app, &state, &new_label);
                     // Move recording.json mirror onto the live grant dir.
                     let old_rec = root.join(prior).join("recording.json");
                     let new_dir = root.join(&new_label);
@@ -484,7 +492,12 @@ pub async fn browser_agent_rebind_surface(
                 emit_grant(&app, None, prior);
             }
         }
-        mirror_grant(&root, Some(&rebound), &new_label, webview_is_hidden(&state, &new_label));
+        mirror_grant(
+            &root,
+            Some(&rebound),
+            &new_label,
+            webview_is_hidden(&state, &new_label),
+        );
     }
     emit_grant(&app, Some(&rebound), &new_label);
     if app.get_webview(&new_label).is_some() {
@@ -557,7 +570,12 @@ pub async fn browser_agent_take_control(
         "(function(){var a=window.__buzzBrowserAgent;if(a)a.setDrive(false);})();",
     );
     if let Ok(root) = ensure_data_root(&app, &state) {
-        mirror_grant(&root, Some(&next), &label, webview_is_hidden(&state, &label));
+        mirror_grant(
+            &root,
+            Some(&next),
+            &label,
+            webview_is_hidden(&state, &label),
+        );
     }
     emit_grant(&app, Some(&next), &label);
     Ok(next)
@@ -582,7 +600,12 @@ pub async fn browser_agent_release_control(
     };
     install_instrumentation(&app, &label, true)?;
     if let Ok(root) = ensure_data_root(&app, &state) {
-        mirror_grant(&root, Some(&next), &label, webview_is_hidden(&state, &label));
+        mirror_grant(
+            &root,
+            Some(&next),
+            &label,
+            webview_is_hidden(&state, &label),
+        );
     }
     emit_grant(&app, Some(&next), &label);
     Ok(next)
@@ -1093,9 +1116,7 @@ async fn process_drive_inbox_for_label(
                 // Truncated mid-line race remnant; skip. Other parse errors surface.
                 let msg = e.to_string();
                 if msg.contains("EOF while parsing") {
-                    eprintln!(
-                        "buzz-desktop: skipping truncated drive inbox line ({msg})"
-                    );
+                    eprintln!("buzz-desktop: skipping truncated drive inbox line ({msg})");
                     continue;
                 }
                 let r = error_result("inbox", "drive_error", format!("invalid inbox line: {e}"));
@@ -1342,7 +1363,9 @@ pub fn spawn_grant_watcher(app: AppHandle) {
                 .filter(|g| matches!(g.mode, BrowserAgentMode::Drive | BrowserAgentMode::Observe))
                 .map(|g| (g.webview_label, g.mode, g.surface_id))
                 .collect();
-            let busy = labels.iter().any(|(label, _, _)| label_has_wake(&root, label));
+            let busy = labels
+                .iter()
+                .any(|(label, _, _)| label_has_wake(&root, label));
             tokio::time::sleep(std::time::Duration::from_millis(if busy {
                 50
             } else {
@@ -1707,12 +1730,7 @@ fn process_viewport_request(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
-        .or_else(|| {
-            state
-                .grants
-                .get(label)
-                .map(|g| g.surface_id.clone())
-        });
+        .or_else(|| state.grants.get(label).map(|g| g.surface_id.clone()));
     let Some(surface_id) = surface_id else {
         return;
     };

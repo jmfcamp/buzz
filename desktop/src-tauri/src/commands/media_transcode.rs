@@ -569,7 +569,6 @@ pub(super) fn transcode_and_extract_poster_with_cancellation(
     Ok((video_bytes?, poster_bytes))
 }
 
-
 /// Relay video resolution envelope (matches `buzz-media` validation):
 /// short edge ≤ 2160 and long edge ≤ 3840 (portrait or landscape).
 pub(crate) const RELAY_VIDEO_MAX_SHORT_EDGE: u32 = 2160;
@@ -885,10 +884,7 @@ mod tests {
         };
 
         let probe = std::process::Command::new(&ffmpeg)
-            .args([
-                "-hide_banner",
-                "-i",
-            ])
+            .args(["-hide_banner", "-i"])
             .arg(&output)
             .output()
             .expect("ffprobe via ffmpeg -i");
@@ -897,17 +893,15 @@ mod tests {
         let _ = std::fs::remove_dir_all(&frames_dir);
 
         // ffmpeg -i prints e.g. "Video: h264 ..., 3840x2122, ..."
-        let dims = stderr
-            .split_whitespace()
-            .find_map(|tok| {
-                let mut parts = tok.trim_end_matches(',').split('x');
-                let w: u32 = parts.next()?.parse().ok()?;
-                let h: u32 = parts.next()?.parse().ok()?;
-                if parts.next().is_some() {
-                    return None;
-                }
-                Some((w, h))
-            });
+        let dims = stderr.split_whitespace().find_map(|tok| {
+            let mut parts = tok.trim_end_matches(',').split('x');
+            let w: u32 = parts.next()?.parse().ok()?;
+            let h: u32 = parts.next()?.parse().ok()?;
+            if parts.next().is_some() {
+                return None;
+            }
+            Some((w, h))
+        });
         let Some((w, h)) = dims else {
             panic!("could not parse video dimensions from ffmpeg stderr:\n{stderr}");
         };
@@ -917,7 +911,10 @@ mod tests {
             long <= RELAY_VIDEO_MAX_LONG_EDGE && short <= RELAY_VIDEO_MAX_SHORT_EDGE,
             "encoded {w}x{h} still outside relay envelope"
         );
-        assert!(w % 2 == 0 && h % 2 == 0, "yuv420p requires even dims, got {w}x{h}");
+        assert!(
+            w % 2 == 0 && h % 2 == 0,
+            "yuv420p requires even dims, got {w}x{h}"
+        );
     }
 
     #[test]

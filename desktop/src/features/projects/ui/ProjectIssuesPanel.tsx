@@ -111,6 +111,29 @@ function issueStatusVisual(status: ProjectIssue["status"]): {
   };
 }
 
+/** Compact status chip reused by index-tree task rows (same states as IssueRow). */
+export function ProjectIssueStatusChip({
+  status,
+}: {
+  status: ProjectIssue["status"];
+}) {
+  const visual = issueStatusVisual(status);
+  const word = taskStatusWord(status);
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1 rounded border border-border/70 bg-muted/40 px-1.5 py-px text-2xs font-medium ${visual.className}`}
+      data-testid="project-issue-status-chip"
+    >
+      <ProjectStatusProgressIcon
+        aria-label={word}
+        className="h-3 w-3 shrink-0"
+        state={visual.progress}
+      />
+      <span>{word}</span>
+    </span>
+  );
+}
+
 export type ProjectIssuePanelItem = {
   issue: ProjectIssue;
   project: Project;

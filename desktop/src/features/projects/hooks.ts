@@ -966,3 +966,4 @@ export function useDeleteProjectMutation() {
 
   return useMutation(projectDeletionMutationOptions(queryClient));
 }
+

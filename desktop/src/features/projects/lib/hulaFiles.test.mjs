@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   HULA_STATUS_ARGV,
+  HULA_WORKTREE_STATUS_ARGV,
   hulaBlobText,
   hulaCommitByHash,
   hulaCommitDiffArgv,
@@ -33,6 +34,10 @@ import {
   loadHulaCommitDiff,
   loadHulaFilesSnapshot,
   loadHulaReviewDiff,
+  hulaFilesUseWorktreeDisk,
+  hulaGitStatusForPath,
+  mergeHulaDiskFilesWithGit,
+  parseGitStatusOverlay,
   parseGitDirtyPaths,
   parseGitMediumNameLog,
   parseGitTrackedPaths,
@@ -248,7 +253,164 @@ M	desktop/main.ts
   );
 });
 
-test("the file snapshot is the tracked tree, not the working folder", async () => {
+test("HEAD with a directory listing uses the worktree on disk", async () => {
+  assert.equal(
+    hulaFilesUseWorktreeDisk("HEAD", async () => ({
+      isError: false,
+      result: null,
+    })),
+    true,
+  );
+  assert.equal(
+    hulaFilesUseWorktreeDisk("main", async () => ({
+      isError: false,
+      result: null,
+    })),
+    false,
+  );
+  assert.equal(hulaFilesUseWorktreeDisk("HEAD", null), false);
+  const calls = [];
+  const snapshot = await loadHulaFilesSnapshot(
+    PROJECT,
+    async (argv, cwd) => {
+      calls.push({ argv: [...argv], cwd });
+      if (argv[1] === "status") {
+        return {
+          stdout: " M README.md\n?? scratch.txt\n!! docs/buzz-review-test.md\n",
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+      if (argv[1] === "log" && argv.includes("--name-status")) {
+        return {
+          stdout: `commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Author: Ada Lovelace <ada@example.com>
+Date:   Mon Aug 31 13:31:33 2026 -0400
+
+    Add the desktop app
+
+M	desktop/main.ts
+`,
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+      if (argv[1] === "log") {
+        return {
+          stdout: `commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Author: Ada Lovelace <ada@example.com>
+Date:   Mon Aug 31 13:31:33 2026 -0400
+
+    Add the desktop app
+`,
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+      return { stdout: "", stderr: "unexpected", exitCode: 1 };
+    },
+    {
+      ref: "HEAD",
+      list: async (name, arguments_) => {
+        calls.push({ name, arguments_ });
+        return {
+          isError: false,
+          result: {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  entries: [
+                    {
+                      name: "README.md",
+                      path: `${PROJECT}/README.md`,
+                      type: "file",
+                      size: 20,
+                    },
+                    {
+                      name: "scratch.txt",
+                      path: `${PROJECT}/scratch.txt`,
+                      type: "file",
+                      size: 4,
+                    },
+                    {
+                      name: "docs",
+                      path: `${PROJECT}/docs`,
+                      type: "directory",
+                      children: [
+                        {
+                          name: "buzz-review-test.md",
+                          path: `${PROJECT}/docs/buzz-review-test.md`,
+                          type: "file",
+                          size: 12,
+                        },
+                      ],
+                    },
+                    {
+                      name: "desktop",
+                      path: DESKTOP,
+                      type: "directory",
+                      children: [
+                        {
+                          name: "main.ts",
+                          path: `${DESKTOP}/main.ts`,
+                          type: "file",
+                          size: 8,
+                        },
+                      ],
+                    },
+                  ],
+                }),
+              },
+            ],
+          },
+        };
+      },
+    },
+  );
+  const argvCalls = calls.filter((call) => call.argv);
+  const listCalls = calls.filter((call) => call.name === "list_directory");
+  assert.deepEqual(
+    argvCalls.map((call) => call.argv),
+    [
+      hulaCommitLogArgv("HEAD"),
+      hulaCommitListArgv("HEAD"),
+      [...HULA_WORKTREE_STATUS_ARGV],
+    ],
+  );
+  assert.equal(argvCalls[0].cwd, PROJECT);
+  assert.deepEqual(listCalls, [
+    {
+      name: "list_directory",
+      arguments_: { path: PROJECT, depth: 32, namesOnly: false },
+    },
+  ]);
+  assert.deepEqual(
+    snapshot.files.map((file) => [file.path, file.gitStatus, file.size]),
+    [
+      ["desktop/main.ts", "tracked", 8],
+      ["docs/buzz-review-test.md", "ignored", 12],
+      ["README.md", "modified", 20],
+      ["scratch.txt", "untracked", 4],
+    ],
+  );
+  assert.equal(snapshot.files[0].kind, "blob");
+  assert.equal(snapshot.files[0].previewContent, null);
+  assert.equal(snapshot.latestCommit?.subject, "Add the desktop app");
+  assert.equal(snapshot.contributors[0]?.name, "Ada Lovelace");
+  assert.equal(snapshot.contributors[0]?.email, "ada@example.com");
+  assert.equal(snapshot.contributors[0]?.commitCount, 1);
+  assert.equal(snapshot.contributors[0]?.lastCommitAt, ADA_TIME);
+  assert.equal(snapshot.files[0].latestCommit?.subject, "Add the desktop app");
+  assert.equal(snapshot.files[1].latestCommit, null);
+  assert.equal(snapshot.files[3].latestCommit, null);
+  assert.equal(
+    hulaCommitByHash(snapshot, "a".repeat(40))?.subject,
+    "Add the desktop app",
+  );
+});
+
+test("a branch ref keeps the tracked tree, not the worktree", async () => {
   const calls = [];
   const snapshot = await loadHulaFilesSnapshot(
     PROJECT,
@@ -290,7 +452,7 @@ Date:   Mon Aug 31 13:31:33 2026 -0400
       return { stdout: " M README.md\n", stderr: "", exitCode: 0 };
     },
     {
-      ref: "HEAD",
+      ref: "side",
       list: async (name, arguments_) => {
         calls.push({ name, arguments_ });
         return {
@@ -335,36 +497,67 @@ Date:   Mon Aug 31 13:31:33 2026 -0400
       },
     },
   );
-  assert.deepEqual(calls[0].argv, hulaTrackedTreeArgv("HEAD", EMPTY_TREE));
-  assert.equal(calls[0].cwd, PROJECT);
-  assert.deepEqual(calls[1].argv, hulaCommitLogArgv("HEAD"));
-  assert.deepEqual(calls[2].argv, hulaCommitListArgv("HEAD"));
-  assert.deepEqual(calls[3].argv, [...HULA_STATUS_ARGV]);
-  assert.deepEqual(calls[4], {
-    name: "list_directory",
-    arguments_: { path: PROJECT, depth: 32, namesOnly: false },
-  });
+  const argvCalls = calls.filter((call) => call.argv);
+  assert.deepEqual(argvCalls[0].argv, hulaTrackedTreeArgv("side", EMPTY_TREE));
+  assert.deepEqual(
+    argvCalls.map((call) => call.argv).find((argv) => argv[1] === "status"),
+    [...HULA_STATUS_ARGV],
+  );
   assert.deepEqual(
     snapshot.files.map((file) => file.path),
     ["README.md", "desktop/main.ts"],
   );
-  assert.equal(snapshot.files[0].kind, "blob");
+  assert.equal(snapshot.files[0].gitStatus, undefined);
   assert.equal(snapshot.files[0].size, null);
   assert.equal(snapshot.files[1].size, 8);
-  assert.equal(snapshot.files[1].previewContent, null);
-  assert.equal(snapshot.latestCommit?.subject, "Add the desktop app");
-  assert.equal(snapshot.contributors[0]?.name, "Ada Lovelace");
-  assert.equal(snapshot.contributors[0]?.email, "ada@example.com");
-  assert.equal(snapshot.contributors[0]?.commitCount, 1);
-  assert.equal(snapshot.contributors[0]?.lastCommitAt, ADA_TIME);
-  assert.equal(snapshot.files[1].latestCommit?.subject, "Add the desktop app");
-  assert.equal(snapshot.files[0].latestCommit, null);
-  assert.equal(
-    hulaCommitByHash(snapshot, "a".repeat(40))?.subject,
-    "Add the desktop app",
-  );
 });
 
+test("disk entries merge with a git status overlay", () => {
+  const overlay = parseGitStatusOverlay(
+    ' M README.md\n?? scratch.txt\n!! docs/buzz-review-test.md\n!! build/\nR  old.ts -> "notes file.md"\n',
+  );
+  assert.equal(overlay.byPath.get("README.md"), "modified");
+  assert.equal(overlay.byPath.get("scratch.txt"), "untracked");
+  assert.equal(overlay.byPath.get("docs/buzz-review-test.md"), "ignored");
+  assert.equal(overlay.byPath.get("notes file.md"), "modified");
+  assert.deepEqual(overlay.ignoredDirs, ["build"]);
+  assert.equal(hulaGitStatusForPath("build/out.js", overlay), "ignored");
+  assert.equal(hulaGitStatusForPath("desktop/main.ts", overlay), "tracked");
+  const commits =
+    parseGitMediumNameLog(`commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Author: Ada Lovelace <ada@example.com>
+Date:   Mon Aug 31 13:31:33 2026 -0400
+
+    Add the desktop app
+
+M	desktop/main.ts
+`);
+  const merged = mergeHulaDiskFilesWithGit(
+    [
+      { path: "README.md", size: 20 },
+      { path: "scratch.txt", size: 4 },
+      { path: "docs/buzz-review-test.md", size: 12 },
+      { path: "desktop/main.ts", size: 8 },
+      { path: "build/out.js", size: 1 },
+    ],
+    commits,
+    overlay,
+  );
+  assert.deepEqual(
+    merged.map((file) => [
+      file.path,
+      file.gitStatus,
+      file.latestCommit?.shortHash ?? null,
+    ]),
+    [
+      ["README.md", "modified", null],
+      ["scratch.txt", "untracked", null],
+      ["docs/buzz-review-test.md", "ignored", null],
+      ["desktop/main.ts", "tracked", "aaaaaaa"],
+      ["build/out.js", "ignored", null],
+    ],
+  );
+});
 test("a failed git log still returns the tracked files", async () => {
   const snapshot = await loadHulaFilesSnapshot(PROJECT, async (argv) => {
     if (argv[1] === "diff") {

@@ -1,5 +1,6 @@
 import * as React from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 
 import {
   SurfaceTabHomeButton,
@@ -36,6 +37,15 @@ function preventTopChromeWheel(event: WheelEvent) {
     return;
   }
   event.preventDefault();
+}
+
+function reloadDesktopWindow() {
+  // Context-menu Reload: the Tauri webview reloads. Not a data refetch.
+  if (!isTauri()) {
+    window.location.reload();
+    return;
+  }
+  void invoke("reload_webview");
 }
 
 function TopChromeSidebarTrigger() {
@@ -145,6 +155,17 @@ export function AppTopChrome({
         )}
       >
         <TopChromeSidebarTrigger />
+        <Button
+          aria-label="Refresh"
+          className={TOP_CHROME_ICON_BUTTON_CLASS}
+          onClick={reloadDesktopWindow}
+          size="icon"
+          title="Refresh"
+          type="button"
+          variant="ghost"
+        >
+          <RefreshCw />
+        </Button>
         <Button
           aria-label="Go back"
           className={HISTORY_ICON_BUTTON_CLASS}

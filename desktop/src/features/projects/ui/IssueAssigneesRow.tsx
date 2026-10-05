@@ -15,6 +15,7 @@ import {
 } from "@/features/projects/lib/taskStatus";
 import { useUserSearchQuery } from "@/features/profile/hooks";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
+import { UserProfilePopover } from "@/features/profile/ui/UserProfilePopover";
 import type { UserSearchResult } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 import { normalizePubkey, truncateNpub } from "@/shared/lib/pubkey";
@@ -56,9 +57,12 @@ function assigneeSearchLabel(user: UserSearchResult) {
 /** Compact overlapping assignee avatars for issue list rows. */
 export function IssueAssigneeFacepile({
   assignees,
+  interactive = true,
   profiles,
 }: {
   assignees: string[];
+  /** Wrap avatars in the profile popover. Leave off inside another button. */
+  interactive?: boolean;
   profiles?: UserProfileLookup;
 }) {
   if (assignees.length === 0) return null;
@@ -66,27 +70,47 @@ export function IssueAssigneeFacepile({
     <span
       className="flex shrink-0 -space-x-1"
       data-testid="project-issue-assignees"
+      onClick={interactive ? (event) => event.stopPropagation() : undefined}
+      onKeyDown={interactive ? (event) => event.stopPropagation() : undefined}
     >
       {assignees.slice(0, 3).map((pubkey) => {
         const profile = profileForPubkey(pubkey, profiles);
         const label = labelForPubkey(pubkey, profiles);
+        const avatar = (
+          <UserAvatar
+            accent={profile?.isAgent === true}
+            avatarUrl={profile?.avatarUrl ?? null}
+            displayName={label}
+            shape={profile?.isAgent ? "squircle" : "circle"}
+            size="xs"
+          />
+        );
+        const shellClass = cn(
+          "inline-flex ring-1 ring-background",
+          profile?.isAgent ? "rounded-squircle" : "rounded-full",
+        );
+        if (!interactive) {
+          return (
+            <span
+              className={shellClass}
+              key={pubkey}
+              title={`Assigned to ${label}`}
+            >
+              {avatar}
+            </span>
+          );
+        }
         return (
-          <span
-            className={cn(
-              "inline-flex ring-1 ring-background",
-              profile?.isAgent ? "rounded-squircle" : "rounded-full",
-            )}
+          <UserProfilePopover
             key={pubkey}
-            title={`Assigned to ${label}`}
+            pubkey={pubkey}
+            triggerAriaLabel={`Assigned to ${label}. View profile`}
+            triggerClassName={shellClass}
+            triggerElement="span"
+            triggerTestId={`project-issue-assignee-profile-${normalizePubkey(pubkey)}`}
           >
-            <UserAvatar
-              accent={profile?.isAgent === true}
-              avatarUrl={profile?.avatarUrl ?? null}
-              displayName={label}
-              shape={profile?.isAgent ? "squircle" : "circle"}
-              size="xs"
-            />
-          </span>
+            <span title={`Assigned to ${label}`}>{avatar}</span>
+          </UserProfilePopover>
         );
       })}
     </span>

@@ -6,6 +6,7 @@ import { Button } from "@/shared/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { BestiePopover, BestieTriggerVisual } from "./BestiePopover";
+import { setBestiePopoverListsCollapsed } from "./bestiePopoverListsPreference";
 import { upsertBestieTrackedThreadForScope } from "./bestieThreadStore";
 import { useBestie } from "./useBestie";
 
@@ -18,6 +19,12 @@ export function BestieMessageAction({
 }) {
   const bestie = useBestie();
   const [open, setOpen] = React.useState(false);
+
+  // A persisted Lists expand makes this hover panel taller than the screen.
+  React.useEffect(() => {
+    if (!open) return;
+    setBestiePopoverListsCollapsed(true);
+  }, [open]);
 
   // Enroll the thread whenever Ask Assistant opens on a message (start or anytime).
   React.useEffect(() => {
@@ -72,10 +79,28 @@ export function BestieMessageAction({
         </TooltipTrigger>
         <TooltipContent>Ask Assistant</TooltipContent>
       </Tooltip>
-      <PopoverContent align="end" className="w-80" side="top" sideOffset={10}>
+      <PopoverContent
+        align="end"
+        avoidCollisions
+        className="flex h-auto min-h-[28rem] max-h-[calc(100vh-2rem)] w-[40rem] max-w-[calc(100vw-2rem)] flex-col overflow-y-auto"
+        collisionPadding={16}
+        onOpenAutoFocus={(event) => {
+          const content = event.currentTarget;
+          if (!(content instanceof HTMLElement)) return;
+          const composer = content.querySelector(
+            "[data-testid='bestie-composer']",
+          );
+          if (!(composer instanceof HTMLElement)) return;
+          event.preventDefault();
+          composer.focus();
+        }}
+        side="top"
+        sideOffset={10}
+      >
         <BestiePopover
           contextChannelId={channelId}
           contextMessage={message}
+          fillAvailable
           onRequestClose={() => setOpen(false)}
         />
       </PopoverContent>

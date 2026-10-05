@@ -53,9 +53,22 @@ type RepositoryItemProps = RepositoryListItem & {
   onOpen: (project: Project, repository: Repository) => void;
   onOpenTerminal: (repository: Repository) => void;
   profiles?: UserProfileLookup;
+  /** Mainline or Subrepository. Omitted when the row cannot be classified. */
+  roleLabel?: string | null;
   selectionRangeItems?: ProjectSelectionItem[];
   summary?: ProjectActivitySummary;
 };
+
+function RepositoryRoleLabel({ label }: { label: string }) {
+  return (
+    <span
+      className="shrink-0 rounded border border-border/70 bg-muted/40 px-1.5 py-px text-2xs font-medium text-muted-foreground"
+      data-testid="repository-row-role"
+    >
+      {label}
+    </span>
+  );
+}
 
 function RepositoryHostIcon({
   compact = false,
@@ -124,7 +137,11 @@ function RepositoryIdentity({
   profiles,
   project,
   repository,
-}: Pick<RepositoryItemProps, "profiles" | "project" | "repository"> & {
+  roleLabel,
+}: Pick<
+  RepositoryItemProps,
+  "profiles" | "project" | "repository" | "roleLabel"
+> & {
   inlineBranch?: boolean;
 }) {
   // Where the git data lives beats repeating the (often identical) project
@@ -143,6 +160,7 @@ function RepositoryIdentity({
           <span className={PROJECT_LIST_ROW_TITLE_CLASS}>
             {repository.name}
           </span>
+          {roleLabel ? <RepositoryRoleLabel label={roleLabel} /> : null}
         </div>
         <p className={PROJECT_LIST_ROW_PREVIEW_CLASS}>
           {displayPath ?? project.name}
@@ -205,6 +223,7 @@ export const RepositoryGridCard = React.memo(function RepositoryGridCard(
     profiles,
     project,
     repository,
+    roleLabel,
     summary,
   } = props;
   return (
@@ -224,6 +243,7 @@ export const RepositoryGridCard = React.memo(function RepositoryGridCard(
             profiles={profiles}
             project={project}
             repository={repository}
+            roleLabel={roleLabel}
           />
           <div className="pointer-events-auto ml-auto">
             <RepositoryActionsMenu
@@ -270,6 +290,7 @@ export const RepositoryListRow = React.memo(function RepositoryListRow(
     profiles,
     project,
     repository,
+    roleLabel,
     selectionRangeItems,
     summary,
   } = props;
@@ -301,7 +322,16 @@ export const RepositoryListRow = React.memo(function RepositoryListRow(
           : undefined
       }
       testId={`repository-row-${repository.dtag}`}
-      title={repository.name}
+      title={
+        roleLabel ? (
+          <span className="inline-flex min-w-0 items-center gap-1.5">
+            <span className="truncate">{repository.name}</span>
+            <RepositoryRoleLabel label={roleLabel} />
+          </span>
+        ) : (
+          repository.name
+        )
+      }
       titleAttr={repository.name}
       titleSecondary={repository.description || undefined}
       titleSecondaryTestId="repositories-row-description"

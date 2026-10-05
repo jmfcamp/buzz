@@ -27,6 +27,9 @@ fi
 
 BUZZ_TAURI_CONFIG="{\"build\":{\"devUrl\":\"${DEV_URL}\",\"beforeDevCommand\":\"exec ./node_modules/.bin/vite --port ${BUZZ_VITE_PORT} --strictPort\"},\"identifier\":\"xyz.block.buzz.app.dev\",\"productName\":\"Buzz Dev\"}"
 unset VITE_DEV_BRANCH
+# A leftover slug from another terminal must not follow this checkout.
+# Only the worktree branch below sets these.
+unset BUZZ_INSTANCE_SLUG BUZZ_WORKTREE_LABEL
 
 # In worktrees, extract a label from the branch name and derive a unique app
 # identity and icon so multiple local desktop instances can run side by side.

@@ -16,7 +16,15 @@ import type {
   ProjectRepoSnapshot,
   Repository,
 } from "@/features/projects/hooks";
+import type { RelayEvent } from "@/shared/api/types";
 import type { ProjectsOverviewAgentContextItem } from "@/features/projects/lib/projectDetailAgentContext";
+import {
+  activityEventMatchesMember,
+  compareActivityCreatedAt,
+  latestActivityCommit,
+  type ActivityMemberOption,
+  type ActivitySort,
+} from "@/features/projects/lib/projectsIndexActivityPeople";
 import { matchesProjectsSearch } from "@/features/projects/lib/projectsSearch";
 import { taskStatusWord } from "@/features/projects/lib/taskStatus";
 import {
@@ -40,8 +48,30 @@ import {
 
 type ActivityKind = ProjectEventKind;
 
+export const ACTIVITY_TYPE_ALL = "all" as const;
+export type ActivityType = typeof ACTIVITY_TYPE_ALL | ActivityKind;
+
+/** The event kinds this feed builds, in the order shown by the type filter. */
+export const ACTIVITY_TYPE_OPTIONS: readonly {
+  label: string;
+  value: ActivityType;
+}[] = [
+  { label: "All types", value: ACTIVITY_TYPE_ALL },
+  { label: "Repositories", value: "repository" },
+  { label: "Commits", value: "commit" },
+  { label: "Chat", value: "chat" },
+  { label: "Tasks", value: "issue" },
+  { label: "Comments", value: "comment" },
+];
+
 type ActivityTarget =
   | { type: "project"; project: Project }
+  | {
+      type: "chat";
+      channelId: string;
+      channelName: string;
+      messageId: string;
+    }
   | { type: "commit"; project: Project; commitHash: string }
   | {
       type: "pull-request";
@@ -75,10 +105,17 @@ type ProjectActivityGroup = {
   items: ProjectActivityItem[];
 };
 
+export type ProjectActivityChannelMessage = {
+  channelId: string;
+  channelName: string;
+  event: RelayEvent;
+};
+
 type ProjectsActivityFeedProps = {
   compact?: boolean;
   isLoading: boolean;
   issues: ProjectIssueListItem[];
+  onOpenChat: (channelId: string, messageId: string) => void;
   onOpenCommit: (project: Project, commitHash: string) => void;
   onOpenIssue: (
     project: Project,
@@ -91,10 +128,19 @@ type ProjectsActivityFeedProps = {
     repository: Repository,
     pullRequest: ProjectPullRequest,
   ) => void;
+  /** Author filter. Null shows everyone. Does not create events. */
+  member?: ActivityMemberOption | null;
+  /** Event-kind filter. All types shows every event this feed builds. */
+  activityType?: ActivityType;
+  chatMessages?: readonly ProjectActivityChannelMessage[];
   profiles?: UserProfileLookup;
   projects: Project[];
   pullRequests: ProjectPullRequestListItem[];
+  /** Set when the index narrowed the feed to one project or channel. */
+  scoped?: boolean;
   searchQuery?: string;
+  /** Orders the events this feed already built. Default newest. */
+  sort?: ActivitySort;
   snapshots?: Record<string, ProjectRepoSnapshot>;
 };
 
@@ -106,13 +152,24 @@ function contentPreview(content: string) {
 }
 
 function buildActivityItems({
+  activityType = ACTIVITY_TYPE_ALL,
+  chatMessages = [],
   issues,
+  member = null,
   projects,
   pullRequests,
   snapshots,
+  sort = "newest",
 }: Pick<
   ProjectsActivityFeedProps,
-  "issues" | "projects" | "pullRequests" | "snapshots"
+  | "activityType"
+  | "chatMessages"
+  | "issues"
+  | "member"
+  | "projects"
+  | "pullRequests"
+  | "snapshots"
+  | "sort"
 >) {
   const items: ProjectActivityItem[] = [];
 
@@ -131,13 +188,30 @@ function buildActivityItems({
     });
   }
 
+  for (const { channelId, channelName, event } of chatMessages) {
+    const excerpt = contentPreview(event.content);
+    if (!excerpt) continue;
+    items.push({
+      id: `chat:${channelId}:${event.id}`,
+      kind: "chat",
+      createdAt: event.created_at,
+      actorPubkey: event.pubkey,
+      actorName: null,
+      action: "posted in",
+      title: excerpt,
+      body: "",
+      detail: channelName,
+      target: {
+        type: "chat",
+        channelId,
+        channelName,
+        messageId: event.id,
+      },
+    });
+  }
+
   for (const project of projects) {
-    const snapshot = snapshots?.[project.id];
-    const commit = snapshot?.commits.reduce(
-      (latest, candidate) =>
-        !latest || candidate.timestamp > latest.timestamp ? candidate : latest,
-      snapshot.commits[0],
-    );
+    const commit = latestActivityCommit(snapshots?.[project.id]?.commits);
     if (!commit) continue;
     items.push({
       id: `commit:${project.id}:${commit.hash}`,
@@ -261,9 +335,14 @@ function buildActivityItems({
     }
   }
 
+  const visible = items.filter(
+    (item) =>
+      (activityType === ACTIVITY_TYPE_ALL || item.kind === activityType) &&
+      (!member || activityEventMatchesMember(item, member)),
+  );
   return (
-    items
-      .sort((left, right) => right.createdAt - left.createdAt)
+    visible
+      .sort((left, right) => compareActivityCreatedAt(sort, left, right))
       .slice(0, ACTIVITY_LIMIT)
       // Bodies are carried raw until here so the markdown flattening runs for
       // the rendered window only — every issue/PR/comment in the community
@@ -283,6 +362,16 @@ export function buildProjectsActivityAgentContextItems(
   >,
 ): ProjectsOverviewAgentContextItem[] {
   return buildActivityItems(input).map((item) => {
+    if (item.target.type === "chat") {
+      return {
+        detail: [item.action, item.target.channelName, item.title]
+          .filter(Boolean)
+          .join(" · "),
+        kind: item.kind,
+        reference: item.id,
+        title: item.title,
+      };
+    }
     const project = item.target.project;
     const repository =
       item.target.type === "issue" || item.target.type === "pull-request"
@@ -312,25 +401,43 @@ function startOfWeek(timestamp: number) {
   return Math.floor(date.getTime() / 1_000);
 }
 
-function groupActivityItems(items: ProjectActivityItem[], nowMs: number) {
+function groupActivityItems(
+  items: ProjectActivityItem[],
+  nowMs: number,
+  sort: ActivitySort = "newest",
+) {
   const thisWeek = startOfWeek(Math.floor(nowMs / 1_000));
   const lastWeek = thisWeek - WEEK_SECONDS;
-  const groups: ProjectActivityGroup[] = [
-    { key: "this-week", label: "This week", items: [] },
-    { key: "last-week", label: "Last week", items: [] },
-    { key: "earlier", label: "Earlier", items: [] },
-  ];
+  const thisWeekGroup: ProjectActivityGroup = {
+    key: "this-week",
+    label: "This week",
+    items: [],
+  };
+  const lastWeekGroup: ProjectActivityGroup = {
+    key: "last-week",
+    label: "Last week",
+    items: [],
+  };
+  const earlierGroup: ProjectActivityGroup = {
+    key: "earlier",
+    label: "Earlier",
+    items: [],
+  };
 
   for (const item of items) {
     if (item.createdAt >= thisWeek) {
-      groups[0].items.push(item);
+      thisWeekGroup.items.push(item);
     } else if (item.createdAt >= lastWeek) {
-      groups[1].items.push(item);
+      lastWeekGroup.items.push(item);
     } else {
-      groups[2].items.push(item);
+      earlierGroup.items.push(item);
     }
   }
 
+  const groups =
+    sort === "oldest"
+      ? [earlierGroup, lastWeekGroup, thisWeekGroup]
+      : [thisWeekGroup, lastWeekGroup, earlierGroup];
   return groups.filter((group) => group.items.length > 0);
 }
 
@@ -353,6 +460,10 @@ function ActivityCard({
 }) {
   const visual = PROJECT_EVENT_VISUALS[item.kind];
   const TypeIcon = visual.icon;
+  const destinationName =
+    item.target.type === "chat"
+      ? item.target.channelName
+      : item.target.project.name;
   const profile = item.actorPubkey
     ? profiles?.[normalizePubkey(item.actorPubkey)]
     : undefined;
@@ -373,7 +484,7 @@ function ActivityCard({
       data-testid="projects-activity-card"
     >
       <button
-        aria-label={`Open ${item.title} in ${item.target.project.name}`}
+        aria-label={`Open ${item.title} in ${destinationName}`}
         className="absolute inset-0 rounded-xl focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         onClick={onOpen}
         type="button"
@@ -464,10 +575,10 @@ function ActivityCard({
                 {item.action}{" "}
                 <button
                   className="pointer-events-auto relative z-10 inline-block max-w-48 truncate rounded-sm align-bottom font-semibold text-muted-foreground/75 hover:underline focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring sm:max-w-64 2xl:max-w-none"
-                  onClick={onOpenProject}
+                  onClick={item.target.type === "chat" ? onOpen : onOpenProject}
                   type="button"
                 >
-                  {item.target.project.name}
+                  {destinationName}
                 </button>
               </span>
               <Tooltip>
@@ -530,13 +641,33 @@ function ActivityCard({
 
 /** Mixed GitHub-style workspace activity shown beneath the overview callouts. */
 export function ProjectsActivityFeed(props: ProjectsActivityFeedProps) {
-  const { issues, projects, pullRequests, snapshots } = props;
+  const { chatMessages, issues, projects, pullRequests, snapshots } = props;
   // Memoized: this feed re-renders with every parent state change (profiles
   // landing, selection, hover), and an unmemoized rebuild re-flattened and
   // re-sorted the whole community's activity each time.
+  const sort = props.sort ?? "newest";
   const allItems = React.useMemo(
-    () => buildActivityItems({ issues, projects, pullRequests, snapshots }),
-    [issues, projects, pullRequests, snapshots],
+    () =>
+      buildActivityItems({
+        activityType: props.activityType,
+        chatMessages,
+        issues,
+        member: props.member,
+        projects,
+        pullRequests,
+        snapshots,
+        sort,
+      }),
+    [
+      chatMessages,
+      issues,
+      props.activityType,
+      props.member,
+      projects,
+      pullRequests,
+      snapshots,
+      sort,
+    ],
   );
   const items = React.useMemo(
     () =>
@@ -549,7 +680,9 @@ export function ProjectsActivityFeed(props: ProjectsActivityFeedProps) {
           item.action,
           item.body,
           item.detail,
-          item.target.project.name,
+          item.target.type === "chat"
+            ? item.target.channelName
+            : item.target.project.name,
           item.title,
           repository,
         ]);
@@ -560,8 +693,8 @@ export function ProjectsActivityFeed(props: ProjectsActivityFeedProps) {
   // week" across a week boundary. Coarse cadence — the boundary moves weekly.
   const now = useNow(600_000);
   const groups = React.useMemo(
-    () => groupActivityItems(items, now),
-    [items, now],
+    () => groupActivityItems(items, now, sort),
+    [items, now, sort],
   );
 
   if (props.isLoading && items.length === 0) {
@@ -570,15 +703,28 @@ export function ProjectsActivityFeed(props: ProjectsActivityFeedProps) {
 
   if (items.length === 0) {
     const searching = Boolean(props.searchQuery?.trim());
+    const memberFiltered = props.member != null;
+    const typeFiltered =
+      props.activityType != null && props.activityType !== ACTIVITY_TYPE_ALL;
+    const narrowed =
+      searching || props.scoped === true || memberFiltered || typeFiltered;
     return (
       <div className="rounded-xl border border-dashed border-border/60 px-4 py-12 text-center">
         <p className="text-sm font-medium text-foreground">
-          {searching ? "No matching activity" : "No project activity yet"}
+          {narrowed ? "No matching activity" : "No project activity yet"}
         </p>
         <p className="mt-1 text-sm text-muted-foreground">
           {searching
             ? "Try a different search."
-            : "Commits, reviews, review decisions, and tasks will appear here."}
+            : memberFiltered && props.scoped
+              ? "Try another project, channel, or member."
+              : memberFiltered
+                ? "Try another member."
+                : typeFiltered
+                  ? "Try another activity type."
+                  : props.scoped
+                    ? "Try another project or channel."
+                    : "Commits, reviews, review decisions, tasks, and channel chat will appear here."}
         </p>
       </div>
     );
@@ -607,7 +753,12 @@ export function ProjectsActivityFeed(props: ProjectsActivityFeedProps) {
                     isLast={index === group.items.length - 1}
                     item={item}
                     onOpen={() => {
-                      if (item.target.type === "project") {
+                      if (item.target.type === "chat") {
+                        props.onOpenChat(
+                          item.target.channelId,
+                          item.target.messageId,
+                        );
+                      } else if (item.target.type === "project") {
                         props.onOpenProject(item.target.project);
                       } else if (item.target.type === "commit") {
                         props.onOpenCommit(
@@ -628,9 +779,16 @@ export function ProjectsActivityFeed(props: ProjectsActivityFeedProps) {
                         );
                       }
                     }}
-                    onOpenProject={() =>
-                      props.onOpenProject(item.target.project)
-                    }
+                    onOpenProject={() => {
+                      if (item.target.type === "chat") {
+                        props.onOpenChat(
+                          item.target.channelId,
+                          item.target.messageId,
+                        );
+                      } else {
+                        props.onOpenProject(item.target.project);
+                      }
+                    }}
                     profiles={props.profiles}
                   />
                 </div>

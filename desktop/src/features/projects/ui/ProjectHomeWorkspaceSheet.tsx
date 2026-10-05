@@ -10,6 +10,7 @@ import {
   useRepoStateQuery,
   type Project,
 } from "@/features/projects/hooks";
+import type { CheckoutFilesContext } from "@/features/projects/lib/checkoutWork";
 import { hulaCommitByHash } from "@/features/projects/lib/hulaFiles";
 import { gitContributorPubkeysFromCommits } from "@/features/projects/lib/projectContributorMatching";
 import { resolveProjectDefaultBranch } from "@/features/projects/lib/projectBranches";
@@ -51,6 +52,9 @@ export type ProjectHomeWorkspaceDetail = {
 };
 
 export function ProjectHomeWorkspaceSheet({
+  filesContext: filesCheckoutContext,
+  filesGitRef,
+  filesRoot,
   identityPubkey,
   onCreateActionChange,
   onDetailChange,
@@ -62,6 +66,11 @@ export function ProjectHomeWorkspaceSheet({
   repository,
   tab,
 }: {
+  /** Rail selection behind filesRoot/filesGitRef, shown atop Files. */
+  filesContext?: CheckoutFilesContext | null;
+  /** When set with filesRoot, Files browses that checkout/branch tree. */
+  filesGitRef?: string | null;
+  filesRoot?: string | null;
   identityPubkey?: string;
   onCreateActionChange?: (
     action: ProjectHomeWorkspaceCreateAction | null,
@@ -334,6 +343,8 @@ export function ProjectHomeWorkspaceSheet({
     case "files":
       body = (
         <ProjectHomeCodebasePanel
+          checkoutContext={filesCheckoutContext}
+          gitRef={filesGitRef ?? undefined}
           identityPubkey={identityPubkey}
           onFilesContextChange={setFilesContext}
           onOpenCommit={onOpenCommit}
@@ -343,6 +354,7 @@ export function ProjectHomeWorkspaceSheet({
           project={project}
           projects={projects}
           repository={repository}
+          rootPath={filesRoot ?? undefined}
         />
       );
       break;

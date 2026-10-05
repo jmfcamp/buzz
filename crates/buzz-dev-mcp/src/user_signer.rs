@@ -8,7 +8,7 @@
 //! progress/status (that stays in the Term TUI). Never requires
 //! `BUZZ_PRIVATE_KEY` in the PTY.
 
-use rmcp::model::{CallToolResult, Content};
+use rmcp::model::{CallToolResult, ContentBlock};
 use rmcp::ErrorData;
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -116,7 +116,7 @@ fn call_op(op: &str, mut fields: Value, wait_ms: u64) -> Result<CallToolResult, 
         .unwrap_or(false);
     let text = serde_json::to_string_pretty(&response).unwrap_or_else(|_| response.to_string());
     if ok {
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
     } else {
         let err = response
             .get("error")

@@ -59,7 +59,8 @@ export function useHulaRepositoryRefs(root: string | null) {
 /**
  * Git snapshot of one OpenClaw ref.
  * The query key matches the Files tab, so both views share one read.
- * `HEAD` is the checkout until a branch name is known. This does not check out.
+ * `HEAD` lists the worktree on disk; other refs use the tracked tree.
+ * This does not check out.
  */
 export function useHulaFilesSnapshot(root: string | null, gitRef: string) {
   const ref = gitRef.trim() || "HEAD";

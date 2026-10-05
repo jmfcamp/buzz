@@ -1859,12 +1859,14 @@ pub enum MemCmd {
 /// and they do not clone a repository.
 #[derive(Subcommand)]
 pub enum GithubCmd {
-    /// Create a commit and pull request from file contents on stdin.
+    /// Commit the skill paths on `--branch`, push that branch, and optionally open a pull request.
     ///
-    /// Read the files from OpenClaw, then pass them as JSON. The new branch
-    /// is created from the current base. The base branch is not moved.
+    /// The commit is created in the OpenClaw Hula checkout as the Mac `gh`
+    /// user. `--branch` is the branch that is committed and pushed. It is
+    /// created only from main, master, or detached, and only when it does not
+    /// already exist. The base branch is not moved and nothing is force-pushed.
     #[command(
-        after_help = "Examples:\n  buzz github publish --repo huladesk/hulabill --branch docs/note --message \"docs: add a note\" --title \"Add a note\" <<'EOF'\n  {\"files\":[{\"path\":\"research/note.md\",\"content\":\"hello\\n\"}]}\nEOF"
+        after_help = "Examples:\n  buzz github publish --repo huladesk/hulabill --cwd Hula/products/hulabill/.worktrees/bill-456 --branch jm/BILL-456-note --paths plans/slug/impl/BILL-456.md --message \"impl: start BILL-456\"\n  buzz github publish --repo huladesk/hulabill --cwd Hula/products/hulabill/.worktrees/bill-456 --branch jm/BILL-456-note --message \"impl: start BILL-456\" --title \"BILL-456: note\" --body \"Fixes BILL-456\" --draft"
     )]
     Publish {
         /// GitHub repository as owner/name.
@@ -1873,21 +1875,27 @@ pub enum GithubCmd {
         /// Branch the new commit starts from.
         #[arg(long, default_value = "main")]
         base: String,
-        /// New branch name. This branch is created. It is never the base branch.
+        /// Skill branch that is committed and pushed. Never main or master.
         #[arg(long)]
         branch: String,
-        /// Commit message.
+        /// Commit message for this skill step.
         #[arg(long)]
         message: String,
-        /// Pull request title.
-        #[arg(long)]
+        /// Pull request title. Omit to commit and push without opening a pull request.
+        #[arg(long, default_value = "")]
         title: String,
         /// Pull request body.
         #[arg(long, default_value = "")]
         body: String,
-        /// JSON file of changes, or - for stdin.
-        #[arg(long, default_value = "-")]
-        files: String,
+        /// Path this step would git add. Repeat for each path. Does not stage other files.
+        #[arg(long = "paths")]
+        paths: Vec<String>,
+        /// Open the pull request as a draft. Requires --title.
+        #[arg(long)]
+        draft: bool,
+        /// OpenClaw checkout path under Hula/, for example Hula/products/hulabill.
+        #[arg(long)]
+        cwd: String,
         /// Read the base commit and print the plan. Create nothing.
         #[arg(long)]
         dry_run: bool,
@@ -2059,7 +2067,9 @@ async fn run(cli: Cli) -> Result<(), CliError> {
                 message,
                 title,
                 body,
-                files,
+                paths,
+                draft,
+                cwd,
                 dry_run,
             } => commands::github::cmd_publish(commands::github::PublishArgs {
                 repo,
@@ -2068,7 +2078,9 @@ async fn run(cli: Cli) -> Result<(), CliError> {
                 message,
                 title,
                 body,
-                files,
+                paths,
+                draft: *draft,
+                cwd,
                 dry_run: *dry_run,
             }),
         };

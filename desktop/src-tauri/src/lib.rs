@@ -12,6 +12,8 @@ mod deep_link;
 mod egress_guard;
 mod event_sync;
 mod events;
+#[cfg_attr(not(test), allow(dead_code))]
+mod hpke_key_backup;
 mod html_preview;
 mod huddle;
 mod identity_storage;
@@ -237,6 +239,10 @@ pub fn run() {
                 tray_menu::init(&app_handle)?;
                 macos_notifications::init(&app_handle)?;
             }
+
+            // Initialise the no-redirect admin HTTP client singleton before any
+            // admin command can be invoked. Must run before setup completes.
+            commands::admin::client::init_admin_client()?;
 
             // ── Phase 2: boot-time sentinel wipe ──────────────────────────────
             // Must run before migrations and identity resolution so the wipe
@@ -578,6 +584,7 @@ pub fn run() {
             unarchive_builderlab_community,
             transfer_builderlab_community,
             title_bar_double_click,
+            reload_webview,
             get_identity,
             get_nsec,
             generate_backup_passphrase,
@@ -597,6 +604,8 @@ pub fn run() {
             get_project_repo_file_content,
             get_project_repo_diff,
             get_project_local_repo_diff,
+            get_project_checkout_work,
+            gh_pr_list,
             get_project_local_repo_snapshot,
             get_project_local_repo_file_content,
             get_project_repo_sync_status,
@@ -940,6 +949,8 @@ pub fn run() {
             confirm_pairing_sas,
             cancel_pairing,
             apply_workspace,
+            remove_community_relay,
+            readd_community_relay,
             set_agent_avatar_communities,
             validate_repos_dir,
             get_active_workspace,
@@ -979,6 +990,28 @@ pub fn run() {
             tray_menu::take_tray_actions,
             #[cfg(target_os = "macos")]
             tray_menu::update_tray_agent_activity,
+            // ── Desktop admin surface ────────────────────────────────────────
+            admin_probe,
+            admin_list_reports,
+            admin_get_report,
+            admin_list_feedback,
+            admin_get_feedback,
+            admin_fetch_feedback_attachment,
+            admin_save_attachment,
+            admin_resolve_report,
+            admin_reopen_report,
+            admin_cancel_report,
+            admin_patch_feedback,
+            admin_list_operators,
+            admin_put_operator,
+            admin_delete_operator,
+            admin_list_restrictions,
+            admin_lift_ban,
+            admin_lift_timeout,
+            admin_direct_action,
+            get_admin_origin,
+            set_admin_origin,
+            admin_discover_origin,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

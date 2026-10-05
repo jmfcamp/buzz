@@ -33,14 +33,17 @@ test("worktree porcelain keeps path, head, and branch", () => {
     "worktree /tmp/detached",
     "HEAD eee",
     "detached",
+    "prunable gitdir file points to non-existent location",
     "",
   ].join("\n");
   const records = parseWorktreePorcelain(text);
   assert.equal(records.length, 3);
   assert.equal(records[0].branch, "main");
+  assert.equal(records[0].prunable, false);
   assert.equal(records[1].branch, "handle/bill-21-slug");
   assert.equal(records[2].detached, true);
   assert.equal(records[2].branch, null);
+  assert.equal(records[2].prunable, true);
 });
 
 test("branch names keep readable heads and drop the rest", () => {
@@ -115,6 +118,7 @@ test("checkout rows select the member repository and do not describe a checkout 
           head: "fff",
           branch: "dev",
           detached: false,
+          prunable: false,
         },
       ],
     },

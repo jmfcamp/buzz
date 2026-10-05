@@ -843,6 +843,7 @@ export class RelayClient {
     event: RelayEvent,
     timeoutMessage: string,
     sendErrorMessage: string,
+    isCurrent?: () => boolean,
   ) {
     return publishSessionEvent(
       {
@@ -860,6 +861,7 @@ export class RelayClient {
       event,
       timeoutMessage,
       sendErrorMessage,
+      isCurrent,
     );
   }
 

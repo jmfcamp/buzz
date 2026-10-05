@@ -110,7 +110,6 @@ export type ChannelPaneProps = {
   onCloseIdleAuxiliaryPanel?: () => void;
   onCloseProfilePanel: () => void;
   onAddAgent?: (options?: { beforeSend?: () => void }) => void;
-  onAddFiles?: () => void;
   onBrowseChannels?: () => void;
   onCreateChannel?: () => void;
   onCloseThread: () => void;

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Bot, FolderPlus, Plus, Sparkles, UserPlus } from "lucide-react";
+import { Bot, Plus, Sparkles, UserPlus } from "lucide-react";
 
 import {
   getChannelIntroDescription,
@@ -23,15 +23,14 @@ type ChannelIntroAction = {
 };
 
 /**
- * Builds the empty-channel intro block (heading, description, action cards)
+ * Builds the empty-channel intro block (heading, description, action pills)
  * for the channel timeline. The Welcome channel gets its onboarding trio
  * (browse / create channel / create agent); other channels get contextual
- * member actions.
+ * member actions beside the channel icon.
  */
 export function useChannelIntro({
   activeChannel,
   onAddAgent,
-  onAddFiles,
   onBrowseChannels,
   onCreateChannel,
   onOpenMembers,
@@ -39,7 +38,6 @@ export function useChannelIntro({
 }: {
   activeChannel: Channel | null;
   onAddAgent?: (options?: { beforeSend?: () => void }) => void;
-  onAddFiles?: () => void;
   onBrowseChannels?: () => void;
   onCreateChannel?: () => void;
   onOpenMembers?: () => void;
@@ -56,7 +54,7 @@ export function useChannelIntro({
     if (isWelcomeExperienceChannel(activeChannel)) {
       if (onBrowseChannels) {
         actions.push({
-          icon: <HashSearch aria-hidden className="h-6 w-6" />,
+          icon: <HashSearch aria-hidden className="h-4 w-4" />,
           label: "Browse channels",
           onClick: onBrowseChannels,
           testId: "welcome-intro-action-browse-channels",
@@ -65,7 +63,7 @@ export function useChannelIntro({
 
       if (onCreateChannel) {
         actions.push({
-          icon: <Plus aria-hidden className="h-6 w-6" />,
+          icon: <Plus aria-hidden className="h-4 w-4" />,
           label: "Create a channel",
           onClick: onCreateChannel,
           testId: "welcome-intro-action-create-channel",
@@ -74,7 +72,7 @@ export function useChannelIntro({
 
       if (onWelcomeAddAgent) {
         actions.push({
-          icon: <Bot aria-hidden className="h-6 w-6" />,
+          icon: <Bot aria-hidden className="h-4 w-4" />,
           label: "Create an agent",
           onClick: onWelcomeAddAgent,
           testId: "welcome-intro-action-create-agent",
@@ -95,20 +93,10 @@ export function useChannelIntro({
     }
 
     if (!activeChannel.archivedAt && activeChannel.isMember) {
-      if (onAddFiles) {
-        actions.push({
-          description: "Add a repo.",
-          icon: <FolderPlus aria-hidden className="h-5 w-5" />,
-          label: "Add files",
-          onClick: onAddFiles,
-          testId: "channel-intro-action-add-files",
-        });
-      }
-
       if (onAddAgent) {
         actions.push({
           description: "Add an agent here.",
-          icon: <Bot aria-hidden className="h-5 w-5" />,
+          icon: <Bot aria-hidden className="h-4 w-4" />,
           label: "Add agent",
           onClick: onAddAgent,
           testId: "channel-intro-action-create-agent",
@@ -118,7 +106,7 @@ export function useChannelIntro({
       if (onOpenMembers) {
         actions.push({
           description: "Invite members.",
-          icon: <UserPlus aria-hidden className="h-5 w-5" />,
+          icon: <UserPlus aria-hidden className="h-4 w-4" />,
           label: "Add people",
           onClick: onOpenMembers,
           testId: "channel-intro-action-add-people",
@@ -139,7 +127,6 @@ export function useChannelIntro({
   }, [
     activeChannel,
     onAddAgent,
-    onAddFiles,
     onBrowseChannels,
     onCreateChannel,
     onOpenMembers,

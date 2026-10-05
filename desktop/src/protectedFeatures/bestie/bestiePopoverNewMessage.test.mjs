@@ -55,7 +55,10 @@ test("near bottom with only in-session messages hides banner", () => {
 });
 
 test("preview collapses whitespace and truncates", () => {
-  assert.equal(previewBestiePopoverMessageBody("  hello   world  "), "hello world");
+  assert.equal(
+    previewBestiePopoverMessageBody("  hello   world  "),
+    "hello world",
+  );
   assert.equal(previewBestiePopoverMessageBody("abcdefghij", 6), "abcde…");
   assert.equal(previewBestiePopoverMessageBody(null), "");
 });
@@ -73,7 +76,11 @@ test("queue one entry per outside-session thread, newest first", () => {
     nearBottom: true,
   });
   assert.deepEqual(
-    queue.map((item) => ({ id: item.id, threadRootId: item.threadRootId, preview: item.preview })),
+    queue.map((item) => ({
+      id: item.id,
+      threadRootId: item.threadRootId,
+      preview: item.preview,
+    })),
     [
       { id: "t1-new", threadRootId: "t1", preview: "t1 new" },
       { id: "t2", threadRootId: "t2", preview: "t2 only" },
@@ -128,7 +135,10 @@ test("dismissed thread root stays clear", () => {
     nearBottom: true,
     dismissedThreadRootIds: new Set(["t1"]),
   });
-  assert.deepEqual(queue.map((item) => item.id), []);
+  assert.deepEqual(
+    queue.map((item) => item.id),
+    [],
+  );
 });
 
 test("baseline and pre-session messages are not new", () => {
@@ -164,7 +174,10 @@ test("no active session does not flood with history", () => {
 });
 
 test("Bestie system noise is skipped", () => {
-  assert.equal(isBestiePopoverSystemNoise("[Bestie coffee]\n\n/hula-coffee"), true);
+  assert.equal(
+    isBestiePopoverSystemNoise("[Bestie coffee]\n\n/hula-coffee"),
+    true,
+  );
   assert.equal(isBestiePopoverSystemNoise("[Bestie job: x]\n\nprompt"), true);
   assert.equal(isBestiePopoverSystemNoise("[Bestie reminder]\n\ndue"), true);
   assert.equal(isBestiePopoverSystemNoise("normal agent reply"), false);
@@ -197,4 +210,37 @@ test("parentId falls back as thread root", () => {
   });
   assert.equal(target?.threadRootId, "root-1");
   assert.equal(target?.preview, "reply body");
+});
+
+test("list-only fence is not a new chat message", () => {
+  const fence = [
+    "```bestie-list",
+    '{"op":"add","items":[{"kind":"todo","text":"Ship phase 2"}]}',
+    "```",
+  ].join("\n");
+  const queue = resolveBestiePopoverNewMessageQueue({
+    allMessages: [
+      { id: "fence", createdAt: 30, body: fence },
+      { id: "real", createdAt: 20, body: "actual reply" },
+      { id: "session", createdAt: 5, body: "in" },
+    ],
+    sessionMessageIds: new Set(["session"]),
+    sessionRootId: "session",
+    nearBottom: true,
+  });
+  assert.deepEqual(
+    queue.map((item) => item.id),
+    ["real"],
+  );
+
+  const onlyFence = resolveBestiePopoverNewMessageQueue({
+    allMessages: [
+      { id: "fence", createdAt: 30, body: fence },
+      { id: "session", createdAt: 5, body: "in" },
+    ],
+    sessionMessageIds: new Set(["session"]),
+    sessionRootId: "session",
+    nearBottom: true,
+  });
+  assert.deepEqual(onlyFence, []);
 });

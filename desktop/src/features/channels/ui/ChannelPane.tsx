@@ -7,7 +7,7 @@ import { ComposerDockBackdrop } from "@/features/messages/ui/ComposerDockBackdro
 import { ComposerUploadProgressOverlay } from "@/features/messages/ui/ComposerUploadProgressOverlay";
 import { MessageComposer } from "@/features/messages/ui/MessageComposer";
 import { ComposerTimeoutBanner } from "@/features/moderation/ui/ComposerTimeoutBanner";
-import { useTimeoutState } from "@/features/moderation/lib/timeoutStore";
+import { useTimeoutActive } from "@/features/moderation/lib/timeoutStore";
 import { isModerationDm } from "@/features/moderation/lib/moderationDm";
 import { useRelaySelfQuery } from "@/features/moderation/hooks";
 import { DropZoneOverlay } from "@/features/messages/ui/ComposerAttachments";
@@ -44,6 +44,10 @@ import { useThreadViewMode } from "@/features/channels/lib/threadViewModePrefere
 import { useThreadViewModeSwitch } from "@/features/channels/ui/useThreadViewModeSwitch";
 import { useFocusDrawerPresence } from "@/features/channels/ui/useFocusDrawerPresence";
 import { useChannelWorkingAgentPubkeys } from "@/features/agents/agentWorkingSignal";
+import { checkoutWorkCardMessageId } from "@/features/projects/lib/checkoutWork";
+import { CheckoutWorkCard } from "@/features/projects/ui/CheckoutWorkViews";
+import { useCheckoutWorkContext } from "@/features/projects/ui/checkoutWorkContext";
+import { normalizePubkey } from "@/shared/lib/pubkey";
 import { useCardMintJobs } from "@/features/agents/cardMintStore";
 import { BotActivityComposerAction } from "@/features/channels/ui/BotActivityBar";
 import { ChannelComposerActivityAccessory } from "@/features/channels/ui/ChannelComposerActivityAccessory";
@@ -136,7 +140,6 @@ export const ChannelPane = React.memo(function ChannelPane({
   onCloseIdleAuxiliaryPanel,
   onCloseProfilePanel,
   onAddAgent,
-  onAddFiles,
   onBrowseChannels,
   onCreateChannel,
   onCloseThread,
@@ -262,7 +265,7 @@ export const ChannelPane = React.memo(function ChannelPane({
   const isEditInThread = editTarget?.isThreadReply === true;
   const mainEditTarget = editTarget && !isEditInThread ? editTarget : null;
   const threadEditTarget = editTarget && isEditInThread ? editTarget : null;
-  const timeoutState = useTimeoutState();
+  const timeoutActive = useTimeoutActive();
   const relaySelfQuery = useRelaySelfQuery(activeChannel?.channelType === "dm");
   const isModerationDmChannel = isModerationDm(
     activeChannel ?? null,
@@ -273,7 +276,7 @@ export const ChannelPane = React.memo(function ChannelPane({
     !activeChannel?.isMember ||
     activeChannel.archivedAt !== null ||
     activeChannel.channelType === "forum" ||
-    timeoutState.active ||
+    timeoutActive ||
     isModerationDmChannel ||
     isSending;
   const knownAgentPubkeys = React.useMemo(() => {
@@ -345,6 +348,7 @@ export const ChannelPane = React.memo(function ChannelPane({
   const composerWorkingBotPubkeys = useChannelWorkingAgentPubkeys(
     activeChannel?.id ?? null,
   );
+  const checkoutWork = useCheckoutWorkContext();
   const hasComposerBotActivity = composerWorkingBotPubkeys.length > 0;
   const hasCardMintActivity = useCardMintJobs().length > 0;
   const hasComposerBottomActivity =
@@ -390,7 +394,6 @@ export const ChannelPane = React.memo(function ChannelPane({
   const standardChannelIntro = useChannelIntro({
     activeChannel,
     onAddAgent,
-    onAddFiles,
     onBrowseChannels,
     onCreateChannel,
     onOpenMembers,
@@ -405,6 +408,40 @@ export const ChannelPane = React.memo(function ChannelPane({
       profiles,
       threadSummaries,
     });
+
+  const checkoutCardMessageId = React.useMemo(() => {
+    if (!checkoutWork?.card) return null;
+    return checkoutWorkCardMessageId(
+      visibleMessages.map((message) => {
+        const pubkey = message.pubkey ? normalizePubkey(message.pubkey) : "";
+        const isAgent =
+          message.isAgent === true ||
+          message.role === "bot" ||
+          (pubkey.length > 0 &&
+            (knownAgentPubkeys.has(pubkey) ||
+              profiles?.[pubkey]?.isAgent === true));
+        return { id: message.id, isAgent, pending: message.pending };
+      }),
+      composerWorkingBotPubkeys.length > 0,
+    );
+  }, [
+    checkoutWork?.card,
+    composerWorkingBotPubkeys.length,
+    knownAgentPubkeys,
+    profiles,
+    visibleMessages,
+  ]);
+  const messageFooters = React.useMemo(() => {
+    if (!checkoutWork?.card || !checkoutCardMessageId) return undefined;
+    return {
+      [checkoutCardMessageId]: (
+        <CheckoutWorkCard
+          card={checkoutWork.card}
+          onOpenCommit={checkoutWork.onOpenCommit}
+        />
+      ),
+    };
+  }, [checkoutCardMessageId, checkoutWork]);
   useRenderScopedReactionHydration({
     activeChannel,
     mainTimelineEntries,
@@ -809,6 +846,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                   mainEntries={mainTimelineEntries}
                   threadSummaries={threadSummaries}
                   messages={visibleMessages}
+                  messageFooters={messageFooters}
                   firstUnreadMessageId={firstUnreadMessageId}
                   unreadCount={unreadCount}
                   onDelete={onDelete}
@@ -878,7 +916,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                           "composer-dock--with-activity",
                       )}
                     >
-                      {isActiveWelcomeChannel && !timeoutState.active ? (
+                      {isActiveWelcomeChannel && !timeoutActive ? (
                         <WelcomeComposerGuidanceLayer
                           onDismiss={handleDismissWelcomeBanner}
                           settingUp={welcomeKickoffSettingUp}
@@ -887,11 +925,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                           {welcomeKickoffStage}
                         </WelcomeComposerGuidanceLayer>
                       ) : null}
-                      {timeoutState.active ? (
-                        <ComposerTimeoutBanner
-                          expiresAtMs={timeoutState.expiresAtMs}
-                        />
-                      ) : null}
+                      {timeoutActive ? <ComposerTimeoutBanner /> : null}
                       <ComposerDockBackdrop gutterClassName="inset-x-5" />
                       <MessageComposer
                         channelId={activeChannel?.id ?? null}
@@ -919,7 +953,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                         {...{ profiles, recentMentionPubkeys: recentMentions }}
                         showBackgroundUploadProgress={false}
                         placeholder={
-                          timeoutState.active
+                          timeoutActive
                             ? "You're timed out by community moderators."
                             : isModerationDmChannel
                               ? "This channel is read-only."

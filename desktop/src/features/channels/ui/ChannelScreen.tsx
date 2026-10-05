@@ -102,10 +102,10 @@ export function ChannelScreen({
   autoSendDraftKey,
   currentIdentity,
   currentProfile,
-  headerEndActions, idleAuxiliaryPanel,
+  headerDetail, headerEndActions, idleAuxiliaryPanel,
   idleAuxiliaryHeaderActions, idleAuxiliaryOverridesThread,
   idleAuxiliaryExpanded, idleAuxiliaryCoverAppChrome, idleAuxiliaryBodyClassName, idleAuxiliaryTitle,
-  onAddFiles, onCloseIdleAuxiliaryPanel,
+  onCloseIdleAuxiliaryPanel,
   onCloseForumPost, onSelectForumPost,
   selectedForumPostId, targetForumReplyId,
   targetMessageEvents, targetMessageId,
@@ -159,7 +159,6 @@ export function ChannelScreen({
     openChannelManagement: openGlobalChannelManagement,
     followThread,
     unfollowThread,
-    isFollowingThread,
     isNotifiedForThread,
     recordThreadInteraction,
     isThreadMuted,
@@ -846,7 +845,7 @@ export function ChannelScreen({
         activeDmHeaderParticipants={activeDmHeaderParticipants}
         activeDmPresenceStatus={activeDmPresenceStatus}
         chromeWrapperRef={channelHeaderChromeRef}
-        {...{ currentPubkey, headerEndActions }}
+        {...{ currentPubkey, headerDetail, headerEndActions }}
         isAddBotOpen={isAddBotOpen}
         isJoining={joinChannelMutation.isPending}
         onAddBotOpenChange={setIsAddBotOpen}
@@ -867,6 +866,7 @@ export function ChannelScreen({
       activeDmPresenceStatus,
       channelHeaderChromeRef,
       currentPubkey,
+      headerDetail,
       headerEndActions,
       isAddBotOpen,
       joinChannelMutation.isPending,
@@ -950,7 +950,6 @@ export function ChannelScreen({
                   fetchOlder={fetchOlder}
                   header={channelHeader}
                   {...{ idleAuxiliaryHeaderActions: resolvedIdleAuxiliaryHeaderActions, idleAuxiliaryOverridesThread: resolvedIdleAuxiliaryOverridesThread, idleAuxiliaryExpanded: resolvedIdleAuxiliaryExpanded, idleAuxiliaryCoverAppChrome: resolvedIdleAuxiliaryCoverAppChrome, idleAuxiliaryBodyClassName: resolvedIdleAuxiliaryBodyClassName, idleAuxiliaryPanel: resolvedIdleAuxiliaryPanel, idleAuxiliaryTitle: resolvedIdleAuxiliaryTitle, hasOlderMessages, historyExhausted }}
-                  {...{ onAddFiles }}
                   onAddAgent={handleOpenAddBot}
                   onBrowseChannels={openBrowseChannels}
                   onCreateChannel={openCreateChannel}
@@ -974,7 +973,7 @@ export function ChannelScreen({
                   }
                   followThreadById={followThread}
                   unfollowThreadById={unfollowThread}
-                  isFollowingThreadById={isFollowingThread}
+                  isFollowingThreadById={isNotifiedForThread}
                   isMessageUnreadById={isMessageUnread}
                   isFollowingThread={isNotifiedForEffectiveThread}
                   isSending={sendMessageMutation.isPending}

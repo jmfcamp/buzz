@@ -1,7 +1,6 @@
 import {
   ChevronDown,
   CircleDot,
-  FileCode2,
   FolderGit2,
   GitCommitHorizontal,
   Hash,
@@ -9,15 +8,18 @@ import {
 } from "lucide-react";
 import * as React from "react";
 
+import { projectChannelSubRepositories } from "@/features/projects/lib/channelCodebase";
+import { hasAuthoritativeHomeBinding } from "@/features/projects/lib/projectHomeChannel";
+import {
+  repositoryRowOpenTarget,
+  repositoryRowRole,
+} from "@/features/projects/lib/repositoryListRoles";
 import { presentContextCount } from "@/features/projects/lib/projectHomeSummary";
 import type { ProjectHomeWorkspaceSheetTab } from "@/features/projects/lib/projectHomeWorkspaceSheet";
-import { resolveProjectDefaultBranch } from "@/features/projects/lib/projectBranches";
 import { useHulaRepositorySnapshots } from "@/features/projects/useHulaRepositoryGit";
 import { listProjectBoundChannels } from "@/features/projects/lib/projectRelatedChannels";
 import {
   useProjectActivitySummariesQuery,
-  useProjectRepoSnapshotQuery,
-  useRepoStateQuery,
   type Project,
 } from "@/features/projects/hooks";
 import { ProjectChannelIcon } from "@/features/projects/ui/ProjectChannelIcon";
@@ -25,6 +27,8 @@ import type { Channel } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 import type { EntityLinkTab } from "@/shared/lib/entityLink";
 import { Button } from "@/shared/ui/button";
+import { CheckoutWorkRail } from "./CheckoutWorkViews";
+import { useCheckoutWorkContext } from "./checkoutWorkContext";
 import { ProjectChannelManagement } from "./ProjectChannelManagement";
 import { ProjectRepositoryManagement } from "./ProjectRepositoryManagement";
 import { SECTION_ACTION_VISIBILITY_CLASS } from "@/features/sidebar/ui/sidebarSectionStyles";
@@ -185,11 +189,12 @@ export function ProjectHomeContextPanel({
   identityPubkey,
   onAddRepository,
   onOpenChannel,
-  onOpenRepository,
+  onOpenRepository: _onOpenRepository,
   onOpenWorkspace,
   onRepositoryChange,
   project,
   projects,
+  repositoryId = null,
 }: {
   activeWorkspaceTab?: ProjectHomeWorkspaceSheetTab | null;
   channel: Channel | null;
@@ -197,13 +202,23 @@ export function ProjectHomeContextPanel({
   identityPubkey?: string;
   onAddRepository?: () => void;
   onOpenChannel?: (channelId: string) => void;
-  onOpenRepository: (repositoryId: string) => void;
+  /** Kept for callers; subrepository clicks no longer fall back here. */
+  onOpenRepository?: (repositoryId: string) => void;
   onOpenWorkspace: (repositoryId: string, tab?: EntityLinkTab) => void;
   onRepositoryChange: (repositoryId: string) => void;
   project: Project;
   projects: Project[];
+  /** Subrepository channel: tasks, commits, and files use this repo. */
+  repositoryId?: string | null;
 }) {
-  const firstRepository = project.repositories[0] ?? null;
+  const scopedRepository = repositoryId
+    ? (project.repositories.find(
+        (repository) => repository.id === repositoryId,
+      ) ?? null)
+    : null;
+  const firstRepository = repositoryId
+    ? scopedRepository
+    : (project.repositories[0] ?? null);
   const addRepositoryTitle = firstRepository
     ? undefined
     : "Add a repository to this project";
@@ -218,28 +233,30 @@ export function ProjectHomeContextPanel({
     project.owner,
     ...project.repositories.flatMap((repository) => repository.contributors),
   ]).size;
-  const activityQuery = useProjectActivitySummariesQuery([project]);
-  const activity = activityQuery.data?.[project.id];
+  const activityProjects = React.useMemo(() => {
+    if (!scopedRepository) return [project];
+    return [
+      {
+        ...project,
+        id: `${project.id}:${scopedRepository.id}`,
+        repositories: [scopedRepository],
+      },
+    ];
+  }, [project, scopedRepository]);
+  const activityQuery = useProjectActivitySummariesQuery(activityProjects);
+  const activityProjectId = activityProjects[0]?.id;
+  const activity = activityProjectId
+    ? activityQuery.data?.[activityProjectId]
+    : undefined;
   const hulaGit = Boolean(project.hulaPath);
   const hulaSnapshots = useHulaRepositorySnapshots(
     project.repositories,
     hulaGit,
   );
-  const repoStateQuery = useRepoStateQuery(firstRepository, !hulaGit);
-  const defaultBranch = firstRepository
-    ? resolveProjectDefaultBranch(
-        firstRepository.defaultBranch,
-        repoStateQuery.data,
-      )
-    : null;
-  const snapshotQuery = useProjectRepoSnapshotQuery(
-    firstRepository,
-    defaultBranch,
-    null,
-    null,
-    Boolean(firstRepository) && !hulaGit,
-  );
-  const hulaCommitCount = hulaSnapshots.reduce(
+  const hulaCommitRows = repositoryId
+    ? hulaSnapshots.filter((row) => row.repository.id === repositoryId)
+    : hulaSnapshots;
+  const hulaCommitCount = hulaCommitRows.reduce(
     (sum, row) => sum + (row.snapshot?.commits.length ?? 0),
     0,
   );
@@ -265,11 +282,96 @@ export function ProjectHomeContextPanel({
           ]
         : [];
 
+  const subRepositories = projectChannelSubRepositories(project);
+  const repositoryManagement = (
+    <ProjectRepositoryManagement
+      compact
+      identityPubkey={identityPubkey}
+      onChange={onRepositoryChange}
+      project={project}
+      projects={projects}
+    />
+  );
+  const openSubrepositoryChannel = (
+    repository: (typeof subRepositories)[number],
+  ) => {
+    // Same bound-channel lookup as the Projects tree: prefer a project copy
+    // that stores a distinct buzz-channel for this repo address.
+    const channelProject =
+      (hasAuthoritativeHomeBinding(project) ? project : null) ??
+      projects.find(
+        (candidate) =>
+          hasAuthoritativeHomeBinding(candidate) &&
+          candidate.repositories.some(
+            (item) => item.repoAddress === repository.repoAddress,
+          ),
+      ) ??
+      project;
+    const bound =
+      channelProject.repositories.find(
+        (item) => item.repoAddress === repository.repoAddress,
+      ) ?? repository;
+    const fullRepository =
+      project.repositories.find((item) => item.id === repository.id) ??
+      channelProject.repositories.find(
+        (item) => item.repoAddress === repository.repoAddress,
+      );
+    if (!fullRepository) {
+      console.warn(
+        `No repository ${repository.id} on project ${project.id}; cannot open subrepository channel.`,
+      );
+      return;
+    }
+    const open = repositoryRowOpenTarget({
+      projectChannelId: channelProject.projectChannelId,
+      projectId: channelProject.id,
+      repositoryChannelId: bound.channelId ?? repository.channelId,
+      role: repositoryRowRole({ project, repository: fullRepository }),
+    });
+    if (open.target?.kind === "repository-channel" && onOpenChannel) {
+      onOpenChannel(open.target.channelId);
+      return;
+    }
+    if (open.missingSubchannel || !open.target) {
+      console.warn(
+        `No buzz-channel for subrepository ${bound.repoAddress} (repo id ${bound.id}); cannot open its channel.`,
+      );
+      return;
+    }
+    // Mainline / unlabeled should not appear under Subrepositories; still
+    // refuse the old Overview path if they do.
+    console.warn(
+      `Subrepository row ${bound.repoAddress} resolved to ${open.target.kind}; refusing parent/overview fallback.`,
+    );
+  };
+  const checkoutWork = useCheckoutWorkContext();
   return (
     <div
       className="space-y-4 px-2 pb-8 pt-3"
       data-testid="project-home-context-panel"
     >
+      {checkoutWork?.rail ? (
+        <div className="shrink-0" data-testid="project-home-checkout-block">
+          <CheckoutWorkRail
+            catalog={checkoutWork.rail.catalog}
+            detail={checkoutWork.rail.detail}
+            error={checkoutWork.rail.error}
+            isLoading={checkoutWork.rail.isLoading}
+            missingCheckout={checkoutWork.rail.missingCheckout}
+            onOpenCommit={checkoutWork.onOpenCommit}
+            onOpenFiles={checkoutWork.onOpenFiles}
+            onSelect={checkoutWork.rail.setSelectedId}
+            onViewAllCommits={
+              firstRepository || onAddRepository
+                ? () => openWorkspace("commits")
+                : undefined
+            }
+            pullRequests={checkoutWork.rail.pullRequests}
+            selectedId={checkoutWork.rail.selectedId}
+            selection={checkoutWork.rail.selection}
+          />
+        </div>
+      ) : null}
       <ContextSection testId="project-home-context-workspace">
         <ContextNavButton
           count={presentContextCount(activity?.issueCount)}
@@ -296,21 +398,6 @@ export function ProjectHomeContextPanel({
           Commits
         </ContextNavButton>
         <ContextNavButton
-          count={presentContextCount(
-            hulaGit
-              ? hulaSnapshots[0]?.snapshot?.files.length
-              : snapshotQuery.data?.files.length,
-          )}
-          disabled={!firstRepository && !onAddRepository}
-          icon={<FileCode2 />}
-          onClick={() => openWorkspace("files")}
-          pressed={activeWorkspaceTab === "files"}
-          testId="project-home-context-files"
-          title={addRepositoryTitle}
-        >
-          Files
-        </ContextNavButton>
-        <ContextNavButton
           count={presentContextCount(peopleCount)}
           disabled={!firstRepository}
           icon={<Users />}
@@ -319,10 +406,10 @@ export function ProjectHomeContextPanel({
             onOpenWorkspace(firstRepository.id, "contributors")
           }
           pressed={activeWorkspaceTab === "contributors"}
-          testId="project-home-context-people"
+          testId="project-home-context-contributors"
           title={addRepositoryTitle}
         >
-          People
+          Contributors
         </ContextNavButton>
       </ContextSection>
       <ContextSection
@@ -365,37 +452,34 @@ export function ProjectHomeContextPanel({
           </p>
         )}
       </ContextSection>
-      <ContextSection
-        collapsible
-        headerAction={
-          <ProjectRepositoryManagement
-            compact
-            identityPubkey={identityPubkey}
-            onChange={onRepositoryChange}
-            project={project}
-            projects={projects}
-          />
-        }
-        testId="project-home-context-codebase"
-        title="Codebase"
-      >
-        {project.repositories.length > 0 ? (
-          project.repositories.map((repository) => (
+      {subRepositories.length > 0 ? (
+        <ContextSection
+          collapsible
+          headerAction={repositoryManagement}
+          testId="project-home-context-codebase"
+          title="Subrepositories"
+        >
+          {subRepositories.map((repository) => (
             <ContextNavButton
               icon={<FolderGit2 />}
               key={repository.id}
-              onClick={() => onOpenRepository(repository.id)}
+              onClick={() => openSubrepositoryChannel(repository)}
               testId={`project-home-context-repo-${repository.dtag}`}
             >
               {repository.name}
             </ContextNavButton>
-          ))
-        ) : (
-          <p className="px-2 py-1 text-sm text-sidebar-foreground/60">
-            None yet
-          </p>
-        )}
-      </ContextSection>
+          ))}
+        </ContextSection>
+      ) : (
+        <div
+          className="group/sidebar-section flex h-8 items-center justify-end px-2"
+          data-testid="project-home-repository-actions"
+        >
+          <span className={SECTION_ACTION_VISIBILITY_CLASS}>
+            {repositoryManagement}
+          </span>
+        </div>
+      )}
     </div>
   );
 }

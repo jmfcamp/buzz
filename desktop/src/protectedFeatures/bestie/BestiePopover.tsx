@@ -43,23 +43,46 @@ import {
 import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
+import { Checkbox } from "@/shared/ui/checkbox";
 import { Textarea } from "@/shared/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
 import { useBestieShowActivity } from "./bestieActivityPreference";
-import { buildBestieMessageContext } from "./bestieMessageContext";
 import {
+  bestieAskReminderDueAt,
+  buildBestieMessageContext,
+  buildBestieMessageLink,
+  composeBestieAskContent,
+  composeBestieAskReminderPrompt,
+  composeBestieAskScratchNote,
+  composeBestieAskTodoPrompt,
+  rememberBestieAskSourceLink,
+} from "./bestieMessageContext";
+import {
+  addBestieListItemForScope,
   applyBestieListIntentFromUserMessage,
   dismissBestieReminderItemsForScope,
   getBestieListState,
   snoozeBestieListItemsForScope,
 } from "./bestieListStore";
-import { applyBestieScratchIntentFromUserMessage } from "./bestieScratchStore";
+import {
+  addBestieScratchNoteForScope,
+  applyBestieScratchIntentFromUserMessage,
+} from "./bestieScratchStore";
 import { withBestieListTurnHint } from "./bestieListProtocol";
 import { withBestieJobTurnHint } from "./bestieJobProtocol";
 import { stripBestieOutboundHints } from "./bestieOutboundHints";
 import { withBestieLiveListStateHint } from "./bestieLiveListState";
 import { applyBestieJobIntentFromUserMessage } from "./bestieJobStore";
 import { messageLooksLikeBestieJobRequest } from "./parseBestieUserJobIntent";
+import {
+  clearBestieMessageThread,
+  listBestieMessageThreadRootIds,
+  readBestieMessageThread,
+  subscribeBestieMessageThreads,
+  writeBestieMessageThread,
+  type BestieMessageThreadScope,
+} from "./bestieMessageThreadStorage";
 import {
   clearBestieSessionBoundary,
   readBestieSessionBoundary,
@@ -72,8 +95,9 @@ import { findBestieDmChannel } from "./filterBestieDmChannels";
 import {
   collectBestieSessionThreadRootIds,
   filterBestieSessionMessages,
+  filterMessagesInBestieThread,
   flattenBestieTranscriptMessages,
-  resolveBestieSendParentEventId,
+  resolveBestieComposerThread,
 } from "./flattenBestieTranscript";
 import {
   messageLooksLikeBestieListRequest,
@@ -81,6 +105,11 @@ import {
   messageNeedsBestieReminderBareClockConfirm,
 } from "./parseBestieUserListIntent";
 import { messageLooksLikeBestieScratchRequest } from "./parseBestieUserScratchIntent";
+import {
+  clearBestieListIntroNotice,
+  useBestieListIntroBannerText,
+} from "./bestieAttentionStore";
+import { BestieListIntroBanner } from "./BestieListIntroBanner";
 import { BestieNewMessageBanner } from "./BestieNewMessageBanner";
 import { BestieNudgeBanner } from "./BestieNudgeBanner";
 import {
@@ -94,6 +123,15 @@ import {
 } from "./bestiePopoverNewMessageDismissed";
 import { requestBestieRhsOpen } from "./bestieRhsOpenRequest";
 import { BestiePopoverListsSection } from "./BestiePopoverListsSection";
+import { ensureBestieAgentThreadAccess } from "./bestieThreadAccess";
+import {
+  BESTIE_THREAD_SUMMARIZE_EVENT,
+  bestieThreadId,
+} from "./bestieThreadProtocol";
+import {
+  beginBestieThreadSummarizeForScope,
+  upsertBestieTrackedThreadForScope,
+} from "./bestieThreadStore";
 import { useBestie } from "./useBestie";
 
 /** How long Confirm? stays armed before reverting to Close Thread. */
@@ -185,7 +223,13 @@ export function BestieAgentLockup({
   );
 }
 
-function EmptyBestie({ onRequestClose }: { onRequestClose?: () => void }) {
+function EmptyBestie({
+  hideLists = false,
+  onRequestClose,
+}: {
+  hideLists?: boolean;
+  onRequestClose?: () => void;
+}) {
   const { goAgents } = useAppNavigation();
   const bestie = useBestie();
   const scope =
@@ -226,7 +270,7 @@ function EmptyBestie({ onRequestClose }: { onRequestClose?: () => void }) {
         </div>
       </div>
       <div className="min-h-16 flex-1 rounded-xl border border-dashed border-border/70 bg-muted/20" />
-      {scope ? (
+      {scope && !hideLists ? (
         <BestiePopoverListsSection
           brewEnabled={false}
           fillAvailable
@@ -433,11 +477,14 @@ export function BestiePopover({
   avatarLayoutId,
   contextChannelId,
   contextMessage,
+  fillAvailable = false,
   onRequestClose,
 }: {
   avatarLayoutId?: string;
   contextChannelId?: string | null;
   contextMessage?: TimelineMessage;
+  /** Fit the parent popover and keep the composer on screen. */
+  fillAvailable?: boolean;
   onRequestClose?: () => void;
 }) {
   const bestie = useBestie();
@@ -445,6 +492,9 @@ export function BestiePopover({
   const showActivity = useBestieShowActivity();
   const [draft, setDraft] = React.useState("");
   const [contextSent, setContextSent] = React.useState(false);
+  const [includeMessageContext, setIncludeMessageContext] =
+    React.useState(true);
+  const includeContextId = React.useId();
   // Two-step Close Thread: first click arms Confirm?, second ends the session.
   const [closeThreadConfirm, setCloseThreadConfirm] = React.useState(false);
   const [conversationChannel, setConversationChannel] =
@@ -484,6 +534,8 @@ export function BestiePopover({
   );
   toggleReactionMutateRef.current = toggleReactionMutation.mutateAsync;
   const conversationPromiseRef = React.useRef<Promise<Channel> | null>(null);
+  const sendLockRef = React.useRef(false);
+  const messageThreadRootRef = React.useRef<string | null>(null);
   const resolveConversationForOpen = React.useEffectEvent(() =>
     bestie.resolveConversation(),
   );
@@ -497,20 +549,64 @@ export function BestiePopover({
       relayUrl: bestie.relayUrl,
     };
   }, [assignedAgentPubkey, bestie.ownerPubkey, bestie.relayUrl]);
+  const messageThreadScope =
+    React.useMemo<BestieMessageThreadScope | null>(() => {
+      if (!sessionScope || !contextChannelId || !contextMessage?.id) {
+        return null;
+      }
+      return {
+        ...sessionScope,
+        channelId: contextChannelId,
+        messageId: contextMessage.id,
+      };
+    }, [contextChannelId, contextMessage?.id, sessionScope]);
+  const [messageThreadRootIds, setMessageThreadRootIds] = React.useState<
+    ReadonlySet<string>
+  >(() => new Set());
 
   // Hydrate session boundary before paint so reopen is not blank for a frame.
+  // A message ask loads that message's thread, not the bottom Assistant thread.
   React.useLayoutEffect(() => {
     if (!assignedAgentPubkey) {
       setSessionBoundary(null);
       return;
     }
+    if (messageThreadScope) {
+      const stored = readBestieMessageThread(messageThreadScope);
+      messageThreadRootRef.current = stored?.sessionRootId ?? null;
+      setSessionBoundary(
+        stored
+          ? {
+              baselineMessageIds: new Set(),
+              firstMessageCreatedAt: stored.firstMessageCreatedAt,
+              sessionRootId: stored.sessionRootId,
+            }
+          : null,
+      );
+      return;
+    }
+    messageThreadRootRef.current = null;
     if (sessionScope) {
       const stored = readBestieSessionBoundary(sessionScope);
       setSessionBoundary(stored ? toRuntimeBoundary(stored) : null);
     } else {
       setSessionBoundary(null);
     }
-  }, [assignedAgentPubkey, sessionScope]);
+  }, [assignedAgentPubkey, messageThreadScope, sessionScope]);
+
+  React.useLayoutEffect(() => {
+    if (!sessionScope || messageThreadScope) {
+      setMessageThreadRootIds(new Set());
+      return;
+    }
+    const refresh = () => {
+      setMessageThreadRootIds(
+        new Set(listBestieMessageThreadRootIds(sessionScope)),
+      );
+    };
+    refresh();
+    return subscribeBestieMessageThreads(refresh);
+  }, [messageThreadScope, sessionScope]);
 
   const cachedBestieChannelId = cachedBestieChannel?.id ?? null;
   const cachedBestieChannelRef = React.useRef(cachedBestieChannel);
@@ -589,14 +685,28 @@ export function BestiePopover({
   // Channel window is roots-only; load reply subtrees for the active session
   // so the popover shows the same continuous transcript as the DM thread.
   const sessionThreadRootIds = React.useMemo(() => {
+    if (messageThreadScope) {
+      return sessionBoundary?.sessionRootId
+        ? [sessionBoundary.sessionRootId]
+        : [];
+    }
     // Channel window is roots-only; treat each as a potential session thread root.
     const channelRoots = (conversationQuery.data ?? []).map((event) => ({
       createdAt: event.created_at,
       id: event.id,
       parentId: null as string | null,
     }));
-    return collectBestieSessionThreadRootIds(sessionBoundary, channelRoots);
-  }, [conversationQuery.data, sessionBoundary]);
+    return collectBestieSessionThreadRootIds(
+      sessionBoundary,
+      channelRoots,
+      messageThreadRootIds,
+    );
+  }, [
+    conversationQuery.data,
+    messageThreadRootIds,
+    messageThreadScope,
+    sessionBoundary,
+  ]);
   const sessionThreadReplies = useThreadRepliesForRoots(
     activeConversationChannel,
     sessionThreadRootIds,
@@ -640,11 +750,22 @@ export function BestiePopover({
   ]);
   const conversationMessages = React.useMemo(() => {
     // Full active-session transcript (chevron dismiss keeps this; Close Thread clears it).
+    if (messageThreadScope) {
+      const rootId = sessionBoundary?.sessionRootId;
+      if (!rootId) return [];
+      return filterMessagesInBestieThread(allConversationMessages, rootId);
+    }
     return filterBestieSessionMessages(
       allConversationMessages,
       sessionBoundary,
+      { excludeRootIds: messageThreadRootIds },
     );
-  }, [allConversationMessages, sessionBoundary]);
+  }, [
+    allConversationMessages,
+    messageThreadRootIds,
+    messageThreadScope,
+    sessionBoundary,
+  ]);
   const sessionMessageIds = React.useMemo(
     () => new Set(conversationMessages.map((message) => message.id)),
     [conversationMessages],
@@ -658,7 +779,9 @@ export function BestiePopover({
   const newMessageQueue = React.useMemo(
     () =>
       resolveBestiePopoverNewMessageQueue({
-        allMessages: allConversationMessages,
+        allMessages: messageThreadScope
+          ? conversationMessages
+          : allConversationMessages,
         baselineMessageIds: sessionBoundary?.baselineMessageIds,
         dismissedMessageIds: dismissedNewMessages.messageIds,
         dismissedThreadRootIds: dismissedNewMessages.threadRootIds,
@@ -669,8 +792,10 @@ export function BestiePopover({
       }),
     [
       allConversationMessages,
+      conversationMessages,
       dismissedNewMessages.messageIds,
       dismissedNewMessages.threadRootIds,
+      messageThreadScope,
       sessionBoundary?.baselineMessageIds,
       sessionBoundary?.firstMessageCreatedAt,
       sessionBoundary?.sessionRootId,
@@ -679,6 +804,7 @@ export function BestiePopover({
     ],
   );
   const newMessageTarget = newMessageQueue[0] ?? null;
+  const listIntroBanner = useBestieListIntroBannerText();
   const dismissNewMessage = React.useCallback(
     (target: BestiePopoverNewMessageTarget) => {
       const ack = bestiePopoverNewMessageAckIds(target);
@@ -704,7 +830,9 @@ export function BestiePopover({
         scrollToLatestRef.current?.();
         return;
       }
-      const message = allConversationMessages.find((entry) => entry.id === target.id);
+      const message = allConversationMessages.find(
+        (entry) => entry.id === target.id,
+      );
       if (!message) return;
       // Open the Assistant DM on that thread in the main app. Do NOT change the
       // popover session/thread — the popover stays where it is.
@@ -783,15 +911,18 @@ export function BestiePopover({
   }, [onRequestClose]);
 
   const closeThread = React.useCallback(() => {
-    if (sessionScope) {
+    if (messageThreadScope) {
+      clearBestieMessageThread(messageThreadScope);
+    } else if (sessionScope) {
       clearBestieSessionBoundary(sessionScope);
     }
+    messageThreadRootRef.current = null;
     setSessionBoundary(null);
     setContextSent(false);
     setDraft("");
     setCloseThreadConfirm(false);
     onRequestClose?.();
-  }, [onRequestClose, sessionScope]);
+  }, [messageThreadScope, onRequestClose, sessionScope]);
 
   const handleCloseThreadClick = React.useCallback(() => {
     if (!closeThreadConfirm) {
@@ -835,128 +966,280 @@ export function BestiePopover({
   if (bestie.isLoading) {
     return <p className="text-sm text-muted-foreground">Loading Assistant…</p>;
   }
-  if (!agent) return <EmptyBestie onRequestClose={onRequestClose} />;
+  if (!agent) {
+    return (
+      <EmptyBestie
+        hideLists={Boolean(contextMessage)}
+        onRequestClose={onRequestClose}
+      />
+    );
+  }
 
   const presenceStatus = bestie.presenceStatus ?? "offline";
-  const sendMessage = () => {
-    const trimmedDraft = draft.trim();
-    if (!trimmedDraft || bestie.isOpening || sendMutation.isPending) return;
+  const sendAskContent = (
+    rawBody: string,
+    options?: { clearDraft?: boolean; forceListHint?: boolean },
+  ) => {
+    const trimmedDraft = rawBody.trim();
+    if (
+      !trimmedDraft ||
+      bestie.isOpening ||
+      sendMutation.isPending ||
+      sendLockRef.current
+    ) {
+      return;
+    }
+    sendLockRef.current = true;
     void (async () => {
-      const baselineMessageIds = new Set(
-        allConversationMessages.map((message) => message.id),
-      );
-      const startResult = bestie.ensureAgentRunning().then(
-        () => ({ error: null }),
-        (error: unknown) => ({ error }),
-      );
-      const channel =
-        activeConversationChannel ??
-        (await (conversationPromiseRef.current ??
-          bestie.resolveConversation()));
-      setConversationChannel(channel);
-      const parentEventId = resolveBestieSendParentEventId(sessionBoundary);
-      // Confirm Qs / AM-PM replies stay in-session (parentEventId = session root
-      // when active; null only for a brand-new session root).
-      const pendingReminderConfirm =
-        sessionScope && bestie.ownerPubkey && assignedAgentPubkey && bestie.relayUrl
-          ? getBestieListState({
-              agentPubkey: normalizePubkey(assignedAgentPubkey),
-              ownerPubkey: normalizePubkey(bestie.ownerPubkey),
-              relayUrl: bestie.relayUrl,
-            }).pendingReminderConfirm
-          : null;
-      const meridiemReply =
-        pendingReminderConfirm != null &&
-        messageLooksLikeBestieReminderMeridiemReply(trimmedDraft);
-      const listIntent =
-        messageLooksLikeBestieListRequest(trimmedDraft) || meridiemReply;
-      const bareClockConfirm =
-        messageNeedsBestieReminderBareClockConfirm(trimmedDraft);
-      const jobIntent = messageLooksLikeBestieJobRequest(trimmedDraft);
-      const scratchIntent = messageLooksLikeBestieScratchRequest(trimmedDraft);
-      const liveScope =
-        sessionScope && bestie.ownerPubkey && assignedAgentPubkey && bestie.relayUrl
-          ? {
-              agentPubkey: normalizePubkey(assignedAgentPubkey),
-              ownerPubkey: normalizePubkey(bestie.ownerPubkey),
-              relayUrl: bestie.relayUrl,
-            }
-          : null;
-      let outboundBody = withBestieLiveListStateHint(trimmedDraft, liveScope);
-      outboundBody = withBestieListTurnHint(outboundBody, listIntent, {
-        bareClockConfirm,
-      });
-      outboundBody = withBestieJobTurnHint(outboundBody, jobIntent);
-      const content =
-        contextEnvelope && !contextSent
-          ? `${contextEnvelope}\n\n${outboundBody}`
-          : outboundBody;
-      const sentMessage = await sendMutation.mutateAsync({
-        content,
-        parentEventId,
-        targetChannel: channel,
-      });
-      // Apply NL list/job/scratch intents immediately (WakeController also applies; idempotent).
-      // Job schedule-request/approve-intent do not create — confirmed fence or RHS form does.
-      if (
-        (listIntent || jobIntent || scratchIntent) &&
-        sessionScope &&
-        bestie.ownerPubkey &&
-        assignedAgentPubkey &&
-        bestie.relayUrl
-      ) {
-        const scope = {
-          agentPubkey: normalizePubkey(assignedAgentPubkey),
-          ownerPubkey: normalizePubkey(bestie.ownerPubkey),
-          relayUrl: bestie.relayUrl,
-        };
-        if (listIntent) {
-          applyBestieListIntentFromUserMessage(
-            scope,
-            sentMessage.id,
-            trimmedDraft,
-          );
+      try {
+        const baselineMessageIds = new Set(
+          allConversationMessages.map((message) => message.id),
+        );
+        const startResult = bestie.ensureAgentRunning().then(
+          () => ({ error: null }),
+          (error: unknown) => ({ error }),
+        );
+        const channel =
+          activeConversationChannel ??
+          (await (conversationPromiseRef.current ??
+            bestie.resolveConversation()));
+        setConversationChannel(channel);
+        const composerThread = resolveBestieComposerThread({
+          footerSessionRootId: messageThreadScope
+            ? null
+            : (sessionBoundary?.sessionRootId ?? null),
+          isMessageAsk: messageThreadScope != null,
+          messageThreadRootId: messageThreadScope
+            ? (messageThreadRootRef.current ??
+              sessionBoundary?.sessionRootId ??
+              null)
+            : null,
+        });
+        const parentEventId = composerThread.parentEventId;
+        // Confirm Qs / AM-PM replies stay in-session (parentEventId = session root
+        // when active; null only for a brand-new session root).
+        const pendingReminderConfirm =
+          sessionScope &&
+          bestie.ownerPubkey &&
+          assignedAgentPubkey &&
+          bestie.relayUrl
+            ? getBestieListState({
+                agentPubkey: normalizePubkey(assignedAgentPubkey),
+                ownerPubkey: normalizePubkey(bestie.ownerPubkey),
+                relayUrl: bestie.relayUrl,
+              }).pendingReminderConfirm
+            : null;
+        const meridiemReply =
+          pendingReminderConfirm != null &&
+          messageLooksLikeBestieReminderMeridiemReply(trimmedDraft);
+        const listIntent =
+          options?.forceListHint === true ||
+          messageLooksLikeBestieListRequest(trimmedDraft) ||
+          meridiemReply;
+        const bareClockConfirm =
+          messageNeedsBestieReminderBareClockConfirm(trimmedDraft);
+        const jobIntent = messageLooksLikeBestieJobRequest(trimmedDraft);
+        const scratchIntent =
+          messageLooksLikeBestieScratchRequest(trimmedDraft);
+        const liveScope =
+          sessionScope &&
+          bestie.ownerPubkey &&
+          assignedAgentPubkey &&
+          bestie.relayUrl
+            ? {
+                agentPubkey: normalizePubkey(assignedAgentPubkey),
+                ownerPubkey: normalizePubkey(bestie.ownerPubkey),
+                relayUrl: bestie.relayUrl,
+              }
+            : null;
+        let outboundBody = withBestieLiveListStateHint(trimmedDraft, liveScope);
+        outboundBody = withBestieListTurnHint(outboundBody, listIntent, {
+          bareClockConfirm,
+        });
+        outboundBody = withBestieJobTurnHint(outboundBody, jobIntent);
+        const composed = composeBestieAskContent(
+          outboundBody,
+          contextEnvelope,
+          {
+            contextAlreadySent: contextSent,
+            includeContext: includeMessageContext,
+          },
+        );
+        const content = composed.content;
+        const sentMessage = await sendMutation.mutateAsync({
+          content,
+          parentEventId,
+          targetChannel: channel,
+        });
+        // Apply NL list/job/scratch intents immediately (WakeController also applies; idempotent).
+        // Job schedule-request/approve-intent do not create — confirmed fence or RHS form does.
+        if (
+          (listIntent || jobIntent || scratchIntent) &&
+          sessionScope &&
+          bestie.ownerPubkey &&
+          assignedAgentPubkey &&
+          bestie.relayUrl
+        ) {
+          const scope = {
+            agentPubkey: normalizePubkey(assignedAgentPubkey),
+            ownerPubkey: normalizePubkey(bestie.ownerPubkey),
+            relayUrl: bestie.relayUrl,
+          };
+          if (listIntent) {
+            applyBestieListIntentFromUserMessage(
+              scope,
+              sentMessage.id,
+              trimmedDraft,
+            );
+          }
+          if (jobIntent) {
+            applyBestieJobIntentFromUserMessage(
+              scope,
+              sentMessage.id,
+              trimmedDraft,
+            );
+          }
+          if (scratchIntent) {
+            applyBestieScratchIntentFromUserMessage(
+              scope,
+              sentMessage.id,
+              trimmedDraft,
+            );
+          }
         }
-        if (jobIntent) {
-          applyBestieJobIntentFromUserMessage(
-            scope,
-            sentMessage.id,
-            trimmedDraft,
-          );
+        if (composerThread.create !== "none") {
+          const next = {
+            baselineMessageIds,
+            firstMessageCreatedAt: sentMessage.created_at,
+            sessionRootId: sentMessage.id,
+          };
+          if (composerThread.create === "message" && messageThreadScope) {
+            messageThreadRootRef.current = next.sessionRootId;
+            writeBestieMessageThread(messageThreadScope, {
+              firstMessageCreatedAt: next.firstMessageCreatedAt,
+              sessionRootId: next.sessionRootId,
+            });
+          } else if (composerThread.create === "footer" && sessionScope) {
+            writeBestieSessionBoundary(sessionScope, {
+              baselineMessageIds: [...baselineMessageIds],
+              firstMessageCreatedAt: next.firstMessageCreatedAt,
+              sessionRootId: next.sessionRootId,
+            });
+          }
+          setSessionBoundary(next);
         }
-        if (scratchIntent) {
-          applyBestieScratchIntentFromUserMessage(
-            scope,
-            sentMessage.id,
-            trimmedDraft,
-          );
-        }
+        if (composed.attachedContext) setContextSent(true);
+        if (options?.clearDraft !== false) setDraft("");
+        const { error: startError } = await startResult;
+        if (startError) throw startError;
+      } finally {
+        sendLockRef.current = false;
       }
-      setSessionBoundary((current) => {
-        if (current) return current;
-        const next = {
-          baselineMessageIds,
-          firstMessageCreatedAt: sentMessage.created_at,
-          sessionRootId: sentMessage.id,
-        };
-        if (sessionScope) {
-          writeBestieSessionBoundary(sessionScope, {
-            baselineMessageIds: [...baselineMessageIds],
-            firstMessageCreatedAt: next.firstMessageCreatedAt,
-            sessionRootId: next.sessionRootId,
-          });
-        }
-        return next;
-      });
-      setContextSent(true);
-      setDraft("");
-      const { error: startError } = await startResult;
-      if (startError) throw startError;
     })().catch((error) => {
       toast.error(
         error instanceof Error ? error.message : "Couldn’t message Assistant",
       );
     });
+  };
+
+  const sendMessage = () => {
+    sendAskContent(draft);
+  };
+
+  const sendAskQuickPrompt = (
+    prompt: string,
+    options?: { forceListHint?: boolean },
+  ) => {
+    sendAskContent(prompt, {
+      clearDraft: false,
+      forceListHint: options?.forceListHint,
+    });
+  };
+
+  const saveLinkedListItem = (
+    kind: "reminder" | "todo",
+    dueAt?: number | null,
+  ) => {
+    const messageLink = buildBestieMessageLink(
+      contextChannelId,
+      contextMessage,
+    );
+    if (!sessionScope || !messageLink) {
+      toast.error("Couldn’t link this message");
+      return;
+    }
+    addBestieListItemForScope(sessionScope, {
+      dueAt: dueAt ?? null,
+      kind,
+      text: messageLink,
+    });
+    toast.success(kind === "reminder" ? "Reminder saved" : "To-do saved");
+  };
+
+  const enrollAndSummarizeContextThread = () => {
+    const ownerPubkey = bestie.ownerPubkey;
+    if (
+      !sessionScope ||
+      !contextChannelId ||
+      !contextMessage ||
+      !assignedAgentPubkey ||
+      !ownerPubkey
+    ) {
+      toast.error("Couldn’t add this thread to Assistant yet");
+      return;
+    }
+    const scope = sessionScope;
+    const channelId = contextChannelId;
+    const message = contextMessage;
+    const agentPubkey = assignedAgentPubkey;
+    const rootEventId = message.rootId ?? message.id;
+    const channel = (channelsQuery.data ?? []).find(
+      (entry) => entry.id === channelId,
+    );
+    void (async () => {
+      try {
+        const access = await ensureBestieAgentThreadAccess({
+          agentPubkey,
+          channelId,
+          ownerPubkey,
+        });
+        if (!access.ok) {
+          toast.error(access.error);
+          return;
+        }
+        const next = upsertBestieTrackedThreadForScope(scope, {
+          authorName: message.author ?? null,
+          channelId,
+          channelName: channel?.name ?? null,
+          preview: message.body ?? "",
+          rootEventId,
+          source: "ask",
+        });
+        const threadId = bestieThreadId(channelId, rootEventId);
+        const thread =
+          next.threads.find((entry) => entry.id === threadId) ?? null;
+        if (!thread) {
+          toast.error("Couldn’t enroll this thread");
+          return;
+        }
+        const begun = beginBestieThreadSummarizeForScope(scope, thread.id);
+        if (!begun) {
+          toast.error("A summarize is already in progress.");
+          return;
+        }
+        window.dispatchEvent(
+          new CustomEvent(BESTIE_THREAD_SUMMARIZE_EVENT, {
+            detail: { threadId: thread.id },
+          }),
+        );
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Couldn’t add thread and summarize",
+        );
+      }
+    })();
   };
 
   const hasScrollableTranscript =
@@ -967,7 +1250,10 @@ export function BestiePopover({
 
   return (
     <div
-      className="flex h-full min-h-0 flex-col gap-3"
+      className={cn(
+        "flex min-h-0 flex-col gap-3",
+        fillAvailable ? "min-h-0 flex-1 overflow-hidden" : "h-full",
+      )}
       data-testid="bestie-popover"
     >
       <div className="flex shrink-0 items-start gap-2">
@@ -1036,6 +1322,13 @@ export function BestiePopover({
         }}
       />
 
+      {listIntroBanner && !newMessageTarget ? (
+        <BestieListIntroBanner
+          onDismiss={clearBestieListIntroNotice}
+          text={listIntroBanner}
+        />
+      ) : null}
+
       {newMessageTarget ? (
         <BestieNewMessageBanner
           queueLength={newMessageQueue.length}
@@ -1066,37 +1359,6 @@ export function BestiePopover({
           data-testid="bestie-popover-chat-spacer"
         />
       )}
-
-      {contextMessage && !contextSent ? (
-        <div
-          className="shrink-0 space-y-2"
-          data-testid="bestie-message-context"
-        >
-          <div
-            className="max-h-24 max-w-[75%] overflow-hidden rounded-xl border border-border/70 bg-muted/45 p-2.5 shadow-xs"
-            data-testid="bestie-message-snapshot"
-          >
-            <div className="flex min-w-0 items-center gap-2">
-              <UserAvatar
-                avatarUrl={contextMessage.avatarUrl ?? null}
-                className="h-5 w-5"
-                displayName={contextMessage.author}
-                fallbackDelayMs={0}
-                size="xs"
-              />
-              <span className="truncate text-xs font-semibold">
-                {contextMessage.author}
-              </span>
-            </div>
-            <p className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-4 text-foreground/80">
-              {contextMessage.body}
-            </p>
-          </div>
-          <div className="w-fit rounded-2xl bg-muted px-3 py-2 text-sm">
-            How can I help?
-          </div>
-        </div>
-      ) : null}
 
       <div className="relative shrink-0">
         <Textarea
@@ -1134,7 +1396,157 @@ export function BestiePopover({
         </Button>
       </div>
 
-      {sessionScope ? (
+      {contextMessage && !contextSent ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <label
+            className="flex w-fit cursor-pointer items-center gap-2 text-sm"
+            htmlFor={includeContextId}
+          >
+            <Checkbox
+              checked={includeMessageContext}
+              data-testid="bestie-include-message-context"
+              id={includeContextId}
+              onCheckedChange={(checked) =>
+                setIncludeMessageContext(checked === true)
+              }
+            />
+            Include message context
+          </label>
+          {includeMessageContext && contextEnvelope ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className="inline-flex h-6 cursor-default items-center rounded-full border border-border/70 bg-muted/50 px-2 text-xs text-muted-foreground"
+                  data-testid="bestie-message-context-chip"
+                >
+                  Include message context
+                </span>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-sm whitespace-pre-wrap">
+                {contextEnvelope}
+              </TooltipContent>
+            </Tooltip>
+          ) : null}
+        </div>
+      ) : null}
+
+      {contextMessage ? (
+        <div
+          className="shrink-0 space-y-2"
+          data-testid="bestie-ask-quick-actions"
+        >
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-muted-foreground">
+              Reminder
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {(
+                [
+                  ["15m", "15 minutes"],
+                  ["1h", "1 hour"],
+                  ["24h", "24 hours"],
+                ] as const
+              ).map(([delay, label]) => (
+                <Button
+                  key={delay}
+                  className="h-7 rounded-full border border-border/50 bg-muted/45 px-2.5 text-xs font-medium text-foreground shadow-none hover:bg-muted/70"
+                  data-testid={`bestie-ask-reminder-${delay}`}
+                  disabled={bestie.isOpening || sendMutation.isPending}
+                  onClick={() => {
+                    const messageLink = buildBestieMessageLink(
+                      contextChannelId,
+                      contextMessage,
+                    );
+                    if (includeMessageContext) {
+                      if (sessionScope && messageLink) {
+                        rememberBestieAskSourceLink(sessionScope, messageLink);
+                      }
+                      sendAskQuickPrompt(
+                        composeBestieAskReminderPrompt(delay, messageLink),
+                        { forceListHint: true },
+                      );
+                      return;
+                    }
+                    saveLinkedListItem(
+                      "reminder",
+                      bestieAskReminderDueAt(delay),
+                    );
+                  }}
+                  size="xs"
+                  type="button"
+                  variant="ghost"
+                >
+                  {label}
+                </Button>
+              ))}
+            </div>
+          </div>
+          <Button
+            className="h-7 w-full rounded-full border border-border/50 bg-muted/45 px-2.5 text-xs font-medium text-foreground shadow-none hover:bg-muted/70"
+            data-testid="bestie-ask-add-todo"
+            disabled={bestie.isOpening || sendMutation.isPending}
+            onClick={() => {
+              const messageLink = buildBestieMessageLink(
+                contextChannelId,
+                contextMessage,
+              );
+              if (includeMessageContext) {
+                if (sessionScope && messageLink) {
+                  rememberBestieAskSourceLink(sessionScope, messageLink);
+                }
+                sendAskQuickPrompt(composeBestieAskTodoPrompt(messageLink), {
+                  forceListHint: true,
+                });
+                return;
+              }
+              saveLinkedListItem("todo");
+            }}
+            size="xs"
+            type="button"
+            variant="ghost"
+          >
+            Add to my to-dos
+          </Button>
+          <Button
+            className="h-7 w-full rounded-full border border-border/50 bg-muted/45 px-2.5 text-xs font-medium text-foreground shadow-none hover:bg-muted/70"
+            data-testid="bestie-ask-add-thread-summarize"
+            disabled={bestie.isOpening || sendMutation.isPending}
+            onClick={enrollAndSummarizeContextThread}
+            size="xs"
+            type="button"
+            variant="ghost"
+          >
+            Add to Threads & summarize
+          </Button>
+          <Button
+            className="h-7 w-full rounded-full border border-border/50 bg-muted/45 px-2.5 text-xs font-medium text-foreground shadow-none hover:bg-muted/70"
+            data-testid="bestie-ask-scratch"
+            disabled={bestie.isOpening || sendMutation.isPending}
+            onClick={() => {
+              const messageLink = buildBestieMessageLink(
+                contextChannelId,
+                contextMessage,
+              );
+              const note = composeBestieAskScratchNote({
+                author: contextMessage?.author,
+                body: contextMessage?.body,
+                messageLink,
+              });
+              if (!sessionScope || !note.body) {
+                toast.error("Couldn’t save this message to scratch");
+                return;
+              }
+              addBestieScratchNoteForScope(sessionScope, note);
+              toast.success("Saved to scratch pad");
+            }}
+            size="xs"
+            type="button"
+            variant="ghost"
+          >
+            Write to scratch pad
+          </Button>
+        </div>
+      ) : sessionScope ? (
         <BestiePopoverListsSection
           bestieChannel={activeConversationChannel}
           brewEnabled

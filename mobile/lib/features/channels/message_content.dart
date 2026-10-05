@@ -93,6 +93,12 @@ class MessageContent extends HookConsumerWidget {
   /// Keys are lowercase pubkeys, values are display names.
   final Map<String, String> mentionNames;
 
+  /// Contextual display labels for mentioned pubkeys (lowercase keys).
+  ///
+  /// Presentation only: text still binds through [mentionNames], so a
+  /// disambiguated label never changes which signed text names whom.
+  final Map<String, String> mentionLabels;
+
   /// Mentioned pubkeys that resolve to agents. Agent chips use the desktop
   /// robot treatment instead of an `@` prefix.
   final Set<String> agentMentionPubkeys;
@@ -143,6 +149,7 @@ class MessageContent extends HookConsumerWidget {
     super.key,
     required this.content,
     this.mentionNames = const {},
+    this.mentionLabels = const {},
     this.agentMentionPubkeys = const {},
     this.channelNames = const {},
     this.tags = const [],
@@ -295,6 +302,7 @@ class MessageContent extends HookConsumerWidget {
       content: content,
       finalContent: finalContent,
       mentionNames: resolvedMentionNames,
+      mentionLabels: mentionLabels,
       bindings: mentionBindings,
       agentPubkeys: resolvedAgentMentionPubkeys,
       channelNames: resolvedChannelNames,
@@ -861,6 +869,7 @@ class _MentionMd extends InlineMd {
   final Map<String, Set<String>> bindings;
   final Map<String, String> displayLabels;
   final Map<String, String> mentionNames;
+  final Map<String, String> mentionLabels;
   final Set<String> agentMentionPubkeys;
   final void Function(String pubkey)? onMentionTap;
   late final RegExp _exp = _buildPrefixPattern(
@@ -873,6 +882,7 @@ class _MentionMd extends InlineMd {
     required this.bindings,
     required this.displayLabels,
     required this.mentionNames,
+    required this.mentionLabels,
     required this.agentMentionPubkeys,
     this.onMentionTap,
   });
@@ -899,7 +909,7 @@ class _MentionMd extends InlineMd {
     }
     final displayName = name.contains(RegExp(r'\([0-9a-f]{64}\)'))
         ? displayLabels[name]
-        : mentionNames[pubkey];
+        : mentionLabels[pubkey] ?? mentionNames[pubkey];
 
     final isAgent =
         pubkey != null && agentMentionPubkeys.contains(pubkey.toLowerCase());

@@ -4,6 +4,11 @@ import {
 } from "@/features/agents/channelAgents";
 import { fetchProjects, type Project } from "@/features/projects/hooks";
 import {
+  ensureProjectCodingAgentMember,
+  requireKnownCodingAgent,
+} from "@/features/projects/lib/projectCodingAgentMembership";
+import { requireProjectDri } from "@/features/projects/lib/projectDri";
+import {
   buildDefaultProjectRepositoryTemplate,
   buildProjectBootstrapTemplates,
   conflictingListedProject,
@@ -36,6 +41,13 @@ export type CreateProjectInput = {
   projectVisibility?: ProjectListingVisibility;
   agents?: readonly CreateChannelManagedAgentInput[];
   templateId?: string;
+  /** Relay member who is directly responsible. Create refuses to run without one. */
+  driPubkey: string;
+  /**
+   * Local bot or community bot added to the project channel. Omitted when the
+   * create form leaves Coding agent as None. Never a human member.
+   */
+  codingAgentPubkey?: string;
   /**
    * OpenClaw directory inside Hula. When set, create publishes path records
    * instead of an empty relay repository.
@@ -234,6 +246,22 @@ export async function finishCreate(
   if (agentChannelId && input.agents && input.agents.length > 0) {
     await addRequestedAgents(agentChannelId, input.agents);
   }
+  if (agentChannelId && input.codingAgentPubkey) {
+    try {
+      await ensureProjectCodingAgentMember(
+        agentChannelId,
+        input.codingAgentPubkey,
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "The coding agent could not be added.";
+      throw new Error(
+        `The project was created, but adding the coding agent failed: ${message}`,
+      );
+    }
+  }
   resume.projectIds.delete(projectId);
   resume.channels.delete(projectId);
   return { channel, project };
@@ -251,9 +279,17 @@ export async function createProject(
   resume: CreateProjectResumeState,
   hulaDeps?: HulaCreateDeps,
 ): Promise<CreateProjectResult> {
+  const driPubkey = requireProjectDri(input.driPubkey);
+  const codingAgentPubkey = input.codingAgentPubkey
+    ? await requireKnownCodingAgent(input.codingAgentPubkey)
+    : undefined;
   if (input.hula) {
     const { createHulaProject } = await import("./createHulaProject");
-    return createHulaProject(input, resume, hulaDeps);
+    return createHulaProject(
+      { ...input, driPubkey, codingAgentPubkey },
+      resume,
+      hulaDeps,
+    );
   }
   const identity = await getIdentity();
   const dtagPreview = projectDtagFromName(input.name);
@@ -284,7 +320,13 @@ export async function createProject(
           project: existingProject,
         })
       : existingProject;
-    return finishCreate(cachedChannel, project, input, resume, projectId);
+    return finishCreate(
+      cachedChannel,
+      project,
+      { ...input, driPubkey, codingAgentPubkey },
+      resume,
+      projectId,
+    );
   }
   const conflict = conflictingListedProject(existing, {
     dtag: dtagPreview,
@@ -315,6 +357,8 @@ export async function createProject(
     ownerPubkey: identity.pubkey,
     projectChannelId: channel.id,
     projectVisibility: input.projectVisibility ?? "listed",
+    driPubkey,
+    codingAgentPubkey,
   });
   const existingRepositoryEvent = await fetchOwnHead(
     KIND_REPO_ANNOUNCEMENT,
@@ -331,5 +375,11 @@ export async function createProject(
   }
 
   const project = readCreatedProject(projectEvent, repositoryEvent);
-  return finishCreate(channel, project, input, resume, projectId);
+  return finishCreate(
+    channel,
+    project,
+    { ...input, driPubkey, codingAgentPubkey },
+    resume,
+    projectId,
+  );
 }

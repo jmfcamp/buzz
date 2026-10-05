@@ -980,9 +980,10 @@ fn openclaw_prospective_system_prompt_matches_standing_only_stamp() {
         standing_stamp, with_claude,
         "stamp must not include host-injected CLAUDE.md (would perpetual restart badge)"
     );
-    assert!(with_claude.as_ref().unwrap().contains(
-        crate::managed_agents::openclaw_workspace_mcp::HULA_CLAUDE_MD_INJECT_MARKER
-    ));
+    assert!(with_claude
+        .as_ref()
+        .unwrap()
+        .contains(crate::managed_agents::openclaw_workspace_mcp::HULA_CLAUDE_MD_INJECT_MARKER));
 }
 
 #[cfg(test)]

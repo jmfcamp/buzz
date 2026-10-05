@@ -861,7 +861,6 @@ pub(crate) fn spawn_transcription_task(
                     eprintln!("buzz-desktop: STT kind:9 post failed: {e}");
                 }
             }
-
         }
     });
 }

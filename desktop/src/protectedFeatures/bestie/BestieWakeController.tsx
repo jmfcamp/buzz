@@ -14,9 +14,13 @@ import { normalizePubkey } from "@/shared/lib/pubkey";
 import {
   clearBestieUnreadMessage,
   ingestBestieAgentMessageCreatedAt,
+  isBestieSurfaceOpen,
   markBestieAgentMessagesSeen,
   noteBestieAgentMessageCreatedAt,
+  noteBestieListOnlyAttention,
+  noteBestieRealMessageAttention,
 } from "./bestieAttentionStore";
+import { classifyBestieAttentionMessage } from "./bestieListIntroNotice";
 import { isBestiePopoverSystemNoise } from "./bestiePopoverNewMessage";
 import {
   BESTIE_COFFEE_BREW_EVENT,
@@ -566,6 +570,16 @@ export function BestieWakeController() {
       if (isBestiePopoverSystemNoise(event.content)) {
         noteBestieAgentMessageCreatedAt(event.created_at);
         continue;
+      }
+      // List-only rows (fence/JSON adds, no chat prose) still light the ring,
+      // but they are not a new chat message. A real message suppresses that.
+      if (!isBestieSurfaceOpen()) {
+        const verdict = classifyBestieAttentionMessage(event.content);
+        if (verdict.kind === "real-message") {
+          noteBestieRealMessageAttention();
+        } else if (verdict.kind === "list-only") {
+          noteBestieListOnlyAttention(verdict.counts);
+        }
       }
       ingestBestieAgentMessageCreatedAt(event.created_at);
     }

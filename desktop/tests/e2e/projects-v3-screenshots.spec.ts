@@ -37,7 +37,7 @@ async function expectProjectContextGroups(
     "Actions",
     "Assignment",
     "Discussion",
-    "People",
+    "Contributors",
     "Task details",
     "Review details",
     "Review activity",
@@ -63,7 +63,10 @@ async function openProjectTaskChat(page: import("@playwright/test").Page) {
   await page.getByTestId("projects-selection-chat-agent").click();
 }
 
-async function openBuzzProject(page: import("@playwright/test").Page) {
+async function openBuzzProject(
+  page: import("@playwright/test").Page,
+  surface: "channel" | "repository" = "channel",
+) {
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.getByTestId("open-projects-view").click();
   await page.getByTestId("projects-section-projects").click();
@@ -74,6 +77,15 @@ async function openBuzzProject(page: import("@playwright/test").Page) {
     .first();
   await expect(projectEntry).toBeVisible({ timeout: 10_000 });
   await projectEntry.click();
+  if (surface === "repository") {
+    // The codebase name stays on the channel. The full workspace is the
+    // sheet's expand path, which still leaves the channel home.
+    await page.getByTestId("project-home-context-commits").click();
+    await page.getByTestId("project-home-workspace-sheet-expand").click();
+    await expect(page.getByTestId("project-workspace-back")).toBeVisible();
+    await page.getByRole("tab", { name: "Overview", exact: true }).click();
+    return;
+  }
   await page.getByTestId("project-home-context-repo-buzz").click();
 }
 
@@ -117,7 +129,7 @@ test("projects activity overview screenshot", async ({ page }) => {
   );
   await expect(
     page.getByTestId("projects-overview-context-panel"),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await expect(
     page.getByTestId("projects-overview-create-project"),
   ).toHaveCount(0);
@@ -128,38 +140,15 @@ test("projects activity overview screenshot", async ({ page }) => {
   await page.screenshot({ path: `${SHOTS}/00-projects-pulse.png` });
 });
 
-test("submitted project context stays compact and expandable", async ({
-  page,
-}) => {
+test("Projects index does not expose agent chat", async ({ page }) => {
   await installMockBridge(page);
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.getByTestId("open-projects-view").click();
-  await page.getByTestId("projects-section-issues").click();
-  await page.getByRole("button", { name: "List layout" }).click();
-  await page.getByTestId("projects-overview-chat-toggle").click();
 
-  const panel = page.getByTestId("project-agent-chat-panel");
-  await panel.getByTestId("message-input").fill("Summarize these reviews");
-  await panel.getByTestId("message-input").press("Enter");
-  const context = panel.getByTestId("project-agent-sent-context");
-  await expect(context).toBeVisible();
-  await expect(
-    panel.getByRole("button", { name: "Preview message context" }),
-  ).toBeVisible();
-
-  await waitForAnimations(page);
-  await panel.screenshot({
-    path: `${SHOTS}/08-agent-context-collapsed.png`,
-  });
-
-  await context.getByRole("button", { name: "Show sent context" }).click();
-  await expect(
-    context.getByTestId("project-agent-sent-context-payload"),
-  ).toBeVisible();
-  await waitForAnimations(page);
-  await panel.screenshot({
-    path: `${SHOTS}/09-agent-context-expanded.png`,
-  });
+  await expect(page.getByTestId("projects-overview-chat-toggle")).toHaveCount(
+    0,
+  );
+  await expect(page.getByTestId("project-agent-chat-panel")).toHaveCount(0);
 });
 
 test("sidebar project add flow browses before creating", async ({ page }) => {
@@ -214,7 +203,7 @@ test("restricted repositories keep event work visible and offer access help", as
     projectAccessChannelId: "11111111-1111-4111-8111-111111111111",
     projectRepoSnapshotError: "remote: repository not found",
   });
-  await openBuzzProject(page);
+  await openBuzzProject(page, "repository");
 
   const unavailableState = page
     .getByTestId("project-repository-unavailable")
@@ -287,7 +276,7 @@ test("repository pages show a centered Buzz loader while fetching", async ({
 // plus, issue detail with inline copy link + avatar timeline, PR detail).
 test("projects v3 workspace screenshot states", async ({ page }) => {
   await installMockBridge(page);
-  await openBuzzProject(page);
+  await openBuzzProject(page, "repository");
   const initialProjectBreadcrumb = page.getByRole("navigation", {
     name: "Project breadcrumb",
   });

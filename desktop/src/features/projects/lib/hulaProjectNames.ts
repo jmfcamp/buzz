@@ -27,6 +27,12 @@ export function hulaDirectoryPath(input: string): string | null {
     if (segment === "..") return null;
     segments.push(segment);
   }
+  // Absolute Mac/Linux paths like /Users/jm/Documents/Hula/products/hulabill
+  // become Users/jm/Documents/Hula/... after the leading-slash strip — cut at Hula.
+  const hulaIndex = segments.indexOf("Hula");
+  if (hulaIndex > 0) {
+    segments.splice(0, hulaIndex);
+  }
   if (segments[0] !== "Hula" || segments.length < 2) return null;
   return segments.join("/");
 }
@@ -42,6 +48,23 @@ export function projectNameFromHulaPath(hulaPath: string): string | null {
     return null;
   }
   return rest.replaceAll("/", "_");
+}
+
+/**
+ * Repository announcement name for one OpenClaw checkout.
+ * This is the workspace directory, not the project name. A git remote that
+ * uses another repo name is not consulted: the workspace identifies the
+ * checkout by this directory.
+ */
+export function repositoryNameFromHulaPath(hulaPath: string): string | null {
+  const path = hulaDirectoryPath(hulaPath);
+  if (!path) return null;
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  if (!name || name === "." || name === "..") return null;
+  if (new TextEncoder().encode(name).byteLength > 256) {
+    throw new Error("The repository name is too long.");
+  }
+  return name;
 }
 
 /** Channel for one repo directory under the project. */

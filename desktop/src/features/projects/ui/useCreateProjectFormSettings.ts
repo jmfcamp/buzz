@@ -95,7 +95,7 @@ export function useCreateProjectFormSettings(
     React.useState<ChannelVisibility>("open");
   const [projectVisibility, setProjectVisibility] =
     React.useState<ProjectListingVisibility>("listed");
-  const [agentPersonaId, setAgentPersonaId] = React.useState("");
+  const [codingAgentPubkey, setCodingAgentPubkey] = React.useState("");
   const [teamId, setTeamId] = React.useState("");
   const [templateId, setTemplateId] = React.useState(PROJECT_HOME_TEMPLATE_ID);
 
@@ -121,19 +121,11 @@ export function useCreateProjectFormSettings(
     if (!active) return;
     setChannelVisibility("open");
     setProjectVisibility("listed");
-    setAgentPersonaId("");
+    setCodingAgentPubkey("");
     setTeamId("");
     setTemplateId(PROJECT_HOME_TEMPLATE_ID);
   }, [active]);
 
-  React.useEffect(() => {
-    if (
-      agentPersonaId &&
-      !personas.some((persona) => persona.id === agentPersonaId)
-    ) {
-      setAgentPersonaId("");
-    }
-  }, [agentPersonaId, personas]);
   React.useEffect(() => {
     if (teamId && !teams.some((team) => team.id === teamId)) {
       setTeamId("");
@@ -151,13 +143,13 @@ export function useCreateProjectFormSettings(
   const buildAgents = React.useCallback(
     () =>
       buildCreateProjectAgents({
-        agentPersonaId,
+        agentPersonaId: "",
         personas,
         runtimes: runtimesQuery.data,
         teamId,
         teams,
       }),
-    [agentPersonaId, personas, runtimesQuery.data, teamId, teams],
+    [personas, runtimesQuery.data, teamId, teams],
   );
 
   const applyTemplate = React.useCallback(
@@ -185,16 +177,16 @@ export function useCreateProjectFormSettings(
   );
 
   return {
-    agentPersonaId,
     buildAgents,
+    codingAgentPubkey,
     channelVisibility,
     handleTemplateCreated: applyTemplate,
     handleTemplateChange,
     personas,
     projectVisibility,
     runtimesAvailable: runtimesQuery.data.length > 0,
-    setAgentPersonaId,
     setChannelVisibility,
+    setCodingAgentPubkey,
     setProjectVisibility,
     setTeamId,
     teamId,

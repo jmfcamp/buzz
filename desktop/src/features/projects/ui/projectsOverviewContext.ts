@@ -29,7 +29,7 @@ export type OverviewContextStatIcon =
   | "merged";
 
 export type OverviewContextAction = {
-  kind: "channel" | "issue" | "project" | "repository";
+  kind: "channel" | "issue" | "project";
   label: string;
   testId: string;
 } | null;
@@ -211,11 +211,8 @@ export function projectsOverviewContext(
 
   if (filter === "repositories") {
     return {
-      action: {
-        kind: "repository",
-        label: "Add repository",
-        testId: "projects-overview-add-repository",
-      },
+      // Repositories arrive from OpenClaw Workspace sync. No add control here.
+      action: null,
       detailsTitle: "Repository activity",
       people,
       stats: [

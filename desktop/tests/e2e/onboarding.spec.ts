@@ -192,7 +192,7 @@ async function expectWiderThanTall(locator: Locator) {
   expect(box.width).toBeGreaterThan(box.height);
 }
 
-async function expectIntroActionIconStackedAboveTitle(
+async function expectIntroActionLabelBesideIcon(
   action: Locator,
   title: string,
 ) {
@@ -202,7 +202,9 @@ async function expectIntroActionIconStackedAboveTitle(
     throw new Error("Could not measure welcome intro action content");
   }
 
-  expect(titleBox.y).toBeGreaterThan(iconBox.y + iconBox.height);
+  expect(titleBox.x).toBeGreaterThanOrEqual(iconBox.x + iconBox.width - 1);
+  expect(titleBox.y).toBeLessThan(iconBox.y + iconBox.height);
+  expect(titleBox.y + titleBox.height).toBeGreaterThan(iconBox.y);
 }
 
 async function expectWelcomeComposerBannerLayout(page: Page) {
@@ -396,7 +398,7 @@ async function expectWelcomeView(page: Page) {
   await expectWiderThanTall(
     page.getByTestId("welcome-intro-action-browse-channels"),
   );
-  await expectIntroActionIconStackedAboveTitle(
+  await expectIntroActionLabelBesideIcon(
     page.getByTestId("welcome-intro-action-browse-channels"),
     "Browse channels",
   );
@@ -415,7 +417,7 @@ async function expectWelcomeView(page: Page) {
   await expectWiderThanTall(
     page.getByTestId("welcome-intro-action-create-channel"),
   );
-  await expectIntroActionIconStackedAboveTitle(
+  await expectIntroActionLabelBesideIcon(
     page.getByTestId("welcome-intro-action-create-channel"),
     "Create a channel",
   );
@@ -423,14 +425,14 @@ async function expectWelcomeView(page: Page) {
     page
       .getByTestId("welcome-intro-action-create-channel")
       .getByText("Create a channel", { exact: true }),
-  ).toHaveCSS("white-space", "normal");
+  ).toHaveCSS("white-space", "nowrap");
   await expect(
     page.getByTestId("welcome-intro-action-create-agent"),
   ).toBeVisible();
   await expectWiderThanTall(
     page.getByTestId("welcome-intro-action-create-agent"),
   );
-  await expectIntroActionIconStackedAboveTitle(
+  await expectIntroActionLabelBesideIcon(
     page.getByTestId("welcome-intro-action-create-agent"),
     "Create an agent",
   );

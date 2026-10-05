@@ -503,3 +503,62 @@ pub async fn get_project_local_repo_diff(
     .await
     .map_err(|error| format!("local repo diff task failed: {error}"))?
 }
+
+#[derive(Serialize)]
+pub struct ProjectCheckoutWorkRaw {
+    pub path: String,
+    pub status: String,
+    pub numstat: String,
+    pub log: String,
+}
+
+/// Working tree and recent commits for one local checkout.
+/// Runs only `git status`, `git diff --numstat`, and `git log`. No fetch.
+#[tauri::command]
+pub async fn get_project_checkout_work(
+    repos_dir: Option<String>,
+    project_dtag: String,
+    clone_url: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Option<ProjectCheckoutWorkRaw>, String> {
+    let auth = build_git_auth_config(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(repo_dir) =
+            find_local_repo_dir(repos_dir.as_deref(), &project_dtag, clone_url.as_deref())?
+        else {
+            return Ok(None);
+        };
+        let status = run_git(
+            &[
+                "status",
+                "--porcelain=v1",
+                "--branch",
+                "--untracked-files=all",
+            ],
+            Some(&repo_dir),
+            &auth,
+        )?;
+        let numstat = run_git(&["diff", "--numstat", "HEAD"], Some(&repo_dir), &auth)?;
+        let log = run_git(
+            &[
+                "log",
+                "-n",
+                "8",
+                "--pretty=medium",
+                "--numstat",
+                "--no-color",
+                "HEAD",
+            ],
+            Some(&repo_dir),
+            &auth,
+        )?;
+        Ok(Some(ProjectCheckoutWorkRaw {
+            path: repo_dir.to_string_lossy().into_owned(),
+            status,
+            numstat,
+            log,
+        }))
+    })
+    .await
+    .map_err(|error| format!("checkout work task failed: {error}"))?
+}

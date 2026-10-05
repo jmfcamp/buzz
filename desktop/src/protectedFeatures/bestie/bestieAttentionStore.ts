@@ -1,5 +1,11 @@
 import * as React from "react";
 
+import {
+  bestieIntroCountsTotal,
+  formatBestieListIntroBanner,
+  type BestieIntroCounts,
+} from "./bestieListIntroNotice";
+
 /**
  * Footer-avatar attention for Bestie DM replies.
  * Distinct from wake-nudge (`!` badge): this is a pulsing light ring for new
@@ -19,6 +25,36 @@ let popoverOpen = false;
 let viewingBestieDm = false;
 /** Highest agent message created_at already acknowledged (unix seconds). */
 let seenAgentCreatedAt = 0;
+/**
+ * List rows introduced by agent turns that lit the footer with no chat prose.
+ * Cleared when a real message arrives, the user dismisses, or the popover closes.
+ */
+let listIntroCounts: BestieIntroCounts | null = null;
+/** A real chat message is in this unread set — do not show the list banner. */
+let attentionHasRealMessage = false;
+let listIntroEpoch = 0;
+let listIntroClearTimer: ReturnType<typeof setTimeout> | null = null;
+
+function cancelListIntroClearTimer(): void {
+  listIntroEpoch += 1;
+  if (listIntroClearTimer == null) return;
+  clearTimeout(listIntroClearTimer);
+  listIntroClearTimer = null;
+}
+
+/**
+ * Clear list-intro copy after the popover actually stays closed.
+ * Deferred so React StrictMode's open/close/open bounce does not drop it.
+ */
+function scheduleListIntroClear(): void {
+  cancelListIntroClearTimer();
+  const epoch = listIntroEpoch;
+  listIntroClearTimer = setTimeout(() => {
+    if (epoch !== listIntroEpoch) return;
+    listIntroClearTimer = null;
+    if (!popoverOpen) clearBestieListIntroNotice();
+  }, 0);
+}
 
 function notify() {
   for (const listener of listeners) listener();
@@ -40,7 +76,10 @@ export function setBestiePopoverOpen(open: boolean): void {
   if (popoverOpen === open) return;
   popoverOpen = open;
   if (open) {
+    cancelListIntroClearTimer();
     clearBestieUnreadMessage();
+  } else {
+    scheduleListIntroClear();
   }
   notify();
 }
@@ -91,6 +130,66 @@ export function getBestieSeenAgentCreatedAt(): number {
 }
 
 /**
+ * Record list rows that lit the footer without a real chat message.
+ * No-op while a Bestie surface is open (the button did not light) or after a
+ * real message already claimed this unread set.
+ */
+export function noteBestieListOnlyAttention(counts: BestieIntroCounts): void {
+  if (isBestieSurfaceOpen() || attentionHasRealMessage) return;
+  if (bestieIntroCountsTotal(counts) <= 0) return;
+  if (!listIntroCounts) {
+    listIntroCounts = {
+      job: 0,
+      reminder: 0,
+      scratch: 0,
+      thread: 0,
+      todo: 0,
+    };
+  }
+  listIntroCounts.reminder += counts.reminder;
+  listIntroCounts.todo += counts.todo;
+  listIntroCounts.thread += counts.thread;
+  listIntroCounts.scratch += counts.scratch;
+  listIntroCounts.job += counts.job;
+  notify();
+}
+
+/** A real chat message lit the footer. Drop any list-only banner. */
+export function noteBestieRealMessageAttention(): void {
+  attentionHasRealMessage = true;
+  if (!listIntroCounts) return;
+  listIntroCounts = null;
+  notify();
+}
+
+export function clearBestieListIntroNotice(): void {
+  cancelListIntroClearTimer();
+  attentionHasRealMessage = false;
+  if (!listIntroCounts) return;
+  listIntroCounts = null;
+  notify();
+}
+
+/** Banner sentence for the open Assistant, or null when this is not list-only. */
+export function getBestieListIntroBannerText(): string | null {
+  if (attentionHasRealMessage || !listIntroCounts) return null;
+  return formatBestieListIntroBanner(listIntroCounts);
+}
+
+export function useBestieListIntroBannerText(): string | null {
+  return React.useSyncExternalStore(
+    (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    getBestieListIntroBannerText,
+    () => null,
+  );
+}
+
+/**
  * Ingest agent message timestamps. Sets unread when a newer agent message
  * arrives while Bestie surfaces are closed.
  */
@@ -128,9 +227,12 @@ export function useBestieHasUnreadMessage(): boolean {
 
 /** Test helper. */
 export function __resetBestieAttentionStoreForTests(): void {
+  cancelListIntroClearTimer();
   hasUnreadMessage = false;
   popoverOpen = false;
   viewingBestieDm = false;
   seenAgentCreatedAt = 0;
+  listIntroCounts = null;
+  attentionHasRealMessage = false;
   notify();
 }

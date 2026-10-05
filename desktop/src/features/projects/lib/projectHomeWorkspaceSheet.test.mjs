@@ -19,7 +19,7 @@ test("projectHomeWorkspaceSheetTitle matches overview row labels", () => {
   assert.equal(projectHomeWorkspaceSheetTitle("issues"), "Tasks");
   assert.equal(projectHomeWorkspaceSheetTitle("commits"), "Commits");
   assert.equal(projectHomeWorkspaceSheetTitle("files"), "Files");
-  assert.equal(projectHomeWorkspaceSheetTitle("contributors"), "People");
+  assert.equal(projectHomeWorkspaceSheetTitle("contributors"), "Contributors");
 });
 
 test("projectHomeWorkspaceSheetExpandTab keeps the selected repository menu", () => {
