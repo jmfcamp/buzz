@@ -837,6 +837,33 @@ impl EventQueue {
         has_queued || has_cancelled || has_withheld
     }
 
+    /// True when a scope has work that should run on its own worker now.
+    ///
+    /// Unlike [`has_undispatched_work`](Self::has_undispatched_work), retry-
+    /// throttled batches do not count: spawning a subprocess before the
+    /// backoff elapses would not dispatch them. `defer` skips scopes the
+    /// caller wants left queued (a thread waiting on its busy session owner)
+    /// so a same-thread hold does not grow the pool.
+    pub(crate) fn has_scope_needing_worker(
+        &self,
+        mut defer: impl FnMut(&SessionScope) -> bool,
+    ) -> bool {
+        let now = Instant::now();
+        let queued = self.queues.iter().any(|(scope, q)| {
+            !q.is_empty()
+                && !self.in_flight_scopes.contains(scope)
+                && self.retry_after.get(scope).is_none_or(|&t| t <= now)
+                && !defer(scope)
+        });
+        let cancelled = self.cancelled_batches.iter().any(|(scope, events)| {
+            !events.is_empty() && !self.in_flight_scopes.contains(scope) && !defer(scope)
+        });
+        let withheld = self.withheld_native_steer.iter().any(|(scope, events)| {
+            !events.is_empty() && !self.in_flight_scopes.contains(scope) && !defer(scope)
+        });
+        queued || cancelled || withheld
+    }
+
     /// Number of pending partitions (session scopes) with queued events.
     ///
     /// Under `channel` policy this equals the number of channels with pending
@@ -3175,11 +3202,136 @@ mod tests {
         assert!(!prompt.contains("supersedes"));
     }
 
-    /// Cross-thread steering: original work in thread A (cancelled), steering
-    /// message in thread B (new). Pins Perci's edge — the reply instruction
-    /// targets the *steering* message (the one the agent is responding to, where
-    /// the mentioner is waiting), while the steer framing still says "continue
-    /// your in-progress work." This is intended behavior, not a mismatch.
+    /// Channel-policy merge only: original work in thread A and a second
+    /// mention in thread B share one conversation scope, so steer renders a
+    /// single prompt whose `--reply-to` is thread B. That is why the default
+    /// policy is `thread` — distinct thread scopes must not take this path.
+    /// Pins the reply-target when an operator explicitly selects channel scope.
+    fn reply_in_thread(content: &str, root: &str) -> Event {
+        make_event_with_tags(
+            content,
+            vec![vec!["e".into(), root.into(), "".into(), "reply".into()]],
+        )
+    }
+
+    /// Thread A in flight, mention arrives on thread B in the same channel.
+    /// Default policy must admit B as its own scope: not dropped, not
+    /// steer-merged into A, and A's turn stays in flight.
+    #[test]
+    fn sibling_thread_is_admitted_while_other_thread_is_in_flight() {
+        assert_eq!(
+            crate::scope::SessionPolicy::default(),
+            crate::scope::SessionPolicy::Thread
+        );
+        let channel_id = Uuid::new_v4();
+        let thread_a = "a".repeat(64);
+        let thread_b = "b".repeat(64);
+        let event_a = reply_in_thread("keep going on A", &thread_a);
+        let event_b = reply_in_thread("please answer B", &thread_b);
+        let scope_a = SessionScope::derive(
+            crate::scope::SessionPolicy::default(),
+            channel_id,
+            false,
+            &event_a,
+        );
+        let scope_b = SessionScope::derive(
+            crate::scope::SessionPolicy::default(),
+            channel_id,
+            false,
+            &event_b,
+        );
+        assert_ne!(scope_a, scope_b, "distinct threads must be distinct scopes");
+        assert!(scope_a.is_thread() && scope_b.is_thread());
+
+        let mut queue = EventQueue::new(DedupMode::Queue);
+        assert!(queue.push(QueuedEvent {
+            channel_id,
+            scope: scope_a.clone(),
+            event: event_a,
+            received_at: Instant::now(),
+            prompt_tag: "@mention".into(),
+        }));
+        let batch_a = queue.flush_next().expect("thread A flushes");
+        assert_eq!(batch_a.scope, scope_a);
+        assert!(queue.is_scope_in_flight(&scope_a));
+
+        let accepted = queue.push(QueuedEvent {
+            channel_id,
+            scope: scope_b.clone(),
+            event: event_b,
+            received_at: Instant::now(),
+            prompt_tag: "@mention".into(),
+        });
+        assert!(
+            accepted,
+            "thread B must not be dropped while A is in flight"
+        );
+        assert!(
+            queue.is_scope_in_flight(&scope_a),
+            "thread A's turn must keep running"
+        );
+        assert!(
+            !queue.is_scope_in_flight(&scope_b),
+            "thread B must not be steer-targeted just because A is in flight"
+        );
+        assert!(queue.has_scope_needing_worker(|_| false));
+        let batch_b = queue.flush_next().expect("thread B is its own batch");
+        assert_eq!(batch_b.scope, scope_b);
+        assert!(
+            batch_b.cancelled_events.is_empty() && batch_b.cancel_reason.is_none(),
+            "thread B must not be steer-merged into A's cancelled turn"
+        );
+        assert_eq!(batch_b.events.len(), 1);
+        assert!(batch_b.events[0].event.content.contains("answer B"));
+        assert!(queue.is_scope_in_flight(&scope_a));
+        assert!(queue.is_scope_in_flight(&scope_b));
+
+        let dm_event = make_event("dm hello");
+        let dm_scope = SessionScope::derive(
+            crate::scope::SessionPolicy::default(),
+            channel_id,
+            true,
+            &dm_event,
+        );
+        assert!(
+            matches!(dm_scope, SessionScope::Conversation { .. }),
+            "DMs stay one conversation scope"
+        );
+    }
+
+    /// Channel A in flight, mention arrives on channel B. B stays flushable
+    /// and is not dropped, and flushing B does not cancel A.
+    #[test]
+    fn other_channel_stays_flushable_while_channel_is_in_flight() {
+        let mut queue = EventQueue::new(DedupMode::Queue);
+        let channel_a = Uuid::new_v4();
+        let channel_b = Uuid::new_v4();
+        assert!(queue.push(make_queued(channel_a, "working in A")));
+        let batch_a = queue.flush_next().expect("channel A flushes");
+        assert!(queue.is_scope_in_flight(&batch_a.scope));
+
+        assert!(
+            queue.push(make_queued(channel_b, "please answer B")),
+            "channel B must not be dropped while A is in flight"
+        );
+        assert!(
+            queue.has_flushable_work(),
+            "channel B must be flushable while A is in flight"
+        );
+        assert!(queue.has_scope_needing_worker(|_| false));
+        assert!(queue.is_scope_in_flight(conv(channel_a)));
+
+        let batch_b = queue.flush_next().expect("channel B flushes on its own");
+        assert_eq!(batch_b.channel_id, channel_b);
+        assert!(batch_b.cancelled_events.is_empty());
+        assert!(batch_b.cancel_reason.is_none());
+        assert!(
+            queue.is_scope_in_flight(conv(channel_a)),
+            "channel A's turn must keep running"
+        );
+        assert!(queue.is_scope_in_flight(conv(channel_b)));
+    }
+
     #[test]
     fn test_steer_cross_thread_reply_targets_steering_message() {
         let ch = Uuid::new_v4();

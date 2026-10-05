@@ -2055,6 +2055,14 @@ enum CrashVerdict {
 }
 
 impl SlotCircuit {
+    fn fresh() -> Self {
+        Self {
+            crash_times: Vec::new(),
+            open_until: None,
+            respawn_in_flight: false,
+        }
+    }
+
     /// Record a crash and decide whether to respawn.
     ///
     /// This is the **single canonical path** for all crash → respawn decisions.
@@ -2146,6 +2154,171 @@ fn any_respawn_in_flight(crash_history: &[SlotCircuit]) -> bool {
     crash_history.iter().any(|s| s.respawn_in_flight)
 }
 
+/// Workers started on demand when a distinct session scope is waiting and
+/// every configured worker is busy. `--agents` above this is honored; the
+/// CLI maximum (32) is never exceeded.
+const DYNAMIC_AGENT_CAP: u32 = 6;
+
+/// Maximum ACP subprocesses this process will run.
+///
+/// The pool still *starts* at `configured_agents`. It grows toward this limit
+/// only when every live worker is busy and a different scope has pending work,
+/// so one long turn cannot swallow a mention in another thread or channel.
+fn dynamic_worker_limit(configured_agents: u32) -> usize {
+    configured_agents.clamp(DYNAMIC_AGENT_CAP, 32) as usize
+}
+
+/// Reserve a worker slot for pending work that is not the in-flight scope.
+///
+/// Returns the slot index to spawn into. Grows the pool (and `crash_history`)
+/// when every existing slot is alive and the pool is under
+/// [`dynamic_worker_limit`]. Refills a dead slot instead of growing past it.
+/// Returns `None` when an idle worker or an in-flight spawn already exists,
+/// when no distinct scope is waiting, when a dead slot's circuit is open, or
+/// when the pool is already at the limit.
+fn reserve_worker_slot(
+    pool: &mut AgentPool,
+    crash_history: &mut Vec<SlotCircuit>,
+    distinct_scope_pending: bool,
+    configured_agents: u32,
+) -> Option<usize> {
+    if !distinct_scope_pending || pool.any_idle() {
+        return None;
+    }
+    if any_respawn_in_flight(crash_history) {
+        return None;
+    }
+    if pool.slot_count() != crash_history.len() {
+        tracing::error!(
+            pool_slots = pool.slot_count(),
+            circuits = crash_history.len(),
+            "pool slots and crash history diverged — not reserving a worker"
+        );
+        return None;
+    }
+    for (idx, slot) in crash_history.iter_mut().enumerate() {
+        if !pool.slot_alive(idx) && slot.can_refill() {
+            return Some(idx);
+        }
+    }
+    // Dead slots whose circuits are open: wait for cooldown rather than
+    // growing an unbounded side pool.
+    if (0..pool.slot_count()).any(|idx| !pool.slot_alive(idx)) {
+        return None;
+    }
+    if pool.slot_count() >= dynamic_worker_limit(configured_agents) {
+        return None;
+    }
+    let idx = pool.push_empty_slot();
+    crash_history.push(SlotCircuit::fresh());
+    Some(idx)
+}
+
+/// Spawn into `index` when [`reserve_worker_slot`] said a distinct scope needs
+/// a worker. The new subprocess is one ACP session; it does not cancel the
+/// turn already running on another slot.
+fn maybe_spawn_worker_for_pending_scope(
+    pool: &mut AgentPool,
+    queue: &EventQueue,
+    crash_history: &mut Vec<SlotCircuit>,
+    config: &Config,
+    respawn_tx: &mpsc::Sender<RespawnResult>,
+    respawn_tasks: &mut tokio::task::JoinSet<()>,
+    observer: Option<observer::ObserverHandle>,
+) {
+    // Same-thread work held for its busy owner must not grow a worker: that
+    // would fork the thread's session. A different thread or channel does.
+    let needs_worker = queue.has_scope_needing_worker(|scope| {
+        scope.is_thread() && pool.should_hold_for_busy_owner(scope)
+    });
+    let Some(index) = reserve_worker_slot(pool, crash_history, needs_worker, config.agents) else {
+        return;
+    };
+    let slot = &mut crash_history[index];
+    if slot.respawn_in_flight {
+        return;
+    }
+    slot.respawn_in_flight = true;
+    tracing::info!(
+        agent = index,
+        slots = pool.slot_count(),
+        "starting worker so a distinct session scope is not stuck behind an in-flight turn"
+    );
+    let cmd = config.agent_command.clone();
+    let args = config.agent_args.clone();
+    let env = config.persona_env_vars.clone();
+    let has_codex = config.has_generated_codex_config;
+    let guard = RespawnGuard::new(index, respawn_tx.clone());
+    respawn_tasks.spawn(async move {
+        let result = spawn_and_init(&cmd, &args, &env, has_codex, index, observer).await;
+        guard.send(result);
+    });
+}
+
+/// Install one background spawn result. Returns true when a live agent was
+/// returned to the pool and queued work should be dispatched.
+fn install_respawned_agent(
+    pool: &mut AgentPool,
+    crash_history: &mut [SlotCircuit],
+    config: &Config,
+    rr: RespawnResult,
+) -> bool {
+    if rr.index >= crash_history.len() || rr.index >= pool.slot_count() {
+        tracing::error!(
+            agent = rr.index,
+            "respawn result for unknown slot — dropping"
+        );
+        return false;
+    }
+    crash_history[rr.index].respawn_in_flight = false;
+    match rr.result {
+        Ok((acp, protocol_version, agent_name)) => {
+            let agent = OwnedAgent {
+                index: rr.index,
+                acp,
+                state: SessionState::default(),
+                model_capabilities: None,
+                desired_model: config.model.clone(),
+                model_overridden: false,
+                desired_model_request_id: None,
+                desired_model_pending_ack: false,
+                startup_effort: config.effort_level.clone(),
+                agent_name,
+                goose_system_prompt_supported: None,
+                protocol_version,
+            };
+            pool.return_agent(agent);
+            tracing::info!(agent = rr.index, "respawn complete");
+            true
+        }
+        Err(e) => {
+            crash_history[rr.index].mark_spawn_failed();
+            tracing::warn!(agent = rr.index, "respawn failed: {e} — circuit re-opened");
+            false
+        }
+    }
+}
+
+/// Install a spawned worker and, when it came up, flush scopes that were
+/// waiting on it. Kept out of the `select` match so a failed spawn is not a
+/// nested `if` inside that arm.
+#[allow(clippy::too_many_arguments)]
+fn dispatch_after_respawn(
+    pool: &mut AgentPool,
+    crash_history: &mut [SlotCircuit],
+    config: &Config,
+    rr: RespawnResult,
+    queue: &mut EventQueue,
+    ctx: &Arc<PromptContext>,
+    last_activity: &mut tokio::time::Instant,
+    observer: Option<&observer::ObserverHandle>,
+) -> Vec<(scope::SessionScope, ThreadTags)> {
+    if !install_respawned_agent(pool, crash_history, config, rr) {
+        return Vec::new();
+    }
+    dispatch_pending(pool, queue, ctx, last_activity, observer)
+}
+
 /// Result of a background respawn task.
 struct RespawnResult {
     index: usize,
@@ -2198,9 +2371,10 @@ impl RespawnGuard {
     /// is no await boundary between marking `sent` and actually enqueueing —
     /// cancellation cannot slip between the two.
     fn send(mut self, result: Result<(AcpClient, u32, String)>) {
-        // Invariant: try_send succeeds because the channel capacity equals the
-        // slot count, and respawn_in_flight guarantees at most one outstanding
-        // result per slot. If this ever fails, the channel sizing or the
+        // Invariant: try_send succeeds because the channel capacity is
+        // `dynamic_worker_limit` (the maximum slot count) and
+        // respawn_in_flight guarantees at most one outstanding result per
+        // slot. If this ever fails, the channel sizing or the
         // respawn_in_flight guard has drifted — that's a bug, not a transient.
         match self.tx.try_send(RespawnResult {
             index: self.index,
@@ -2983,8 +3157,10 @@ async fn run_harness(
     let mut last_maintenance = std::time::Instant::now();
 
     // Channel for background respawn tasks to return completed agents.
-    // Bounded to agent count — at most one respawn per slot in flight.
-    let (respawn_tx, mut respawn_rx) = mpsc::channel::<RespawnResult>(config.agents as usize);
+    // Capacity is the dynamic worker limit (configured agents, or 4 when the
+    // pool must grow for a second scope). At most one respawn per slot.
+    let (respawn_tx, mut respawn_rx) =
+        mpsc::channel::<RespawnResult>(dynamic_worker_limit(config.agents));
     // JoinSet for respawn tasks so shutdown can abort them.
     let mut respawn_tasks: tokio::task::JoinSet<()> = tokio::task::JoinSet::new();
     let (wake_tx, mut wake_rx) = mpsc::channel::<(u32, Result<AgentPool, String>)>(1);
@@ -3100,6 +3276,22 @@ async fn run_harness(
             }
         }
 
+        // A second thread or channel must not sit behind the only worker for
+        // the rest of a long turn. Lazy and eager pools share this path: once
+        // the pool is ready, grow (up to the dynamic cap) or refill a dead
+        // slot when undispatched work belongs to a scope that is not in flight.
+        if pool_ready {
+            maybe_spawn_worker_for_pending_scope(
+                &mut pool,
+                &queue,
+                &mut crash_history,
+                config,
+                &respawn_tx,
+                &mut respawn_tasks,
+                observer.clone(),
+            );
+        }
+
         if pool_ready && last_maintenance.elapsed() >= maintenance_interval {
             last_maintenance = std::time::Instant::now();
             queue.compact_expired_state();
@@ -3145,6 +3337,7 @@ async fn run_harness(
                 }
             }
         }
+
 
         // Reap completed respawn handles from the JoinSet. Payloads are
         // delivered out-of-band through `respawn_rx` (selected below), so the
@@ -3458,9 +3651,10 @@ async fn run_harness(
                                     // Scope-exact: an owner's !cancel in thread A
                                     // must cancel thread A's turn, never a sibling
                                     // thread running in the same channel. Under
-                                    // the default channel policy the scope is the
+                                    // channel policy the scope is the
                                     // channel's sole conversation, so this is
-                                    // byte-for-byte the prior behavior.
+                                    // byte-for-byte the prior channel-wide behavior.
+                                    // The default thread policy cancels only that thread.
                                     let scope = scope::SessionScope::derive(
                                         config.session_policy,
                                         buzz_event.channel_id,
@@ -3510,9 +3704,10 @@ async fn run_harness(
                                 if from_owner {
                                     // Scope-exact: rotate only the thread the
                                     // owner's !rotate belongs to. Under the
-                                    // default channel policy the scope is the
+                                    // channel policy the scope is the
                                     // channel's sole conversation, matching the
-                                    // prior channel-wide rotate.
+                                    // prior channel-wide rotate. The default
+                                    // thread policy rotates only that thread.
                                     let scope = scope::SessionScope::derive(
                                         config.session_policy,
                                         buzz_event.channel_id,
@@ -3581,11 +3776,12 @@ async fn run_harness(
                             let ingress = ingress.resolve_edit_routing(&ctx.rest_client).await;
                             // Derive the session scope once, at admission, from
                             // the operator policy, DM status, and NIP-10 thread
-                            // tags. Under the default `channel` policy this is
-                            // always a conversation scope, preserving today's
-                            // channel-keyed routing. Telemetry only for now —
-                            // queue/pool partitioning by scope lands in a
-                            // follow-up (see ticket outline steps 2–4).
+                            // tags. The default `thread` policy isolates each
+                            // channel thread; `channel` keeps one conversation
+                            // scope per channel. DMs are always one conversation.
+                            // This scope is the queue partition and the only
+                            // target of steer/interrupt. Prefer ingress.session_scope
+                            // so kind:40003 edits use derive_routed.
                             let session_scope = ingress.session_scope(
                                 config.session_policy,
                                 is_dm_channel(
@@ -3704,6 +3900,17 @@ async fn run_harness(
                         pool = AgentPool::from_slots(
                             (0..config.agents).map(|_| None).collect(),
                         );
+                        // Drop workers grown for a busy scope. The next wake
+                        // starts `config.agents` again and grows only if a
+                        // distinct scope is actually waiting.
+                        let configured_slots = config.agents as usize;
+                        crash_history.truncate(configured_slots);
+                        while crash_history.len() < configured_slots {
+                            crash_history.push(SlotCircuit::fresh());
+                        }
+                        for slot in &mut crash_history {
+                            slot.respawn_in_flight = false;
+                        }
                         pool_ready = false;
                         pool_lifecycle = PoolLifecycle::listening();
                         last_activity = tokio::time::Instant::now();
@@ -3792,47 +3999,34 @@ async fn run_harness(
             Some(PoolEvent::Recovery(wake)) => {
                 match wake {
                     recovery_wake::RecoveryWake::Respawn(rr) => {
-                        crash_history[rr.index].respawn_in_flight = false;
-                        match rr.result {
-                            Ok((acp, protocol_version, agent_name)) => {
-                                let agent = OwnedAgent {
-                                    index: rr.index,
-                                    acp,
-                                    state: SessionState::default(),
-                                    model_capabilities: None,
-                                    desired_model: config.model.clone(),
-                                    model_overridden: false,
-                                    desired_model_request_id: None,
-                                    desired_model_pending_ack: false,
-                                    startup_effort: config.effort_level.clone(),
-                                    agent_name,
-                                    goose_system_prompt_supported: None,
-                                    protocol_version,
-                                };
-                                pool.return_agent(agent);
-                                tracing::info!(agent = rr.index, "respawn complete");
-                            }
-                            Err(e) => {
-                                crash_history[rr.index].mark_spawn_failed();
-                                tracing::warn!(
-                                    agent = rr.index,
-                                    "respawn failed: {e} — circuit re-opened"
-                                );
-                            }
+                        // Same path as main's former PoolEvent::Respawn arm:
+                        // install then flush scopes waiting on the new worker.
+                        for (scope, thread_tags) in dispatch_after_respawn(
+                            &mut pool,
+                            &mut crash_history,
+                            config,
+                            *rr,
+                            &mut queue,
+                            &ctx,
+                            &mut last_activity,
+                            observer.as_ref(),
+                        ) {
+                            typing_channels.insert(scope, thread_tags);
                         }
                     }
                     // Maintenance runs at the top of the next iteration.
                     recovery_wake::RecoveryWake::Maintenance => continue,
-                    recovery_wake::RecoveryWake::Retry => {}
-                }
-                for (scope, thread_tags) in dispatch_pending(
-                    &mut pool,
-                    &mut queue,
-                    &ctx,
-                    &mut last_activity,
-                    observer.as_ref(),
-                ) {
-                    typing_channels.insert(scope, thread_tags);
+                    recovery_wake::RecoveryWake::Retry => {
+                        for (scope, thread_tags) in dispatch_pending(
+                            &mut pool,
+                            &mut queue,
+                            &ctx,
+                            &mut last_activity,
+                            observer.as_ref(),
+                        ) {
+                            typing_channels.insert(scope, thread_tags);
+                        }
+                    }
                 }
             }
             Some(PoolEvent::Result(result)) => {
@@ -6443,6 +6637,152 @@ mod heartbeat_base_prompt_tests {
         let prompt = "[System: Heartbeat]\nrun feed get";
         let composed = pool::prepend_standing_for_legacy(2, &heartbeat_standing(), prompt);
         assert_eq!(composed, prompt);
+    }
+}
+
+#[cfg(test)]
+mod dynamic_worker_tests {
+    use super::*;
+    use pool::TaskMeta;
+
+    fn mark_busy(pool: &mut AgentPool, slots: usize) {
+        for index in 0..slots {
+            let abort = pool.join_set.spawn(async {});
+            let channel_id = Uuid::new_v4();
+            pool.task_map_mut().insert(
+                abort.id(),
+                TaskMeta {
+                    agent_index: index,
+                    channel_id: Some(channel_id),
+                    scope: Some(scope::SessionScope::Conversation { channel_id }),
+                    turn_id: format!("t{index}"),
+                    recoverable_batch: None,
+                    control_tx: None,
+                    steer_tx: None,
+                    successful_steer_deliveries: HashSet::new(),
+                },
+            );
+        }
+    }
+
+    fn busy_pool(slots: usize) -> (AgentPool, Vec<SlotCircuit>) {
+        let mut pool = AgentPool::from_slots((0..slots).map(|_| None).collect());
+        mark_busy(&mut pool, slots);
+        let history = (0..slots).map(|_| SlotCircuit::fresh()).collect();
+        (pool, history)
+    }
+
+    #[test]
+    fn dynamic_worker_limit_honors_configured_above_cap() {
+        assert_eq!(dynamic_worker_limit(1), DYNAMIC_AGENT_CAP as usize);
+        assert_eq!(dynamic_worker_limit(4), DYNAMIC_AGENT_CAP as usize);
+        assert_eq!(dynamic_worker_limit(6), 6);
+        assert_eq!(dynamic_worker_limit(8), 8);
+        assert_eq!(dynamic_worker_limit(32), 32);
+    }
+
+    #[tokio::test]
+    async fn distinct_scope_reserves_a_worker_while_the_pool_is_busy() {
+        let (mut pool, mut history) = busy_pool(1);
+        assert!(!pool.any_idle());
+        let reserved = reserve_worker_slot(&mut pool, &mut history, true, 1);
+        assert_eq!(reserved, Some(1), "a second scope must get its own worker");
+        assert_eq!(pool.slot_count(), 2);
+        assert_eq!(history.len(), 2);
+        assert!(!history[1].respawn_in_flight);
+    }
+
+    #[tokio::test]
+    async fn same_scope_or_cap_or_inflight_spawn_does_not_reserve() {
+        let (mut pool, mut history) = busy_pool(1);
+        assert_eq!(
+            reserve_worker_slot(&mut pool, &mut history, false, 1),
+            None,
+            "work for the in-flight scope must not grow the pool"
+        );
+        assert_eq!(pool.slot_count(), 1);
+
+        history[0].respawn_in_flight = true;
+        assert_eq!(reserve_worker_slot(&mut pool, &mut history, true, 1), None);
+        history[0].respawn_in_flight = false;
+
+        let (mut full, mut full_history) = busy_pool(DYNAMIC_AGENT_CAP as usize);
+        assert_eq!(
+            reserve_worker_slot(&mut full, &mut full_history, true, 1),
+            None,
+            "growth stops at the dynamic cap"
+        );
+        assert_eq!(full.slot_count(), DYNAMIC_AGENT_CAP as usize);
+    }
+
+    #[tokio::test]
+    async fn dead_slot_is_refilled_instead_of_growing() {
+        let mut pool = AgentPool::from_slots(vec![None]);
+        let mut history = vec![SlotCircuit::fresh()];
+        assert_eq!(
+            reserve_worker_slot(&mut pool, &mut history, true, 1),
+            Some(0)
+        );
+        assert_eq!(pool.slot_count(), 1, "refill must not append a slot");
+
+        history[0].open_until = Some(std::time::Instant::now() + Duration::from_secs(60));
+        assert_eq!(
+            reserve_worker_slot(&mut pool, &mut history, true, 1),
+            None,
+            "an open circuit must not grow a side slot"
+        );
+        assert_eq!(pool.slot_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn queued_other_channel_needs_a_worker_while_first_channel_is_in_flight() {
+        let (mut pool, mut history) = busy_pool(1);
+        let mut queue = EventQueue::new(DedupMode::Queue);
+        let channel_a = Uuid::new_v4();
+        let channel_b = Uuid::new_v4();
+        let event = |content: &str| {
+            nostr::EventBuilder::new(nostr::Kind::Custom(9), content)
+                .sign_with_keys(&nostr::Keys::generate())
+                .unwrap()
+        };
+        assert!(queue.push(QueuedEvent {
+            channel_id: channel_a,
+            scope: scope::SessionScope::Conversation {
+                channel_id: channel_a
+            },
+            event: event("A"),
+            received_at: std::time::Instant::now(),
+            prompt_tag: "@mention".into(),
+        }));
+        let flushed = queue.flush_next().unwrap();
+        assert!(queue.is_scope_in_flight(&flushed.scope));
+        assert!(queue.push(QueuedEvent {
+            channel_id: channel_b,
+            scope: scope::SessionScope::Conversation {
+                channel_id: channel_b
+            },
+            event: event("B"),
+            received_at: std::time::Instant::now(),
+            prompt_tag: "@mention".into(),
+        }));
+        assert!(queue.has_flushable_work());
+        assert!(
+            queue.is_scope_in_flight(&scope::SessionScope::Conversation {
+                channel_id: channel_a
+            })
+        );
+        let needs = queue.has_scope_needing_worker(|_| false);
+        assert!(needs);
+        assert_eq!(
+            reserve_worker_slot(&mut pool, &mut history, needs, 1),
+            Some(1)
+        );
+        assert!(
+            queue.is_scope_in_flight(&scope::SessionScope::Conversation {
+                channel_id: channel_a
+            }),
+            "reserving a worker must not cancel channel A"
+        );
     }
 }
 
