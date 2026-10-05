@@ -27,6 +27,12 @@ export function hulaDirectoryPath(input: string): string | null {
     if (segment === "..") return null;
     segments.push(segment);
   }
+  // Absolute Mac/Linux paths like /Users/jm/Documents/Hula/products/hulabill
+  // become Users/jm/Documents/Hula/... after the leading-slash strip — cut at Hula.
+  const hulaIndex = segments.indexOf("Hula");
+  if (hulaIndex > 0) {
+    segments.splice(0, hulaIndex);
+  }
   if (segments[0] !== "Hula" || segments.length < 2) return null;
   return segments.join("/");
 }

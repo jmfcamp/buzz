@@ -1,7 +1,6 @@
 import {
   ChevronDown,
   CircleDot,
-  FileCode2,
   FolderGit2,
   GitCommitHorizontal,
   Hash,
@@ -17,13 +16,10 @@ import {
 } from "@/features/projects/lib/repositoryListRoles";
 import { presentContextCount } from "@/features/projects/lib/projectHomeSummary";
 import type { ProjectHomeWorkspaceSheetTab } from "@/features/projects/lib/projectHomeWorkspaceSheet";
-import { resolveProjectDefaultBranch } from "@/features/projects/lib/projectBranches";
 import { useHulaRepositorySnapshots } from "@/features/projects/useHulaRepositoryGit";
 import { listProjectBoundChannels } from "@/features/projects/lib/projectRelatedChannels";
 import {
   useProjectActivitySummariesQuery,
-  useProjectRepoSnapshotQuery,
-  useRepoStateQuery,
   type Project,
 } from "@/features/projects/hooks";
 import { ProjectChannelIcon } from "@/features/projects/ui/ProjectChannelIcon";
@@ -257,20 +253,6 @@ export function ProjectHomeContextPanel({
     project.repositories,
     hulaGit,
   );
-  const repoStateQuery = useRepoStateQuery(firstRepository, !hulaGit);
-  const defaultBranch = firstRepository
-    ? resolveProjectDefaultBranch(
-        firstRepository.defaultBranch,
-        repoStateQuery.data,
-      )
-    : null;
-  const snapshotQuery = useProjectRepoSnapshotQuery(
-    firstRepository,
-    defaultBranch,
-    null,
-    null,
-    Boolean(firstRepository) && !hulaGit,
-  );
   const hulaCommitRows = repositoryId
     ? hulaSnapshots.filter((row) => row.repository.id === repositoryId)
     : hulaSnapshots;
@@ -278,9 +260,6 @@ export function ProjectHomeContextPanel({
     (sum, row) => sum + (row.snapshot?.commits.length ?? 0),
     0,
   );
-  const hulaFileCount = hulaSnapshots.find(
-    (row) => row.repository.id === firstRepository?.id,
-  )?.snapshot?.files.length;
   const channelsById = new Map(
     channels.map((candidate) => [candidate.id, candidate]),
   );
@@ -372,13 +351,26 @@ export function ProjectHomeContextPanel({
       data-testid="project-home-context-panel"
     >
       {checkoutWork?.rail ? (
-        <CheckoutWorkRail
-          error={checkoutWork.rail.error}
-          isLoading={checkoutWork.rail.isLoading}
-          missingCheckout={checkoutWork.rail.missingCheckout}
-          onOpenCommit={checkoutWork.onOpenCommit}
-          work={checkoutWork.rail.work}
-        />
+        <div className="shrink-0" data-testid="project-home-checkout-block">
+          <CheckoutWorkRail
+            catalog={checkoutWork.rail.catalog}
+            detail={checkoutWork.rail.detail}
+            error={checkoutWork.rail.error}
+            isLoading={checkoutWork.rail.isLoading}
+            missingCheckout={checkoutWork.rail.missingCheckout}
+            onOpenCommit={checkoutWork.onOpenCommit}
+            onOpenFiles={checkoutWork.onOpenFiles}
+            onSelect={checkoutWork.rail.setSelectedId}
+            onViewAllCommits={
+              firstRepository || onAddRepository
+                ? () => openWorkspace("commits")
+                : undefined
+            }
+            pullRequests={checkoutWork.rail.pullRequests}
+            selectedId={checkoutWork.rail.selectedId}
+            selection={checkoutWork.rail.selection}
+          />
+        </div>
       ) : null}
       <ContextSection testId="project-home-context-workspace">
         <ContextNavButton
@@ -406,19 +398,6 @@ export function ProjectHomeContextPanel({
           Commits
         </ContextNavButton>
         <ContextNavButton
-          count={presentContextCount(
-            hulaGit ? hulaFileCount : snapshotQuery.data?.files.length,
-          )}
-          disabled={!firstRepository && !onAddRepository}
-          icon={<FileCode2 />}
-          onClick={() => openWorkspace("files")}
-          pressed={activeWorkspaceTab === "files"}
-          testId="project-home-context-files"
-          title={addRepositoryTitle}
-        >
-          Files
-        </ContextNavButton>
-        <ContextNavButton
           count={presentContextCount(peopleCount)}
           disabled={!firstRepository}
           icon={<Users />}
@@ -427,10 +406,10 @@ export function ProjectHomeContextPanel({
             onOpenWorkspace(firstRepository.id, "contributors")
           }
           pressed={activeWorkspaceTab === "contributors"}
-          testId="project-home-context-people"
+          testId="project-home-context-contributors"
           title={addRepositoryTitle}
         >
-          People
+          Contributors
         </ContextNavButton>
       </ContextSection>
       <ContextSection

@@ -88,6 +88,8 @@ export type WorktreeRecord = {
   /** Short branch name. Null when detached or missing. */
   branch: string | null;
   detached: boolean;
+  /** True when `git worktree list` marks the worktree prunable. */
+  prunable: boolean;
 };
 
 /** Parse `git worktree list --porcelain`. */
@@ -110,6 +112,7 @@ export function parseWorktreePorcelain(text: string): WorktreeRecord[] {
         head: null,
         branch: null,
         detached: false,
+        prunable: false,
       };
       continue;
     }
@@ -123,6 +126,8 @@ export function parseWorktreePorcelain(text: string): WorktreeRecord[] {
         : ref;
     } else if (line === "detached") {
       current.detached = true;
+    } else if (line.startsWith("prunable")) {
+      current.prunable = true;
     }
   }
   flush();

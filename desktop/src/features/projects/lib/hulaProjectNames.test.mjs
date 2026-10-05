@@ -109,3 +109,14 @@ test("a repository is named for its workspace directory, not the project path", 
   );
   assert.equal(repositoryNameFromHulaPath("not-hula"), null);
 });
+
+test("absolute Mac paths under Documents/Hula normalize to Hula/...", () => {
+  assert.equal(
+    hulaDirectoryPath("/Users/jm/Documents/Hula/products/hulabill"),
+    "Hula/products/hulabill",
+  );
+  assert.equal(
+    hulaDirectoryPath("/Users/jm/Documents/Hula/products/hulabill/research-test.md"),
+    "Hula/products/hulabill/research-test.md",
+  );
+});

@@ -39,6 +39,7 @@ import { PROJECT_COLUMN_HEADER_BACKDROP_CLASS } from "./projectPanelStyles";
 import { ProjectContextRail } from "./ProjectContextRail";
 import { ProjectDetailChrome } from "./ProjectDetailChrome";
 import { ProjectHomeColumn } from "./ProjectHomeColumn";
+import type { CheckoutFilesBrowseTarget } from "@/features/projects/lib/checkoutWork";
 import { CheckoutWorkProvider } from "./checkoutWorkContext";
 import { ProjectHomeContextPanel } from "./ProjectHomeContextPanel";
 import {
@@ -141,6 +142,9 @@ export function ProjectChannelHome({
     React.useState<ProjectHomeWorkspaceCreateAction | null>(null);
   const [workspaceDetail, setWorkspaceDetail] =
     React.useState<ProjectHomeWorkspaceDetail | null>(null);
+  /** Files sheet opened from checkout rail — browse that selection's tree. */
+  const [checkoutFilesBrowse, setCheckoutFilesBrowse] =
+    React.useState<CheckoutFilesBrowseTarget | null>(null);
   const summaryWidth = useThreadPanelWidth(undefined, {
     minWidthPx: SIDEBAR_WIDTH_MIN,
     sessionKey: PROJECT_HOME_SUMMARY_WIDTH_KEY,
@@ -176,6 +180,7 @@ export function ProjectChannelHome({
     if (next !== "chat") {
       setWorkspaceCreateAction(null);
       setWorkspaceDetail(null);
+      setCheckoutFilesBrowse(null);
       setWorkspaceSheetTab(null);
     }
     setSection(next);
@@ -202,6 +207,9 @@ export function ProjectChannelHome({
       }
       setWorkspaceCreateAction(null);
       setWorkspaceDetail(null);
+      if (tab !== "files") {
+        setCheckoutFilesBrowse(null);
+      }
       setWorkspaceSheetTab((current) => (current === tab ? null : tab));
     },
     [],
@@ -209,8 +217,21 @@ export function ProjectChannelHome({
   const closeWorkspaceSheet = React.useCallback(() => {
     setWorkspaceCreateAction(null);
     setWorkspaceDetail(null);
+    setCheckoutFilesBrowse(null);
     setWorkspaceSheetTab(null);
   }, []);
+  const handleOpenCheckoutFiles = React.useCallback(
+    (target: CheckoutFilesBrowseTarget) => {
+      setCheckoutFilesBrowse(target);
+      if (workspaceRepository?.id) {
+        setWorkspaceRepositoryId(workspaceRepository.id);
+      }
+      setWorkspaceCreateAction(null);
+      setWorkspaceDetail(null);
+      setWorkspaceSheetTab("files");
+    },
+    [workspaceRepository?.id],
+  );
   const handleOpenWorkspace = React.useCallback(
     (repositoryId: string, tab?: EntityLinkTab) => {
       if (!isProjectHomeWorkspaceSheetTab(tab)) {
@@ -280,6 +301,7 @@ export function ProjectChannelHome({
   const handleFilesAdded = React.useCallback((repositoryId: string) => {
     setWorkspaceCreateAction(null);
     setWorkspaceDetail(null);
+    setCheckoutFilesBrowse(null);
     setWorkspaceRepositoryId(repositoryId);
     setWorkspaceSheetTab("files");
   }, []);
@@ -327,7 +349,10 @@ export function ProjectChannelHome({
   const workspaceSheet =
     workspaceSheetOpen && workspaceSheetTab && workspaceRepository ? (
       <ProjectHomeWorkspaceSheet
-        key={`${workspaceSheetTab}:${workspaceRepository.id}`}
+        key={`${workspaceSheetTab}:${workspaceRepository.id}:${checkoutFilesBrowse?.root ?? ""}:${checkoutFilesBrowse?.gitRef ?? ""}`}
+        filesContext={checkoutFilesBrowse?.context}
+        filesGitRef={checkoutFilesBrowse?.gitRef}
+        filesRoot={checkoutFilesBrowse?.root}
         identityPubkey={identityQuery.data?.pubkey}
         onCreateActionChange={setWorkspaceCreateAction}
         onDetailChange={setWorkspaceDetail}
@@ -345,6 +370,7 @@ export function ProjectChannelHome({
     <CheckoutWorkProvider
       channelId={chatChannelId}
       onOpenCommit={handleOpenCommit}
+      onOpenFiles={handleOpenCheckoutFiles}
       project={project}
       repository={scopedRepository}
     >

@@ -6,8 +6,23 @@ export const CHECKOUT_LOG_LIMIT = 8;
 /** Cap so a huge dirty tree cannot paint thousands of rows. */
 export const CHECKOUT_FILE_CAP = 200;
 
-/** Read-only. Includes the branch line and untracked paths. Does not stage. */
+/**
+ * Read-only. Branch line, untracked paths, and ignored files.
+ * `--ignored` (traditional) is allowlisted on the OpenClaw gateway; the
+ * `=matching` form is not. Directory rows (`!! build/`) are dropped in
+ * parseIgnoredPaths so bulk folders do not inflate the dirty count.
+ */
 export const CHECKOUT_STATUS_ARGV = [
+  "git",
+  "status",
+  "--porcelain=v1",
+  "--branch",
+  "--untracked-files=all",
+  "--ignored",
+] as const;
+
+/** Same as CHECKOUT_STATUS_ARGV without ignored (gateway fallback). */
+export const CHECKOUT_STATUS_ARGV_NO_IGNORED = [
   "git",
   "status",
   "--porcelain=v1",
@@ -21,6 +36,22 @@ export const CHECKOUT_NUMSTAT_ARGV = [
   "diff",
   "--numstat",
   "HEAD",
+] as const;
+
+/** Read-only worktree inventory. Does not add or remove worktrees. */
+export const CHECKOUT_WORKTREE_LIST_ARGV = [
+  "git",
+  "worktree",
+  "list",
+  "--porcelain",
+] as const;
+
+/** Local branch names only (`git branch --list`). Remotes are excluded. */
+export const CHECKOUT_BRANCH_LIST_ARGV = [
+  "git",
+  "branch",
+  "--list",
+  "--format=%(refname:short)",
 ] as const;
 
 /**
@@ -83,10 +114,11 @@ export function commitWithNumstat(
 
 export type CheckoutFileStat = {
   path: string;
-  /** Null when git has no line count (binary or untracked). */
+  /** Null when git has no line count (binary, untracked, or ignored). */
   additions: number | null;
   deletions: number | null;
   untracked?: boolean;
+  ignored?: boolean;
 };
 
 export type CheckoutCommitStat = {
@@ -103,6 +135,8 @@ export type CheckoutWork = {
   root: string;
   branch: string | null;
   head: string | null;
+  /** Commits ahead of the upstream tracking branch, when status reports it. */
+  aheadCount: number | null;
   additions: number;
   deletions: number;
   files: CheckoutFileStat[];
@@ -179,10 +213,10 @@ export function sumCheckoutFiles(files: readonly CheckoutFileStat[]): {
 
 export function checkoutWorkFingerprint(work: CheckoutWork): string {
   const files = work.files
-    .map(
-      (file) =>
-        `${file.path}\t${file.additions ?? ""}\t${file.deletions ?? ""}`,
-    )
+    .map((file) => {
+      const mark = file.ignored ? "i" : file.untracked ? "u" : "";
+      return `${file.path}\t${file.additions ?? ""}\t${file.deletions ?? ""}\t${mark}`;
+    })
     .join("\n");
   return `${work.head ?? ""}\n${files}`;
 }
@@ -324,6 +358,15 @@ export function branchFromCheckoutStatus(stdout: string): string | null {
   return name || null;
 }
 
+/** Ahead count from `## branch...upstream [ahead N]` when present. */
+export function aheadCountFromCheckoutStatus(stdout: string): number | null {
+  const line = stdout.split(/\r?\n/).find((row) => row.startsWith("## "));
+  if (!line) return null;
+  const match = /\bahead (\d+)\b/.exec(line);
+  if (!match) return null;
+  return Number(match[1]);
+}
+
 /** Untracked paths from porcelain. Directories stay as git printed them. */
 export function parseUntrackedPaths(stdout: string): string[] {
   const paths: string[] = [];
@@ -333,6 +376,28 @@ export function parseUntrackedPaths(stdout: string): string[] {
     if (!line.startsWith("?? ")) continue;
     const path = safeRepoPath(line.slice(3));
     if (!path || seen.has(path)) continue;
+    seen.add(path);
+    paths.push(path);
+  }
+  return paths;
+}
+
+/**
+ * Ignored *file* paths from porcelain (`!! path`).
+ * Directory entries (`!! build/`) are skipped so bulk ignore folders do not
+ * flood the rail or mark every checkout dirty.
+ */
+export function parseIgnoredPaths(stdout: string): string[] {
+  const paths: string[] = [];
+  const seen = new Set<string>();
+  for (const line of stdout.split(/\r?\n/)) {
+    if (paths.length >= CHECKOUT_FILE_CAP) break;
+    if (!line.startsWith("!! ")) continue;
+    const raw = line.slice(3).trim();
+    // Ignored directories stay out of the file list.
+    if (raw.endsWith("/")) continue;
+    const path = safeRepoPath(raw);
+    if (!path || path.endsWith("/") || seen.has(path)) continue;
     seen.add(path);
     paths.push(path);
   }
@@ -420,15 +485,693 @@ export function parseCheckoutWork(
       untracked: true,
     });
   }
+  for (const path of parseIgnoredPaths(status)) {
+    if (files.length >= CHECKOUT_FILE_CAP) break;
+    if (seen.has(path)) continue;
+    seen.add(path);
+    files.push({
+      path,
+      additions: null,
+      deletions: null,
+      ignored: true,
+    });
+  }
   const commits = parseGitMediumNumstat(log);
   const totals = sumCheckoutFiles(files);
   return {
     root,
     branch: branchFromCheckoutStatus(status),
     head: commits[0]?.hash ?? null,
+    aheadCount: aheadCountFromCheckoutStatus(status),
     additions: totals.additions,
     deletions: totals.deletions,
     files,
     commits,
   };
+}
+
+/** Directory name used as a worktree row label. */
+
+/**
+ * True when the final path segment looks like a file (e.g. research-test.md).
+ * Worktree paths must be directories — never invent a worktree from a filename.
+ */
+export function isFileLikePathSegment(path: string): boolean {
+  const normalized = path.replaceAll("\\", "/").replace(/\/+$/, "");
+  const last = normalized.split("/").filter(Boolean).pop() ?? "";
+  return last.includes(".") && /\.[A-Za-z0-9]+$/.test(last);
+}
+
+export function checkoutWorktreeLabel(path: string): string {
+  const normalized = path.replaceAll("\\", "/").replace(/\/+$/, "");
+  const parts = normalized.split("/").filter(Boolean);
+  return parts[parts.length - 1] ?? normalized;
+}
+
+function safeGitName(name: string): string | null {
+  const value = name.trim();
+  if (
+    !value ||
+    value.startsWith("-") ||
+    value.includes("..") ||
+    value.includes(" ") ||
+    value.includes("\0")
+  ) {
+    return null;
+  }
+  return value;
+}
+
+/**
+ * Commits on HEAD that are not reachable from the default branch.
+ * `git rev-list --count <default>..HEAD` with a validated default name.
+ */
+export function checkoutUniqueCommitCountArgv(
+  defaultBranch: string,
+): string[] | null {
+  const name = safeGitName(defaultBranch);
+  if (!name) return null;
+  return ["git", "rev-list", "--count", `${name}..HEAD`];
+}
+
+/** Commits on one named branch that are not on the default branch. */
+export function checkoutBranchUniqueCountArgv(
+  defaultBranch: string,
+  branch: string,
+): string[] | null {
+  const base = safeGitName(defaultBranch);
+  const head = safeGitName(branch);
+  if (!base || !head) return null;
+  return ["git", "rev-list", "--count", `${base}..${head}`];
+}
+
+/**
+ * Recent commits unique to one ref vs the default branch.
+ * Same pretty format as the checkout log; range is `<default>..<ref>`.
+ */
+export function checkoutUniqueLogArgv(
+  defaultBranch: string,
+  ref: string,
+  limit = CHECKOUT_LOG_LIMIT,
+): string[] | null {
+  const base = safeGitName(defaultBranch);
+  const head = safeGitName(ref);
+  if (!base || !head) return null;
+  const count = Number.isInteger(limit) && limit > 0 ? String(limit) : "8";
+  return [
+    "git",
+    "log",
+    "-n",
+    count,
+    "--pretty=medium",
+    "--no-color",
+    `${base}..${head}`,
+  ];
+}
+
+/** How many commits the default-branch row lists. */
+export const CHECKOUT_DEFAULT_HISTORY_LIMIT = 30;
+
+/**
+ * Recent history of one ref (no range): `git log -n <limit> <ref>`.
+ * Same pretty format as {@link checkoutUniqueLogArgv}.
+ */
+export function checkoutRefLogArgv(
+  ref: string,
+  limit = CHECKOUT_DEFAULT_HISTORY_LIMIT,
+): string[] | null {
+  const name = safeGitName(ref);
+  if (!name) return null;
+  const count =
+    Number.isInteger(limit) && limit > 0
+      ? String(limit)
+      : String(CHECKOUT_DEFAULT_HISTORY_LIMIT);
+  return ["git", "log", "-n", count, "--pretty=medium", "--no-color", name];
+}
+
+/** `gh pr list` for one branch head. Branch must already be a safe ref name. */
+export function checkoutOpenPrListArgv(branch: string): string[] | null {
+  const name = safeGitName(branch);
+  if (!name) return null;
+  return [
+    "gh",
+    "pr",
+    "list",
+    "--head",
+    name,
+    "--state",
+    "open",
+    "--json",
+    "number",
+    "--limit",
+    "1",
+  ];
+}
+
+export function parseRevListCount(stdout: string): number {
+  const line = stdout.trim().split(/\r?\n/)[0]?.trim() ?? "";
+  if (!/^\d+$/.test(line)) return 0;
+  return Number(line);
+}
+
+/** First open PR number from `gh pr list --json number`. */
+export function parseOpenPrNumber(stdout: string): number | null {
+  const trimmed = stdout.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (!Array.isArray(parsed) || parsed.length === 0) return null;
+    const first = parsed[0];
+    if (
+      first &&
+      typeof first === "object" &&
+      "number" in first &&
+      typeof (first as { number: unknown }).number === "number"
+    ) {
+      return (first as { number: number }).number;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+export type CheckoutPullRequest = {
+  number: number;
+  title: string;
+  state: "open" | "draft" | "merged" | "closed";
+  url: string;
+  headRefName: string;
+  baseRefName: string;
+};
+
+function mapPullRequestState(
+  state: string,
+  isDraft: boolean,
+): CheckoutPullRequest["state"] | null {
+  const normalized = state.trim().toUpperCase();
+  if (normalized === "MERGED") return "merged";
+  if (normalized === "CLOSED") return "closed";
+  if (normalized === "OPEN") return isDraft ? "draft" : "open";
+  return null;
+}
+
+/** Strip an optional `owner:` prefix from a head ref (`fork:branch` → `branch`). */
+function stripOwnerPrefix(ref: string): string {
+  const trimmed = ref.trim();
+  const colon = trimmed.indexOf(":");
+  if (colon <= 0) return trimmed;
+  return trimmed.slice(colon + 1);
+}
+
+/** Parse `gh pr list --json ...` stdout into checkout PR records. */
+export function parsePullRequests(json: string): CheckoutPullRequest[] {
+  const trimmed = json.trim();
+  if (!trimmed) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  const out: CheckoutPullRequest[] = [];
+  for (const entry of parsed) {
+    if (!entry || typeof entry !== "object") continue;
+    const row = entry as Record<string, unknown>;
+    const number = row.number;
+    const title = row.title;
+    const stateRaw = row.state;
+    const url = row.url;
+    const headRefName = row.headRefName;
+    const baseRefName = row.baseRefName;
+    const isDraft = row.isDraft === true;
+    if (typeof number !== "number" || !Number.isFinite(number)) continue;
+    if (typeof title !== "string") continue;
+    if (typeof stateRaw !== "string") continue;
+    if (typeof url !== "string") continue;
+    if (typeof headRefName !== "string") continue;
+    if (typeof baseRefName !== "string") continue;
+    const state = mapPullRequestState(stateRaw, isDraft);
+    if (!state) continue;
+    out.push({
+      number,
+      title,
+      state,
+      url,
+      headRefName,
+      baseRefName,
+    });
+  }
+  return out;
+}
+
+/** PRs whose head matches `branch` exactly, or after stripping `owner:`. */
+export function pullRequestsForBranch(
+  prs: readonly CheckoutPullRequest[],
+  branch: string,
+): CheckoutPullRequest[] {
+  const wanted = branch.trim();
+  if (!wanted) return [];
+  const wantedKey = stripOwnerPrefix(wanted);
+  return prs.filter((pr) => {
+    const head = pr.headRefName.trim();
+    if (!head) return false;
+    if (head === wanted) return true;
+    return stripOwnerPrefix(head) === wantedKey;
+  });
+}
+
+/** PRs whose base matches `base` exactly, or after stripping `owner:`. */
+export function pullRequestsForBase(
+  prs: readonly CheckoutPullRequest[],
+  base: string,
+): CheckoutPullRequest[] {
+  const wanted = base.trim();
+  if (!wanted) return [];
+  const wantedKey = stripOwnerPrefix(wanted);
+  return prs.filter((pr) => {
+    const baseRef = pr.baseRefName.trim();
+    if (!baseRef) return false;
+    if (baseRef === wanted) return true;
+    return stripOwnerPrefix(baseRef) === wantedKey;
+  });
+}
+
+/**
+ * True when the branch has at least one merged PR and no open/draft PR.
+ * Closed-only branches stay false.
+ */
+export function isBranchMerged(
+  prs: readonly CheckoutPullRequest[],
+  branch: string,
+): boolean {
+  const matched = pullRequestsForBranch(prs, branch);
+  if (matched.length === 0) return false;
+  const hasMerged = matched.some((pr) => pr.state === "merged");
+  const hasActive = matched.some(
+    (pr) => pr.state === "open" || pr.state === "draft",
+  );
+  return hasMerged && !hasActive;
+}
+
+/** Local branch names from `git branch --list --format=%(refname:short)`. */
+export function parseLocalBranchList(stdout: string): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const line of stdout.split(/\r?\n/)) {
+    const name = line.trim();
+    if (!name || seen.has(name) || !safeGitName(name)) continue;
+    seen.add(name);
+    names.push(name);
+  }
+  return names;
+}
+
+export const CHECKOUT_RAIL_SECTIONS = [
+  { id: "branches", label: "Branches" },
+  { id: "worktrees", label: "Worktrees" },
+  { id: "stale-branches", label: "Stale branches" },
+  { id: "stale-worktrees", label: "Stale worktrees" },
+] as const;
+
+export type CheckoutRailSectionId =
+  (typeof CHECKOUT_RAIL_SECTIONS)[number]["id"];
+
+export type CheckoutSelectionKind = "branch" | "worktree" | "checkout";
+
+export type CheckoutRailSelection = {
+  id: string;
+  kind: CheckoutSelectionKind;
+  label: string;
+  section: CheckoutRailSectionId;
+  stale: boolean;
+  /** Working-tree path when this selection is checked out somewhere. */
+  checkoutPath: string | null;
+  branch: string | null;
+  uniqueCommitCount: number;
+  dirtyFileCount: number;
+};
+
+export type CheckoutRailCatalog = {
+  primaryPath: string;
+  primaryDisplayPath: string;
+  /** Branch (or detached label) checked out in the primary path. */
+  currentName: string;
+  defaultBranch: string;
+  selections: CheckoutRailSelection[];
+};
+
+export type CheckoutSelectionDetail = {
+  files: CheckoutFileStat[];
+  /** True when a branch is selected but not checked out anywhere. */
+  noWorkingTree: boolean;
+  commits: CheckoutCommitStat[];
+  work: CheckoutWork | null;
+};
+
+export function checkoutSelectionId(
+  kind: CheckoutSelectionKind,
+  key: string,
+): string {
+  return `${kind}:${key}`;
+}
+
+export function isCheckoutSelectionStale(input: {
+  uniqueCommitCount: number;
+  dirtyFileCount: number;
+  prunable?: boolean;
+  branchGone?: boolean;
+}): boolean {
+  if (input.prunable || input.branchGone) return true;
+  return input.uniqueCommitCount === 0 && input.dirtyFileCount === 0;
+}
+
+function selectionOpenRank(selection: CheckoutRailSelection): number {
+  if (selection.stale) return 3;
+  if (selection.dirtyFileCount > 0) return 0;
+  if (selection.uniqueCommitCount > 0) return 1;
+  return 2;
+}
+
+/**
+ * Default dropdown selection.
+ * Prefer open work (dirty files or commits past the default branch) over
+ * stale entries. Prefer the primary's current branch when it has open work.
+ */
+export function pickDefaultCheckoutSelection(
+  catalog: CheckoutRailCatalog,
+): string | null {
+  const options = catalog.selections;
+  if (options.length === 0) return null;
+  const open = options.filter((option) => selectionOpenRank(option) <= 1);
+  const pool = open.length > 0 ? open : options;
+  const primaryCheckoutId = checkoutSelectionId(
+    "checkout",
+    catalog.primaryPath,
+  );
+  const primaryOpen =
+    open.find((option) => option.id === primaryCheckoutId) ??
+    open.find(
+      (option) =>
+        option.kind === "checkout" ||
+        (option.kind === "worktree" && option.branch === catalog.currentName),
+    );
+  if (primaryOpen) return primaryOpen.id;
+  let best = pool[0];
+  if (!best) return null;
+  for (const option of pool.slice(1)) {
+    const bestRank = selectionOpenRank(best);
+    const optionRank = selectionOpenRank(option);
+    if (optionRank < bestRank) {
+      best = option;
+      continue;
+    }
+    if (optionRank > bestRank) continue;
+    if (option.uniqueCommitCount > best.uniqueCommitCount) {
+      best = option;
+    }
+  }
+  return best.id;
+}
+
+/**
+ * Chips for the selection header under the Branches/Worktrees dropdown.
+ * Primary → "Checkout"; linked worktrees → "worktree".
+ * Default branch named main → chip "main" (not generic "branch"); other
+ * default-branch names (e.g. master) use that name as the chip.
+ * Other branches → "branch".
+ * "Current" on the primary checkout row, or a branch matching primary HEAD.
+ * Linked worktrees never get Current.
+ */
+export function checkoutSelectionChips(
+  selection: CheckoutRailSelection,
+  catalog: Pick<
+    CheckoutRailCatalog,
+    "primaryPath" | "currentName" | "defaultBranch"
+  >,
+  options?: { merged?: boolean },
+): string[] {
+  const chips: string[] = [];
+  if (selection.kind === "checkout") {
+    chips.push("Checkout");
+  } else if (selection.kind === "worktree") {
+    chips.push("worktree");
+  } else if (selection.branch === "main") {
+    // Product label for the main line — literal "main", not "branch".
+    chips.push("main");
+  } else if (selection.branch && selection.branch === catalog.defaultBranch) {
+    chips.push(selection.branch);
+  } else {
+    chips.push("branch");
+  }
+
+  const isPrimaryCheckout = selection.kind === "checkout";
+  const isCurrentBranch =
+    selection.kind === "branch" &&
+    Boolean(selection.branch) &&
+    selection.branch === catalog.currentName;
+  if (isPrimaryCheckout || isCurrentBranch) {
+    chips.push("Current");
+  }
+
+  // Merged replaces stale: a merged branch is done, not abandoned.
+  if (options?.merged) chips.push("merged");
+  else if (selection.stale) chips.push("stale");
+  return chips;
+}
+
+/**
+ * Top of the dropdown: default branch (main), then the Checkout row.
+ * These are pinned above the Branches/Worktrees section headers.
+ */
+export function checkoutRailLeadingOptions(
+  selections: readonly CheckoutRailSelection[],
+  defaultBranch: string,
+): CheckoutRailSelection[] {
+  const leading: CheckoutRailSelection[] = [];
+  const defaultRow = selections.find(
+    (option) => option.kind === "branch" && option.branch === defaultBranch,
+  );
+  if (defaultRow) leading.push(defaultRow);
+  for (const option of selections) {
+    if (option.kind === "checkout") leading.push(option);
+  }
+  return leading;
+}
+
+/** Group remaining selections into labeled sections; empty ones are omitted. */
+export function checkoutRailSections(
+  selections: readonly CheckoutRailSelection[],
+  defaultBranch?: string,
+): Array<{
+  id: CheckoutRailSectionId;
+  label: string;
+  options: CheckoutRailSelection[];
+}> {
+  return CHECKOUT_RAIL_SECTIONS.map((section) => ({
+    id: section.id,
+    label: section.label,
+    options: selections.filter((option) => {
+      if (option.kind === "checkout") return false;
+      if (
+        defaultBranch &&
+        option.kind === "branch" &&
+        option.branch === defaultBranch
+      ) {
+        return false;
+      }
+      return option.section === section.id;
+    }),
+  })).filter((section) => section.options.length > 0);
+}
+
+/** @deprecated Prefer {@link checkoutRailLeadingOptions}. */
+export function checkoutRailCheckoutOptions(
+  selections: readonly CheckoutRailSelection[],
+): CheckoutRailSelection[] {
+  return selections.filter((option) => option.kind === "checkout");
+}
+
+/** Where a rail file row should open (worktree disk or git blob at ref). */
+/**
+ * Browse target for the rail's single Files row.
+ * Opens the full tree for this selection (worktree cwd at HEAD, or branch ref).
+ */
+export type CheckoutFilesBrowseTarget = {
+  root: string;
+  gitRef: string;
+  /** Rail selection this tree was opened for (shown atop the Files sheet). */
+  context?: CheckoutFilesContext;
+};
+
+/** Header strip on the Files sheet: which branch or worktree it shows. */
+export type CheckoutFilesContext = {
+  kind: CheckoutSelectionKind;
+  /** Branch name, or the worktree directory name. */
+  label: string;
+  /** Worktree branch, shown faintly after the label. Null otherwise. */
+  branch: string | null;
+  /** Same chips the rail selection header shows. */
+  chips: string[];
+  /** Working tree on disk. Null when the tree is read from git only. */
+  path: string | null;
+};
+
+/**
+ * Where the Files row should open the tree.
+ * Checkout/worktree → that path at HEAD. Unchecked-out branch → primary at branch.
+ */
+export function resolveCheckoutFilesBrowseTarget(
+  selection: CheckoutRailSelection,
+  catalog: Pick<CheckoutRailCatalog, "primaryPath">,
+): CheckoutFilesBrowseTarget | null {
+  // Branch rows (including main) always open that ref — not checkout HEAD.
+  if (selection.kind === "branch") {
+    const branch = selection.branch?.trim();
+    if (!branch) return null;
+    return { root: catalog.primaryPath, gitRef: branch };
+  }
+  const root = selection.checkoutPath ?? catalog.primaryPath;
+  if (!root) return null;
+  return { root, gitRef: "HEAD" };
+}
+
+/** Files-sheet header for one rail selection. */
+export function checkoutFilesContext(
+  selection: CheckoutRailSelection,
+  catalog: Pick<
+    CheckoutRailCatalog,
+    "primaryPath" | "currentName" | "defaultBranch"
+  >,
+  options?: { merged?: boolean },
+): CheckoutFilesContext {
+  const chips = checkoutSelectionChips(selection, catalog, options);
+  const branch = selection.branch?.trim() || null;
+  if (selection.kind === "worktree") {
+    return {
+      kind: "worktree",
+      label: selection.label,
+      branch,
+      chips,
+      path: selection.checkoutPath,
+    };
+  }
+  if (selection.kind === "checkout") {
+    return {
+      kind: "checkout",
+      label: branch ?? catalog.currentName ?? selection.label,
+      branch: null,
+      chips,
+      path: selection.checkoutPath ?? catalog.primaryPath,
+    };
+  }
+  return {
+    kind: "branch",
+    label: branch ?? selection.label,
+    branch: null,
+    chips,
+    path: selection.checkoutPath,
+  };
+}
+
+function sameCheckoutPath(a: string, b: string): boolean {
+  const norm = (path: string) =>
+    path.trim().replaceAll("\\", "/").replace(/\/+$/, "");
+  return norm(a) === norm(b);
+}
+
+/**
+ * Files-sheet header for a tree opened without a rail selection
+ * (e.g. the top Files tab). Matches what is displayed (root + ref) against
+ * the rail catalog. Null when nothing in the catalog matches.
+ */
+export function resolveCheckoutFilesContext(
+  target: { root?: string | null; gitRef?: string | null },
+  catalog: CheckoutRailCatalog | null,
+  options?: {
+    merged?: boolean;
+    pullRequests?: readonly CheckoutPullRequest[];
+  },
+): CheckoutFilesContext | null {
+  const root = target.root?.trim();
+  if (!catalog || !root) return null;
+  const ref = target.gitRef?.trim() || "HEAD";
+  const match =
+    ref === "HEAD"
+      ? catalog.selections.find(
+          (entry) =>
+            (entry.kind === "checkout" || entry.kind === "worktree") &&
+            entry.checkoutPath != null &&
+            sameCheckoutPath(entry.checkoutPath, root),
+        )
+      : sameCheckoutPath(root, catalog.primaryPath)
+        ? catalog.selections.find(
+            (entry) => entry.kind === "branch" && entry.branch === ref,
+          )
+        : undefined;
+  if (!match) return null;
+  const merged =
+    options?.merged ??
+    (match.branch && options?.pullRequests
+      ? isBranchMerged(options.pullRequests, match.branch)
+      : false);
+  return checkoutFilesContext(match, catalog, { merged });
+}
+
+/** True for the default-branch row (e.g. "main") of the Branches list. */
+export function isDefaultBranchSelection(
+  selection: Pick<CheckoutRailSelection, "kind" | "branch">,
+  catalog: Pick<CheckoutRailCatalog, "defaultBranch">,
+): boolean {
+  return (
+    selection.kind === "branch" &&
+    Boolean(selection.branch) &&
+    selection.branch === catalog.defaultBranch
+  );
+}
+
+export type CheckoutAgentPromptInput = {
+  /** "main" is the default-branch row; the rest match selection kinds. */
+  kind: "main" | CheckoutSelectionKind;
+  branch: string | null;
+  /** Working-tree path for checkout/worktree selections, else null. */
+  path: string | null;
+  /** Primary checkout path. */
+  primaryPath: string;
+  /** Project display path (`Hula/...`). */
+  hulaPath: string;
+  defaultBranch: string;
+};
+
+/** Short plain-text brief telling an agent where (and how) to work. */
+export function checkoutAgentPrompt(input: CheckoutAgentPromptInput): string {
+  const base = input.defaultBranch.trim() || "main";
+  const branch = input.branch?.trim() || "";
+  const primary = input.primaryPath.trim() || input.hulaPath.trim();
+  const lines = [
+    `You are working on the Hula project at ${input.hulaPath.trim() || primary}.`,
+  ];
+  const finish =
+    "Make and commit changes only there, and follow the Hula skills in the OpenClaw workspace for commits, pushes, and the pull request.";
+  if (input.kind === "main") {
+    lines.push(
+      `Start from ${base} at ${primary} and create your branch the way the Hula skills describe; do not commit directly to ${base}.`,
+    );
+    return lines.join("\n");
+  }
+  if (input.kind === "branch" || !input.path) {
+    const name = branch || "(unknown)";
+    lines.push(
+      `Branch ${name} (base: ${base}) is not checked out. From ${primary}, check it out or create a worktree for it as the Hula skills describe before working.`,
+    );
+    return lines.join("\n");
+  }
+  const where = input.kind === "worktree" ? "worktree" : "checkout";
+  const onBranch = branch ? ` on branch ${branch}` : " (detached HEAD)";
+  lines.push(
+    `Work only in the ${where} at ${input.path.trim()}${onBranch} (base: ${base}).`,
+    finish,
+  );
+  return lines.join("\n");
 }

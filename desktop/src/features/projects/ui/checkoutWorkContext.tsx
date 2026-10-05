@@ -5,22 +5,43 @@ import {
   buildCheckoutWorkCard,
   checkoutWorkFingerprint,
   checkoutWorkSource,
-  type CheckoutWork,
+  pickDefaultCheckoutSelection,
+  type CheckoutFilesBrowseTarget,
+  type CheckoutPullRequest,
+  type CheckoutRailCatalog,
+  type CheckoutRailSelection,
+  type CheckoutSelectionDetail,
   type CheckoutWorkCardModel,
 } from "@/features/projects/lib/checkoutWork";
+import {
+  projectChannelPrimaryRepository,
+  resolveCodebaseOrigin,
+  storedRepositoryRemotes,
+} from "@/features/projects/lib/channelCodebase";
+import { useRepoPullRequests } from "@/features/projects/lib/checkoutPullRequests";
 import type { Project, Repository } from "@/features/projects/projectModels";
-import { useCheckoutWork } from "@/features/projects/useCheckoutWork";
+import {
+  useCheckoutRailCatalog,
+  useCheckoutSelectionDetail,
+  useCheckoutWork,
+} from "@/features/projects/useCheckoutWork";
 
 type CheckoutWorkRailState = {
+  catalog: CheckoutRailCatalog | null;
+  detail: CheckoutSelectionDetail | null;
   error: string | null;
   isLoading: boolean;
   missingCheckout: boolean;
-  work: CheckoutWork | null;
+  pullRequests: CheckoutPullRequest[];
+  selectedId: string | null;
+  selection: CheckoutRailSelection | null;
+  setSelectedId: (id: string) => void;
 };
 
 type CheckoutWorkContextValue = {
   card: CheckoutWorkCardModel | null;
   onOpenCommit?: (hash: string) => void;
+  onOpenFiles?: (target: CheckoutFilesBrowseTarget) => void;
   /** Null when this project has no checkout path Buzz already knows. */
   rail: CheckoutWorkRailState | null;
 };
@@ -47,6 +68,7 @@ export function CheckoutWorkProvider({
   channelId,
   children,
   onOpenCommit,
+  onOpenFiles,
   project,
   repository,
 }: {
@@ -54,6 +76,7 @@ export function CheckoutWorkProvider({
   channelId?: string | null;
   children: React.ReactNode;
   onOpenCommit?: (hash: string) => void;
+  onOpenFiles?: (target: CheckoutFilesBrowseTarget) => void;
   project: Project;
   /** When set, checkout reads this repository instead of the primary. */
   repository?: Repository | null;
@@ -62,7 +85,22 @@ export function CheckoutWorkProvider({
     () => checkoutWorkSource(project, repository),
     [project, repository],
   );
+  const defaultBranchHint =
+    repository?.defaultBranch ??
+    project.repositories.find((entry) => entry.hulaPath)?.defaultBranch ??
+    project.repositories[0]?.defaultBranch ??
+    null;
   const query = useCheckoutWork(source);
+  const catalogQuery = useCheckoutRailCatalog(source, defaultBranchHint);
+  const githubRepo = React.useMemo(() => {
+    const target =
+      repository ?? projectChannelPrimaryRepository(project) ?? null;
+    const origin = resolveCodebaseOrigin(null, storedRepositoryRemotes(target));
+    return origin.kind === "github" ? `${origin.owner}/${origin.repo}` : null;
+  }, [project, repository]);
+  const pullRequestsQuery = useRepoPullRequests(githubRepo);
+  const pullRequests = pullRequestsQuery.data ?? [];
+  const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const workingNow =
     useChannelWorkingAgentPubkeys(channelId ?? project.projectChannelId)
       .length > 0;
@@ -70,6 +108,17 @@ export function CheckoutWorkProvider({
   const watchingRef = React.useRef(false);
   const wasWorkingRef = React.useRef(false);
   const [linkedHead, setLinkedHead] = React.useState<string | null>(null);
+
+  const catalog = catalogQuery.data ?? null;
+
+  React.useEffect(() => {
+    if (!catalog || catalog.selections.length === 0) return;
+    const ids = new Set(catalog.selections.map((entry) => entry.id));
+    if (selectedId && ids.has(selectedId)) return;
+    setSelectedId(pickDefaultCheckoutSelection(catalog));
+  }, [catalog, selectedId]);
+
+  const detailQuery = useCheckoutSelectionDetail(source, catalog, selectedId);
 
   React.useEffect(() => {
     if (
@@ -108,7 +157,18 @@ export function CheckoutWorkProvider({
       const beforeHead = before.split("\n")[0] ?? "";
       if (data.head && data.head !== beforeHead) setLinkedHead(data.head);
     });
-  }, [query.data, query.refetch, workingNow]);
+    void catalogQuery.refetch();
+    void detailQuery.refetch();
+  }, [
+    catalogQuery.refetch,
+    detailQuery.refetch,
+    query.data,
+    query.refetch,
+    workingNow,
+  ]);
+
+  const selection =
+    catalog?.selections.find((entry) => entry.id === selectedId) ?? null;
 
   const card =
     !workingNow && query.data
@@ -118,22 +178,46 @@ export function CheckoutWorkProvider({
     () => ({
       card,
       onOpenCommit,
+      onOpenFiles,
       rail: source
         ? {
-            error: errorMessage(query.error),
-            isLoading: query.isLoading,
-            missingCheckout: query.isSuccess && query.data == null,
-            work: query.data ?? null,
+            catalog,
+            detail: detailQuery.data ?? null,
+            error:
+              errorMessage(catalogQuery.error) ??
+              errorMessage(detailQuery.error) ??
+              errorMessage(query.error),
+            isLoading:
+              catalogQuery.isLoading ||
+              (Boolean(selectedId) && detailQuery.isLoading),
+            missingCheckout:
+              (catalogQuery.isSuccess || query.isSuccess) &&
+              catalog == null &&
+              query.data == null,
+            pullRequests,
+            selectedId,
+            selection,
+            setSelectedId,
           }
         : null,
     }),
     [
       card,
+      catalog,
+      catalogQuery.error,
+      catalogQuery.isLoading,
+      catalogQuery.isSuccess,
+      detailQuery.data,
+      detailQuery.error,
+      detailQuery.isLoading,
       onOpenCommit,
+      onOpenFiles,
+      pullRequests,
       query.data,
       query.error,
-      query.isLoading,
       query.isSuccess,
+      selectedId,
+      selection,
       source,
     ],
   );
