@@ -578,7 +578,6 @@ async function openDm(a: Args) {
 }
 
 /** Channels the signed-in member belongs to (used by Web Push to scope DM lease filters). */
-export const listMyChannels = () => fetchChannels(false);
 
 export const chatHandlers: Record<
   string,

@@ -7,7 +7,6 @@
 import { nip98Header, submitSignedEvent } from "../relayHttp";
 import { getSigner, signerPubkey } from "../signer";
 import { relayHttpBase } from "../relayConfig";
-import { listMyChannels } from "../chat";
 import { readPushEnabled, WEB_PUSH_FLAG, WEB_PUSH_URL } from "./config";
 import {
   classifyPushEnv,
@@ -111,20 +110,11 @@ async function publishLease(
 ) {
   const signer = getSigner();
   if (!signer.nip44) throw new Error("signer has no NIP-44 support");
-  const dmIds = grant
-    ? (
-        await listMyChannels().catch(
-          () => [] as { id: string; channel_type?: string }[],
-        )
-      )
-        .filter((c) => c.channel_type === "dm")
-        .map((c) => c.id)
-    : [];
   const plaintext = leasePlaintext({
     descriptor: d,
     generation,
     grant,
-    subscriptions: leaseSubscriptions(me, prefs(), dmIds),
+    subscriptions: leaseSubscriptions(me, prefs()),
   });
   const content = await signer.nip44.encrypt(d.executorPubkey, plaintext);
   const ev = await signer.signEvent(

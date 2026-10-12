@@ -107,9 +107,9 @@ pub fn build_payload(hint: Option<&WebPushHint>) -> Vec<u8> {
     let target = hint.map(|h| {
         serde_json::json!({
             "channelId": h.channel_id,
+            "threadRootId": h.thread_root_id,
             "eventId": h.event_id,
             "kind": null,
-            "threadRootId": null,
         })
     });
     serde_json::to_vec(&serde_json::json!({
@@ -392,10 +392,16 @@ mod tests {
             class: "dm".into(),
             event_id: "ab".repeat(32),
             channel_id: Some("123e4567-e89b-42d3-a456-426614174000".into()),
+            thread_root_id: Some("b".repeat(64)),
         };
         let p: serde_json::Value = serde_json::from_slice(&build_payload(Some(&hint))).unwrap();
         assert_eq!(p["body"], "New direct message");
         assert_eq!(p["target"]["eventId"], "ab".repeat(32));
+        assert_eq!(p["target"]["threadRootId"], "b".repeat(64));
+        let mut bad = hint.clone();
+        bad.thread_root_id = Some("XYZ".into());
+        assert!(!bad.is_valid());
+        assert!(hint.is_valid());
         assert_eq!(p.as_object().unwrap().len(), 4);
     }
 

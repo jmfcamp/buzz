@@ -366,3 +366,14 @@ revokes the installation.
 | `BUZZ_PUSH_IOS_PROFILE=disabled` | Optional web-only mode (no APNs certificate; App Attest root still mounted) |
 
 Requires migration `0006_web_push_profile.sql` (gateway) and relay migration `0057_push_approval_kinds.sql`.
+
+## Co-located deployment on the relay host (Buzz web, proposed)
+
+Run the gateway beside the relay in the existing `deploy/compose` + Caddy bundle; no new hosts, no RDS.
+
+1. **Container:** add a `push-gateway` service built from `Dockerfile.push-gateway` on `buzz-net`. Public API on `8080` (internal only), health/metrics on `8081` (never proxied).
+2. **Database:** reuse the existing `postgres` container. Create database `buzz_push_gateway`, a migration owner role and a `buzz_push_gateway_runtime` role (no access to the relay DB). Run the gateway once with `--migrate-only`.
+3. **TLS/proxy:** add a Caddy site `push.buzz.huladesk.com { reverse_proxy push-gateway:8080 }` (a subdomain keeps NIP-98 `u` URLs and absolute gateway paths unchanged). Set `BUZZ_PUSH_WEB_PUBLIC_URL=https://push.buzz.huladesk.com`. Needs one DNS record.
+4. **Secrets:** store the VAPID private key (mounted file), `BUZZ_PUSH_GRANT_KEYS` and `BUZZ_PUSH_TOKEN_KEYS` in the same `.env`/secrets directory as the relay secrets. `BUZZ_PUSH_IOS_PROFILE=disabled` until APNs credentials exist.
+5. **Relay:** `BUZZ_PUSH_ENABLED=true`, `BUZZ_PUSH_GATEWAY_DELIVERY_URL=http://push-gateway:8080/v1/deliveries/apns` (stays on the Docker network), executor key id configured; deploy relay with migration 0057.
+6. **Cost:** about $0 extra; a small amount of extra RAM (one more Rust container) and some DB disk.

@@ -60,6 +60,15 @@ pub struct WebPushHint {
     pub event_id: String,
     /// Channel UUID, when the event belongs to a channel.
     pub channel_id: Option<String>,
+    /// Thread root event id (lowercase hex) when the event is a thread reply.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_root_id: Option<String>,
+}
+
+fn is_hex_id(s: &str) -> bool {
+    s.len() == 64
+        && s.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 impl WebPushHint {
@@ -67,11 +76,8 @@ impl WebPushHint {
         matches!(
             self.class.as_str(),
             "default" | "dm" | "mention" | "thread_reply" | "needs_action"
-        ) && self.event_id.len() == 64
-            && self
-                .event_id
-                .bytes()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        ) && is_hex_id(&self.event_id)
+            && self.thread_root_id.as_deref().is_none_or(is_hex_id)
             && self
                 .channel_id
                 .as_ref()

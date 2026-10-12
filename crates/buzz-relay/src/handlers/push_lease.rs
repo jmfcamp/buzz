@@ -67,7 +67,16 @@ pub struct Subscription {
     #[serde(default)]
     pub ignore: Vec<Map<String, Value>>,
     pub suppress: Option<Suppress>,
+    /// Relay-evaluated participation scope (web profile): `dm` matches any
+    /// message in a DM channel the author belongs to; `thread` matches replies
+    /// in threads the author started, replied in, or was mentioned in. The
+    /// relay supplies the narrowing, so the filter needs only `kinds`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
 }
+
+/// Participation scopes a lease subscription may request.
+pub(crate) const PUSH_SCOPES: &[&str] = &["dm", "thread"];
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -263,7 +272,17 @@ fn validate_subscription(sub: &Subscription, limits: &LeaseLimits<'_>) -> Result
     if !limits.supported_classes.contains(&sub.class.as_str()) {
         return Err("class not supported".into());
     }
-    validate_filter(&sub.filter, limits, true)?;
+    if let Some(scope) = &sub.scope {
+        if !PUSH_SCOPES.contains(&scope.as_str()) {
+            return Err("scope not supported".into());
+        }
+        // Scoped filters are narrowed by the relay (membership/participation)
+        // and may only name kinds, so they cannot widen what the author reads.
+        if sub.filter.keys().any(|k| k != "kinds") {
+            return Err("scoped filter may only contain kinds".into());
+        }
+    }
+    validate_filter(&sub.filter, limits, sub.scope.is_none())?;
     if sub.ignore.len() > limits.max_ignore {
         return Err("ignore quota exceeded".into());
     }
@@ -691,6 +710,27 @@ mod tests {
             max_endpoint_len: 128,
             max_string_len: 128,
         }
+    }
+
+    #[test]
+    fn scoped_subscriptions_are_kinds_only_and_known() {
+        let ok = parse_plaintext(r##"{"v":1,"origin":"o","generation":1,"active":true,"app_profile":"p","transport":"apns","endpoint":"token","subscriptions":[{"filter":{"kinds":[9]},"class":"default","scope":"thread"}]}"##, 4096).unwrap();
+        assert!(validate_plaintext(&ok, &limits()).is_ok());
+        let unknown = parse_plaintext(r##"{"v":1,"origin":"o","generation":1,"active":true,"app_profile":"p","transport":"apns","endpoint":"token","subscriptions":[{"filter":{"kinds":[9]},"class":"default","scope":"everything"}]}"##, 4096).unwrap();
+        assert_eq!(
+            validate_plaintext(&unknown, &limits()).unwrap_err(),
+            "scope not supported"
+        );
+        let widened = parse_plaintext(r##"{"v":1,"origin":"o","generation":1,"active":true,"app_profile":"p","transport":"apns","endpoint":"token","subscriptions":[{"filter":{"kinds":[9],"authors":["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]},"class":"default","scope":"dm"}]}"##, 4096).unwrap();
+        assert_eq!(
+            validate_plaintext(&widened, &limits()).unwrap_err(),
+            "scoped filter may only contain kinds"
+        );
+        let unscoped = parse_plaintext(r##"{"v":1,"origin":"o","generation":1,"active":true,"app_profile":"p","transport":"apns","endpoint":"token","subscriptions":[{"filter":{"kinds":[9]},"class":"default"}]}"##, 4096).unwrap();
+        assert_eq!(
+            validate_plaintext(&unscoped, &limits()).unwrap_err(),
+            "lease filter not narrowed"
+        );
     }
 
     #[test]

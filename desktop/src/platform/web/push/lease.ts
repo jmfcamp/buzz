@@ -8,7 +8,6 @@ export const WEB_APP_PROFILE = "buzz-web";
 export const WEB_TRANSPORT = "webpush";
 const MESSAGE_KINDS = [9, 40002, 45001, 45003];
 const APPROVAL_KINDS = [46010, 46011, 46012];
-const MAX_H = 50;
 
 export type PushDescriptor = {
   origin: string;
@@ -61,21 +60,22 @@ type Sub = {
   filter: Record<string, unknown>;
   class: string;
   ignore: Record<string, unknown>[];
+  /** Relay-evaluated participation scope (kinds-only filter). */
+  scope?: "dm" | "thread";
 };
 
-/** Lease subscriptions for the member's enabled notification types. */
-export function leaseSubscriptions(
-  me: string,
-  prefs: PushPrefs,
-  dmChannelIds: string[],
-): Sub[] {
-  const notMe = [{ kinds: MESSAGE_KINDS, authors: [me] }];
+/**
+ * Lease subscriptions for the member's enabled notification types.
+ * DMs and thread replies are matched relay-side (DM channel membership /
+ * thread participation), so new DMs and threads need no re-registration.
+ */
+export function leaseSubscriptions(me: string, prefs: PushPrefs): Sub[] {
   const subs: Sub[] = [];
   if (prefs.mention)
     subs.push({
       filter: { kinds: MESSAGE_KINDS, "#p": [me] },
       class: "mention",
-      ignore: notMe,
+      ignore: [{ kinds: MESSAGE_KINDS, authors: [me] }],
     });
   if (prefs.needs_action)
     subs.push({
@@ -83,16 +83,19 @@ export function leaseSubscriptions(
       class: "needs_action",
       ignore: [],
     });
-  const dms = dmChannelIds.filter((id) =>
-    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
-      id,
-    ),
-  );
-  for (let i = 0; prefs.dm && i < dms.length && subs.length < 16; i += MAX_H)
+  if (prefs.dm)
     subs.push({
-      filter: { kinds: [9, 40002], "#h": dms.slice(i, i + MAX_H) },
+      filter: { kinds: [9, 40002] },
       class: "dm",
-      ignore: notMe,
+      ignore: [],
+      scope: "dm",
+    });
+  if (prefs.thread_reply)
+    subs.push({
+      filter: { kinds: [9, 40002] },
+      class: "thread_reply",
+      ignore: [],
+      scope: "thread",
     });
   return subs;
 }

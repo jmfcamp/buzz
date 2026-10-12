@@ -34,25 +34,29 @@ test("descriptor requires the buzz-web profile and one current key", () => {
   assert.equal(parsePushDescriptor({}), null);
 });
 
-test("subscriptions follow prefs, p-tag self only, DMs chunked by #h", () => {
-  const dm = "123e4567-e89b-42d3-a456-426614174000";
-  const subs = leaseSubscriptions(
-    me,
-    { dm: true, mention: true, thread_reply: true, needs_action: true },
-    [dm, "not-a-uuid"],
-  );
+test("subscriptions follow prefs; DMs and threads are relay-scoped", () => {
+  const subs = leaseSubscriptions(me, {
+    dm: true,
+    mention: true,
+    thread_reply: true,
+    needs_action: true,
+  });
   assert.deepEqual(
     subs.map((s) => s.class),
-    ["mention", "needs_action", "dm"],
+    ["mention", "needs_action", "dm", "thread_reply"],
   );
   assert.deepEqual(subs[0].filter["#p"], [me]);
-  assert.deepEqual(subs[2].filter["#h"], [dm]);
+  assert.equal(subs[2].scope, "dm");
+  assert.equal(subs[3].scope, "thread");
+  for (const s of subs.slice(2))
+    assert.deepEqual(Object.keys(s.filter), ["kinds"]);
   assert.deepEqual(
-    leaseSubscriptions(
-      me,
-      { dm: false, mention: false, thread_reply: true, needs_action: false },
-      [dm],
-    ),
+    leaseSubscriptions(me, {
+      dm: false,
+      mention: false,
+      thread_reply: false,
+      needs_action: false,
+    }),
     [],
   );
 });
@@ -64,11 +68,12 @@ test("plaintext matches relay schema; empty => inactive", () => {
       descriptor: d,
       generation: 5,
       grant: "G",
-      subscriptions: leaseSubscriptions(
-        me,
-        { dm: false, mention: true, thread_reply: false, needs_action: false },
-        [],
-      ),
+      subscriptions: leaseSubscriptions(me, {
+        dm: false,
+        mention: true,
+        thread_reply: false,
+        needs_action: false,
+      }),
     }),
   );
   assert.deepEqual(Object.keys(active).sort(), [
