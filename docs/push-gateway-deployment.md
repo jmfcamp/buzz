@@ -333,3 +333,36 @@ query, fragment or credentials. Incoming request queries are rejected.
 Host and forwarding headers do not participate in delivery authentication.
 Event signatures, body hashes, timestamps, grant checks and replay protection
 remain enforced. No mobile App Attest audiences or relay activation settings change.
+
+## Web Push profile (`buzz-web`)
+
+Browsers/PWAs enroll a Web Push subscription directly with the gateway, authenticated by NIP-98 from the
+member's own signer (no App Attest, no private keys). The installation reuses the same installation,
+delegation, grant, replay, quota, revocation and reaper machinery as APNs; the relay's NIP-PL matcher
+decides who is woken and enforces channel access exactly as for iOS.
+
+Public routes (CORS-limited to `BUZZ_PUSH_WEB_ALLOWED_ORIGIN`):
+
+| Route | Auth | Purpose |
+|---|---|---|
+| `GET /v1/web/vapid-public-key` | none | VAPID application server key |
+| `POST /v1/web/installations` | NIP-98 (member) | Enroll `{v, subscription:{endpoint,keys}, expires_at}` |
+| `POST /v1/web/delegations` | NIP-98 (same member) | Delegate to a relay executor key, returns `endpoint_grant` |
+| `POST /v1/web/installations/revoke` | NIP-98 (same member) | Revoke |
+
+Subscription endpoints must be HTTPS on Apple, Google, Mozilla or Microsoft push hosts (SSRF guard).
+Subscriptions are sealed with `BUZZ_PUSH_TOKEN_KEYS` like APNs tokens. Deliveries use the existing
+`/v1/deliveries/apns` relay path; for `buzz-web` grants the relay adds a closed content-free `hint`
+(`class`, `event_id`, `channel_id`) that becomes the notification line and deep link. APNs deliveries never
+receive a hint. A 404/410 from the push service returns 410 to the relay (lease endpoint disabled) and
+revokes the installation.
+
+| Variable | Purpose |
+|---|---|
+| `BUZZ_PUSH_WEB_VAPID_PRIVATE_KEY_PATH` | Mounted secret: PEM or base64url P-256 scalar |
+| `BUZZ_PUSH_WEB_VAPID_SUBJECT` | `mailto:` or `https:` contact |
+| `BUZZ_PUSH_WEB_PUBLIC_URL` | Exact external base URL clients sign into NIP-98 `u` |
+| `BUZZ_PUSH_WEB_ALLOWED_ORIGIN` | Browser origin for CORS |
+| `BUZZ_PUSH_IOS_PROFILE=disabled` | Optional web-only mode (no APNs certificate; App Attest root still mounted) |
+
+Requires migration `0006_web_push_profile.sql` (gateway) and relay migration `0057_push_approval_kinds.sql`.

@@ -175,6 +175,9 @@ pub struct ClaimedWake {
     pub endpoint_grant: String,
     /// Wake class sent to the gateway.
     pub class: String,
+    /// Lease app profile (e.g. `buzz-ios-dogfood`, `buzz-web`); selects whether
+    /// a content-free routing hint may accompany the delivery.
+    pub app_profile: Option<String>,
     /// Delivery deadline, in Unix seconds.
     pub expires_at: i64,
     /// Time this durable wake entered the relay outbox.
@@ -1145,7 +1148,7 @@ pub async fn claim_due_wakes(
           AND l.endpoint_hash = o.endpoint_hash
         RETURNING o.community_id, o.id, o.claim_id, o.event_id, c.channel_id,
                   o.author, o.installation_id, o.lease_generation,
-                  l.endpoint_grant, o.class, o.expires_at, o.created_at AS queued_at,
+                  l.endpoint_grant, l.app_profile, o.class, o.expires_at, o.created_at AS queued_at,
                   o.attempts
         "#,
     )
@@ -1177,7 +1180,7 @@ pub async fn revalidate_wake_for_send(
         r#"
         SELECT o.community_id, o.id, o.claim_id, o.event_id, e.channel_id,
                o.author, o.installation_id, o.lease_generation,
-               l.endpoint_grant, o.class, o.expires_at, o.created_at AS queued_at,
+               l.endpoint_grant, l.app_profile, o.class, o.expires_at, o.created_at AS queued_at,
                o.attempts
         FROM push_wake_outbox o
         JOIN push_leases l
@@ -1355,6 +1358,7 @@ fn row_to_claimed_wake(row: sqlx::postgres::PgRow) -> Result<ClaimedWake> {
         lease_generation: row.try_get("lease_generation")?,
         endpoint_grant: row.try_get("endpoint_grant")?,
         class: row.try_get("class")?,
+        app_profile: row.try_get("app_profile")?,
         expires_at: row.try_get("expires_at")?,
         queued_at: row.try_get("queued_at")?,
         attempt: row.try_get("attempts")?,

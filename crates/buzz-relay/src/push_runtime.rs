@@ -35,6 +35,27 @@ struct DeliveryRequest<'a> {
     endpoint_grant: &'a str,
     request_id: uuid::Uuid,
     expires_at: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hint: Option<WebPushHint>,
+}
+
+/// Content-free deep-link hint, attached only for `buzz-web` leases so APNs
+/// deliveries stay blind. Never carries message content or author.
+#[derive(Serialize, Debug, PartialEq)]
+struct WebPushHint {
+    class: String,
+    event_id: String,
+    channel_id: Option<String>,
+}
+
+const WEB_APP_PROFILE: &str = "buzz-web";
+
+fn web_hint(wake: &buzz_db::push::ClaimedWake) -> Option<WebPushHint> {
+    (wake.app_profile.as_deref() == Some(WEB_APP_PROFILE)).then(|| WebPushHint {
+        class: wake.class.clone(),
+        event_id: hex::encode(&wake.event_id),
+        channel_id: wake.channel_id.map(|c| c.to_string()),
+    })
 }
 
 #[derive(Deserialize)]
@@ -487,7 +508,12 @@ async fn deliver_one(
         record_delivery("configuration_error");
         return;
     };
-    let body = match delivery_body(&outcome.endpoint_grant, outcome.id, outcome.expires_at) {
+    let body = match delivery_body(
+        &outcome.endpoint_grant,
+        outcome.id,
+        outcome.expires_at,
+        web_hint(&outcome),
+    ) {
         Ok(body) => body,
         Err(error) => {
             warn!(wake=%outcome.id, %error, "push delivery body encoding failed");
@@ -611,12 +637,14 @@ fn delivery_body(
     endpoint_grant: &str,
     request_id: uuid::Uuid,
     expires_at: i64,
+    hint: Option<WebPushHint>,
 ) -> anyhow::Result<Vec<u8>> {
     Ok(serde_json::to_vec(&DeliveryRequest {
         v: 1,
         endpoint_grant,
         request_id,
         expires_at,
+        hint,
     })?)
 }
 
@@ -740,6 +768,42 @@ mod tests {
         Json(serde_json::json!({"status":"accepted"}))
     }
 
+    fn wake(profile: Option<&str>) -> buzz_db::push::ClaimedWake {
+        buzz_db::push::ClaimedWake {
+            community: buzz_core::CommunityId::from_uuid(uuid::Uuid::new_v4()),
+            id: uuid::Uuid::new_v4(),
+            claim_id: uuid::Uuid::new_v4(),
+            event_id: vec![0xab; 32],
+            channel_id: Some(uuid::Uuid::nil()),
+            author: vec![1; 32],
+            installation_id: "i".into(),
+            lease_generation: 1,
+            endpoint_grant: "g".into(),
+            class: "mention".into(),
+            app_profile: profile.map(str::to_owned),
+            expires_at: 0,
+            queued_at: Utc::now(),
+            attempt: 1,
+        }
+    }
+
+    #[test]
+    fn hint_only_for_web_profile_and_content_free() {
+        assert_eq!(web_hint(&wake(Some("buzz-ios-dogfood"))), None);
+        assert_eq!(web_hint(&wake(None)), None);
+        let hint = web_hint(&wake(Some("buzz-web"))).unwrap();
+        assert_eq!(hint.class, "mention");
+        assert_eq!(hint.event_id, "ab".repeat(32));
+        let body: serde_json::Value =
+            serde_json::from_slice(&delivery_body("g", uuid::Uuid::nil(), 1, Some(hint)).unwrap())
+                .unwrap();
+        assert_eq!(body["hint"].as_object().unwrap().len(), 3);
+        let apns: serde_json::Value =
+            serde_json::from_slice(&delivery_body("g", uuid::Uuid::nil(), 1, None).unwrap())
+                .unwrap();
+        assert!(apns.get("hint").is_none());
+    }
+
     #[tokio::test]
     async fn gateway_retries_send_the_same_request_id_over_http() {
         let seen = Arc::new(Mutex::new(Vec::new()));
@@ -761,8 +825,13 @@ mod tests {
         let keys = nostr::Keys::generate();
         let request_id = uuid::Uuid::new_v4();
         for _ in 0..2 {
-            let body =
-                delivery_body("opaque-grant", request_id, Utc::now().timestamp() + 60).unwrap();
+            let body = delivery_body(
+                "opaque-grant",
+                request_id,
+                Utc::now().timestamp() + 60,
+                None,
+            )
+            .unwrap();
             let auth = nip98_header(&keys, url.as_str(), &body).unwrap();
             let response = send_gateway_request(&http, &url, body, auth).await.unwrap();
             assert!(response.status().is_success());

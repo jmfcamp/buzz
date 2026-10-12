@@ -15,7 +15,24 @@ use sha2::Digest as _;
 /// Message kinds that can produce a mobile Activity-inbox notification.
 /// Generic Nostr notes and non-message workflow/agent events are deliberately
 /// excluded from the dogfood MVP.
-pub(crate) const PUSH_KINDS: &[u64] = &[9, 40_002, 45_001, 45_003];
+pub(crate) const PUSH_KINDS: &[u64] = &[9, 40_002, 45_001, 45_003, 46_010, 46_011, 46_012];
+
+/// Lease classes. `default` is the only APNs class; the web profile uses the
+/// named classes so the gateway can pick a content-free notification line.
+pub(crate) const PUSH_CLASSES: &[&str] =
+    &["default", "dm", "mention", "thread_reply", "needs_action"];
+
+/// Server-owned app profiles a lease may name.
+pub(crate) const PUSH_APP_PROFILES: &[AppProfile<'static>] = &[
+    AppProfile {
+        id: "buzz-ios-dogfood",
+        transport: "apns",
+    },
+    AppProfile {
+        id: "buzz-web",
+        transport: "webpush",
+    },
+];
 
 /// NIP-PL addressable push-lease event kind.
 pub const KIND_PUSH_LEASE: u32 = 30_350;
@@ -491,11 +508,8 @@ pub async fn accept(
     let limits = LeaseLimits {
         expected_origin: &origin,
         author_hex: &author_hex,
-        app_profiles: &[AppProfile {
-            id: "buzz-ios-dogfood",
-            transport: "apns",
-        }],
-        supported_classes: &["default"],
+        app_profiles: PUSH_APP_PROFILES,
+        supported_classes: PUSH_CLASSES,
         push_kinds: PUSH_KINDS,
         max_subscriptions: 16,
         max_kinds: 16,
@@ -687,7 +701,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join(", ");
         let predicate = format!("NEW.kind IN ({kinds})");
-        let migration = include_str!("../../../../migrations/0040_push_message_kinds.sql");
+        let migration = include_str!("../../../../migrations/0057_push_approval_kinds.sql");
         assert!(
             migration.contains(&predicate),
             "migration trigger must use PUSH_KINDS exactly: {predicate}"
