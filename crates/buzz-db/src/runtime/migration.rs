@@ -703,9 +703,10 @@ mod postgres_tests {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
 
-        assert_eq!(migrations.len(), 50);
+        assert_eq!(migrations.len(), 51);
         assert_eq!(migrations[48].version, 49);
         assert_eq!(migrations[49].version, 50);
+        assert_eq!(migrations[50].version, 51);
         assert!(migrations[48]
             .sql
             .as_str()
