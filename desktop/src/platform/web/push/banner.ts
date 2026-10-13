@@ -39,10 +39,13 @@ function render() {
   el = document.createElement("div");
   el.setAttribute("data-web-push-banner", state);
   el.setAttribute("role", "status");
+  // Theme tokens are HSL components (see ThemeProvider); wrap with hsl() so the
+  // banner paints a solid themed surface instead of an invalid/transparent color.
   el.style.cssText =
     "position:fixed;left:8px;right:8px;top:calc(env(safe-area-inset-top,0px) + 8px);z-index:2147483000;display:flex;gap:10px;align-items:center;" +
-    "padding:10px 12px;border-radius:14px;background:var(--popover,#1f1f23);color:var(--popover-foreground,#fff);" +
-    "box-shadow:0 6px 24px rgba(0,0,0,.25);font:14px/1.35 system-ui,-apple-system,sans-serif;max-width:640px;margin:0 auto";
+    "padding:10px 12px;border-radius:14px;background:hsl(var(--card));color:hsl(var(--card-foreground));" +
+    "border:1px solid hsl(var(--border));box-shadow:0 6px 24px rgba(0,0,0,.18);" +
+    "font:14px/1.35 system-ui,-apple-system,sans-serif;max-width:640px;margin:0 auto";
   const text = document.createElement("span");
   text.style.flex = "1";
   text.textContent = COPY[state];
@@ -52,8 +55,10 @@ function render() {
     btn.type = "button";
     btn.textContent = "Enable";
     btn.setAttribute("data-web-push-enable", "");
+    // Outlined Enable (matches Button variant="outline" + primary accent).
     btn.style.cssText =
-      "border:0;border-radius:10px;padding:6px 12px;font-weight:600;background:var(--primary,#f5b400);color:var(--primary-foreground,#000)";
+      "border:1px solid hsl(var(--primary));border-radius:10px;padding:6px 12px;font-weight:600;" +
+      "background:transparent;color:hsl(var(--primary))";
     btn.onclick = async () => {
       btn.disabled = true;
       await enablePushFromTap();
