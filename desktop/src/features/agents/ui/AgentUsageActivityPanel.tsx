@@ -13,6 +13,7 @@ import {
   SheetTitle,
 } from "@/shared/ui/sheet";
 import { cn } from "@/shared/lib/cn";
+import { isWebBuild } from "@/features/bridge/ui/DesktopData";
 
 function formatTokenField(value: string | null, incomplete: boolean): string {
   if (value === null) {
@@ -88,11 +89,14 @@ export function AgentUsageActivityPanel({
   onOpenChange,
   channelId = null,
 }: AgentUsageActivityPanelProps) {
+  // The usage series lives in the desktop's local archive (Tauri command); the web app can't read it, so it says so calmly
+  // instead of failing the query.
+  const usageAvailable = !isWebBuild();
   const usageQuery = useAgentUsageSeries(agentPubkey, {
     dayCount: 7,
-    enabled: open,
+    enabled: open && usageAvailable,
   });
-  const { openAgentActivity, canOpenAgentActivity } = useOpenAgentActivity();
+  const { openAgentActivity } = useOpenAgentActivity();
 
   const series = usageQuery.data;
   const agentRow = series?.agents.find(
@@ -151,15 +155,22 @@ export function AgentUsageActivityPanel({
             <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Last 7 days
             </h3>
-            {usageQuery.isLoading ? (
+            {!usageAvailable ? (
+              <div
+                className="rounded-xl border border-border/60 bg-muted/40 px-3 py-2.5 text-sm text-muted-foreground"
+                data-testid="agent-usage-desktop-only"
+              >
+                Usage history is kept on your desktop. Open the HulaBuzz desktop app to see token spend.
+              </div>
+            ) : usageQuery.isLoading ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Loading usage…
               </div>
             ) : usageQuery.isError ? (
-              <p className="text-sm text-destructive">
-                Couldn&apos;t load usage series.
-              </p>
+              <div className="rounded-xl border border-border/60 bg-muted/40 px-3 py-2.5 text-sm text-muted-foreground">
+                Usage history isn&apos;t available right now. It will show here once it&apos;s ready.
+              </div>
             ) : (
               <>
                 <div className="grid grid-cols-3 gap-2">
@@ -294,7 +305,6 @@ export function AgentUsageActivityPanel({
             <Button
               className="w-full justify-start gap-2"
               data-testid={`agent-usage-open-activity-${agentPubkey}`}
-              disabled={!canOpenAgentActivity(agentPubkey)}
               onClick={() => {
                 const opened = openAgentActivity(agentPubkey, {
                   channelId,
