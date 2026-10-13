@@ -631,3 +631,15 @@
 [data-phone] .phone-detail-full [data-testid="user-profile-resize-handle"] {
   display: none !important;
 }
+
+/* Phone project page: the banner (name, DRI, agent, path, Porthole) wraps onto a second line instead of clipping. */
+[data-phone] [data-testid="project-channel-identity"] {
+  height: auto;
+  min-height: 2.5rem;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+[data-phone] [data-testid="project-channel-primary-codebase"] {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
