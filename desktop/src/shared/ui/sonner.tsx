@@ -1,6 +1,4 @@
-import { Toaster as Sonner, useSonner } from "sonner";
-
-import { ParkNativeWebviewsWhileMounted } from "@/shared/ui/ParkNativeWebviewsWhileMounted";
+import { Toaster as Sonner } from "sonner";
 
 import { useTheme } from "@/shared/theme/ThemeProvider";
 import { STATUS_TIMING, STATUS_Z } from "@/shared/ui/statusPills";
@@ -14,13 +12,11 @@ const WEB_TOP = "calc(var(--phone-safe-top, env(safe-area-inset-top, 0px)) + 48p
 
 const Toaster = ({ ...props }: ToasterProps) => {
   const { isDark } = useTheme();
-  // Toasts render in HTML under native pin / playground webviews; park those
-  // while any toast is on screen so it is never hidden behind a site.
-  const { toasts } = useSonner();
+  // Toasts never park native site webviews: hosts yield a bottom strip
+  // instead (see shared/ui/toastStrip.ts).
 
   return (
     <>
-    {toasts.length > 0 ? <ParkNativeWebviewsWhileMounted /> : null}
     <Sonner
       theme={isDark ? "dark" : "light"}
       className="toaster group"
