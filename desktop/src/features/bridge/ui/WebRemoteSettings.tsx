@@ -27,7 +27,7 @@ import { directAgentsFor } from "../directAgents";
 import { acquireProxyDirect, getProxyDirect } from "../remoteCmd";
 import { DirectSignerClient } from "../directSignerClient";
 import { useDirectSignerBanner } from "./useDirectSignerBanner";
-import { setDirectSignRoute } from "@/platform/web/signer/directRoute";
+import { setDirectSigner } from "@/platform/web/signer/directRoute";
 import { useBridgeAgents } from "../useBridgeAgents";
 import { useDirectAutoReconnect, useDirectState } from "./DirectAgentsPanel";
 import { getTerminalBackend, setTerminalBackend } from "@/features/terminal/terminalClient";
@@ -296,8 +296,8 @@ export function WebRemoteWatcher() {
   React.useEffect(() => {
     if (!direct || !host?.id) return;
     const c = new DirectSignerClient(direct, host.id);
-    setDirectSignRoute((ev) => c.sign(ev));
-    return () => setDirectSignRoute(null);
+    setDirectSigner({ sign: (ev) => c.sign(ev), active: () => c.active(), isAuto: (k) => c.isAuto(k), crypt: (op, peer, text) => c.crypt(op, peer, text) });
+    return () => setDirectSigner(null);
   }, [direct, host?.id]);
   useDirectSignerBanner(direct, host?.id, !!host && rh.reachOf(host) === "reachable");
   // The desktop's data replaces the web's empty defaults the moment the connection goes live (and back when it ends).

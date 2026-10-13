@@ -1058,6 +1058,11 @@ export async function nip44DecryptFromSelf(
   return invokeTauri<string>("nip44_decrypt_from_self", { ciphertext });
 }
 
+/** Decrypt from another pubkey (Direct signer: observer frames from your own agents). Older desktop builds lack it. */
+export async function nip44DecryptFromPeer(peerPubkey: string, ciphertext: string): Promise<string> {
+  return invokeTauri<string>("nip44_decrypt_from_peer", { peerPubkey, ciphertext });
+}
+
 export async function startPairing(): Promise<string> {
   return invokeTauri<string>("start_pairing");
 }

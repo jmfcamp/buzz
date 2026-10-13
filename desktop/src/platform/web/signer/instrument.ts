@@ -14,7 +14,7 @@ import { sendStatus } from "@/shared/lib/sendStatus";
 import { NIP07_TIMEOUT_SCALE, signerHealth } from "./signerHealth";
 import { signerStatus } from "./signerStatus";
 import { verifyEvent } from "nostr-tools/pure";
-import { getDirectSignRoute, type DirectSignRoute } from "./directRoute";
+import { desktopSignerActive, getDirectSigner, getDirectSignRoute, type DirectSignRoute } from "./directRoute";
 import type { SignedEvent, SignOpts, SignPriority, Signer, UnsignedEvent } from "./types";
 
 export type CallRecord = {
@@ -41,7 +41,9 @@ const AUTH_TIMEOUT_MS = 25_000;
 const DEFAULT_SIGN_TIMEOUT_MS = 60_000;
 const BG_TIMEOUT_MS = 20_000;
 const CRYPTO_TIMEOUT_MS = 15_000;
-const DIRECT_SIGN_TIMEOUT_MS = 8_000; // paired desktop over Direct; slower than this -> remote signer
+const DIRECT_CRYPT_TIMEOUT_MS = 6_000; // paired desktop encrypt/decrypt over Direct; slower -> remote signer
+const DIRECT_SIGN_TIMEOUT_MS = 8_000;
+const DIRECT_PROMPT_TIMEOUT_MS = 90_000; // kinds the desktop asks about: give the person at the desktop time to click Allow // paired desktop over Direct; slower than this -> remote signer
 const BOOT_DEFER_MS = 12_000; // settings decrypts / background work wait for the first screen, but never longer than this
 const BREAKER_AFTER = 3; // consecutive crypto timeouts
 const BREAKER_MS = 60_000;
@@ -738,11 +740,13 @@ export function instrumentSigner<S extends Signer>(inner: S): S {
   // Paired desktop over a live Direct connection first (no remote-signer round trip); any failure falls back.
   const signViaDirect = async (direct: DirectSignRoute, ev: UnsignedEvent, opts?: SignOpts): Promise<SignedEvent> => {
     const withTs = { ...ev, created_at: ev.created_at ?? Math.floor(Date.now() / 1000) };
+    const auto = getDirectSigner()?.isAuto?.(withTs.kind) ?? true;
+    const limit = auto ? DIRECT_SIGN_TIMEOUT_MS : DIRECT_PROMPT_TIMEOUT_MS;
     try {
       const [signed, me] = await Promise.all([
         Promise.race([
           direct(withTs),
-          new Promise<never>((_, rej) => setTimeout(() => rej(new Error("direct sign timeout")), DIRECT_SIGN_TIMEOUT_MS)),
+          new Promise<never>((_, rej) => setTimeout(() => rej(new Error("direct sign timeout")), limit)),
         ]),
         inner.getPublicKey(),
       ]);
@@ -751,8 +755,10 @@ export function instrumentSigner<S extends Signer>(inner: S): S {
         return signed;
       }
       console.warn("[signer] direct desktop returned an event that did not verify; using the remote signer");
-    } catch {
-      /* fall back */
+    } catch (e) {
+      // "Deny" on the desktop is the user's answer: don't ask the remote signer behind their back.
+      if (/declined/i.test(`${(e as { code?: string })?.code ?? ""} ${(e as Error)?.message ?? e}`)) throw e;
+      /* otherwise fall back */
     }
     return signRouted(withTs, opts);
   };
@@ -765,6 +771,8 @@ export function instrumentSigner<S extends Signer>(inner: S): S {
       return signNormal(ev, prio);
     }
   };
+  // Per direct-signer instance: once a desktop says it can't encrypt/decrypt, stop asking it (it is replaced on reconnect).
+  let directCryptUnsupported: unknown = null;
   if ("client" in inner) wrapped.client = (inner as unknown as { client: unknown }).client;
   const n = inner.nip44;
   if (n) {
@@ -786,6 +794,34 @@ export function instrumentSigner<S extends Signer>(inner: S): S {
         instantRec(method, "shared", 2);
         return shared;
       }
+      const ds = getDirectSigner();
+      if (ds?.crypt && desktopSignerActive() && directCryptUnsupported !== ds) {
+        const crypt = ds.crypt;
+        const viaDesktop = Promise.race([
+          crypt(method, peer, text),
+          new Promise<never>((_, rej) => setTimeout(() => rej(new Error("direct crypt timeout")), DIRECT_CRYPT_TIMEOUT_MS)),
+        ]).then(
+          (out) => {
+            signerHealth.success();
+            cachePut(key, out);
+            seedKey?.(out);
+            instantRec(method, "ok", 2);
+            return out;
+          },
+          (e) => {
+            // Older desktop (hula.7): no encrypt/decrypt over Direct. Remember for this session and use the remote signer.
+            const why = `${(e as { code?: string })?.code ?? ""} ${(e as Error)?.message ?? e}`;
+            if (/desktop can't encrypt|unknown_op/i.test(why)) directCryptUnsupported = ds;
+            return remoteCrypto();
+          },
+        );
+        inflightCrypto$.set(key, viaDesktop);
+        const clear = () => void inflightCrypto$.delete(key);
+        viaDesktop.then(clear, clear);
+        return viaDesktop;
+      }
+      return remoteCrypto();
+      function remoteCrypto(): Promise<string> {
       if (signerHealth.blocksBackground()) {
         instantRec(method, "error", 2, undefined, "skipped: signer isn't responding");
         return Promise.reject(new Error("Your signer isn't responding (skipped)."));
@@ -823,6 +859,7 @@ export function instrumentSigner<S extends Signer>(inner: S): S {
       const clear = () => void inflightCrypto$.delete(key);
       p.then(clear, clear);
       return p;
+      }
     };
     (wrapped as Record<string, unknown>).nip44 = {
       encrypt: (peer: string, pt: string) =>

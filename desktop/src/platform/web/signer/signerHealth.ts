@@ -5,6 +5,7 @@
 //   unresponsive  UNRESPONSIVE_AFTER consecutive timeouts, a revoked/unauthorized answer, a failed probe, or a long wait
 //   no-session    no valid saved session: go straight to sign-in
 //   reconnecting  signer relay sockets are being rebuilt / a probe is running
+import { desktopSignerActive } from "./directRoute";
 export type SignerHealthState = "ok" | "slow" | "unresponsive" | "no-session" | "reconnecting";
 export type SignerHealthReason = "timeout" | "revoked" | "probe-failed" | "long-wait" | "none";
 
@@ -81,6 +82,7 @@ export const signerHealth = {
    *  wasn't started while hidden, and the signer hasn't answered anything since the request started. Background work
    *  (read markers, decrypts, presence, relay auth, lazy lanes) never escalates. */
   timeout(opts?: { background?: boolean; startedAt?: number }) {
+    if (desktopSignerActive()) return; // the paired desktop signs over Direct: the remote signer's silence doesn't matter
     if (paused || Date.now() - visibleAt < RETURN_GRACE_MS) return;
     if (opts?.background) {
       if (snap.state === "ok") set({ state: "slow", reason: "timeout" });
@@ -97,12 +99,12 @@ export const signerHealth = {
   },
   /** Long "waiting" alone no longer escalates (pending counts background + abandoned requests). Kept for NIP-07 callers. */
   escalate(reason: SignerHealthReason = "long-wait") {
-    if (activeKind !== "nip07") return;
+    if (activeKind !== "nip07" || desktopSignerActive()) return;
     if (paused || Date.now() - visibleAt < RETURN_GRACE_MS || Date.now() - lastAlive < BANNER_SILENCE_MS) return;
     if (snap.state === "ok" || snap.state === "slow") set({ state: "unresponsive", reason });
   },
   probeFailed(reason: SignerHealthReason = "probe-failed") {
-    if (paused && reason !== "revoked") return;
+    if ((paused || desktopSignerActive()) && reason !== "revoked") return;
     set({ state: "unresponsive", reason });
   },
   noSession() {
@@ -113,6 +115,11 @@ export const signerHealth = {
       if (snap.state !== "reconnecting") before = snap.state;
       set({ state: "reconnecting" });
     } else if (snap.state === "reconnecting") set({ state: before === "reconnecting" ? "ok" : before });
+  },
+  /** The paired desktop covers signing (Direct live): drop a stale "not responding" (never a revoked/no-session state). */
+  desktopCovered() {
+    if (snap.state === "no-session" || snap.reason === "revoked") return;
+    if (snap.state !== "ok") set({ state: "ok", reason: "none", consecutiveTimeouts: 0 });
   },
   /** True when relay-auth/background signing should fail fast instead of queueing behind a dead signer. */
   blocksBackground(): boolean {

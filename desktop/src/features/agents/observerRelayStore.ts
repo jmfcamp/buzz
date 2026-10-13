@@ -45,6 +45,8 @@ const MAX_PENDING_UNKNOWN_AGENT_FRAMES = 100;
 export type ObserverSnapshot = {
   connectionState: ConnectionState;
   errorMessage: string | null;
+  /** Calm, non-error status (e.g. the signer is slow to decrypt live frames). Never shown as an error. */
+  noticeMessage?: string | null;
   events: ObserverEvent[];
 };
 
@@ -201,6 +203,17 @@ function unregisterKnownAgents(subscriptionId: string) {
 
 let connectionState: ConnectionState = "idle";
 let errorMessage: string | null = null;
+let noticeMessage: string | null = null;
+export const OBSERVER_SIGNER_WAIT_NOTE = "Waiting for signer to show live activity…";
+/** A decrypt that failed only because the signer was slow/busy (or the frame was dropped as stale): not an error. */
+const isSignerWait = (e: unknown) =>
+  /didn't respond|in time|timeout|skipped|not answering|stale|signer/i.test(String((e as Error)?.message ?? e));
+function setNotice(next: string | null) {
+  if (noticeMessage === next) return;
+  noticeMessage = next;
+  snapshotByAgent.clear();
+  notifyListeners();
+}
 let unsubscribeRelay: (() => Promise<void>) | null = null;
 let startPromise: Promise<void> | null = null;
 let eventProcessingQueue: Promise<void> = Promise.resolve();
@@ -577,8 +590,14 @@ async function handleRelayObserverEvent(
       return;
     }
     processLiveObserverEvents(agentPubkey, unwrapObserverBatch(parsed));
+    setNotice(null);
   } catch (error) {
     if (activeGeneration !== generation) {
+      return;
+    }
+    if (isSignerWait(error)) {
+      // Live frames keep coming; the next decrypt that succeeds clears this. Never a red/pink error.
+      setNotice(OBSERVER_SIGNER_WAIT_NOTE);
       return;
     }
     setConnectionState(
@@ -747,13 +766,15 @@ export function getAgentObserverSnapshot(
   if (
     cached &&
     cached.connectionState === connectionState &&
-    cached.errorMessage === errorMessage
+    cached.errorMessage === errorMessage &&
+    cached.noticeMessage === noticeMessage
   ) {
     return cached;
   }
   const snapshot: ObserverSnapshot = {
     connectionState,
     errorMessage,
+    noticeMessage,
     events: eventsByAgent.get(key) ?? [],
   };
   snapshotByAgent.set(key, snapshot);

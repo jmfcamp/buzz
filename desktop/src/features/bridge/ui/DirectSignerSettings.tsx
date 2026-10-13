@@ -77,7 +77,7 @@ export function WebDirectSignerCard() {
 }
 
 const kindName = (k: number) =>
-  k === -1 ? "" : ({ 7: "reaction", 9: "message", 40002: "message", 40003: "edit", 40008: "edit", 45001: "post", 45003: "comment", 30078: "app data", 22242: "relay auth", 27235: "HTTP auth" } as Record<number, string>)[k] ?? `kind ${k}`;
+  k < 0 ? "" : ({ 7: "reaction", 9: "message", 40002: "message", 40003: "edit", 40008: "edit", 45001: "post", 45003: "comment", 30078: "app data", 22242: "relay auth", 27235: "HTTP auth" } as Record<number, string>)[k] ?? `kind ${k}`;
 
 /** Desktop: browsers allowed to sign with this computer, their log, revoke. */
 export function DesktopDirectSignerCard(props: { empty?: boolean } = {}) {

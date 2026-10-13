@@ -81,7 +81,7 @@ export function ManagedAgentSessionPanel({
   // live status and must be renderable for idle agents with channel history.
   // The `hasObserver` flag still gates the relay subscription (via the
   // useEffect in useObserverEvents) and the empty-state message below.
-  const { connectionState, errorMessage, events } = useObserverEvents(
+  const { connectionState, errorMessage, noticeMessage, events } = useObserverEvents(
     hasObserver,
     agent.pubkey,
   );
@@ -156,6 +156,7 @@ export function ManagedAgentSessionPanel({
         emptyDescription={emptyDescription}
         emptyState={emptyState}
         errorMessage={errorMessage}
+        noticeMessage={noticeMessage ?? null}
         events={displayEvents}
         hasObserver={hasObserver}
         hasTranscriptOverride={transcriptOverride != null}
@@ -215,6 +216,7 @@ function SessionBody({
   emptyDescription,
   emptyState,
   errorMessage,
+  noticeMessage,
   events,
   hasObserver,
   hasTranscriptOverride,
@@ -234,6 +236,7 @@ function SessionBody({
   emptyDescription: string;
   emptyState: AgentSessionTranscriptEmptyState;
   errorMessage: string | null;
+  noticeMessage: string | null;
   events: ObserverEvent[];
   hasObserver: boolean;
   hasTranscriptOverride: boolean;
@@ -255,6 +258,13 @@ function SessionBody({
           <p className="mt-4 inline-flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             <CircleAlert className="h-4 w-4" />
             {errorMessage}
+          </p>
+        ) : noticeMessage ? (
+          <p
+            className="mt-4 inline-flex items-center gap-2 rounded-lg border border-border/60 bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
+            data-testid="observer-signer-wait"
+          >
+            {noticeMessage}
           </p>
         ) : null}
       </>
@@ -303,6 +313,13 @@ function SessionBody({
         <p className="mt-4 inline-flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           <CircleAlert className="h-4 w-4" />
           {errorMessage}
+        </p>
+      ) : noticeMessage ? (
+        <p
+          className="mt-4 inline-flex items-center gap-2 rounded-lg border border-border/60 bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
+          data-testid="observer-signer-wait"
+        >
+          {noticeMessage}
         </p>
       ) : null}
     </>
