@@ -80,7 +80,11 @@ export class DirectAgents {
     this.listeners.add(fn);
     return () => void this.listeners.delete(fn);
   }
+  /** True after the Mac answered as a different HulaBuzz than the one this device paired with; cleared on the next success. */
+  otherDesktop = false;
   private set(state: DirectState, err: RemoteError | null = null) {
+    if (err?.code === "wrong_desktop") this.otherDesktop = true;
+    else if (state === "connected") this.otherDesktop = false;
     this.state = state;
     this.version++;
     this.lastError = err;
@@ -229,6 +233,8 @@ export function directErrorCopy(e: unknown): string {
       return "The signed connection expired. Connect again to continue.";
     case "busy":
       return "Your desktop is busy with other requests. Try again in a moment.";
+    case "wrong_desktop":
+      return "A different HulaBuzz on your Mac is answering this device's connection. Open the HulaBuzz you use there (or quit the other one) and this reconnects on its own.";
     case "unknown_op":
       return "Reload your desktop to see this (it's running an older version of the app).";
     default:

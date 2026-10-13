@@ -10,9 +10,10 @@ test("baseline is the latest synced marker, else first-login time", () => {
   assert.equal(computeReadBaseline([400, 99_999], 1_000), 400);
 });
 
-test("markers are floored at the baseline", () => {
+test("only contexts without a marker are floored at the baseline", () => {
   assert.equal(applyReadBaseline(null, 500), 500);
-  assert.equal(applyReadBaseline(200, 500), 500);
+  // a real synced marker wins (desktop parity), even when older than the baseline
+  assert.equal(applyReadBaseline(200, 500), 200);
   assert.equal(applyReadBaseline(800, 500), 800);
   assert.equal(applyReadBaseline(null, null), null);
 });

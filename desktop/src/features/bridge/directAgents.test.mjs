@@ -130,3 +130,15 @@ test("after the signature expires nothing reconnects until the next page visit",
   await d.autoConnect();
   assert.equal(signs, 2);
 });
+
+test("a different HulaBuzz answering the Mac's tailnet address: no signer prompt, wrong_desktop, otherDesktop set", async () => {
+  const s = server();
+  let signs = 0;
+  // paired with "old" (e.g. the installed HulaBuzz); the listener answering is "dsk" (e.g. Buzz Dev)
+  const d = new DirectAgents({ desktopId: "old", url: "ws://127.0.0.1:1/x" }, async () => (signs++, "{}"), s.make);
+  await assert.rejects(d.connect(), (e) => e instanceof RemoteError && e.code === "wrong_desktop");
+  assert.equal(signs, 0, "never asks the signer for a desktop that would refuse the signature");
+  assert.equal(d.otherDesktop, true);
+  assert.match(directErrorCopy(new RemoteError("wrong_desktop")), /different HulaBuzz on your Mac/);
+  d.close();
+});

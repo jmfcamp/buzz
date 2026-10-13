@@ -277,6 +277,18 @@ export class RemoteConnection {
       ws.onerror = () => reject(new RemoteError("unreachable"));
     });
     const challenge = await this.waitFor((f) => f.t === "challenge");
+    // The Mac's single tailnet entry (:9443) belongs to whichever HulaBuzz turned remote access on last. If that's a different
+    // app than the one this device paired with (e.g. Buzz Dev vs the installed HulaBuzz), its signature check would refuse us:
+    // stop before asking the signer, so there's no pointless approval prompt and the page can say what's going on.
+    const servedBy = typeof challenge.desktopId === "string" ? challenge.desktopId : "";
+    if (servedBy && servedBy !== this.info.desktopId) {
+      try {
+        ws.close();
+      } catch {
+        /* already closing */
+      }
+      throw new RemoteError("wrong_desktop");
+    }
     const event = await this.signChallenge(challenge, "connect");
     ws.send(JSON.stringify({ t: "auth", event }));
     const ready = await this.waitFor((f) => f.t === "ready");

@@ -44,7 +44,27 @@ export const DEFAULT_SIDEBAR_MENU_COUNT_PREFERENCES: SidebarMenuCountPreferences
 export const DEFAULT_SIDEBAR_MENU_COUNTS_ENABLED = false;
 
 const listeners = new Set<() => void>();
-let preferences = readStoredSidebarMenuCountPreferences();
+const WEB_INBOX_DEFAULT_KEY = "buzz.appearance.sidebarMenuCountPrefs.webInboxOn.v1";
+let preferences = migrateWebInboxDefault(readStoredSidebarMenuCountPreferences());
+
+/**
+ * Web: the Inbox count became default-on in #244, but a PWA that had saved its prefs before then kept `inbox: false` and
+ * showed no badge while desktop did. Turn it on once per device; any later choice in Settings sticks.
+ */
+function migrateWebInboxDefault(p: SidebarMenuCountPreferences): SidebarMenuCountPreferences {
+  if (import.meta.env?.VITE_BUZZ_PLATFORM !== "web") return p;
+  try {
+    const ls = globalThis.localStorage;
+    if (!ls || ls.getItem(WEB_INBOX_DEFAULT_KEY)) return p;
+    ls.setItem(WEB_INBOX_DEFAULT_KEY, "1");
+    if (p.inbox) return p;
+    const next = { ...p, inbox: true };
+    ls.setItem(SIDEBAR_MENU_COUNT_PREFS_STORAGE_KEY, JSON.stringify(next));
+    return next;
+  } catch {
+    return p;
+  }
+}
 
 function allPreferences(value: boolean): SidebarMenuCountPreferences {
   return {
