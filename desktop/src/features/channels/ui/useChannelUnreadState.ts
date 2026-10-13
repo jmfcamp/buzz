@@ -9,6 +9,9 @@ import {
 } from "@/features/channels/lib/subtreeCreatedAt";
 import { computeThreadReplyUnreadCounts } from "@/features/channels/lib/threadReplyUnreadCounts";
 import { computeThreadBadgeCounts } from "@/features/channels/lib/threadBadgeCounts";
+import { mergeFeedThreadBadgeCounts } from "@/features/channels/lib/feedThreadBadgeCounts";
+import { isWebPlatform } from "@/features/channels/readState/readStateBaseline";
+import type { FeedItem } from "@/shared/api/types";
 import {
   useStableArrayShallow,
   useStableMap,
@@ -45,6 +48,8 @@ type UseChannelUnreadStateOptions = {
   markMessageRead: (messageId: string, timestamp: number) => void;
   isThreadMuted: (rootId: string) => boolean;
   readStateVersion: number;
+  /** Unread thread-reply feed items (web fallback for summary-row badges). */
+  unreadThreadFeedItems?: ReadonlyArray<FeedItem>;
 };
 
 /**
@@ -74,6 +79,7 @@ export function useChannelUnreadState({
   markMessageRead,
   isThreadMuted,
   readStateVersion,
+  unreadThreadFeedItems,
 }: UseChannelUnreadStateOptions) {
   // Capture the read frontier as it stood the instant this channel was opened,
   // BEFORE the mark-read effect (in ChannelScreen) advances it to latest.
@@ -347,27 +353,39 @@ export function useChannelUnreadState({
   // (LP4 Issue 2 by construction). readStateVersion is an intentional recompute
   // trigger so the badge re-reads after any marker advances.
   // biome-ignore lint/correctness/useExhaustiveDependencies: readStateVersion and forcedUnreadVersion are intentional recompute triggers
-  const threadUnreadCountsRaw = React.useMemo(
-    () =>
-      computeThreadBadgeCounts(
-        timelineMessages,
-        repliesByRootId,
-        getMessageReadAt,
-        (rootId) => !isThreadMuted(rootId),
-        currentPubkey,
-        isMsgForcedUnread,
-      ),
-    [
-      currentPubkey,
+  const threadUnreadCountsRaw = React.useMemo(() => {
+    const local = computeThreadBadgeCounts(
       timelineMessages,
       repliesByRootId,
       getMessageReadAt,
-      isThreadMuted,
+      (rootId) => !isThreadMuted(rootId),
+      currentPubkey,
       isMsgForcedUnread,
-      readStateVersion,
-      forcedUnreadVersion,
-    ],
-  );
+    );
+    // Web only: the channel window carries no reply events, so a fresh PWA
+    // load counts nothing locally; fall back to the unread thread feed items
+    // that already light the channel dot. Desktop is unchanged.
+    if (!isWebPlatform() || !unreadThreadFeedItems?.length) return local;
+    return mergeFeedThreadBadgeCounts(local, unreadThreadFeedItems, {
+      channelId: activeChannelId,
+      topLevelIds: new Set(
+        timelineMessages.flatMap((m) => (m.parentId ? [] : [m.id])),
+      ),
+      isNotified: (rootId) => !isThreadMuted(rootId),
+      currentPubkey,
+    });
+  }, [
+    currentPubkey,
+    timelineMessages,
+    repliesByRootId,
+    getMessageReadAt,
+    isThreadMuted,
+    isMsgForcedUnread,
+    readStateVersion,
+    forcedUnreadVersion,
+    unreadThreadFeedItems,
+    activeChannelId,
+  ]);
   // Keep the same Map reference across recomputes when the entries are
   // unchanged. readStateVersion bumps on read-state activity (frequent in busy
   // channels) and recomputes a fresh Map even when no count changed; without
