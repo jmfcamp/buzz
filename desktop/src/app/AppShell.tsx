@@ -138,6 +138,7 @@ import { AppShellTrayMenu } from "@/app/useAppShellTrayMenu";
 import { AppProfilePanelProvider } from "@/app/AppProfilePanelProvider";
 import { AppWorkflowEditorOverlayProvider } from "@/app/AppWorkflowEditorOverlayProvider";
 import { LazySettingsScreen } from "@/app/LazySettingsScreen";
+import { useInboxPushPairing, useIsNotifiedForThread } from "@/app/useInboxPushPairing";
 const EMPTY_CHANNELS: Channel[] = [];
 export function AppShell() {
   useWebviewZoomShortcuts();
@@ -563,6 +564,9 @@ export function AppShell() {
     threadActivityItems,
     mutedRootIds,
   });
+  // Inbox one-to-one with notifications (fetched DMs/thread replies) + relay push prefs.
+  const inboxActivityFeedItems = useInboxPushPairing({ pubkey: identityQuery.data?.pubkey, channels, mentions: homeFeedQuery.data?.feed.mentions, liveItems: threadActivityFeedItems,
+    settings: notificationSettings.settings, followedRootIds, starredRootIds: starredThreadIds, mutedChannelIds, mutedRootIds, enabled: !isHuddleRoom });
   const markAllChannelsRead = React.useCallback(() => {
     markAllReadSources({
       activeChannelId: activeChannel?.id ?? null,
@@ -595,27 +599,18 @@ export function AppShell() {
     feedProfilesQuery.data?.profiles,
     mutedChannelIds,
     feedItemState.unreadSet,
-    threadActivityFeedItems,
+    inboxActivityFeedItems,
     getThreadReadAt,
     getMessageReadAt,
     channels,
     huddleBackingChannelIds,
   );
-  const isNotifiedForThread = React.useCallback(
-    (rootId: string) =>
-      !mutedRootIds.has(rootId) &&
-      (followedRootIds.has(rootId) ||
-        starredThreadIds.has(rootId) ||
-        participatedRootIds.has(rootId) ||
-        authoredRootIds.has(rootId)),
-    [
-      followedRootIds,
-      starredThreadIds,
-      mutedRootIds,
-      participatedRootIds,
-      authoredRootIds,
-    ],
-  );
+  const isNotifiedForThread = useIsNotifiedForThread(mutedRootIds, [
+    followedRootIds,
+    starredThreadIds,
+    participatedRootIds,
+    authoredRootIds,
+  ]);
 
   const handleFollowThread = React.useCallback(
     (rootId: string) => {
@@ -867,7 +862,7 @@ export function AppShell() {
             recordThreadInteraction,
             isThreadMuted: (rootId) => mutedRootIds.has(rootId),
             threadActivityItems,
-            threadActivityFeedItems,
+            threadActivityFeedItems: inboxActivityFeedItems,
             locallyUnreadFeedItems,
             unreadThreadFeedItems,
             unreadThreadChannelIds,
