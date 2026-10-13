@@ -764,6 +764,15 @@ pub async fn enqueue_wakes(
                 $2::bytea[], $3::text[], $4::bigint[], $5::bytea[],
                 $6::bytea[], $7::text[], $8::bigint[]
             ) AS t(a, i, g, eh, ev, c, ex)
+            -- One wake per event per device: a lease re-send rotates the
+            -- endpoint grant (new endpoint_hash) and its activation backfill
+            -- re-matches the last 120s of events, so the endpoint-keyed
+            -- conflict target alone would push the same event twice.
+            WHERE NOT EXISTS (
+                SELECT 1 FROM push_wake_outbox o
+                WHERE o.community_id = $1 AND o.author = t.a
+                  AND o.installation_id = t.i AND o.event_id = t.ev
+            )
             ON CONFLICT (community_id, endpoint_hash, event_id) DO NOTHING
             RETURNING endpoint_hash, event_id, id
             "#,
@@ -790,15 +799,21 @@ pub async fn enqueue_wakes(
         if inserted_keys.len() < ins_events.len() {
             let dup_rows = sqlx::query(
                 r#"
-                SELECT endpoint_hash, event_id, id FROM push_wake_outbox
-                WHERE community_id = $1
-                  AND (endpoint_hash, event_id) IN
-                      (SELECT eh, ev FROM UNNEST($2::bytea[], $3::bytea[]) AS t(eh, ev))
+                SELECT t.eh AS endpoint_hash, t.ev AS event_id, o.id
+                FROM UNNEST($2::bytea[], $3::bytea[], $4::bytea[], $5::text[])
+                     AS t(eh, ev, a, i)
+                JOIN push_wake_outbox o
+                  ON o.community_id = $1 AND o.event_id = t.ev
+                 AND (o.endpoint_hash = t.eh
+                      OR (o.author = t.a AND o.installation_id = t.i))
+                ORDER BY o.created_at
                 "#,
             )
             .bind(community.as_uuid())
             .bind(&ins_endpoints)
             .bind(&ins_events)
+            .bind(&ins_authors)
+            .bind(&ins_installs)
             .fetch_all(&mut *tx)
             .await?;
             for row in dup_rows {
@@ -2163,6 +2178,40 @@ mod postgres_tests {
                 .await
                 .expect("count outbox rows");
         assert_eq!(total, 3, "one row per distinct (endpoint, event) key");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Postgres"]
+    async fn rotated_endpoint_does_not_re_wake_same_event_for_same_installation() {
+        let pool = setup_pool().await;
+        let community = make_community(&pool).await;
+        let author = [31; 32];
+        activate(&pool, community, &author, "install", &[32; 32], 1).await;
+        let first = enqueue_one(&pool, community, &author, &[33; 32], 1).await;
+        // Lease re-send: same installation, new endpoint grant/hash, newer generation.
+        activate(&pool, community, &author, "install", &[34; 32], 2).await;
+        let again = enqueue_wake(
+            &pool,
+            community,
+            &author,
+            "install",
+            NewWake {
+                lease_generation: 2,
+                event_id: &[33; 32],
+                class: "default",
+                expires_at: i64::MAX / 2,
+            },
+        )
+        .await
+        .expect("re-enqueue");
+        assert_eq!(again, EnqueueWakeOutcome::Duplicate(first));
+        let total: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM push_wake_outbox WHERE community_id = $1")
+                .bind(community.as_uuid())
+                .fetch_one(&pool)
+                .await
+                .expect("count");
+        assert_eq!(total, 1, "one wake per event per installation");
     }
 
     async fn enqueue_one(
