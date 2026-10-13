@@ -1,3 +1,4 @@
+import { decryptAppData } from "@/shared/lib/appData";
 import { makeRootIdStore } from "@/features/channels/unreadRootIdStore";
 import {
   forcedUnreadMarker,
@@ -22,7 +23,6 @@ import {
 import type { Community } from "@/features/communities/types";
 import { withReadOnlyRelayClient } from "@/shared/api/readOnlyRelayClient";
 import type { RelaySubscriptionFilter } from "@/shared/api/relayClientShared";
-import { nip44DecryptFromSelf } from "@/shared/api/tauri";
 import type { ChannelType, RelayEvent } from "@/shared/api/types";
 import {
   CHANNEL_MESSAGE_EVENT_KINDS,
@@ -165,7 +165,7 @@ export async function fetchCommunityUnread(args: {
   const { client, pubkey } = args;
   const normalizedPubkey = pubkey.toLowerCase();
   const nowSeconds = args.nowSeconds ?? Math.floor(Date.now() / 1_000);
-  const decryptMutes = args.decryptMutes ?? nip44DecryptFromSelf;
+  const decryptMutes = args.decryptMutes ?? decryptAppData;
   const readRelationships =
     args.readThreadRelationships ?? defaultReadThreadRelationships;
   const readForcedUnread =
