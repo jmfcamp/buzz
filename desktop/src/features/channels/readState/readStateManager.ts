@@ -327,8 +327,10 @@ export class ReadStateManager {
     if (isWebPlatform() && this.readBaseline === null) {
       const now = Math.floor(Date.now() / 1_000);
       this.readBaseline = computeReadBaseline(this.effectiveState.values(), now);
-      // Persist only once the relay answered, so a failed fetch retries next launch.
-      if (fetched) saveReadBaseline(this.pubkey, this.readBaseline);
+      // Persist only once the relay answered AND the markers it returned could be read (decrypted by the signer). A
+      // baseline saved after a failed decrypt was "now", which marked every older Inbox row read for good (web 0 vs desktop N).
+      const markersReadable = this.fetchedEventCount === 0 || this.parsedEventCount > 0;
+      if (fetched && markersReadable) saveReadBaseline(this.pubkey, this.readBaseline);
     }
     await this.startLiveSubscription();
     if (this.destroyed) return;
@@ -454,6 +456,8 @@ export class ReadStateManager {
     this.listeners.clear();
   }
 
+  private fetchedEventCount = 0;
+  private parsedEventCount = 0;
   private async fetchAndMerge(): Promise<boolean> {
     let events: RelayEvent[];
     try {
@@ -470,6 +474,7 @@ export class ReadStateManager {
       return false;
     }
 
+    this.fetchedEventCount = events.length;
     await this.mergeEvents(events);
     this.persistLocalState();
     this.notifyListeners();
@@ -489,6 +494,7 @@ export class ReadStateManager {
       const parsed = await this.parseEvent(event);
       if (this.destroyed) return;
       if (!parsed) continue;
+      this.parsedEventCount++;
 
       this.maxFetchedCreatedAt = Math.max(
         this.maxFetchedCreatedAt,

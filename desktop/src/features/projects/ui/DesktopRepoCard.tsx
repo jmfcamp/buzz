@@ -11,13 +11,13 @@ import { cn } from "@/shared/lib/cn";
 import { ReconnectCard } from "@/shared/ui/reconnect-card";
 
 const DESKTOP_ERR =
-  /not available in the web app|needs a direct connection|couldn't reach your desktop|reload your desktop|older version of the app|remote agent management is off|signed connection expired|desktop is busy/i;
+  /not available in the web app|needs a direct connection|couldn't reach your desktop|reload your desktop|older version of the app|remote agent management is off|signed connection expired|desktop is busy|different hulabuzz on your mac/i;
 
 /** True on web when an error only means "this needs your desktop over Direct" (not a real repository failure). */
 export function isDesktopRepoError(e: unknown): boolean {
   if (!isWebBuild() || !e) return false;
   const code = (e as { code?: unknown }).code;
-  if (code === "needs_direct" || code === "unknown_op") return true;
+  if (code === "needs_direct" || code === "unknown_op" || code === "wrong_desktop" || code === "agents_disabled") return true;
   const m = e instanceof Error ? e.message : typeof e === "string" ? e : "";
   return DESKTOP_ERR.test(m);
 }
@@ -85,6 +85,28 @@ export function DesktopRepoCard(props: { error?: unknown; compact?: boolean; wha
   }, [live, props.error, stale, qc]);
   if (!isWebBuild()) return null;
   const wrap = (n: React.ReactNode) => <div className={cn(props.compact ? "" : "flex min-h-[40vh] items-center justify-center p-6")}>{n}</div>;
+  const mgmtOff =
+    live &&
+    ((props.error as { code?: unknown } | undefined)?.code === "agents_disabled" ||
+      /remote agent management is off/i.test(props.error instanceof Error ? props.error.message : ""));
+  if (!live && direct?.otherDesktop)
+    return wrap(
+      <CalmCard
+        compact={props.compact}
+        testId="desktop-repo-other-app"
+        title="A different HulaBuzz on your Mac is answering"
+        description={`This device is paired with another HulaBuzz than the one that has remote access on your Mac. Open the HulaBuzz you use there (or quit the other one) and ${what} shows up here on its own.`}
+      />,
+    );
+  if (mgmtOff)
+    return wrap(
+      <CalmCard
+        compact={props.compact}
+        testId="desktop-repo-mgmt-off"
+        title={`Turn on remote access on your Mac to browse ${what}`}
+        description="In HulaBuzz on your Mac: Settings → Agents → Allow remote agent management. This refreshes on its own."
+      />,
+    );
   if (reconnecting)
     return wrap(
       <ReconnectCard

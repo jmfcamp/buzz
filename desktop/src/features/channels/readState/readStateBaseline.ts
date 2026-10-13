@@ -8,11 +8,12 @@
 //
 // Fix: the first time read state finishes loading on web for a pubkey, persist a
 // baseline = the latest synced marker (what the user had read up to on another
-// device) or, with no markers at all, the first-login time. Every marker lookup is
-// floored at that baseline, so anything older reads as "read"; anything newer still
-// follows the real synced markers. Desktop is unaffected (no floor).
+// device) or, with no markers at all, the first-login time. Contexts WITHOUT a marker are
+// floored at that baseline, so their older history reads as "read"; contexts with a real
+// synced marker follow it exactly (same count as desktop). Desktop is unaffected (no floor).
 
-const BASELINE_KEY_PREFIX = "buzz.read-baseline.v1:";
+// v2: v1 floors could be saved after a failed marker decrypt (= first-login time), hiding every older unread; recompute once.
+const BASELINE_KEY_PREFIX = "buzz.read-baseline.v2:";
 // Guard against a skewed/future marker pushing the floor past "now".
 const FUTURE_SLACK_SECONDS = 60;
 
@@ -63,6 +64,8 @@ export function applyReadBaseline(
   marker: number | null,
   baseline: number | null,
 ): number | null {
+  // Only contexts with no synced marker of their own are floored. A real marker (from desktop or this device) wins as-is,
+  // so a channel read up to yesterday still shows today's unread on web exactly as on desktop.
   if (baseline === null) return marker;
-  return marker === null ? baseline : Math.max(marker, baseline);
+  return marker === null ? baseline : marker;
 }

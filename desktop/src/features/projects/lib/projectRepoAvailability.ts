@@ -81,7 +81,9 @@ export function projectRepoUnavailableReason(
   const code = (error as { code?: unknown } | null)?.code;
   if (
     code === "needs_direct" ||
-    /not available in the web app|needs a direct connection|couldn't reach your desktop|reload your desktop|older version of the app|remote agent management is off/.test(
+    code === "wrong_desktop" ||
+    code === "agents_disabled" ||
+    /not available in the web app|needs a direct connection|couldn't reach your desktop|reload your desktop|older version of the app|remote agent management is off|different hulabuzz on your mac/.test(
       message,
     )
   ) {
