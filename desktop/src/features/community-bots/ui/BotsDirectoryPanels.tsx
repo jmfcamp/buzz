@@ -9,7 +9,7 @@ import {
   type CommunityBotDirectoryCard,
   type CommunityBotDirectoryDetail,
 } from "@/features/community-bots/lib/directory";
-import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
+import { ProfileHeroAvatar } from "@/features/profile/ui/UserProfilePanelSections";
 import { ProfileSectionGroup } from "@/features/profile/ui/UserProfilePanelFields";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -91,22 +91,18 @@ export function BotDetailContent({
           visible under the overlapping Profile header (overflow clips shadows
           / borders when the avatar sits flush with the scroll edge).
         */}
-        <span
-          className="relative inline-flex h-20 w-20 shrink-0"
-          data-testid="bot-detail-avatar"
-        >
-          {/* Same hero avatar as a local agent's profile (UserProfilePanelSections): 80px squircle, image when the bot has
-              one, the same pubkey-based fallback otherwise. */}
-          <ProfileAvatar
-            avatarUrl={detail.avatarUrl ?? null}
-            className="h-full w-full text-xl"
-            iconClassName="h-8 w-8"
-            label={detail.name}
-            plain
+        <span className="inline-flex shrink-0" data-testid="bot-detail-avatar">
+          {/* The exact hero avatar a local agent's profile renders (same component, size, mask, image source). */}
+          <ProfileHeroAvatar
+            avatarUrl={detail.avatarUrl}
+            displayName={detail.name}
+            isBot
+            presenceStatus={
+              detail.status.id === "online" || detail.status.id === "away" || detail.status.id === "offline"
+                ? detail.status.id
+                : undefined
+            }
             pubkey={detail.hexPubkey}
-            shape="squircle"
-            showOpenClawWorkspaceBadge={false}
-            testId="bot-detail-avatar-image"
           />
         </span>
         <div className="flex max-w-full flex-col items-center gap-1">
