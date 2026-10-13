@@ -13,6 +13,8 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import { sendStatus } from "@/shared/lib/sendStatus";
 import { NIP07_TIMEOUT_SCALE, signerHealth } from "./signerHealth";
 import { signerStatus } from "./signerStatus";
+import { verifyEvent } from "nostr-tools/pure";
+import { getDirectSignRoute, type DirectSignRoute } from "./directRoute";
 import type { SignedEvent, SignOpts, SignPriority, Signer, UnsignedEvent } from "./types";
 
 export type CallRecord = {
@@ -39,6 +41,7 @@ const AUTH_TIMEOUT_MS = 25_000;
 const DEFAULT_SIGN_TIMEOUT_MS = 60_000;
 const BG_TIMEOUT_MS = 20_000;
 const CRYPTO_TIMEOUT_MS = 15_000;
+const DIRECT_SIGN_TIMEOUT_MS = 8_000; // paired desktop over Direct; slower than this -> remote signer
 const BOOT_DEFER_MS = 12_000; // settings decrypts / background work wait for the first screen, but never longer than this
 const BREAKER_AFTER = 3; // consecutive crypto timeouts
 const BREAKER_MS = 60_000;
@@ -723,12 +726,38 @@ export function instrumentSigner<S extends Signer>(inner: S): S {
     kind: inner.kind,
     getPublicKey: () => inner.getPublicKey(),
     signEvent(ev: UnsignedEvent, opts?: SignOpts): Promise<SignedEvent> {
+      const direct = getDirectSignRoute();
+      if (direct) return signViaDirect(direct, ev, opts);
+      return signRouted(ev, opts);
+    },
+  };
+  // Paired desktop over a live Direct connection first (no remote-signer round trip); any failure falls back.
+  const signViaDirect = async (direct: DirectSignRoute, ev: UnsignedEvent, opts?: SignOpts): Promise<SignedEvent> => {
+    const withTs = { ...ev, created_at: ev.created_at ?? Math.floor(Date.now() / 1000) };
+    try {
+      const [signed, me] = await Promise.all([
+        Promise.race([
+          direct(withTs),
+          new Promise<never>((_, rej) => setTimeout(() => rej(new Error("direct sign timeout")), DIRECT_SIGN_TIMEOUT_MS)),
+        ]),
+        inner.getPublicKey(),
+      ]);
+      if (signed.pubkey === me && signed.kind === withTs.kind && signed.content === withTs.content && verifyEvent(signed as never))
+        return signed;
+      console.warn("[signer] direct desktop returned an event that did not verify; using the remote signer");
+    } catch {
+      /* fall back */
+    }
+    return signRouted(withTs, opts);
+  };
+  const signRouted = (ev: UnsignedEvent, opts?: SignOpts): Promise<SignedEvent> => {
+    {
       const prio = opts?.priority ?? priorityForKind(ev.kind);
       if (ev.kind === 20002 && prio === 3) return signTyping(ev);
       if (ev.kind === 20001 && prio === 3) return signPresence(ev);
       if (ev.kind === 27235 && prio === 3) return signBackgroundRead(ev);
       return signNormal(ev, prio);
-    },
+    }
   };
   if ("client" in inner) wrapped.client = (inner as unknown as { client: unknown }).client;
   const n = inner.nip44;
