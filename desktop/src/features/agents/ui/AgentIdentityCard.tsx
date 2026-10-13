@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 
 import { useDesktopData } from "@/features/bridge/ui/DesktopData";
 import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
@@ -37,6 +37,7 @@ export function AgentIdentityCard({
   statusBadge,
 }: AgentIdentityCardProps) {
   const trimmedAvatarUrl = avatarUrl?.trim() || null;
+  const overlayRef = useRef<HTMLButtonElement>(null);
   // Web without Direct: the card still shows (cached/relay data) but its controls (start/stop on the avatar, the ⋯ menu) are off.
   const { web, live } = useDesktopData();
   const controlsOff = web && !live;
@@ -55,11 +56,21 @@ export function AgentIdentityCard({
         "group relative aspect-[4/5] w-full min-w-0 overflow-hidden rounded-2xl border border-border/70 bg-muted/50 text-left shadow-xs transition-colors hover:border-border hover:bg-muted/65",
       )}
       data-testid={dataTestId}
+      // The whole card (avatar included) is one tap target. iOS Safari doesn't reliably pass taps on the avatar image
+      // through to the overlay button, so the card itself handles them. Controls on the card (the ⋮ menu, the Start
+      // badge, status badges) keep their own taps, and so do clicks from portalled menus (not inside this DOM node).
+      onClick={(event) => {
+        const target = event.target as HTMLElement;
+        if (!event.currentTarget.contains(target)) return;
+        const control = target.closest("button, a, input, select, textarea, [role='menuitem'], [role='menu'], [data-card-control]");
+        if (control && control !== overlayRef.current && event.currentTarget.contains(control)) return;
+        onClick();
+      }}
     >
       <button
         aria-label={ariaLabel}
-        className="absolute inset-0 z-10 rounded-2xl focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-        onClick={onClick}
+        className="absolute inset-0 z-10 cursor-pointer rounded-2xl focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+        ref={overlayRef}
         type="button"
       />
 
@@ -85,7 +96,7 @@ export function AgentIdentityCard({
       </div>
 
       {actions ? (
-        <div className="absolute top-3 right-3 z-40">{actions}</div>
+        <div className="absolute top-3 right-3 z-40" data-card-control="">{actions}</div>
       ) : null}
 
       <div className="pointer-events-none absolute right-3 bottom-3 left-3 z-30 flex min-w-0 items-end gap-2 text-left text-sm leading-5">
