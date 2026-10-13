@@ -3,7 +3,6 @@ import { ArrowUpRight, MessageSquare } from "lucide-react";
 import { UsageAndActivityButton } from "@/features/agents/ui/AgentUsageActivityPanel";
 
 import { AgentIdentityCard } from "@/features/agents/ui/AgentIdentityCard";
-import { IdentityInitialsAvatar } from "@/features/agents/ui/IdentityInitialsAvatar";
 import { IDENTITY_CARD_GRID_CLASS } from "@/features/agents/ui/UnifiedAgentsSection";
 import {
   communityBotDirectoryChannelLink,
@@ -96,21 +95,19 @@ export function BotDetailContent({
           className="relative inline-flex h-20 w-20 shrink-0"
           data-testid="bot-detail-avatar"
         >
-          {detail.avatarUrl ? (
-            <ProfileAvatar
-              avatarUrl={detail.avatarUrl}
-              className="h-full w-full border-[3px] border-background bg-muted shadow-none"
-              iconClassName="h-8 w-8"
-              label={detail.name}
-              openClawBadgeAvatarPx={80}
-            />
-          ) : (
-            <IdentityInitialsAvatar
-              className="shadow-none"
-              label={detail.name}
-              size={80}
-            />
-          )}
+          {/* Same hero avatar as a local agent's profile (UserProfilePanelSections): 80px squircle, image when the bot has
+              one, the same pubkey-based fallback otherwise. */}
+          <ProfileAvatar
+            avatarUrl={detail.avatarUrl ?? null}
+            className="h-full w-full text-xl"
+            iconClassName="h-8 w-8"
+            label={detail.name}
+            plain
+            pubkey={detail.hexPubkey}
+            shape="squircle"
+            showOpenClawWorkspaceBadge={false}
+            testId="bot-detail-avatar-image"
+          />
         </span>
         <div className="flex max-w-full flex-col items-center gap-1">
           <h2
