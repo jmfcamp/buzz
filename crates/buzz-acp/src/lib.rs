@@ -3338,7 +3338,6 @@ async fn run_harness(
             }
         }
 
-
         // Reap completed respawn handles from the JoinSet. Payloads are
         // delivered out-of-band through `respawn_rx` (selected below), so the
         // JoinSet is never joined by the normal flow — Tokio retains finished
