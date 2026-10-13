@@ -1250,7 +1250,7 @@ pub async fn query_events(
         super::web_session::resolve(&state, &tenant, &headers).await
     };
     let (pubkey, event_id_bytes, signed_created_at) = if let Some(session) = session {
-        let auth = session?;
+        let auth = session.map_err(|e| e.into_response())?;
         (auth.pubkey, auth.event_id_bytes, auth.signed_created_at)
     } else {
         // NIP-FI admission. [FI-TRACE-AUTHORITY-UNIFORM]
@@ -1894,7 +1894,7 @@ pub async fn count_events(
         super::web_session::resolve(&state, &tenant, &headers).await
     };
     let (pubkey, event_id_bytes, signed_created_at) = if let Some(session) = session {
-        let auth = session?;
+        let auth = session.map_err(|e| e.into_response())?;
         (auth.pubkey, auth.event_id_bytes, auth.signed_created_at)
     } else {
         // NIP-FI admission. [FI-TRACE-AUTHORITY-UNIFORM]
