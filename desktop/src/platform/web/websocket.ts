@@ -10,6 +10,12 @@ import { onOffline, onResume, isPageVisible } from "@/shared/lib/resumeSignals";
 type Sink = { onmessage: (m: unknown) => void };
 type Entry = {
   ws: WebSocket;
+  url: string;
+  /** NIP-42: id of the AUTH event the session sent, and whether the relay accepted it */
+  authId: string | null;
+  authed: boolean;
+  /** side-channel handlers keyed by subscription id (REQ) or event id (EVENT → OK) */
+  side: Map<string, (frame: unknown[]) => void>;
   sink: Sink;
   lastRx: number;
   probe: ReturnType<typeof setTimeout> | null;
@@ -27,6 +33,9 @@ const ZERO_ID = "0".repeat(64);
 function report(id: number, e: Entry, code: number, reason: string) {
   if (e.dead) return;
   e.dead = true;
+  for (const f of deadListeners.get(e) ?? []) f();
+  deadListeners.delete(e);
+  e.side.clear();
   if (e.probe) clearTimeout(e.probe);
   sockets.delete(id);
   e.sink.onmessage({ type: "Close", data: { code, reason } });
@@ -104,7 +113,7 @@ export function wsConnect(url: string, sink: Sink): Promise<number> {
   return new Promise((resolve, reject) => {
     const id = next++;
     const ws = new WebSocket(url);
-    const e: Entry = { ws, sink, lastRx: Date.now(), probe: null, dead: false };
+    const e: Entry = { ws, url, authId: null, authed: false, side: new Map(), sink, lastRx: Date.now(), probe: null, dead: false };
     sockets.set(id, e);
     ws.onopen = () => {
       e.lastRx = Date.now();
@@ -123,6 +132,20 @@ export function wsConnect(url: string, sink: Sink): Promise<number> {
           e.ws.send(JSON.stringify(["CLOSE", parsed[1]]));
         return;
       }
+      if (data.startsWith('["OK"') || e.side.size) {
+        let parsed: unknown[] | null = null;
+        try {
+          parsed = JSON.parse(data);
+        } catch {}
+        if (Array.isArray(parsed) && typeof parsed[1] === "string") {
+          if (parsed[0] === "OK" && parsed[1] === e.authId) e.authed = parsed[2] === true;
+          const h = e.side.get(parsed[1]);
+          if (h) {
+            h(parsed);
+            return; // side-channel frame: never shown to the session
+          }
+        }
+      }
       sink.onmessage({ type: "Text", data });
     };
     ws.onclose = (c) => report(id, e, c.code, c.reason);
@@ -131,7 +154,47 @@ export function wsConnect(url: string, sink: Sink): Promise<number> {
 export function wsSend(id: number, message: { type: string; data: string }) {
   const e = sockets.get(id);
   if (!e) throw new Error(`WebSocket ${id} not found`);
+  if (message.data.startsWith('["AUTH"')) {
+    try {
+      const m = JSON.parse(message.data);
+      if (m?.[1]?.id) {
+        e.authId = m[1].id;
+        e.authed = false;
+      }
+    } catch {}
+  }
   e.ws.send(message.data);
+}
+
+/**
+ * The live relay session's socket, once NIP-42 AUTH succeeded on it, as a side channel: one-shot reads and event
+ * publishes ride on it instead of a second socket with its own AUTH signature. Frames for side-channel keys never reach
+ * the session. Null when no authenticated live socket for `url` is open.
+ */
+export type SharedSocket = {
+  send: (raw: string) => void;
+  on: (key: string, handler: (frame: unknown[]) => void) => void;
+  off: (key: string) => void;
+  onDead: (f: () => void) => () => void;
+};
+const deadListeners = new Map<Entry, Set<() => void>>();
+export function sharedAuthedSocket(url: string): SharedSocket | null {
+  const norm = (u: string) => u.replace(/\/+$/, "");
+  for (const e of sockets.values()) {
+    if (e.dead || !e.authed || e.ws.readyState !== WebSocket.OPEN || norm(e.url) !== norm(url)) continue;
+    return {
+      send: (raw) => e.ws.send(raw),
+      on: (k, h) => void e.side.set(k, h),
+      off: (k) => void e.side.delete(k),
+      onDead: (f) => {
+        let set = deadListeners.get(e);
+        if (!set) deadListeners.set(e, (set = new Set()));
+        set.add(f);
+        return () => void set?.delete(f);
+      },
+    };
+  }
+  return null;
 }
 export function wsClose(id: number) {
   const e = sockets.get(id);

@@ -36,6 +36,9 @@ import { setLocalStorageItemWithRecovery } from "@/shared/lib/localStorageQuota"
 import { truncatePubkey } from "@/shared/lib/pubkey";
 
 const PUBLISH_DEBOUNCE_MS = 5_000;
+/** Web signs every read-marker publish through a remote (NIP-46) signer, so
+ * batch them: one publish per window, flushed immediately when the page hides. */
+const WEB_PUBLISH_WINDOW_MS = 45_000;
 const LOCAL_PERSIST_MAX_WAIT_MS = 1_000;
 /** How many of our own just-published event ids to remember so the live
  * subscription can drop their relay echoes before the nip44 decrypt. A
@@ -663,13 +666,27 @@ export class ReadStateManager {
 
   private schedulePublish(): void {
     if (this.destroyed) return;
+    const web = isWebPlatform();
     if (this.debounceTimer !== null) {
+      // Web: fixed window (don't let continuous reading postpone it forever).
+      if (web) return;
       window.clearTimeout(this.debounceTimer);
     }
-    this.debounceTimer = window.setTimeout(() => {
-      this.debounceTimer = null;
-      void this.publish();
-    }, PUBLISH_DEBOUNCE_MS);
+    this.debounceTimer = window.setTimeout(
+      () => {
+        this.debounceTimer = null;
+        void this.publish();
+      },
+      web ? WEB_PUBLISH_WINDOW_MS : PUBLISH_DEBOUNCE_MS,
+    );
+  }
+
+  /** Publish a pending batch now (page hidden / unloading). */
+  private flushPendingPublish(): void {
+    if (this.destroyed || this.debounceTimer === null) return;
+    window.clearTimeout(this.debounceTimer);
+    this.debounceTimer = null;
+    void this.publish();
   }
 
   private async publish(): Promise<void> {
@@ -997,6 +1014,7 @@ export class ReadStateManager {
   private readonly handleVisibilityChange = (): void => {
     if (document.visibilityState === "hidden") {
       this.flushLocalState();
+      this.flushPendingPublish();
     }
   };
 

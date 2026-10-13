@@ -1,6 +1,6 @@
+import { lazyDecryptFromSelf } from "@/shared/lib/lazyDecrypt";
 import { relayClient } from "@/shared/api/relayClient";
 import {
-  nip44DecryptFromSelf,
   nip44EncryptToSelf,
   signRelayEvent,
 } from "@/shared/api/tauri";
@@ -120,7 +120,7 @@ async function decryptReminder(event: RelayEvent): Promise<Reminder | null> {
 
   let plaintext: string;
   try {
-    plaintext = await nip44DecryptFromSelf(event.content);
+    plaintext = await lazyDecryptFromSelf(event.content);
   } catch {
     console.warn("[reminderService] failed to decrypt reminder:", event.id);
     return null;

@@ -2,6 +2,8 @@
 // bearer (`Authorization: BuzzSession <token>`) for HTTP reads (/query) instead of asking the signer per request.
 // Read-only and bound server-side to this pubkey + community; expires (8h) and is revoked on sign-out.
 // Older relays without /auth/session answer 404/405 → we fall back to per-request NIP-98 and retry later.
+// Kept in localStorage (with its server expiry) so an iOS PWA relaunch reuses it instead of asking the signer again; the
+// token is read-only, pubkey + relay bound, and revoked on sign-out.
 
 type Stored = { base: string; pk: string; token: string; exp: number };
 const STORE_KEY = "buzz-relay-session";
@@ -15,6 +17,13 @@ let minting: Promise<Stored | null> | null = null;
 let backoffUntil = 0;
 
 const now = () => Math.floor(Date.now() / 1000);
+const sessionStore = (): Storage | null => {
+  try {
+    return typeof localStorage !== "undefined" ? localStorage : sessionStorage;
+  } catch {
+    return null;
+  }
+};
 
 function load(base: string, pk: string): Stored | null {
   if (
@@ -26,7 +35,7 @@ function load(base: string, pk: string): Stored | null {
     return current;
   try {
     const s = JSON.parse(
-      sessionStorage.getItem(STORE_KEY) || "null",
+      sessionStore()?.getItem(STORE_KEY) || "null",
     ) as Stored | null;
     if (
       s &&
@@ -47,8 +56,9 @@ function load(base: string, pk: string): Stored | null {
 function save(s: Stored | null) {
   current = s;
   try {
-    if (s) sessionStorage.setItem(STORE_KEY, JSON.stringify(s));
-    else sessionStorage.removeItem(STORE_KEY);
+    if (s) sessionStore()?.setItem(STORE_KEY, JSON.stringify(s));
+    else sessionStore()?.removeItem(STORE_KEY);
+    if (!s) sessionStorage.removeItem(STORE_KEY); // legacy location
   } catch {
     /* storage unavailable */
   }
@@ -118,7 +128,7 @@ export function revokeRelaySession(
     (() => {
       try {
         return JSON.parse(
-          sessionStorage.getItem(STORE_KEY) || "null",
+          sessionStore()?.getItem(STORE_KEY) || "null",
         ) as Stored | null;
       } catch {
         return null;
