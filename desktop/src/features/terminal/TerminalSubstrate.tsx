@@ -109,6 +109,37 @@ type TerminalSubstrateProps = {
 const TOUCH_SENTINEL = "\u200b";
 const TOUCH_SEED = TOUCH_SENTINEL.repeat(64);
 
+/**
+ * What a touch delete event means for the PTY. iOS long-hold backspace starts as single-char deleteContentBackward events and
+ * then switches to word steps at a slower cadence. Those arrive as deleteWordBackward OR as deleteContentBackward whose target
+ * range spans several characters; sending one DEL for those made the hold crawl to ~1 char per 0.5–1 s. Word steps now send
+ * ^W (word erase), line deletes ^U; single chars stay one DEL each, sent immediately.
+ */
+export function touchDeleteSeq(event: Pick<InputEvent, "inputType"> & { getTargetRanges?: () => ArrayLike<StaticRange> }): string | null {
+  switch (event.inputType) {
+    case "deleteWordBackward":
+      return "\x17";
+    case "deleteSoftLineBackward":
+    case "deleteHardLineBackward":
+      return "\x15";
+    case "deleteContentBackward": {
+      let span = 0;
+      try {
+        const ranges = event.getTargetRanges?.() ?? [];
+        for (let i = 0; i < ranges.length; i++) {
+          const r = ranges[i];
+          span += r.startContainer === r.endContainer ? Math.abs(r.endOffset - r.startOffset) : 2;
+        }
+      } catch {
+        /* no ranges: single char */
+      }
+      return span > 1 ? "\x17" : "\x7f";
+    }
+    default:
+      return null;
+  }
+}
+
 /** Touch scroll gain: 1:1 for slow drags (precise), up to 3x for fast flicks; mouse-tracking TUIs get 2x more (wheel = 1 line). */
 function touchScrollGain(speedPxPerMs: number, mouseTracking: boolean): number {
   const accel = 1 + Math.min(2, Math.max(0, speedPxPerMs - 0.3) * 1.5);
@@ -983,7 +1014,7 @@ export function TerminalSubstrate({
       }
     };
     const onBeforeInput = (event: InputEvent) => {
-      const seq = event.inputType === "deleteContentBackward" ? "\x7f" : event.inputType === "deleteWordBackward" ? "\x17" : null;
+      const seq = touchDeleteSeq(event);
       if (!seq) return;
       event.preventDefault();
       sendInput(seq);

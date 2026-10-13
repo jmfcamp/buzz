@@ -1,3 +1,4 @@
+import { FolderKanban } from "lucide-react";
 import * as React from "react";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useChannelMessagesQueries } from "@/features/messages/hooks";
@@ -146,6 +147,7 @@ export function ProjectsIndexActivity({
   workItemsError,
   workItemsLoading,
   workItemsRetrying,
+  onPhoneBack,
 }: {
   channelsById: ReadonlyMap<string, ProjectsIndexChannel>;
   collapsed: boolean;
@@ -158,6 +160,8 @@ export function ProjectsIndexActivity({
   workItemsFailedSections: ProjectWorkItemSection[];
   workItemsLoading: boolean;
   workItemsRetrying: boolean;
+  /** Phone: the activity pane is shown alone (full width); this switches back to the project list. */
+  onPhoneBack?: () => void;
 }) {
   const { goChannel, goProject } = useAppNavigation();
   const { activeCommunity } = useCommunities();
@@ -475,7 +479,7 @@ export function ProjectsIndexActivity({
     <div
       className={cn(
         "flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden border-l border-border/60 transition-[width] duration-200",
-        collapsed ? "w-10" : "w-1/2",
+        onPhoneBack ? "w-full flex-1 border-l-0" : collapsed ? "w-10" : "w-1/2",
       )}
       data-testid="projects-index-activity"
     >
@@ -488,7 +492,20 @@ export function ProjectsIndexActivity({
       >
         {collapsed ? null : (
           <>
-            <span className="shrink-0 text-sm font-medium">Activity</span>
+            {onPhoneBack ? (
+              <button
+                aria-label="Show projects"
+                className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-border px-2.5 text-xs text-muted-foreground hover:text-foreground"
+                data-testid="projects-phone-pane-back"
+                onClick={onPhoneBack}
+                type="button"
+              >
+                <FolderKanban aria-hidden className="h-3.5 w-3.5" />
+                <span>Projects</span>
+              </button>
+            ) : (
+              <span className="shrink-0 text-sm font-medium">Activity</span>
+            )}
             <div className="flex min-w-0 flex-1 items-center gap-1">
               <label className="min-w-0 flex-1">
                 <span className="sr-only">Filter activity</span>

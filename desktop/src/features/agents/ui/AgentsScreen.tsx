@@ -46,6 +46,9 @@ export function AgentsScreen() {
   );
   const profilePanelTab = profilePanelTabFromSearch(values.profileTab);
   const profilePanelView = profilePanelViewFromSearch(values.profileView);
+  // The persona a card click opened. On web the personas query can be empty or stale (desktop data arrives over Direct
+  // or from the snapshot) even though the card shows it, so keep the clicked object as the fallback target.
+  const [clickedPersona, setClickedPersona] = React.useState<AgentPersona | null>(null);
   const profilePanelTarget = React.useMemo<ProfilePanelTarget | null>(() => {
     if (values.profile) {
       return { kind: "pubkey", pubkey: values.profile };
@@ -58,10 +61,11 @@ export function AgentsScreen() {
       if (persona) {
         return { kind: "persona", persona };
       }
+      if (clickedPersona?.id === values.profilePersona) return { kind: "persona", persona: clickedPersona };
     }
 
     return null;
-  }, [personasQuery.data, values.profile, values.profilePersona]);
+  }, [clickedPersona, personasQuery.data, values.profile, values.profilePersona]);
   const threadPanelWidth = useThreadPanelWidth();
   const openDmMutation = useOpenDmMutation();
   const { goChannel } = useAppNavigation();
@@ -80,6 +84,7 @@ export function AgentsScreen() {
 
   const handleOpenPersonaProfilePanel = React.useCallback(
     (persona: AgentPersona) => {
+      setClickedPersona(persona);
       applyPatch({
         profile: null,
         profilePersona: persona.id,

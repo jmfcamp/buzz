@@ -85,7 +85,7 @@ export const settingsNavGroups: Array<{
   },
   {
     label: "App",
-    sections: ["agents", "compute", "experimental", "mobile", "updates"],
+    sections: ["agents", "desktop-signing", "compute", "experimental", "mobile", "updates"],
   },
 ];
 

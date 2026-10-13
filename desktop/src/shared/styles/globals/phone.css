@@ -611,3 +611,12 @@
 [data-phone] [data-testid="message-composer"] [data-testid="message-composer-toolbar"] {
   margin-top: 4px;
 }
+
+/* Phone nav row (Back / Forward / Home): same Appearance accent as the tab pill; disabled = dimmed accent. */
+[data-phone] .phone-nav-button {
+  color: hsl(var(--primary));
+}
+[data-phone] .phone-nav-button:disabled {
+  color: hsl(var(--primary) / 0.4);
+  opacity: 1;
+}

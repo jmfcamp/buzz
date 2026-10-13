@@ -416,10 +416,14 @@ function schedule<T>(
         rec.ms = Date.now() - rec.startedAt;
         rec.status = ok ? "ok" : "error";
         if (ok) recordLatency(rec.ms);
+        const ourDeadline = !ok && /in time/.test(String((e as Error)?.message ?? e));
         if (nip07Mode) {
           // NIP-07 never goes through nip46.ts, so feed health here: any answer (even a user "no") = alive; only silence counts.
-          if (ok || !/in time/.test(String((e as Error)?.message ?? e))) signerHealth.success();
-          else signerHealth.timeout({ background: rec.prio !== 0 });
+          if (!ourDeadline) signerHealth.success();
+          else signerHealth.timeout({ background: rec.prio !== 0, startedAt: rec.startedAt });
+        } else if (ourDeadline) {
+          // NIP-46: successes/errors are fed by nip46.ts; our own deadline is the only "no answer" signal. Background never escalates.
+          signerHealth.timeout({ background: rec.prio !== 0, startedAt: rec.startedAt });
         }
         if (!ok) rec.error = e instanceof Error ? e.message : String(e);
         console.info(
@@ -742,8 +746,10 @@ export function instrumentSigner<S extends Signer>(inner: S): S {
         ]),
         inner.getPublicKey(),
       ]);
-      if (signed.pubkey === me && signed.kind === withTs.kind && signed.content === withTs.content && verifyEvent(signed as never))
+      if (signed.pubkey === me && signed.kind === withTs.kind && signed.content === withTs.content && verifyEvent(signed as never)) {
+        signerHealth.success(); // the user's request was signed: nothing is "not responding" from their point of view
         return signed;
+      }
       console.warn("[signer] direct desktop returned an event that did not verify; using the remote signer");
     } catch {
       /* fall back */

@@ -160,7 +160,7 @@ function watchEscalation() {
         const quietFor = Date.now() - Math.max(signerHealth.lastAlive(), waitStart);
         if (quietFor < nip07EscalateWaitMs()) return arm(nip07EscalateWaitMs() - quietFor);
       }
-      signerHealth.escalate("long-wait");
+      signerHealth.escalate("long-wait"); // no-op for NIP-46: only a user request hitting its deadline escalates
     }, ms);
   };
   arm(signerHealth.signerKind() === "nip07" ? nip07EscalateWaitMs() : ESCALATE_WAIT_MS);

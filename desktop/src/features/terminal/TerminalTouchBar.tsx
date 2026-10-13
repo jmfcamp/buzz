@@ -29,8 +29,9 @@ type Props = {
 export type TouchKeyGroupItem = { id: string; label: string; ariaLabel?: string; on?: boolean; action: () => void };
 
 /**
- * Reusable key-bar group: one button that opens a floating row of options directly above it. Tapping an option runs it and
- * closes the row; tapping outside closes it too. Buttons act on pointer-down and never take focus (keyboard stays up).
+ * Reusable key-bar group: one button that opens a floating vertical stack of options directly above it. Tapping an option
+ * runs it and the stack STAYS open (modifiers stay lit/sticky for the next key; arrows can be tapped repeatedly) until you
+ * tap the group button again or anywhere outside. Buttons act on pointer-down and never take focus (keyboard stays up).
  */
 export function TouchKeyGroup({ label, ariaLabel, items, testId }: { label: string; ariaLabel: string; items: TouchKeyGroupItem[]; testId: string }) {
   const [open, setOpen] = React.useState(false);
@@ -42,7 +43,7 @@ export function TouchKeyGroup({ label, ariaLabel, items, testId }: { label: stri
     // The key bar scrolls horizontally (it clips anything absolutely positioned), so the row is portaled and fixed above the button.
     const r = ref.current.getBoundingClientRect();
     const rowW = rowRef.current?.offsetWidth ?? 0;
-    setPos({ left: Math.max(4, Math.min(r.left, window.innerWidth - rowW - 4)), bottom: window.innerHeight - r.top + 6 });
+    setPos({ left: Math.max(4, Math.min(r.left + r.width / 2 - rowW / 2, window.innerWidth - rowW - 4)), bottom: window.innerHeight - r.top + 6 });
   }, [open]);
   React.useEffect(() => {
     if (!open) return;
@@ -73,7 +74,7 @@ export function TouchKeyGroup({ label, ariaLabel, items, testId }: { label: stri
       {open ? createPortal(
         <div
           ref={rowRef}
-          className="buzz-terminal-touch-group-row"
+          className="buzz-terminal-touch-group-row buzz-terminal-touch-group-col"
           role="menu"
           data-testid={`${testId}-row`}
           style={{ left: pos?.left ?? 4, bottom: pos?.bottom ?? 60, visibility: pos ? "visible" : "hidden" }}
@@ -90,7 +91,6 @@ export function TouchKeyGroup({ label, ariaLabel, items, testId }: { label: stri
               onPointerDown={(e) => {
                 e.preventDefault();
                 it.action();
-                setOpen(false);
               }}
               onMouseDown={(e) => e.preventDefault()}
             >
@@ -146,7 +146,17 @@ export function TerminalTouchBar({ ctrl, alt, meta, onToggleCtrl, onToggleAlt, o
 
   return (
     <div className="buzz-terminal-touchbar" data-testid="terminal-touchbar" role="toolbar" aria-label="Terminal keys">
-      {key("Esc", TOUCH_KEYS.esc, "tk-esc")}
+      <TouchKeyGroup
+        label="↑↓"
+        ariaLabel="Arrow keys"
+        testId="tk-arrows"
+        items={[
+          { id: "up", label: "↑", ariaLabel: "Up", action: () => onKey(TOUCH_KEYS.up) },
+          { id: "left", label: "←", ariaLabel: "Left", action: () => onKey(TOUCH_KEYS.left) },
+          { id: "right", label: "→", ariaLabel: "Right", action: () => onKey(TOUCH_KEYS.right) },
+          { id: "down", label: "↓", ariaLabel: "Down", action: () => onKey(TOUCH_KEYS.down) },
+        ]}
+      />
       <TouchKeyGroup
         label="⌃⌥"
         ariaLabel="Modifiers"
@@ -158,18 +168,8 @@ export function TerminalTouchBar({ ctrl, alt, meta, onToggleCtrl, onToggleAlt, o
           { id: "cmd", label: "⌘ Cmd", ariaLabel: "Command (next key)", on: meta, action: onToggleMeta },
         ]}
       />
+      {key("Esc", TOUCH_KEYS.esc, "tk-esc")}
       {mod("Select", selectMode, onToggleSelect, "tk-select")}
-      <TouchKeyGroup
-        label="↑↓"
-        ariaLabel="Arrow keys"
-        testId="tk-arrows"
-        items={[
-          { id: "left", label: "←", ariaLabel: "Left", action: () => onKey(TOUCH_KEYS.left) },
-          { id: "down", label: "↓", ariaLabel: "Down", action: () => onKey(TOUCH_KEYS.down) },
-          { id: "up", label: "↑", ariaLabel: "Up", action: () => onKey(TOUCH_KEYS.up) },
-          { id: "right", label: "→", ariaLabel: "Right", action: () => onKey(TOUCH_KEYS.right) },
-        ]}
-      />
       {key("^C", TOUCH_KEYS.ctrlC, "tk-ctrlc")}
       <button type="button" className="buzz-terminal-touch-key" data-testid="tk-paste" onPointerDown={press(onPaste)} {...common}>
         Paste

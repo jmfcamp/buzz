@@ -1,3 +1,4 @@
+import { DesktopDirectSignerCard, WebDirectSignerCard } from "@/features/bridge/ui/DirectSignerSettings";
 import { isTauri } from "@tauri-apps/api/core";
 import { useMemo, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
@@ -5,6 +6,7 @@ import {
   Archive,
   BellRing,
   Bot,
+  KeyRound,
   ChevronDown,
   Cpu,
   Download,
@@ -105,6 +107,7 @@ export type SettingsSection =
   | "huddle"
   | "experimental"
   | "agents"
+  | "desktop-signing"
   | "channel-templates"
   | "compute"
   | "appearance"
@@ -130,6 +133,7 @@ const SETTINGS_SECTION_VALUES: readonly SettingsSection[] = [
   "huddle",
   "experimental",
   "agents",
+  "desktop-signing",
   "channel-templates",
   "compute",
   "appearance",
@@ -221,6 +225,11 @@ export const settingsSections: SettingsSectionDescriptor[] = [
     label: "Agents",
     icon: Bot,
     featureGate: "managed-agents",
+  },
+  {
+    value: "desktop-signing",
+    label: "Desktop signing",
+    icon: KeyRound,
   },
   {
     value: "channel-templates",
@@ -898,6 +907,8 @@ export function renderSettingsSection(
       return <ExperimentalFeaturesCard />;
     case "agents":
       return <AgentsSettingsPanel />;
+    case "desktop-signing":
+      return isTauri() ? <DesktopDirectSignerCard empty /> : <WebDirectSignerCard />;
     case "channel-templates":
       return <ChannelTemplatesSettingsCard />;
     case "compute":

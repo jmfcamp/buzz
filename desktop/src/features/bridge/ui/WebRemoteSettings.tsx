@@ -26,6 +26,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { directAgentsFor } from "../directAgents";
 import { acquireProxyDirect, getProxyDirect } from "../remoteCmd";
 import { DirectSignerClient } from "../directSignerClient";
+import { useDirectSignerBanner } from "./useDirectSignerBanner";
 import { setDirectSignRoute } from "@/platform/web/signer/directRoute";
 import { useBridgeAgents } from "../useBridgeAgents";
 import { useDirectAutoReconnect, useDirectState } from "./DirectAgentsPanel";
@@ -298,6 +299,7 @@ export function WebRemoteWatcher() {
     setDirectSignRoute((ev) => c.sign(ev));
     return () => setDirectSignRoute(null);
   }, [direct, host?.id]);
+  useDirectSignerBanner(direct, host?.id, !!host && rh.reachOf(host) === "reachable");
   // The desktop's data replaces the web's empty defaults the moment the connection goes live (and back when it ends).
   const live = useDirectState(direct).live;
   React.useEffect(() => {
