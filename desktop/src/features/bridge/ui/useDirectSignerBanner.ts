@@ -8,6 +8,15 @@ import { DirectSignerClient, isPairedWith } from "../directSignerClient";
 
 const ID = "direct-signer-banner";
 const dismissedThisSession = new Set<string>(); // in memory only: cleared on every load/reload
+const lastReachable = new Map<string, boolean>();
+
+/** Direct went from unreachable to reachable while the app is open: show the nudge again even if hidden earlier this
+ *  session (once per transition, not repeatedly while it stays reachable). */
+export function noteReachability(desktopId: string, reachable: boolean) {
+  const before = lastReachable.get(desktopId);
+  lastReachable.set(desktopId, reachable);
+  if (reachable && before === false) dismissedThisSession.delete(desktopId);
+}
 
 export function browserLabel(): string {
   const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
@@ -24,6 +33,7 @@ export function shouldShowSignerNudge(desktopId: string, reachable: boolean): bo
 export function useDirectSignerBanner(direct: DirectAgents | null, desktopId: string | undefined, reachable: boolean) {
   const [tick, bump] = React.useReducer((n: number) => n + 1, 0);
   React.useEffect(() => {
+    if (desktopId) noteReachability(desktopId, reachable);
     if (!direct || !desktopId || !shouldShowSignerNudge(desktopId, reachable)) {
       clearStatus(ID);
       return;
