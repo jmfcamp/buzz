@@ -308,6 +308,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // Nostr HTTP bridge (NIP-98 auth)
         .route("/events", post(api::bridge::submit_event))
         .route("/query", post(api::bridge::query_events))
+        .route(
+            api::web_session::PATH,
+            post(api::web_session::mint_session).delete(api::web_session::revoke_session),
+        )
         .route("/count", post(api::bridge::count_events))
         // Relay-owned third-party GIF metadata proxy (NIP-98 auth).
         .route(api::gifs::SEARCH_PATH, post(api::gifs::search))
