@@ -90,7 +90,7 @@ export function DesktopRepoCard(props: { error?: unknown; compact?: boolean; wha
       <ReconnectCard
         reconnecting
         title="Reconnecting to your Mac…"
-        description={`${what[0]?.toUpperCase()}${what.slice(1)} comes back on its own`}
+        description="This comes back on its own"
         testId="desktop-repo-reconnecting"
         className={props.compact ? undefined : "mx-auto w-full max-w-md"}
       />,
@@ -119,7 +119,7 @@ export function DesktopRepoCard(props: { error?: unknown; compact?: boolean; wha
       compact={props.compact}
       testId="desktop-repo-offline"
       title={`Open HulaBuzz on your Mac to browse ${what}`}
-      description="This repo lives on your Mac. It shows up here on its own once HulaBuzz is open there."
+      description="It lives on your Mac and shows up here on its own once HulaBuzz is open there."
     />,
   );
 }
