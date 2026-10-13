@@ -252,11 +252,13 @@ async fn post_assistant_reply(
     text: &str,
 ) -> Result<(), anyhow::Error> {
     let thread_ref = dest.reply_to.as_deref().and_then(thread_ref_from_anchor);
+    let mentions = reply_mentions(rest, dest.channel_id, text).await;
+    let mention_refs: Vec<&str> = mentions.iter().map(String::as_str).collect();
     let builder = buzz_sdk::build_message(
         dest.channel_id,
         text,
         thread_ref.as_ref(),
-        &[],
+        &mention_refs,
         false,
         &[],
         &[],
@@ -273,9 +275,213 @@ async fn post_assistant_reply(
         channel = %dest.channel_id,
         event_id = %event.id,
         chars = text.len(),
+        mentions = mentions.len(),
         "last-mile: published assistant reply"
     );
     Ok(())
+}
+
+/// How long a channel's member + profile snapshot is reused for mention
+/// resolution. Short: membership and display names change rarely, but a
+/// stale snapshot should not outlive a burst of replies.
+const MENTION_CACHE_TTL: Duration = Duration::from_secs(60);
+
+/// Channel member pubkeys plus `(pubkey, display name)` pairs.
+#[derive(Debug, Clone, Default)]
+struct ChannelDirectory {
+    members: Vec<String>,
+    names: Vec<(String, String)>,
+}
+
+type DirectoryCache =
+    std::sync::Mutex<std::collections::HashMap<Uuid, (std::time::Instant, ChannelDirectory)>>;
+
+fn directory_cache() -> &'static DirectoryCache {
+    static CACHE: std::sync::OnceLock<DirectoryCache> = std::sync::OnceLock::new();
+    CACHE.get_or_init(Default::default)
+}
+
+/// Pubkeys to `p`-tag on a harness-published reply.
+///
+/// Best-effort: any lookup failure or unmatched name logs and returns what
+/// could be resolved. Never blocks the reply.
+async fn reply_mentions(rest: &RestClient, channel_id: Uuid, text: &str) -> Vec<String> {
+    let stripped = buzz_sdk::mentions::strip_code_regions(text);
+    let self_hex = rest.keys.public_key().to_hex();
+    let uri_pubkeys = extract_profile_uris(&stripped);
+    let directory = if stripped.contains('@') {
+        match channel_directory(rest, channel_id).await {
+            Ok(dir) => dir,
+            Err(e) => {
+                tracing::warn!(
+                    channel = %channel_id,
+                    "last-mile: mention lookup failed ({e}); publishing without @name tags"
+                );
+                ChannelDirectory::default()
+            }
+        }
+    } else {
+        ChannelDirectory::default()
+    };
+    let (mentions, unresolved) =
+        resolve_reply_mentions(&stripped, &directory, &uri_pubkeys, &self_hex);
+    if !unresolved.is_empty() {
+        tracing::warn!(
+            channel = %channel_id,
+            names = ?unresolved,
+            "last-mile: @names did not resolve to a unique channel member; left as text"
+        );
+    }
+    mentions
+}
+
+async fn channel_directory(
+    rest: &RestClient,
+    channel_id: Uuid,
+) -> Result<ChannelDirectory, anyhow::Error> {
+    if let Some((at, dir)) = directory_cache()
+        .lock()
+        .ok()
+        .and_then(|c| c.get(&channel_id).cloned())
+    {
+        if at.elapsed() < MENTION_CACHE_TTL {
+            return Ok(dir);
+        }
+    }
+    let members_filter = serde_json::json!({
+        "kinds": [39002],
+        "#d": [channel_id.to_string()],
+        "limit": 1,
+    });
+    let json = tokio::time::timeout(LAST_MILE_TIMEOUT, rest.query_raw(&[members_filter]))
+        .await
+        .map_err(|_| anyhow::anyhow!("member query timed out"))?
+        .map_err(|e| anyhow::anyhow!("member query failed: {e}"))?;
+    let members = json
+        .as_array()
+        .and_then(|a| a.first())
+        .map(parse_member_pubkeys)
+        .unwrap_or_default();
+    let names = if members.is_empty() {
+        vec![]
+    } else {
+        let profiles_filter = serde_json::json!({
+            "kinds": [0],
+            "authors": members,
+            "limit": members.len(),
+        });
+        let json = tokio::time::timeout(LAST_MILE_TIMEOUT, rest.query_raw(&[profiles_filter]))
+            .await
+            .map_err(|_| anyhow::anyhow!("profile query timed out"))?
+            .map_err(|e| anyhow::anyhow!("profile query failed: {e}"))?;
+        parse_profile_names(&json)
+    };
+    let dir = ChannelDirectory { members, names };
+    if let Ok(mut cache) = directory_cache().lock() {
+        cache.insert(channel_id, (std::time::Instant::now(), dir.clone()));
+    }
+    Ok(dir)
+}
+
+/// Member pubkeys from a kind:39002 event (same rules as `buzz messages send`).
+fn parse_member_pubkeys(event: &serde_json::Value) -> Vec<String> {
+    event
+        .get("tags")
+        .and_then(|t| t.as_array())
+        .map(|tags| {
+            tags.iter()
+                .filter_map(|t| {
+                    let arr = t.as_array()?;
+                    if arr.first()?.as_str()? != "p" {
+                        return None;
+                    }
+                    nostr::PublicKey::from_hex(arr.get(1)?.as_str()?)
+                        .ok()
+                        .map(|k| k.to_hex())
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// `(pubkey, display_name|name)` pairs from kind:0 events.
+fn parse_profile_names(json: &serde_json::Value) -> Vec<(String, String)> {
+    json.as_array()
+        .map(|events| {
+            events
+                .iter()
+                .filter_map(|e| {
+                    let pubkey = e.get("pubkey")?.as_str()?;
+                    let content = e.get("content")?.as_str()?;
+                    let v: serde_json::Value = serde_json::from_str(content).ok()?;
+                    let name = v
+                        .get("display_name")
+                        .or_else(|| v.get("name"))
+                        .and_then(|n| n.as_str())
+                        .filter(|n| !n.is_empty())?;
+                    Some((pubkey.to_ascii_lowercase(), name.to_string()))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Pubkeys from `nostr:npub1…` and `nostr:nprofile1…` URIs in code-stripped text.
+fn extract_profile_uris(stripped: &str) -> Vec<String> {
+    use nostr::nips::nip19::{FromBech32, Nip19Profile};
+    let mut out = buzz_sdk::mentions::extract_nostr_uris(stripped);
+    for (start, _) in stripped.match_indices("nostr:nprofile1") {
+        let rest = &stripped[start + "nostr:".len()..];
+        let end = rest
+            .find(|c: char| !c.is_ascii_alphanumeric())
+            .unwrap_or(rest.len());
+        if let Ok(profile) = Nip19Profile::from_bech32(&rest[..end]) {
+            let hex = profile.public_key.to_hex();
+            if !out.contains(&hex) {
+                out.push(hex);
+            }
+        }
+    }
+    out
+}
+
+/// Resolve reply mentions: explicit URIs plus `@Name`s that match exactly one
+/// channel member's display name. Returns `(pubkeys, unresolved_names)`.
+/// Self is excluded and the list is capped at the SDK mention limit.
+fn resolve_reply_mentions(
+    stripped: &str,
+    directory: &ChannelDirectory,
+    uri_pubkeys: &[String],
+    self_hex: &str,
+) -> (Vec<String>, Vec<String>) {
+    let mut by_name: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for (pubkey, name) in &directory.names {
+        if !directory
+            .members
+            .iter()
+            .any(|m| m.eq_ignore_ascii_case(pubkey))
+        {
+            continue;
+        }
+        let entry = by_name.entry(name.to_ascii_lowercase()).or_default();
+        if !entry.contains(pubkey) {
+            entry.push(pubkey.clone());
+        }
+    }
+    let known: Vec<&str> = directory.names.iter().map(|(_, n)| n.as_str()).collect();
+    let names = buzz_sdk::mentions::extract_at_mentions_with_known(stripped, &known);
+    let mut resolved = uri_pubkeys.to_vec();
+    let mut unresolved = Vec::new();
+    for name in names {
+        match by_name.get(&name).map(Vec::as_slice).unwrap_or_default() {
+            [pubkey] => resolved.push(pubkey.clone()),
+            _ => unresolved.push(name),
+        }
+    }
+    let mut mentions = buzz_sdk::mentions::normalize_mention_pubkeys(&resolved, Some(self_hex));
+    mentions.truncate(buzz_sdk::mentions::MENTION_CAP);
+    (mentions, unresolved)
 }
 
 fn thread_ref_from_anchor(anchor: &str) -> Option<buzz_sdk::ThreadRef> {
@@ -314,6 +520,100 @@ mod tests {
             cancelled_events: vec![],
             cancel_reason: None,
         }
+    }
+
+    fn dir(entries: &[(&str, &str)]) -> ChannelDirectory {
+        ChannelDirectory {
+            members: entries.iter().map(|(pk, _)| pk.to_string()).collect(),
+            names: entries
+                .iter()
+                .map(|(pk, n)| (pk.to_string(), n.to_string()))
+                .collect(),
+        }
+    }
+
+    fn pk(c: char) -> String {
+        std::iter::repeat_n(c, 64).collect()
+    }
+
+    #[test]
+    fn at_member_resolves_to_p_tag() {
+        let alice = pk('a');
+        let d = dir(&[(&alice, "Alice Smith"), (&pk('b'), "Bob")]);
+        let text = strip("Done — @Alice Smith please review.");
+        let (m, unresolved) = resolve_reply_mentions(&text, &d, &[], &pk('f'));
+        assert_eq!(m, vec![alice.clone()]);
+        assert!(unresolved.is_empty());
+        let refs: Vec<&str> = m.iter().map(String::as_str).collect();
+        let ev = buzz_sdk::build_message(Uuid::new_v4(), "x", None, &refs, false, &[], &[])
+            .unwrap()
+            .sign_with_keys(&Keys::generate())
+            .unwrap();
+        assert!(ev
+            .tags
+            .iter()
+            .any(|t| t.as_slice() == ["p".to_string(), alice.clone()]));
+    }
+
+    fn strip(s: &str) -> String {
+        buzz_sdk::mentions::strip_code_regions(s)
+    }
+
+    #[test]
+    fn ambiguous_unmatched_and_code_mentions_are_not_tagged() {
+        let d = dir(&[(&pk('a'), "Sam"), (&pk('b'), "Sam"), (&pk('c'), "Carol")]);
+        let (m, unresolved) = resolve_reply_mentions(&strip("@Sam hi"), &d, &[], &pk('f'));
+        assert!(m.is_empty());
+        assert_eq!(unresolved, vec!["sam".to_string()]);
+        let (m, unresolved) = resolve_reply_mentions(&strip("@Nobody hi"), &d, &[], &pk('f'));
+        assert!(m.is_empty());
+        assert_eq!(unresolved, vec!["nobody".to_string()]);
+        let (m, _) = resolve_reply_mentions(
+            &strip("see `@Carol` and\n```\n@Carol\n```"),
+            &d,
+            &[],
+            &pk('f'),
+        );
+        assert!(m.is_empty());
+    }
+
+    #[test]
+    fn self_and_non_members_are_excluded() {
+        let me = pk('f');
+        let mut d = dir(&[(&me, "Quasar")]);
+        d.names.push((pk('e'), "Eve".into()));
+        let (m, _) = resolve_reply_mentions(&strip("@Quasar @Eve"), &d, &[], &me);
+        assert!(m.is_empty());
+    }
+
+    #[test]
+    fn nostr_uris_are_tagged() {
+        use nostr::nips::nip19::{Nip19Profile, ToBech32};
+        let a = Keys::generate().public_key();
+        let b = Keys::generate().public_key();
+        let nprofile = Nip19Profile::new(b, Vec::<nostr::RelayUrl>::new())
+            .to_bech32()
+            .unwrap();
+        let text = format!("hi nostr:{} and nostr:{nprofile}.", a.to_bech32().unwrap());
+        let uris = extract_profile_uris(&strip(&text));
+        assert_eq!(uris, vec![a.to_hex(), b.to_hex()]);
+        let (m, _) = resolve_reply_mentions(&strip(&text), &dir(&[]), &uris, &pk('f'));
+        assert_eq!(m, vec![a.to_hex(), b.to_hex()]);
+    }
+
+    #[test]
+    fn member_and_profile_parsers() {
+        let a = pk('a');
+        let ev = serde_json::json!({"tags": [["d", "x"], ["p", a], ["p", "bad"]]});
+        assert_eq!(parse_member_pubkeys(&ev), vec![a.clone()]);
+        let profiles = serde_json::json!([
+            {"pubkey": a, "content": "{\"display_name\":\"Alice\",\"name\":\"al\"}"},
+            {"pubkey": pk('b'), "content": "{\"name\":\"\"}"}
+        ]);
+        assert_eq!(
+            parse_profile_names(&profiles),
+            vec![(a, "Alice".to_string())]
+        );
     }
 
     #[test]
