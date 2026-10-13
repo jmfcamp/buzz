@@ -2,7 +2,8 @@
 //  * runBootGate(): before the app boots with a saved NIP-46 session, prove the signer answers; otherwise a full-screen
 //    "Your signer isn't responding" state with Retry / Reconnect signer / Sign out replaces the blank splash.
 //  * startSignerBanner(): mid-session, a non-blocking banner with the same actions once health turns unresponsive.
-import { BANNER_SILENCE_MS, signerHealth, type SignerHealthReason } from "./signerHealth";
+import { clearStatus, showStatus } from "@/shared/ui/statusPills";
+import { signerHealth, type SignerHealthReason } from "./signerHealth";
 
 export type SignerActions = {
   /** Round-trip probe; true if the signer answered. */
@@ -153,37 +154,53 @@ export async function runBootGate(a: SignerActions): Promise<void> {
   });
 }
 
-/** Non-blocking banner shown while health is unresponsive after the app has booted. */
+/** Calm, themed, non-blocking pill in the shared status host (statusPills.ts: same look, placement and z-order as the other
+ *  pills; never covers the nav or the screen). Persists until acted on, and clears itself on any successful signer reply. */
+const PILL_ID = "signer-down";
 export function startSignerBanner(a: SignerActions) {
-  let el: HTMLDivElement | null = null;
-  let recheck: ReturnType<typeof setTimeout> | undefined;
+  let shown = false;
+  let busy = false;
+  const remove = () => {
+    shown = false;
+    clearStatus(PILL_ID);
+  };
+  const show = (note?: string) => {
+    const h = signerHealth.get();
+    shown = true;
+    showStatus(PILL_ID, {
+      tone: "action",
+      title: isExt() ? "Extension not answering" : "Signer not answering",
+      description: note ?? describeDown(h.reason),
+      testId: "signer-down-banner",
+      action: { label: "Retry", testId: "signer-retry", onClick: () => void run("retry") },
+      secondary: [
+        { label: "Reconnect", testId: "signer-reconnect", onClick: () => void run("reconnect") },
+        { label: "Sign out", testId: "signer-signout", onClick: () => void run("signout") },
+      ],
+    });
+  };
+  const run = async (what: "retry" | "reconnect" | "signout") => {
+    if (busy) return;
+    busy = true;
+    try {
+      if (what === "retry") {
+        show(isExt() ? "Checking your extension…" : "Checking your signer…");
+        const ok = await a.probe().catch(() => false);
+        if (ok) signerHealth.success();
+        else show(isExt() ? "Still no answer. Open your extension and approve." : "Still no answer. Open your signer app, then retry.");
+      } else if (what === "reconnect") {
+        await a.reconnect();
+        signerHealth.success();
+      } else await a.signOut();
+    } finally {
+      busy = false;
+    }
+  };
   const render = () => {
     const h = signerHealth.get();
-    clearTimeout(recheck);
-    // Timeouts/long waits: only a sustained silence counts (one slow request that later answers must not flash the banner).
-    const sustained = h.reason === "revoked" || h.reason === "probe-failed" || Date.now() - signerHealth.lastAlive() >= BANNER_SILENCE_MS;
-    if (h.state === "unresponsive" && !sustained && !el) {
-      recheck = setTimeout(render, Math.max(250, BANNER_SILENCE_MS - (Date.now() - signerHealth.lastAlive())));
-      return;
-    }
-    if (h.state !== "unresponsive") {
-      el?.remove();
-      el = null;
-      return;
-    }
-    if (el) return;
-    el = mk(
-      "div",
-      "position:fixed;left:8px;right:8px;top:calc(env(safe-area-inset-top) + 8px);z-index:2147483646;background:#3a1212;color:#fff;border:1px solid #c0392b;border-radius:12px;padding:12px 14px;font:14px/1.4 Inter,system-ui,sans-serif;text-align:center;box-shadow:0 4px 20px #0008",
-      undefined,
-      "signer-down-banner",
-    ) as HTMLDivElement;
-    el.setAttribute("role", "alert");
-    const t = mk("div", "font-weight:600", isExt() ? EXT_DOWN_TITLE : "Your signer isn't responding", "signer-down-title");
-    const m = mk("div", "font-size:13px;opacity:.9;margin-top:2px", describeDown(h.reason));
-    const status = mk("div", "font-size:12px;opacity:.8;margin-top:6px", "");
-    el.append(t, m, status, actions(a, status, () => signerHealth.success()));
-    document.body.appendChild(el);
+    if (h.state !== "unresponsive") return shown ? remove() : undefined;
+    if (signerHealth.isPaused() || shown) return;
+    show();
   };
   signerHealth.subscribe(render);
   render();

@@ -1,4 +1,4 @@
-import { Plus } from "lucide-react";
+import { Activity, Plus } from "lucide-react";
 import * as React from "react";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
@@ -58,6 +58,7 @@ import { useMediaBreakpoint } from "@/shared/hooks/use-mobile";
 import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 import { topChromeInset } from "@/shared/layout/chromeLayout";
 import { cn } from "@/shared/lib/cn";
+import { usePhoneLayout } from "@/shared/lib/phoneLayout";
 import { Button } from "@/shared/ui/button";
 import { useOptionalSidebar } from "@/shared/ui/sidebar";
 
@@ -138,6 +139,9 @@ export function ProjectsView() {
     ReadonlySet<string>
   >(() => new Set());
   const [activityCollapsed, setActivityCollapsed] = React.useState(false);
+  // Phone: one pane at a time (project list OR activity), never a split; the header pill switches. iPad/desktop unchanged.
+  const phone = usePhoneLayout();
+  const [phonePane, setPhonePane] = React.useState<"list" | "activity">("list");
   const [sort, setSort] = React.useState<ProjectsSort>(() => readStoredSort());
 
   const handleSortChange = React.useCallback((nextSort: ProjectsSort) => {
@@ -323,6 +327,7 @@ export function ProjectsView() {
     );
   }
 
+  const phonePaneOnly = phone ? phonePane : null;
   return (
     <ProfilePanelProvider onOpenProfilePanel={handleOpenProfilePanel}>
     <div
@@ -354,7 +359,7 @@ export function ProjectsView() {
           open={createProjectOpen}
         />
         <div className="flex min-h-0 min-w-0 flex-1">
-          <div className="relative min-h-0 min-w-0 flex-1">
+          <div className={cn("relative min-h-0 min-w-0 flex-1", phonePaneOnly === "activity" && "hidden")}>
             <div
               aria-hidden="true"
               className="pointer-events-none absolute right-[3px] top-0 z-50 w-1 rounded-full bg-border/80 opacity-0 transition-opacity duration-200"
@@ -383,6 +388,20 @@ export function ProjectsView() {
                       onSortChange={handleSortChange}
                       sort={sort}
                     />
+                    {phone ? (
+                      <Button
+                        aria-label="Show activity"
+                        className="h-7 w-auto shrink-0 gap-1 rounded-full border border-border px-2.5 text-xs text-muted-foreground hover:text-foreground"
+                        data-testid="projects-phone-pane-toggle"
+                        onClick={() => setPhonePane("activity")}
+                        size="sm"
+                        type="button"
+                        variant="ghost"
+                      >
+                        <Activity aria-hidden className="h-3.5 w-3.5" />
+                        <span>Activity</span>
+                      </Button>
+                    ) : null}
                     <Button
                       aria-label="Create project"
                       className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
@@ -448,10 +467,11 @@ export function ProjectsView() {
               view={profilePanelView}
               widthPx={threadPanelWidth.widthPx}
             />
-          ) : (
+          ) : phonePaneOnly === "list" ? null : (
             <ProjectsIndexActivity
+              onPhoneBack={phone ? () => setPhonePane("list") : undefined}
               channelsById={channelsById}
-              collapsed={activityCollapsed}
+              collapsed={phone ? false : activityCollapsed}
               issues={projectsWorkItemsQuery.data?.issues.items ?? []}
               onRetryWorkItems={() => void projectsWorkItemsQuery.refetch()}
               onToggleCollapsed={() =>

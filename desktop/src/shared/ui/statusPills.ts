@@ -39,6 +39,8 @@ export type StatusSpec = {
   title: string;
   description?: string;
   action?: StatusAction;
+  /** Extra, less prominent actions (e.g. "Reconnect", "Sign out"), shown after the main action. */
+  secondary?: StatusAction[];
   /** Optional, never required (the state recovers on its own). */
   onHide?: () => void;
   testId?: string;
@@ -139,6 +141,15 @@ function build(id: string, spec: StatusSpec): HTMLDivElement {
     if (spec.action.testId) b.setAttribute("data-testid", spec.action.testId);
     const run = spec.action.onClick;
     b.onclick = () => run();
+    el.append(b);
+  }
+  for (const a of spec.secondary ?? []) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "buzz-status-hide";
+    b.textContent = a.label;
+    if (a.testId) b.setAttribute("data-testid", a.testId);
+    b.onclick = () => a.onClick();
     el.append(b);
   }
   if (spec.onHide) {

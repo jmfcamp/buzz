@@ -43,7 +43,7 @@ export function AgentIdentityCard({
   const gate = (node: ReactNode, testId: string) =>
     controlsOff ? (
       <span className="pointer-events-auto inline-flex cursor-not-allowed" title="Needs a Direct connection" aria-disabled="true" data-testid={testId}>
-        <span className="pointer-events-none opacity-50">{node}</span>
+        <span className="pointer-events-none">{node}</span>
       </span>
     ) : (
       node
@@ -85,7 +85,7 @@ export function AgentIdentityCard({
       </div>
 
       {actions ? (
-        <div className="absolute top-3 right-3 z-40">{gate(actions, `${dataTestId}-menu-off`)}</div>
+        <div className="absolute top-3 right-3 z-40">{actions}</div>
       ) : null}
 
       <div className="pointer-events-none absolute right-3 bottom-3 left-3 z-30 flex min-w-0 items-end gap-2 text-left text-sm leading-5">

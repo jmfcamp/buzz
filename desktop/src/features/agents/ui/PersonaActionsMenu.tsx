@@ -1,3 +1,4 @@
+import { useDesktopData } from "@/features/bridge/ui/DesktopData";
 import {
   CopyPlus,
   EllipsisVertical,
@@ -40,7 +41,10 @@ export function PersonaActionsMenu({
   onDeactivate: (persona: AgentPersona) => void;
   onDelete: (persona: AgentPersona) => void;
 }) {
-  const disabled = isActionPending || isPending;
+  // Web without a live Direct connection: the menu still opens (same items as desktop) but the actions need the desktop.
+  const { web, live } = useDesktopData();
+  const needsDirect = web && !live;
+  const disabled = isActionPending || isPending || needsDirect;
   const canEdit = !persona.sourceTeam;
 
   return (
@@ -58,6 +62,11 @@ export function PersonaActionsMenu({
         align="end"
         onCloseAutoFocus={(event) => event.preventDefault()}
       >
+        {needsDirect ? (
+          <p className="max-w-56 px-2 py-1.5 text-xs text-muted-foreground" data-testid="persona-actions-needs-direct">
+            These actions run on your desktop. Connect over Direct to use them.
+          </p>
+        ) : null}
         {canEdit ? (
           <DropdownMenuItem disabled={disabled} onClick={() => onEdit(persona)}>
             <Pencil className="h-4 w-4" />
@@ -89,6 +98,7 @@ export function PersonaActionsMenu({
             className="text-destructive focus:text-destructive"
             disabled={disabled}
             onClick={() => {
+              if (web && !window.confirm(`Delete ${persona.displayName}? This can't be undone.`)) return;
               onDelete(persona);
             }}
           >

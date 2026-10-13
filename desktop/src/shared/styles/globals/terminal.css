@@ -550,3 +550,9 @@
   height: 24px;
   flex: none;
 }
+
+/* Key-bar group popups stack vertically above their button. */
+.buzz-terminal-touch-group-row.buzz-terminal-touch-group-col {
+  flex-direction: column;
+  align-items: stretch;
+}

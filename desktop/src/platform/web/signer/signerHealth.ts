@@ -8,7 +8,9 @@
 export type SignerHealthState = "ok" | "slow" | "unresponsive" | "no-session" | "reconnecting";
 export type SignerHealthReason = "timeout" | "revoked" | "probe-failed" | "long-wait" | "none";
 
-export const UNRESPONSIVE_AFTER = 3;
+export const UNRESPONSIVE_AFTER = 3; // kept for NIP-07 compatibility in tests; user-initiated NIP-46 timeouts escalate at once
+/** After the page becomes visible again, ignore timeouts for this long (iOS resumes sockets and the signer app first). */
+export const RETURN_GRACE_MS = 15_000;
 /** The mid-session banner for timeout/long-wait only shows after this long with no answer at all (iOS NIP-46 round trips via the
  *  relay are slow, more so while the signer app is backgrounded). Revoked answers and failed probes still show at once. */
 export const BANNER_SILENCE_MS = 20_000;
@@ -39,6 +41,7 @@ type Snapshot = { state: SignerHealthState; reason: SignerHealthReason; consecut
 let snap: Snapshot = { state: "ok", reason: "none", consecutiveTimeouts: 0 };
 let activeKind: ActiveSignerKind = null;
 let lastAlive = Date.now();
+let visibleAt = 0; // last hidden -> visible transition (ms)
 let before: SignerHealthState = "ok"; // state to return to when reconnecting ends without news
 // Page hidden (iOS: switched to the signer app, Safari suspended the tab): timeouts then say nothing about the signer, so
 // health counting pauses, and on resume it starts clean (a revoked/no-session verdict is kept).
@@ -73,23 +76,29 @@ export const signerHealth = {
     lastAlive = Date.now();
     set({ state: "ok", reason: "none", consecutiveTimeouts: 0 });
   },
-  /** A request timed out. `background` (decrypts, relay auth, presence…) never escalates on its own: only "slow". */
-  timeout(opts?: { background?: boolean }) {
-    if (paused) return;
+  /** A request hit OUR deadline (aborted/cancelled calls never come here). Only a user-initiated request (send/edit/
+   *  reaction…) can make the signer "unresponsive", and only if: the page is visible and past the return grace, the request
+   *  wasn't started while hidden, and the signer hasn't answered anything since the request started. Background work
+   *  (read markers, decrypts, presence, relay auth, lazy lanes) never escalates. */
+  timeout(opts?: { background?: boolean; startedAt?: number }) {
+    if (paused || Date.now() - visibleAt < RETURN_GRACE_MS) return;
     if (opts?.background) {
       if (snap.state === "ok") set({ state: "slow", reason: "timeout" });
       return;
     }
-    const n = snap.consecutiveTimeouts + 1;
-    set(n >= UNRESPONSIVE_AFTER ? { state: "unresponsive", reason: "timeout", consecutiveTimeouts: n } : { state: "slow", reason: "timeout", consecutiveTimeouts: n });
+    const started = opts?.startedAt;
+    if (started !== undefined && (lastAlive >= started || started < visibleAt)) return;
+    set({ state: "unresponsive", reason: "timeout", consecutiveTimeouts: snap.consecutiveTimeouts + 1 });
   },
   /** The signer answered with an error. Revoked/unauthorized-looking errors mean the session is gone; others count as alive. */
   error(message: string) {
     if (isRevokedAnswer(message)) set({ state: "unresponsive", reason: "revoked" });
     else this.success();
   },
+  /** Long "waiting" alone no longer escalates (pending counts background + abandoned requests). Kept for NIP-07 callers. */
   escalate(reason: SignerHealthReason = "long-wait") {
-    if (paused || Date.now() - lastAlive < BANNER_SILENCE_MS) return;
+    if (activeKind !== "nip07") return;
+    if (paused || Date.now() - visibleAt < RETURN_GRACE_MS || Date.now() - lastAlive < BANNER_SILENCE_MS) return;
     if (snap.state === "ok" || snap.state === "slow") set({ state: "unresponsive", reason });
   },
   probeFailed(reason: SignerHealthReason = "probe-failed") {
@@ -117,12 +126,15 @@ export const signerHealth = {
     }
     if (!paused) return;
     paused = false;
+    visibleAt = Date.now();
     lastAlive = Date.now();
     if (snap.reason !== "revoked" && snap.state !== "no-session") set({ state: "ok", reason: "none", consecutiveTimeouts: 0 });
   },
   isPaused: () => paused,
   reset() {
     before = "ok";
+    visibleAt = 0;
+    paused = false;
     snap = { state: "ok", reason: "none", consecutiveTimeouts: 0 };
     emit();
   },

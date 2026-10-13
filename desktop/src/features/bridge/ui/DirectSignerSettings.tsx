@@ -8,14 +8,8 @@ import { revokeSignerDevice, localSignerStore, signerLog, subscribeSignerStore }
 import { DirectSignerClient, forgetPairing, isPairedWith } from "../directSignerClient";
 import { useDirectState } from "./DirectAgentsPanel";
 import { StatusChip } from "./DesktopData";
+import { browserLabel } from "./useDirectSignerBanner";
 import { useRemoteHosts } from "./WebRemoteSettings";
-
-function browserLabel(): string {
-  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
-  const dev = /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) ? "iPad" : /Android/.test(ua) ? "Android" : /Mac/.test(ua) ? "Mac" : "Computer";
-  const br = /CriOS|Chrome/.test(ua) ? "Chrome" : /Firefox|FxiOS/.test(ua) ? "Firefox" : /Safari/.test(ua) ? "Safari" : "Browser";
-  return `${br} on ${dev}`;
-}
 
 /** Web: pair this browser so the desktop signs for it over Direct (Primal stays the fallback). */
 export function WebDirectSignerCard() {
@@ -26,7 +20,17 @@ export function WebDirectSignerCard() {
   const [, bump] = React.useReducer((n: number) => n + 1, 0);
   const [busy, setBusy] = React.useState(false);
   const [note, setNote] = React.useState<string | null>(null);
-  if (!host?.hasDirect) return null;
+  if (!host?.hasDirect)
+    return (
+      <SettingsOptionGroup data-testid="web-direct-signer" title="Sign with your desktop">
+        <SettingsOptionRow>
+          <p className="text-sm font-normal text-muted-foreground/70" data-settings-subcopy>
+            Your desktop can sign for this browser over Direct (tailnet). Open Hula Buzz on your desktop, turn on Direct, and
+            make sure this device is on the same tailnet; pairing will show up here.
+          </p>
+        </SettingsOptionRow>
+      </SettingsOptionGroup>
+    );
   const paired = isPairedWith(host.id);
   const pair = async () => {
     if (!direct) return;
@@ -52,7 +56,7 @@ export function WebDirectSignerCard() {
             </StatusChip>
           </p>
           <p className="text-sm font-normal text-muted-foreground/70" data-settings-subcopy>
-            While Direct is connected, your desktop signs messages, reactions, read markers and synced settings for this
+            Tap Pair, then click Allow on your desktop to approve this browser. While Direct is connected, your desktop signs messages, reactions, read markers and synced settings for this
             browser, so you wait less on your phone signer. Your desktop approves this browser once, and you can revoke it
             there. When the desktop isn't reachable, your usual signer is used.
           </p>
@@ -76,12 +80,21 @@ const kindName = (k: number) =>
   k === -1 ? "" : ({ 7: "reaction", 9: "message", 40002: "message", 40003: "edit", 40008: "edit", 45001: "post", 45003: "comment", 30078: "app data", 22242: "relay auth", 27235: "HTTP auth" } as Record<number, string>)[k] ?? `kind ${k}`;
 
 /** Desktop: browsers allowed to sign with this computer, their log, revoke. */
-export function DesktopDirectSignerCard() {
+export function DesktopDirectSignerCard(props: { empty?: boolean } = {}) {
   const v = React.useSyncExternalStore(subscribeSignerStore, () => localStorage.getItem("buzz-direct-signer-log") ?? "");
   const devices = React.useMemo(() => localSignerStore.devices(), [v]); // eslint-disable-line react-hooks/exhaustive-deps
   const log = React.useMemo(() => signerLog(), [v]); // eslint-disable-line react-hooks/exhaustive-deps
   const [open, setOpen] = React.useState<string | null>(null);
-  if (devices.length === 0) return null;
+  if (devices.length === 0)
+    return props.empty ? (
+      <SettingsOptionGroup data-testid="desktop-direct-signer" title="Browsers that sign with this computer">
+        <SettingsOptionRow>
+          <p className="text-sm font-normal text-muted-foreground/70" data-settings-subcopy>
+            No browsers yet. In the web app, open Settings → Desktop signing and tap Pair; this computer will ask you to Allow.
+          </p>
+        </SettingsOptionRow>
+      </SettingsOptionGroup>
+    ) : null;
   return (
     <SettingsOptionGroup data-testid="desktop-direct-signer" title="Browsers that sign with this computer">
       {devices.map((d) => {

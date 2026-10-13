@@ -1,19 +1,41 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { BANNER_SILENCE_MS, ESCALATE_WAIT_MS, UNRESPONSIVE_AFTER, isRevokedAnswer, signerHealth } from "./signerHealth.ts";
+import { BANNER_SILENCE_MS, ESCALATE_WAIT_MS, RETURN_GRACE_MS, isRevokedAnswer, signerHealth } from "./signerHealth.ts";
 
-test("timeouts: slow, then unresponsive after N in a row; one success resets", () => {
+test("only a user-initiated timeout with no reply since escalates; background never does; success clears", () => {
   signerHealth.reset();
-  assert.equal(signerHealth.get().state, "ok");
-  signerHealth.timeout();
+  for (let i = 0; i < 10; i++) signerHealth.timeout({ background: true, startedAt: Date.now() });
   assert.equal(signerHealth.get().state, "slow");
-  signerHealth.success();
-  assert.equal(signerHealth.get().state, "ok");
-  for (let i = 0; i < UNRESPONSIVE_AFTER; i++) signerHealth.timeout();
-  assert.deepEqual([signerHealth.get().state, signerHealth.get().reason], ["unresponsive", "timeout"]);
-  assert.equal(signerHealth.blocksBackground(), true);
-  signerHealth.success();
   assert.equal(signerHealth.blocksBackground(), false);
+  signerHealth.success();
+  const started = Date.now() + 1; // started after the last reply
+  signerHealth.timeout({ startedAt: started });
+  assert.deepEqual([signerHealth.get().state, signerHealth.get().reason], ["unresponsive", "timeout"]);
+  signerHealth.success(); // any later reply clears it
+  assert.equal(signerHealth.get().state, "ok");
+  // the signer answered something after this request started: not "unresponsive"
+  signerHealth.timeout({ startedAt: Date.now() - 1 });
+  assert.equal(signerHealth.get().state, "ok");
+});
+
+test("never while hidden, never within the return grace, never for requests started while hidden", () => {
+  signerHealth.reset();
+  signerHealth.setVisible(false);
+  signerHealth.timeout({ startedAt: 0 });
+  assert.equal(signerHealth.get().state, "ok");
+  const hiddenStart = Date.now() - 1;
+  signerHealth.setVisible(true);
+  signerHealth.timeout({ startedAt: 0 });
+  assert.equal(signerHealth.get().state, "ok", "within grace");
+  const realNow = Date.now;
+  Date.now = () => realNow() + RETURN_GRACE_MS + 1;
+  try {
+    signerHealth.timeout({ startedAt: hiddenStart });
+    assert.equal(signerHealth.get().state, "ok", "request started while hidden");
+  } finally {
+    Date.now = realNow;
+  }
+  signerHealth.reset();
 });
 
 test("answers: revoked/unauthorized => unresponsive(revoked); a user 'no' counts as alive", () => {
@@ -29,16 +51,19 @@ test("answers: revoked/unauthorized => unresponsive(revoked); a user 'no' counts
 test("escalation, probe failure, reconnecting and no-session", () => {
   signerHealth.reset();
   assert.ok(ESCALATE_WAIT_MS >= 10_000);
-  signerHealth.escalate(); // signer answered moments ago: a long wait alone isn't "unresponsive"
-  assert.equal(signerHealth.get().state, "ok");
   const realNow = Date.now;
-  Date.now = () => realNow() + BANNER_SILENCE_MS + 1;
+  Date.now = () => realNow() + BANNER_SILENCE_MS + RETURN_GRACE_MS + 1;
   try {
+    signerHealth.setSignerKind("nip46");
+    signerHealth.escalate(); // NIP-46: a long wait alone never escalates (pending counts background/abandoned work)
+    assert.equal(signerHealth.get().state, "ok");
+    signerHealth.setSignerKind("nip07");
     signerHealth.escalate();
+    assert.deepEqual([signerHealth.get().state, signerHealth.get().reason], ["unresponsive", "long-wait"]);
   } finally {
     Date.now = realNow;
+    signerHealth.setSignerKind(null);
   }
-  assert.deepEqual([signerHealth.get().state, signerHealth.get().reason], ["unresponsive", "long-wait"]);
   signerHealth.reset();
   signerHealth.reconnecting(true);
   assert.equal(signerHealth.get().state, "reconnecting");
