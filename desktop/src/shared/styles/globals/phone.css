@@ -601,3 +601,13 @@
   max-height: 1.6em;
   overflow: hidden;
 }
+
+/* Phone composer: the quiet-dock spacer (14px reserved above the toolbar) plus the toolbar's mt-2 left a ~2-line gap under the
+   text. Drop the spacer and keep the toolbar buttons a consistent 8px below the last line (4px margin + the row's 4px padding).
+   The editor already auto-sizes to its content (one line min) up to max-h-32, then scrolls. */
+[data-phone] [data-testid="message-composer"] .composer-dock-quiet-spacer {
+  display: none;
+}
+[data-phone] [data-testid="message-composer"] [data-testid="message-composer-toolbar"] {
+  margin-top: 4px;
+}
