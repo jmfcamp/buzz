@@ -447,8 +447,9 @@
   [data-phone] .buzz-terminal-substrate[data-terminal-mode="maximized"][data-keyboard-open="true"] {
     padding-top: env(safe-area-inset-top, 0px) !important; /* keyboard layout unchanged */
   }
-  /* Phone: no "Buzz term" page title while the terminal is up (the tab strip sits right under the nav row) */
-  [data-phone] body:has(.buzz-terminal-substrate[data-terminal-mode="maximized"][data-terminal-visible="true"]) [data-testid="buzz-term-title"] {
+  /* Phone: no "Buzz term" page title or status/subtitle lines (Opening/Connecting/Running…) while the terminal is up (the tab strip sits right under the nav row) */
+  [data-phone] body:has(.buzz-terminal-substrate[data-terminal-mode="maximized"][data-terminal-visible="true"]) [data-testid="buzz-term-title"],
+  [data-phone] body:has(.buzz-terminal-substrate[data-terminal-mode="maximized"][data-terminal-visible="true"]) [data-testid="buzz-term-launcher"] {
     display: none;
   }
   [data-phone] .buzz-terminal-substrate[data-terminal-mode="maximized"] .buzz-terminal-contract-bar {
