@@ -299,3 +299,20 @@ test("encodeTerminalKeystroke forwards printable letters the textarea path would
     "textarea onInput still owns printable when focused",
   );
 });
+
+test("slow scroll speed keeps sub-line movement in the remainder (smooth, nothing lost)", async () => {
+  const { accumulateScrollLines: acc } = await import("./terminalState.ts");
+  const { parseTermScrollSpeed } = await import("./termPreferences.ts");
+  const speed = parseTermScrollSpeed(null);
+  assert.equal(speed, 0.5);
+  assert.equal(parseTermScrollSpeed("9"), 2);
+  assert.equal(parseTermScrollSpeed("0.01"), 0.25);
+  let st = { remainderPx: 0 };
+  let lines = 0;
+  for (let i = 0; i < 20; i++) {
+    const r = acc(st, 3 * speed, 10);
+    st = r.state;
+    lines += r.lines;
+  }
+  assert.equal(lines, 3); // 20 * 1.5px = 30px = 3 lines at 10px cells
+});

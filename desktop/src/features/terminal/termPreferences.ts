@@ -11,7 +11,18 @@ export const TERM_PREF_KEYS = {
   openMode: "buzz.term.openMode",
   sessionHost: "buzz.term.sessionHost",
   sessionName: "buzz.term.sessionName",
+  scrollSpeed: "buzz.term.scrollSpeed",
 } as const;
+
+/** Multiplier on scroll pixels before they become lines (wheel, trackpad, touch, mouse-reporting wheel). */
+export const DEFAULT_TERM_SCROLL_SPEED = 0.5;
+export const MIN_TERM_SCROLL_SPEED = 0.25;
+export const MAX_TERM_SCROLL_SPEED = 2;
+export function parseTermScrollSpeed(value: string | null | undefined): number {
+  const n = Number.parseFloat(value ?? "");
+  if (!Number.isFinite(n)) return DEFAULT_TERM_SCROLL_SPEED;
+  return Math.min(MAX_TERM_SCROLL_SPEED, Math.max(MIN_TERM_SCROLL_SPEED, Math.round(n * 100) / 100));
+}
 
 /** Blank = login-shell / portable-pty default (usually home). */
 export const DEFAULT_TERM_CWD = "";
@@ -59,6 +70,7 @@ type Snapshot = {
   openMode: TermOpenMode;
   sessionHost: TermSessionHost;
   sessionName: string;
+  scrollSpeed: number;
 };
 
 const listeners = new Set<() => void>();
@@ -141,6 +153,7 @@ function readAll(): Snapshot {
     openMode: parseTermOpenMode(readRaw(TERM_PREF_KEYS.openMode)),
     sessionHost: parseTermSessionHost(readRaw(TERM_PREF_KEYS.sessionHost)),
     sessionName: parseTermSessionName(readRaw(TERM_PREF_KEYS.sessionName)),
+    scrollSpeed: parseTermScrollSpeed(readRaw(TERM_PREF_KEYS.scrollSpeed)),
   };
 }
 
@@ -193,6 +206,12 @@ export function setTermSessionName(next: string): void {
   publish({ ...snapshot, sessionName });
 }
 
+export function setTermScrollSpeed(next: number | string): void {
+  const scrollSpeed = parseTermScrollSpeed(String(next));
+  writeRaw(TERM_PREF_KEYS.scrollSpeed, String(scrollSpeed));
+  publish({ ...snapshot, scrollSpeed });
+}
+
 /** Non-React subscription (remote access re-pushes the shell/herdr choice to the Rust backend when it changes). */
 export function subscribeTermPreferences(listener: () => void): () => void {
   listeners.add(listener);
@@ -214,6 +233,7 @@ export function useTermPreferences(): Snapshot {
       openMode: DEFAULT_TERM_OPEN_MODE,
       sessionHost: DEFAULT_TERM_SESSION_HOST,
       sessionName: DEFAULT_TERM_SESSION_NAME,
+      scrollSpeed: DEFAULT_TERM_SCROLL_SPEED,
     }),
   );
 }
@@ -279,6 +299,7 @@ export function resetTermPreferencesForTests(): void {
     openMode: DEFAULT_TERM_OPEN_MODE,
     sessionHost: DEFAULT_TERM_SESSION_HOST,
     sessionName: DEFAULT_TERM_SESSION_NAME,
+    scrollSpeed: DEFAULT_TERM_SCROLL_SPEED,
   };
   for (const key of Object.values(TERM_PREF_KEYS)) {
     try {
