@@ -33,13 +33,11 @@ import {
 
 export const NIP46_AVAILABLE = true;
 export const NIP46_KIND = 24133;
-// Primal's signer answers on its own relay; nsec.app on relay.nsec.app. Listing several lets whichever the signer uses work.
-export const DEFAULT_SIGNER_RELAYS = [
-  "wss://relay.nsec.app",
-  "wss://relay.primal.net",
-  "wss://nrs.primal.net",
-  "wss://relay.damus.io",
-];
+// Our own signer relay first (kind 24133 only, no storage, rate limited; see deploy/signer-relay), then Primal's relay as
+// the fallback, and relay.nsec.app for nsec.app bunkers. Fewer relays = fewer duplicate sockets per request; after the
+// first answers, pruneSignerRelays keeps only the ones the signer actually uses (+ the Primal fallback).
+export const HULA_SIGNER_RELAY = "wss://signer.huladesk.com";
+export const DEFAULT_SIGNER_RELAYS = [HULA_SIGNER_RELAY, "wss://relay.primal.net", "wss://relay.nsec.app"];
 const REQUEST_TIMEOUT_MS = 30_000;
 const CONNECT_TIMEOUT_MS = 120_000; // bunker connect / get_public_key
 const AUTH_URL_TIMEOUT_MS = 180_000; // user is approving in a browser tab / signer app

@@ -1,0 +1,20 @@
+# Signer relay (NIP-46 kind 24133 only; no storage, no auth, rate limited). Source: ../signer-relay
+# Own network (no route to postgres/redis/minio/relay); only caddy joins it. Include this overlay on every
+# `docker compose up` of caddy, e.g.:
+#   docker compose -p buzz-prod --env-file .env -f compose.yml -f compose.caddy.yml -f compose.linkpreview.yml -f compose.signer.yml up -d signer-relay
+services:
+  signer-relay:
+    image: hulabuzz/signer-relay:20261013
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    cpus: 0.5
+    restart: unless-stopped
+    networks: [sr-net]
+
+  caddy:
+    networks: [buzz-net, lp-net, sr-net]
+
+networks:
+  sr-net: {}
