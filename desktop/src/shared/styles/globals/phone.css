@@ -643,3 +643,13 @@
   flex-wrap: wrap;
   row-gap: 2px;
 }
+
+/* Phone: sheets that reach the top edge (left/right/top) start below the notch / status bar. A transparent top border of the
+   safe-area height (the sheet background still paints under it) moves both the content and the absolutely placed close ×,
+   whatever padding the sheet's own classes use. */
+[data-phone] .buzz-sheet:not([data-sheet-side="bottom"]) {
+  border-top: var(--phone-safe-top, env(safe-area-inset-top, 0px)) solid transparent;
+}
+[data-phone] .buzz-sheet:not([data-sheet-side="top"]) {
+  border-bottom: env(safe-area-inset-bottom, 0px) solid transparent;
+}

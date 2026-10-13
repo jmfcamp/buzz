@@ -2,6 +2,7 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import { useChannelsQuery } from "@/features/channels/hooks";
 import { useChannelReferences } from "@/features/channels/openChannelDirectory";
 import { useAgentSession } from "@/shared/context/AgentSessionContext";
 import type { Channel } from "@/shared/api/types";
@@ -77,6 +78,9 @@ export function useOpenAgentActivity() {
   const { goChannel } = useAppNavigation();
   const relayAgentsQuery = useRelayAgentsQuery();
   const relayAgents = relayAgentsQuery.data;
+  // Fallback when the relay agent list doesn't know this agent's channels (e.g. web, or a local agent not yet listed):
+  // the viewer's own channel list says which channels have the agent as a member.
+  const channelsQuery = useChannelsQuery();
   // Agent metadata and the working-signal snapshot are both finite id sources.
   // Resolve them by id, never by scanning the all-open directory, so an agent
   // can link to a readable open channel the viewer has not browsed this session.
@@ -111,8 +115,18 @@ export function useOpenAgentActivity() {
           .filter((channel) => isChannelOpenable(channel))
           .map((channel) => channel.id),
       );
+      const memberChannelIds = (channelsQuery.data ?? [])
+        .filter(
+          (channel) =>
+            channel.channelType !== "dm" &&
+            !channel.archivedAt &&
+            isChannelOpenable(channel) &&
+            channel.memberPubkeys.some((member) => normalizePubkey(member) === key),
+        )
+        .map((channel) => channel.id);
+      for (const id of memberChannelIds) openableChannelIds.add(id);
       return resolveOpenableActivityChannelId({
-        agentChannelIds: relayAgent?.channelIds ?? [],
+        agentChannelIds: [...(relayAgent?.channelIds ?? []), ...memberChannelIds],
         openableChannelIds,
         // Deliberately an unsubscribed snapshot: this callback runs on click
         // (and in canOpenAgentActivity), not in render, so we don't need to
@@ -125,7 +139,7 @@ export function useOpenAgentActivity() {
         ),
       });
     },
-    [channelsById, relayAgents],
+    [channelsById, channelsQuery.data, relayAgents],
   );
 
   const canOpenAgentActivity = React.useCallback(
@@ -185,6 +199,8 @@ export function useOpenAgentActivity() {
       // room, or navigating into it.
       if (getAgentWorkingState(pubkey).channels.length > 0) {
         toast.warning(INACCESSIBLE_ACTIVITY_MESSAGE);
+      } else {
+        toast.message("No activity to show yet. Activity appears once this agent works in a channel you can open.");
       }
       return false;
     },
