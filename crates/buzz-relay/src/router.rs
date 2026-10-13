@@ -295,6 +295,11 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // WebSocket + NIP-11
         .route("/", get(nip11_or_ws_handler))
         .route("/info", get(relay_info_handler))
+        .route(
+            "/push/prefetch",
+            get(crate::push_prefetch::prefetch_handler)
+                .options(crate::push_prefetch::options_handler),
+        )
         .route("/.well-known/nostr.json", get(api::nip05::nostr_nip05))
         // Health endpoints
         .route("/health", get(health_handler))

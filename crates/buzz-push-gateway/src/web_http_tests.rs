@@ -82,6 +82,10 @@ fn app(web: Arc<FakeWeb>) -> axum::Router {
             ),
             transport: Arc::new(NoApns),
         }),
+        gateway_urls: Arc::new(
+            crate::config::GatewayUrls::from_origin("https://push.example".parse().unwrap())
+                .unwrap(),
+        ),
         max_grant_lifetime_seconds: 3600,
         max_installation_lifetime_seconds: 86_400,
         endpoint_quota_window_seconds: 60,

@@ -1566,6 +1566,47 @@ impl Db {
             .collect()
     }
 
+    #[datastore_span(name = "push_prefetch_event_ids", system = "postgresql")]
+    /// Event ids a web push prefetch token may read: non-deleted events in the
+    /// channel (or one thread of it) created at/after the wake event, newest
+    /// `limit`. Empty when the wake event is gone.
+    pub async fn push_prefetch_event_ids(
+        &self,
+        community: CommunityId,
+        channel: Uuid,
+        thread_root: Option<&[u8]>,
+        since_event: &[u8],
+        limit: i64,
+    ) -> Result<Vec<Vec<u8>>> {
+        let mut connection = crate::observability::acquire_writer(
+            &self.pool,
+            crate::observability::WriterOperation::Authorization,
+        )
+        .await?;
+        let rows = sqlx::query(
+            "WITH since AS ( \
+                 SELECT created_at FROM events \
+                  WHERE community_id = $1 AND id = $4 AND channel_id = $2 LIMIT 1 \
+             ) \
+             SELECT e.id FROM events e, since \
+              WHERE e.community_id = $1 AND e.channel_id = $2 \
+                AND e.deleted_at IS NULL AND e.created_at >= since.created_at \
+                AND e.kind NOT IN (1059) \
+                AND ($3::bytea IS NULL OR e.id = $3 OR e.id IN ( \
+                      SELECT event_id FROM thread_metadata \
+                       WHERE community_id = $1 AND root_event_id = $3)) \
+              ORDER BY e.created_at DESC LIMIT $5",
+        )
+        .bind(community.as_uuid())
+        .bind(channel)
+        .bind(thread_root)
+        .bind(since_event)
+        .bind(limit)
+        .fetch_all(&mut *connection)
+        .await?;
+        rows.into_iter().map(|r| Ok(r.try_get(0)?)).collect()
+    }
+
     /// Participants among `pubkeys` for each thread root: the root author, anyone
     /// who replied in the thread, and anyone @-mentioned in the root or a reply.
     #[datastore_span(name = "push_thread_participants", system = "postgresql")]
