@@ -441,7 +441,15 @@
   [data-phone] .buzz-terminal-substrate[data-terminal-mode="maximized"] {
     border: 0;
     border-radius: 0;
-    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px) !important;
+    /* no top padding: the substrate's top (safe area + nav row, set once above) is the only top offset */
+    padding: 0 env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px) !important;
+  }
+  [data-phone] .buzz-terminal-substrate[data-terminal-mode="maximized"][data-keyboard-open="true"] {
+    padding-top: env(safe-area-inset-top, 0px) !important; /* keyboard layout unchanged */
+  }
+  /* Phone: no "Buzz term" page title while the terminal is up (the tab strip sits right under the nav row) */
+  [data-phone] body:has(.buzz-terminal-substrate[data-terminal-mode="maximized"][data-terminal-visible="true"]) [data-testid="buzz-term-title"] {
+    display: none;
   }
   [data-phone] .buzz-terminal-substrate[data-terminal-mode="maximized"] .buzz-terminal-contract-bar {
     flex-basis: 34px;
