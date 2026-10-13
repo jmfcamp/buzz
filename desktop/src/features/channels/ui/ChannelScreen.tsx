@@ -163,6 +163,7 @@ export function ChannelScreen({
     recordThreadInteraction,
     isThreadMuted,
     readStateVersion,
+    unreadThreadFeedItems,
   } = useAppShell();
   const {
     channelManagementOpen,
@@ -518,6 +519,7 @@ export function ChannelScreen({
     markMessageRead,
     isThreadMuted,
     readStateVersion,
+    unreadThreadFeedItems,
   });
   const editTargetMessage = React.useMemo(
     () =>
