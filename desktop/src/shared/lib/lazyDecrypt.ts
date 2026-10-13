@@ -1,7 +1,7 @@
 // Lazy NIP-44 self-decrypt for rarely used synced lanes (project sidebar membership, reminders).
 // On web every decrypt is a remote-signer round trip, so these wait until the app has been up for a while
 // (LAZY_AFTER_MS) instead of competing with boot. Desktop decrypts locally and is unaffected.
-import { nip44DecryptFromSelf } from "@/shared/api/tauri";
+import { decryptAppData } from "@/shared/lib/appData";
 
 export const LAZY_AFTER_MS = 20_000;
 const startedAt = Date.now();
@@ -21,5 +21,5 @@ export function lazyDelayMs(now = Date.now(), web = isWeb()): number {
 export async function lazyDecryptFromSelf(ciphertext: string): Promise<string> {
   const wait = lazyDelayMs();
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-  return nip44DecryptFromSelf(ciphertext);
+  return decryptAppData(ciphertext);
 }

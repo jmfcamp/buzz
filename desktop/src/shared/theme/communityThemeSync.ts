@@ -1,7 +1,6 @@
+import { decryptAppData, encryptAppData } from "@/shared/lib/appData";
 import { relayClient } from "@/shared/api/relayClient";
 import {
-  nip44DecryptFromSelf,
-  nip44EncryptToSelf,
   signRelayEvent,
 } from "@/shared/api/tauri";
 import type { RelayEvent } from "@/shared/api/types";
@@ -65,7 +64,7 @@ async function decryptAndParse(
   event: RelayEvent,
 ): Promise<RemoteCommunityTheme | null> {
   try {
-    const plaintext = await nip44DecryptFromSelf(event.content);
+    const plaintext = await decryptAppData(event.content);
     const preference = parseCommunityThemePreference(JSON.parse(plaintext));
     return preference
       ? { preference, createdAt: event.created_at, eventId: event.id }
@@ -213,7 +212,7 @@ export class CommunityThemeSyncManager {
         }
         return;
       }
-      const ciphertext = await nip44EncryptToSelf(JSON.stringify(preference));
+      const ciphertext = await encryptAppData(JSON.stringify(preference));
       if (this.destroyed) return;
       const event = await signRelayEvent({
         kind: KIND_COMMUNITY_THEME,

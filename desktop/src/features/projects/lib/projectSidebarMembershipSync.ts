@@ -1,7 +1,7 @@
+import { encryptAppData } from "@/shared/lib/appData";
 import { lazyDecryptFromSelf } from "@/shared/lib/lazyDecrypt";
 import { relayClient } from "@/shared/api/relayClient";
 import {
-  nip44EncryptToSelf,
   signRelayEvent,
 } from "@/shared/api/tauri";
 import type { RelayEvent } from "@/shared/api/types";
@@ -154,7 +154,7 @@ export class ProjectSidebarMembershipSyncManager {
         this.pendingStore = null;
         return;
       }
-      const ciphertext = await nip44EncryptToSelf(JSON.stringify(merged));
+      const ciphertext = await encryptAppData(JSON.stringify(merged));
       const createdAt = Math.max(
         Math.floor(Date.now() / 1_000),
         this.lastRemoteCreatedAt + 1,

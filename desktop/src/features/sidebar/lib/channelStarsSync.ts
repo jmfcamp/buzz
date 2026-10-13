@@ -1,7 +1,6 @@
+import { decryptAppData, encryptAppData } from "@/shared/lib/appData";
 import { relayClient } from "@/shared/api/relayClient";
 import {
-  nip44DecryptFromSelf,
-  nip44EncryptToSelf,
   signRelayEvent,
 } from "@/shared/api/tauri";
 import type { RelayEvent } from "@/shared/api/types";
@@ -30,7 +29,7 @@ export type RemoteStars = {
 
 async function decryptAndParse(event: RelayEvent): Promise<RemoteStars | null> {
   try {
-    const plaintext = await nip44DecryptFromSelf(event.content);
+    const plaintext = await decryptAppData(event.content);
     const store = parseStarPayload(JSON.parse(plaintext));
     if (!store) return null;
     return { store, createdAt: event.created_at, eventId: event.id };
@@ -205,7 +204,7 @@ export class ChannelStarSyncManager {
         version: 1,
         channels: merged.channels,
       };
-      const ciphertext = await nip44EncryptToSelf(JSON.stringify(payload));
+      const ciphertext = await encryptAppData(JSON.stringify(payload));
       const createdAt = Math.max(
         Math.floor(Date.now() / 1_000),
         this.lastRemoteCreatedAt + 1,

@@ -1,10 +1,9 @@
+import { decryptAppData, encryptAppData } from "@/shared/lib/appData";
 import * as React from "react";
 
 import { relayClient } from "@/shared/api/relayClient";
 import { PublishCanceledError } from "@/shared/api/relayEventPublisher";
 import {
-  nip44DecryptFromSelf,
-  nip44EncryptToSelf,
   signRelayEvent,
 } from "@/shared/api/tauri";
 import type { RelayEvent } from "@/shared/api/types";
@@ -108,7 +107,7 @@ export class LaneReconciler {
     const mine = this.observations;
     let json: unknown = null;
     try {
-      json = JSON.parse(await nip44DecryptFromSelf(event.content));
+      json = JSON.parse(await decryptAppData(event.content));
     } catch {
       json = null;
     }
@@ -235,7 +234,7 @@ export class LaneReconciler {
         if (heldDrop) outcome = "held";
         return true;
       };
-      const content = await nip44EncryptToSelf(JSON.stringify(doc));
+      const content = await encryptAppData(JSON.stringify(doc));
       if (new TextEncoder().encode(content).length > MAX_CIPHERTEXT_BYTES) {
         outcome = "settled";
         return;

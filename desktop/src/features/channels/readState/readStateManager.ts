@@ -1,4 +1,5 @@
-import { nip44EncryptToSelf, signRelayEvent } from "@/shared/api/tauri";
+import { encryptAppData } from "@/shared/lib/appData";
+import { signRelayEvent } from "@/shared/api/tauri";
 import type { RelayClient } from "@/shared/api/relayClientSession";
 import type { RelayEvent } from "@/shared/api/types";
 import { KIND_READ_STATE } from "@/shared/constants/kinds";
@@ -737,7 +738,7 @@ export class ReadStateManager {
 
     try {
       const plaintext = JSON.stringify(blob);
-      const ciphertext = await nip44EncryptToSelf(plaintext);
+      const ciphertext = await encryptAppData(plaintext);
 
       const dTagValue = `read-state:${slotId}`;
       const tags: string[][] = [

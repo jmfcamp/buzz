@@ -1,4 +1,4 @@
-import { nip44DecryptFromSelf } from "@/shared/api/tauri";
+import { decryptAppData } from "@/shared/lib/appData";
 import type { RelayEvent } from "@/shared/api/types";
 import {
   isValidBlob,
@@ -18,7 +18,7 @@ export type ParsedReadStateEvent = {
 export async function parseReadStateEvent(
   event: RelayEvent,
   pubkey: string,
-  decrypt: ReadStateDecrypt = nip44DecryptFromSelf,
+  decrypt: ReadStateDecrypt = decryptAppData,
 ): Promise<ParsedReadStateEvent | null> {
   if (event.pubkey !== pubkey) return null;
 

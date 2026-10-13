@@ -1,3 +1,4 @@
+import { decryptAppData, encryptAppData } from "@/shared/lib/appData";
 // Relay-backed per-user notification preferences.
 //
 // Two kind-30078 app-data events, both authored by the member:
@@ -10,9 +11,7 @@
 import { relayClient } from "@/shared/api/relayClient";
 import {
   getRelayHttpUrl,
-  nip44DecryptFromSelf,
   nip44EncryptToPeer,
-  nip44EncryptToSelf,
   signRelayEvent,
 } from "@/shared/api/tauri";
 import type { RelayEvent } from "@/shared/api/types";
@@ -113,7 +112,7 @@ export async function fetchSyncedTypePrefs(
   if (!ev) return null;
   try {
     return parseSyncedTypePrefs(
-      JSON.parse(await nip44DecryptFromSelf(ev.content)),
+      JSON.parse(await decryptAppData(ev.content)),
     );
   } catch {
     return null;
@@ -134,7 +133,7 @@ async function publishAppData(d: string, content: string, label: string) {
 }
 
 export async function publishSyncedTypePrefs(p: SyncedTypePrefs) {
-  const content = await nip44EncryptToSelf(serializeSyncedTypePrefs(p));
+  const content = await encryptAppData(serializeSyncedTypePrefs(p));
   await publishAppData(PREFS_D_TAG, content, "notification settings");
 }
 
