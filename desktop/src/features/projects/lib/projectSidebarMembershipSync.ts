@@ -1,6 +1,6 @@
+import { lazyDecryptFromSelf } from "@/shared/lib/lazyDecrypt";
 import { relayClient } from "@/shared/api/relayClient";
 import {
-  nip44DecryptFromSelf,
   nip44EncryptToSelf,
   signRelayEvent,
 } from "@/shared/api/tauri";
@@ -33,7 +33,7 @@ async function decryptAndParse(
   event: RelayEvent,
 ): Promise<RemoteProjectSidebarMembership | null> {
   try {
-    const plaintext = await nip44DecryptFromSelf(event.content);
+    const plaintext = await lazyDecryptFromSelf(event.content);
     const store = parseProjectSidebarMembershipPayload(JSON.parse(plaintext));
     if (!store) return null;
     return { store, createdAt: event.created_at, eventId: event.id };

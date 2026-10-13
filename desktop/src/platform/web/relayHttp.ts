@@ -8,7 +8,7 @@ import { dropRelaySession, relaySessionAuth, revokeRelaySession } from "./relayS
 import type { SignPriority } from "./signer/types";
 import type { Filter, NostrEvent } from "./nostrTypes";
 import { relayHttpBase } from "./relayConfig";
-import { canUseWs, wsQuery } from "./relayWsQuery";
+import { canUseWs, wsPublish, wsQuery } from "./relayWsQuery";
 
 const utf8 = (s: string) => new TextEncoder().encode(s);
 const b64 = (s: string) => {
@@ -43,6 +43,14 @@ export async function nip98Header(
 }
 
 export class RelayHttpError extends Error {}
+
+/** Kill switch (`localStorage["buzz-web-ws-publish"]="0"`) shared with the WS read toggle. */
+function canPublishWs(_event: NostrEvent): boolean {
+  try {
+    if (localStorage.getItem("buzz-web-ws-publish") === "0" || localStorage.getItem("buzz-web-ws-reads") === "0") return false;
+  } catch {}
+  return true;
+}
 
 async function relayError(res: Response): Promise<string> {
   const text = await res.text().catch(() => "");
@@ -182,6 +190,23 @@ export type SubmitResult = {
 export async function submitSignedEvent(
   event: NostrEvent,
 ): Promise<SubmitResult> {
+  // Prefer the authenticated live WebSocket: EVENT → OK needs no NIP-98 signature (one signer round trip saved per send).
+  // Transport failures (no socket, closed, no OK in time) fall back to HTTP; a relay rejection is final either way.
+  const ws = canPublishWs(event) ? wsPublish(event) : null;
+  if (ws) {
+    try {
+      const r = await ws;
+      if (!r.accepted) {
+        // "duplicate:" means the relay already has it (e.g. a retry) — success, as over HTTP.
+        if (/^duplicate:/i.test(r.message)) return { event_id: event.id, accepted: true, message: r.message };
+        throw new RelayHttpError(`relay rejected event: ${r.message}`);
+      }
+      return { event_id: event.id, accepted: true, message: r.message };
+    } catch (e) {
+      if (e instanceof RelayHttpError) throw e;
+      console.warn("[relay] WS publish failed, falling back to HTTP:", e instanceof Error ? e.message : e);
+    }
+  }
   const r = (await post("/events", event)) as SubmitResult;
   if (!r.accepted)
     throw new RelayHttpError(`relay rejected event: ${r.message}`);

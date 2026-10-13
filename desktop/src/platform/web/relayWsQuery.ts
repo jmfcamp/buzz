@@ -5,6 +5,7 @@
 import { getSigner } from "./signer";
 import type { Filter, NostrEvent } from "./nostrTypes";
 import { relayWsUrl } from "./relayConfig";
+import { sharedAuthedSocket } from "./websocket";
 
 const BRIDGE_ONLY_KEYS = [
   "before_id",
@@ -189,9 +190,99 @@ class QuerySocket {
   }
 }
 
+/** Reads ride on the live session socket once it is authenticated (no second AUTH signature). */
+let sharedInflight = 0;
+function sharedQuery(filters: Filter[]): Promise<NostrEvent[]> | null {
+  if (sharedInflight >= MAX_INFLIGHT) return null;
+  const sh = sharedAuthedSocket(relayWsUrl());
+  if (!sh) return null;
+  const id = `sq-${crypto.randomUUID().slice(0, 12)}`;
+  sharedInflight++;
+  return new Promise<NostrEvent[]>((resolve, reject) => {
+    const events: NostrEvent[] = [];
+    let offDead = () => {};
+    const done = () => {
+      clearTimeout(timer);
+      sh.off(id);
+      offDead();
+      sharedInflight--;
+    };
+    const timer = setTimeout(() => {
+      done();
+      try {
+        sh.send(JSON.stringify(["CLOSE", id]));
+      } catch {}
+      reject(new Error("relay query timed out"));
+    }, QUERY_TIMEOUT_MS);
+    offDead = sh.onDead(() => {
+      done();
+      reject(new Error("relay websocket closed"));
+    });
+    sh.on(id, (f) => {
+      if (f[0] === "EVENT") events.push(f[2] as NostrEvent);
+      else if (f[0] === "EOSE") {
+        done();
+        try {
+          sh.send(JSON.stringify(["CLOSE", id]));
+        } catch {}
+        resolve(events);
+      } else if (f[0] === "CLOSED") {
+        done();
+        reject(new Error(`relay closed subscription: ${f[2] ?? ""}`));
+      }
+    });
+    try {
+      sh.send(JSON.stringify(["REQ", id, ...filters]));
+    } catch (e) {
+      done();
+      reject(e instanceof Error ? e : new Error(String(e)));
+    }
+  });
+}
+
+const PUBLISH_TIMEOUT_MS = 15_000;
+export type WsPublishResult = { accepted: boolean; message: string };
+/**
+ * Publish an already signed event as a NIP-01 EVENT on the authenticated live socket and wait for OK. Returns null when
+ * no authenticated socket is up (caller falls back to HTTP POST /events, which costs a NIP-98 signature).
+ */
+export function wsPublish(event: NostrEvent): Promise<WsPublishResult> | null {
+  const sh = sharedAuthedSocket(relayWsUrl());
+  if (!sh) return null;
+  return new Promise<WsPublishResult>((resolve, reject) => {
+    let offDead = () => {};
+    const done = () => {
+      clearTimeout(timer);
+      sh.off(event.id);
+      offDead();
+    };
+    const timer = setTimeout(() => {
+      done();
+      reject(new Error("relay did not acknowledge the event"));
+    }, PUBLISH_TIMEOUT_MS);
+    offDead = sh.onDead(() => {
+      done();
+      reject(new Error("relay websocket closed"));
+    });
+    sh.on(event.id, (f) => {
+      if (f[0] !== "OK") return;
+      done();
+      resolve({ accepted: f[2] === true, message: String(f[3] ?? "") });
+    });
+    try {
+      sh.send(JSON.stringify(["EVENT", event]));
+    } catch (e) {
+      done();
+      reject(e instanceof Error ? e : new Error(String(e)));
+    }
+  });
+}
+
 let socket: QuerySocket | null = null;
 let socketUrl = "";
 export function wsQuery(filters: Filter[]): Promise<NostrEvent[]> {
+  const shared = sharedQuery(filters);
+  if (shared) return shared;
   const url = relayWsUrl();
   if (!socket || socketUrl !== url) {
     socket?.close();
