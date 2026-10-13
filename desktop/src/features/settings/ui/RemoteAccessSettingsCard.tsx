@@ -2,6 +2,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import * as React from "react";
 
 import { WebRemoteAgentManagement, WebRemoteTerminal } from "@/features/bridge/ui/WebRemoteSettings";
+import { DesktopDirectSignerCard, WebDirectSignerCard } from "@/features/bridge/ui/DirectSignerSettings";
 
 import {
   getRemoteAccess,
@@ -46,8 +47,19 @@ function useRemote() {
 
 /** Settings → Agents. */
 export function RemoteAgentManagementCard() {
-  if (!isTauri()) return <WebRemoteAgentManagement />;
-  return <DesktopRemoteAgentManagementCard />;
+  if (!isTauri())
+    return (
+      <>
+        <WebRemoteAgentManagement />
+        <WebDirectSignerCard />
+      </>
+    );
+  return (
+    <>
+      <DesktopRemoteAgentManagementCard />
+      <DesktopDirectSignerCard />
+    </>
+  );
 }
 function DesktopRemoteAgentManagementCard() {
   const { status, error, busy, run, prefs } = useRemote();

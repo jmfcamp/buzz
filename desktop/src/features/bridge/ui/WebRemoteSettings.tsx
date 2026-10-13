@@ -25,6 +25,8 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { directAgentsFor } from "../directAgents";
 import { acquireProxyDirect, getProxyDirect } from "../remoteCmd";
+import { DirectSignerClient } from "../directSignerClient";
+import { setDirectSignRoute } from "@/platform/web/signer/directRoute";
 import { useBridgeAgents } from "../useBridgeAgents";
 import { useDirectAutoReconnect, useDirectState } from "./DirectAgentsPanel";
 import { getTerminalBackend, setTerminalBackend } from "@/features/terminal/terminalClient";
@@ -289,6 +291,13 @@ export function WebRemoteWatcher() {
     [host?.id, host?.url, host?.hasDirect, rh.b.available], // eslint-disable-line react-hooks/exhaustive-deps
   );
   React.useEffect(() => acquireProxyDirect(direct), [direct]);
+  // Desktop as signer: while Direct is live and this browser is paired, signing goes to the desktop (Primal is the fallback).
+  React.useEffect(() => {
+    if (!direct || !host?.id) return;
+    const c = new DirectSignerClient(direct, host.id);
+    setDirectSignRoute((ev) => c.sign(ev));
+    return () => setDirectSignRoute(null);
+  }, [direct, host?.id]);
   // The desktop's data replaces the web's empty defaults the moment the connection goes live (and back when it ends).
   const live = useDirectState(direct).live;
   React.useEffect(() => {

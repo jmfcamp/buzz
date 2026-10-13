@@ -11,7 +11,8 @@
 //!   server -> {"t":"term.opened","id"} / {"t":"term.out","id","data":b64} / {"t":"term.closed","id"}
 //!   client -> {"t":"term.in","id","data":b64} / {"t":"term.resize","id","cols","rows"} / {"t":"term.close","id"}
 //!   client -> {"t":"mgmt","id","op","params"}                   -> {"t":"mgmt.result","id","ok":bool,"result"|"error"}
-//!     (agent management; refused with "agents_disabled" unless the desktop's "Allow remote agent management" is on)
+//!     (agent management; refused with "agents_disabled" unless the desktop's "Allow remote agent management" is on.
+//!      "signer.*" ops skip that switch: the app approves each device; the server tags them with this connection's id)
 //!   server -> {"t":"error","code":"session_expired"} then close  when the signed connection's lifetime ends
 use std::collections::{HashMap, VecDeque};
 use std::net::{Ipv4Addr, SocketAddr};
@@ -514,7 +515,9 @@ async fn handle(sock: TcpStream, sh: Arc<Shared>) {
                     let _ = out_tx.send(fail("bad_request")).await;
                     continue;
                 }
-                if !sh.agents_enabled.load(Ordering::SeqCst) {
+                // "signer.*" ops (desktop as signer) are gated per device by the app, not by the agents switch.
+                let signer_op = op.starts_with("signer.");
+                if !signer_op && !sh.agents_enabled.load(Ordering::SeqCst) {
                     let _ = out_tx.send(fail("agents_disabled")).await;
                     continue;
                 }
@@ -527,13 +530,22 @@ async fn handle(sock: TcpStream, sh: Arc<Shared>) {
                     let _ = out_tx.send(fail("busy")).await;
                     continue;
                 }
-                let params = v.get("params").cloned().unwrap_or(Value::Null);
+                let mut params = v.get("params").cloned().unwrap_or(Value::Null);
+                if signer_op {
+                    // bind signer requests to this authenticated connection (the app keys its per-session nonce on it)
+                    if !params.is_object() {
+                        params = json!({});
+                    }
+                    params["_conn"] = json!(conn_id.clone());
+                } else if let Some(o) = params.as_object_mut() {
+                    o.remove("_conn");
+                }
                 let (out2, inflight, sh2) = (out_tx.clone(), mgmt_inflight.clone(), sh.clone());
                 tokio::spawn(async move {
                     let r = tokio::time::timeout(MGMT_TIMEOUT, backend.call(op, params)).await;
                     inflight.fetch_sub(1, Ordering::SeqCst);
                     // re-check: the switch may have been turned off while the request ran; the result is then withheld
-                    let m = if !sh2.agents_enabled.load(Ordering::SeqCst) {
+                    let m = if !signer_op && !sh2.agents_enabled.load(Ordering::SeqCst) {
                         json!({"t":"mgmt.result","id":id,"ok":false,"error":"agents_disabled"})
                     } else {
                         match r {

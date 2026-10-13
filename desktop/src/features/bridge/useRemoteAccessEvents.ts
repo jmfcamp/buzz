@@ -13,6 +13,8 @@ import { managedAgentsQueryKey } from "@/features/agents/hooks";
 import { listPersonas } from "@/shared/api/tauriPersonas";
 import { CMD_WRITES } from "./directCmd";
 import { handleMgmt, mgmtErrorString, type MgmtDeps } from "./directMgmt";
+import { createDirectSigner, localSignerStore } from "./directSigner";
+import { signRelayEvent } from "@/shared/api/tauri";
 import { isAgentManagementAllowed, refreshRemoteAccess, subscribeRemoteAccess } from "./remoteAccessStore";
 
 /** The real agent APIs behind direct-connection management requests. `pubkey` is the signed-in member (scope guard for start). */
@@ -32,6 +34,22 @@ export function realMgmtDeps(pubkey: string | undefined): MgmtDeps {
     personas: async () => (await listPersonas()).map((p) => ({ id: p.id, displayName: p.displayName })),
   };
 }
+
+/** Desktop as signer for this account's approved web devices (keys never leave the desktop). */
+const directSigner = createDirectSigner({
+  store: localSignerStore,
+  confirm: async (title, message) =>
+    ["Ok", "Yes", "Allow"].includes(
+      String(
+        await invoke("plugin:dialog|message", { title, message, kind: "warning", buttons: { OkCancelCustom: ["Allow", "Deny"] } }).catch(
+          () => "Cancel",
+        ),
+      ),
+    ),
+  sign: (ev) => signRelayEvent({ kind: ev.kind, content: ev.content, createdAt: ev.created_at, tags: ev.tags, allowSelfTagging: true }),
+  randomHex: (n) => Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => b.toString(16).padStart(2, "0")).join(""),
+  now: Date.now,
+});
 
 /** Ops that change agent state: the desktop's own agent lists (and the bridge snapshot) must refresh after them. */
 const MUTATING_OPS = new Set(["agent.start", "agent.stop", "agent.create", "agent.rename", "agent.update"]);
@@ -54,7 +72,9 @@ export function useRemoteAccessEvents(pubkey?: string): void {
     void listen<{ reqId: string; op: string; params: unknown }>("remote-mgmt-request", async (e) => {
       const { reqId, op, params } = e.payload;
       try {
-        const result = await handleMgmt(op, params, realMgmtDeps(pubkeyRef.current));
+        const result = op.startsWith("signer.")
+          ? await directSigner.handle(op, params)
+          : await handleMgmt(op, params, realMgmtDeps(pubkeyRef.current));
         await invoke("remote_mgmt_reply", { reqId, ok: true, result });
       } catch (err) {
         await invoke("remote_mgmt_reply", { reqId, ok: false, error: mgmtErrorString(err) }).catch(() => {});
