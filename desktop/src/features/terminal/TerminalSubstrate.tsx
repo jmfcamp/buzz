@@ -25,6 +25,7 @@ import {
   TerminalGrid,
 } from "./terminalRenderer";
 import {
+  getTermPreferences,
   type TermFontSize,
   terminalCellMetricsForFontSize,
   useTermPreferences,
@@ -417,7 +418,7 @@ export function TerminalSubstrate({
             v.t = now;
             if (!inertiaActiveRef.current) dy *= touchScrollGain(Math.abs(v.v), mouseReportingRef.current);
           }
-          const result = accumulateScrollLines(touchScrollRef.current, dy, cellMetricsRef.current.height);
+          const result = accumulateScrollLines(touchScrollRef.current, dy * getTermPreferences().scrollSpeed, cellMetricsRef.current.height);
           touchScrollRef.current = result.state;
           if (result.lines === 0) break;
           if (mouseReportingRef.current && onMouseRef.current) {
@@ -1084,7 +1085,7 @@ export function TerminalSubstrate({
             : event.deltaY;
       const result = accumulateScrollLines(
         { remainderPx: scrollBySessionRef.current.get(sessionId) ?? 0 },
-        deltaPx,
+        deltaPx * getTermPreferences().scrollSpeed,
         cellHeight,
       );
       scrollBySessionRef.current.set(sessionId, result.state.remainderPx);
@@ -1591,7 +1592,7 @@ export function TerminalSubstrate({
           tracked.y = event.clientY;
           const result = accumulateScrollLines(
             { remainderPx: tracked.remainderPx },
-            deltaY,
+            deltaY * getTermPreferences().scrollSpeed,
             metrics.height,
           );
           tracked.remainderPx = result.state.remainderPx;

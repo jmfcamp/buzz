@@ -8,6 +8,10 @@ import { expandTilde } from "@/features/communities/communityStorage";
 import {
   DEFAULT_TERM_CWD,
   DEFAULT_TERM_FONT_SIZE,
+  DEFAULT_TERM_SCROLL_SPEED,
+  MAX_TERM_SCROLL_SPEED,
+  MIN_TERM_SCROLL_SPEED,
+  setTermScrollSpeed,
   DEFAULT_TERM_OPEN_MODE,
   DEFAULT_TERM_SCROLLBACK,
   DEFAULT_TERM_SESSION_HOST,
@@ -308,6 +312,28 @@ export function BuzzTermSettingsPanel() {
                   </button>
                 );
               })}
+            </div>
+          </SettingsOptionRow>
+          <SettingsOptionRow data-testid="buzz-term-scroll-speed-row">
+            <div className="min-w-0">
+              <p className="text-sm font-medium">Scroll speed</p>
+              <p className="text-sm font-normal text-muted-foreground/70" data-settings-subcopy>
+                Mouse wheel, trackpad and touch. Default {DEFAULT_TERM_SCROLL_SPEED}×.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                aria-label="Scroll speed"
+                className="w-36 accent-[hsl(var(--primary))]"
+                data-testid="buzz-term-scroll-speed"
+                max={MAX_TERM_SCROLL_SPEED}
+                min={MIN_TERM_SCROLL_SPEED}
+                onChange={(e) => setTermScrollSpeed(e.target.value)}
+                step={0.05}
+                type="range"
+                value={prefs.scrollSpeed}
+              />
+              <span className="w-10 text-right text-sm tabular-nums text-muted-foreground">{prefs.scrollSpeed.toFixed(2)}×</span>
             </div>
           </SettingsOptionRow>
         </SettingsOptionGroup>

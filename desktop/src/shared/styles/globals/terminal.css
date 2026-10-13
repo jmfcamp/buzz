@@ -433,7 +433,9 @@
   /* pin to the full viewport width (the content surface's parents keep a few px of inset on the left) */
   [data-phone] .buzz-terminal-substrate[data-terminal-mode="maximized"][data-touch-ui="true"]:not([data-keyboard-open="true"]) {
     left: 0 !important;
-    top: 0 !important;
+    /* start BELOW the safe area + fixed nav row (Back/Forward/Home/Refresh + tab pill), like every other phone screen;
+       top:0 put the Term tab strip and first lines under the nav row */
+    top: calc(var(--phone-safe-top, env(safe-area-inset-top, 0px)) + var(--phone-nav-row-h, 40px)) !important;
     width: 100vw !important;
   }
   [data-phone] .buzz-terminal-substrate[data-terminal-mode="maximized"] {
