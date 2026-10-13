@@ -1,7 +1,8 @@
 # Hula Buzz — Mac desktop release + Tauri auto-updater
 #
-# Mac-only (darwin-aarch64) first drop. Does NOT use Block signing keys,
-# Block updater endpoints, Apple notarization, or `just release-desktop`.
+# Mac-only (darwin-aarch64). Does NOT use Block signing keys, Block updater
+# endpoints, or `just release-desktop`. Apple signing uses Tauri's built-in
+# codesign/notarize/staple with JM's own Developer ID (secrets below).
 #
 # Triggers:
 #   - workflow_dispatch with version (preferred)
@@ -10,6 +11,18 @@
 # Secrets (jmfcamp/buzz):
 #   TAURI_SIGNING_PRIVATE_KEY
 #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  (empty string if key has no password)
+#
+# Apple signing (all optional; with none set the bundle is ad-hoc signed so
+# Info.plist is bound and notifications still register):
+#   APPLE_CERTIFICATE            base64 of the Developer ID Application .p12
+#   APPLE_CERTIFICATE_PASSWORD   password the .p12 was exported with
+#   APPLE_SIGNING_IDENTITY       e.g. "Developer ID Application: Name (TEAMID)"
+# Notarization (pick one; App Store Connect API key recommended):
+#   APPLE_API_KEY                API key id (10 chars)
+#   APPLE_API_ISSUER             issuer id (UUID)
+#   APPLE_API_PRIVATE_KEY        contents of AuthKey_<id>.p8 (written to a temp file at build time)
+#   -- or --
+#   APPLE_ID / APPLE_PASSWORD (app-specific password) / APPLE_TEAM_ID
 #
 # Pubkey + updater endpoint are committed in desktop/src-tauri/tauri.conf.json.
 # Rolling updater URL:
@@ -235,14 +248,68 @@ jobs:
           fi
           echo "Hula protected UI env OK (VITE_BUZZ_BESTIE=1)"
 
-      - name: Build unsigned Tauri app (updater-signed)
-        # --no-sign skips Apple codesign AND Tauri updater .sig generation.
-        # createUpdaterArtifacts still emits .app.tar.gz; we sign it next.
+      - name: Resolve macOS signing mode
+        id: signing
+        env:
+          HAS_CERT: ${{ secrets.APPLE_CERTIFICATE != '' }}
+          HAS_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY != '' }}
+          HAS_API_KEY: ${{ secrets.APPLE_API_KEY != '' && secrets.APPLE_API_ISSUER != '' && secrets.APPLE_API_PRIVATE_KEY != '' }}
+          HAS_APPLE_ID: ${{ secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
+        run: |
+          set -euo pipefail
+          if [[ "$HAS_CERT" == "true" ]]; then
+            [[ "$HAS_IDENTITY" == "true" ]] || { echo "::error::APPLE_CERTIFICATE is set but APPLE_SIGNING_IDENTITY is missing"; exit 1; }
+            MODE=developer-id
+            if [[ "$HAS_API_KEY" == "true" ]]; then NOTARY=api-key
+            elif [[ "$HAS_APPLE_ID" == "true" ]]; then NOTARY=apple-id
+            else NOTARY=none; echo "::warning::Developer ID signing without notarization secrets; Gatekeeper will still warn"; fi
+          else
+            MODE=adhoc; NOTARY=none
+            echo "::warning::No APPLE_CERTIFICATE secret; ad-hoc signing the full bundle (notifications work, Gatekeeper warns on first launch)"
+          fi
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "notary=$NOTARY" >> "$GITHUB_OUTPUT"
+          echo "Signing mode=$MODE notarization=$NOTARY"
+
+      - name: Build Tauri app (Apple signed + updater-signed)
+        # Tauri signs the app and every externalBin sidecar in Contents/MacOS
+        # with the same identity, hardened runtime and Entitlements.plist, then
+        # notarizes + staples when APPLE_API_* / APPLE_ID creds are present.
+        # Ad-hoc mode uses APPLE_SIGNING_IDENTITY="-".
         # BUZZ_UPDATER_* must be present here: lib.rs registers the updater
         # plugin only under #[cfg(buzz_updater_enabled)] (not in debug /
         # desktop-standalone local builds — intentional).
-        run: cd desktop && pnpm tauri build --verbose --no-sign --features mesh-llm --config src-tauri/tauri.release.conf.json
+        run: |
+          set -euo pipefail
+          if [[ "$SIGN_MODE" == "adhoc" ]]; then
+            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_KEY APPLE_API_ISSUER APPLE_API_PRIVATE_KEY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+            export APPLE_SIGNING_IDENTITY="-"
+          else
+            if [[ "$NOTARY" == "api-key" ]]; then
+              KEY_DIR="$RUNNER_TEMP/apple-api-key"; mkdir -p "$KEY_DIR"; chmod 700 "$KEY_DIR"
+              export APPLE_API_KEY_PATH="$KEY_DIR/AuthKey_${APPLE_API_KEY}.p8"
+              printf '%s\n' "$APPLE_API_PRIVATE_KEY" > "$APPLE_API_KEY_PATH"; chmod 600 "$APPLE_API_KEY_PATH"
+              unset APPLE_API_PRIVATE_KEY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+            elif [[ "$NOTARY" == "apple-id" ]]; then
+              unset APPLE_API_KEY APPLE_API_ISSUER APPLE_API_PRIVATE_KEY
+            else
+              unset APPLE_API_KEY APPLE_API_ISSUER APPLE_API_PRIVATE_KEY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+            fi
+          fi
+          cd desktop && pnpm tauri build --verbose --features mesh-llm --config src-tauri/tauri.release.conf.json
+          rm -rf "$RUNNER_TEMP/apple-api-key"
         env:
+          SIGN_MODE: ${{ steps.signing.outputs.mode }}
+          NOTARY: ${{ steps.signing.outputs.notary }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           # Restate explicitly so this step cannot silently regress.
           # Pubkey comes from Generate release config via GITHUB_ENV;
           # endpoint is the workflow-level HULA_UPDATER_ENDPOINT.
@@ -259,9 +326,74 @@ jobs:
           SKIPPY_LLAMA_AUTO_BUILD: "0"
           TAURI_BUNDLER_DMG_IGNORE_CI: "true"
 
-      # Tauri CLI treats --no-sign as skipping updater signing too (see build log:
-      # "Updater signing is skipped due to --no-sign flag"). Match Block's
-      # release.yml: build the .app.tar.gz if needed, then `tauri signer sign`.
+      - name: Verify Apple signature (and ad-hoc safety net)
+        env:
+          SIGN_MODE: ${{ steps.signing.outputs.mode }}
+          NOTARY: ${{ steps.signing.outputs.notary }}
+        run: |
+          set -euo pipefail
+          MACOS_DIR="desktop/src-tauri/target/release/bundle/macos"
+          APP=$(find "$MACOS_DIR" -maxdepth 1 -name '*.app' -type d | head -1)
+          [[ -n "$APP" ]] || { echo "::error::No .app found in $MACOS_DIR"; exit 1; }
+          if [[ "$SIGN_MODE" == "adhoc" ]] && ! desktop/scripts/verify-macos-signing.sh "$APP" adhoc >/dev/null 2>&1; then
+            # Safety net if the bundler skipped a sidecar: re-seal ad-hoc, inside-out.
+            echo "::warning::Tauri ad-hoc signature incomplete; re-signing ad-hoc inside-out"
+            MAIN=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")
+            while IFS= read -r -d '' BIN; do
+              [[ "$(basename "$BIN")" == "$MAIN" ]] && continue
+              file -b "$BIN" | grep -q 'Mach-O' && codesign --force -s - --options runtime "$BIN"
+            done < <(find "$APP/Contents" -type f -perm -u+x -print0)
+            codesign --force -s - --options runtime --entitlements desktop/src-tauri/Entitlements.plist "$APP"
+            # The bundler's DMG holds the pre-fix app; rebuild a plain DMG from the re-sealed one.
+            DMG=$(find desktop/src-tauri/target/release/bundle/dmg -name '*.dmg' -type f | head -1)
+            if [[ -n "$DMG" ]]; then
+              rm -f "$DMG"
+              hdiutil create -volname "Hula Buzz" -srcfolder "$APP" -ov -format UDZO "$DMG"
+            fi
+          fi
+          FLAG=""
+          [[ "$NOTARY" != "none" ]] && FLAG="--notarized"
+          desktop/scripts/verify-macos-signing.sh "$APP" "$SIGN_MODE" $FLAG
+          desktop/scripts/verify-macos-entitlements.sh "$APP"
+
+      - name: Notarize and staple DMG
+        if: steps.signing.outputs.notary != 'none'
+        env:
+          NOTARY: ${{ steps.signing.outputs.notary }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          DMG=$(find desktop/src-tauri/target/release/bundle/dmg -name '*.dmg' -type f | head -1)
+          [[ -n "$DMG" ]] || { echo "::error::No DMG to notarize"; exit 1; }
+          # The keychain Tauri created is gone after the build; the DMG is
+          # notarized as a container (its stapled app is already signed), so
+          # no identity is needed here.
+          if [[ "$NOTARY" == "api-key" ]]; then
+            KEY_DIR="$RUNNER_TEMP/apple-api-key"; mkdir -p "$KEY_DIR"; chmod 700 "$KEY_DIR"
+            KEY_PATH="$KEY_DIR/AuthKey_${APPLE_API_KEY}.p8"
+            printf '%s\n' "$APPLE_API_PRIVATE_KEY" > "$KEY_PATH"; chmod 600 "$KEY_PATH"
+            OK=0; xcrun notarytool submit "$DMG" --key "$KEY_PATH" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" --wait || OK=1
+            rm -rf "$KEY_DIR"
+          else
+            OK=0; xcrun notarytool submit "$DMG" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait || OK=1
+          fi
+          # The app inside is already notarized + stapled (the real Gatekeeper
+          # gate); a DMG ticket is a bonus for offline first open.
+          if [[ $OK -eq 0 ]] && xcrun stapler staple "$DMG"; then
+            xcrun stapler validate "$DMG"
+          else
+            echo "::warning::DMG notarization/staple failed; the app inside is still notarized and stapled"
+          fi
+
+      # The updater archive is rebuilt from the final signed/stapled .app so
+      # in-app updates carry the Apple signature, then minisign-signed with the
+      # Tauri updater key (replacing whatever .sig the bundler wrote).
       - name: Ensure updater archive is signed
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -287,16 +419,9 @@ jobs:
           APP_BASENAME=$(basename "$APP")
           ARCHIVE="$MACOS_DIR/${APP_BASENAME}.tar.gz"
 
-          if [[ ! -f "$ARCHIVE" ]]; then
-            echo "==> Creating updater archive from $APP_BASENAME"
-            # Prefer existing *.tar.gz elsewhere under bundle/, else tar the .app
-            FOUND=$(find "$BUNDLE_DIR" -name '*.tar.gz' ! -name '*.sig' -type f | head -1 || true)
-            if [[ -n "$FOUND" ]]; then
-              cp "$FOUND" "$ARCHIVE"
-            else
-              (cd "$MACOS_DIR" && tar -czf "${APP_BASENAME}.tar.gz" "$APP_BASENAME")
-            fi
-          fi
+          echo "==> Rebuilding updater archive from final $APP_BASENAME"
+          rm -f "$ARCHIVE"
+          (cd "$MACOS_DIR" && COPYFILE_DISABLE=1 tar -czf "${APP_BASENAME}.tar.gz" "$APP_BASENAME")
 
           rm -f "${ARCHIVE}.sig"
           # tauri signer needs an absolute path; quote for spaces in productName
@@ -305,6 +430,18 @@ jobs:
           (cd desktop && pnpm tauri signer sign "$TARBALL_ABS")
           [[ -f "${ARCHIVE}.sig" ]] || { echo "::error::signer did not produce ${ARCHIVE}.sig"; exit 1; }
           ls -la "$ARCHIVE" "${ARCHIVE}.sig"
+
+          # Verify the updater signature against the committed pubkey, exactly
+          # what the in-app updater checks.
+          brew list minisign >/dev/null 2>&1 || brew install minisign >/dev/null
+          python3 -c 'import json,base64; print(base64.b64decode(json.load(open("desktop/src-tauri/tauri.conf.json"))["plugins"]["updater"]["pubkey"]).decode())' > "$RUNNER_TEMP/updater.pub"
+          base64 --decode < "${ARCHIVE}.sig" > "$RUNNER_TEMP/updater.minisig"
+          minisign -V -p "$RUNNER_TEMP/updater.pub" -m "$ARCHIVE" -x "$RUNNER_TEMP/updater.minisig"
+          # And the archive still holds a valid Apple signature after tar round-trip.
+          rm -rf "$RUNNER_TEMP/untar" && mkdir -p "$RUNNER_TEMP/untar"
+          tar -xzf "$ARCHIVE" -C "$RUNNER_TEMP/untar"
+          codesign --verify --deep --strict "$RUNNER_TEMP/untar/$APP_BASENAME"
+          echo "Updater signature + Apple signature verified in archive"
 
       - name: Locate and stage artifacts
         id: artifacts
@@ -382,8 +519,17 @@ jobs:
       - name: Create versioned GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NOTARY: ${{ steps.signing.outputs.notary }}
+          SIGN_MODE: ${{ steps.signing.outputs.mode }}
         run: |
           set -euo pipefail
+          if [[ "$NOTARY" != "none" ]]; then
+            SIGN_NOTE="Signed with Developer ID and notarized by Apple."
+          elif [[ "$SIGN_MODE" == "developer-id" ]]; then
+            SIGN_NOTE="Signed with Developer ID (not notarized). First launch may require right-click → Open."
+          else
+            SIGN_NOTE="Ad-hoc signed (not notarized). First launch may require right-click → Open under Gatekeeper."
+          fi
           TAG="hula-desktop-v${VERSION}"
           NOTES="Hula Buzz desktop ${VERSION} (Mac aarch64).
 
@@ -391,8 +537,7 @@ jobs:
           Thereafter the in-app updater checks:
           ${HULA_UPDATER_ENDPOINT}
 
-          Note: this build is updater-signed (Tauri) but not yet Apple-notarized.
-          First launch may require right-click → Open under Gatekeeper.
+          ${SIGN_NOTE}
           "
           if gh release view "$TAG" --repo "$HULA_REPO" >/dev/null 2>&1; then
             echo "Release $TAG already exists — uploading/clobbering assets"
