@@ -192,6 +192,61 @@ impl PinSession {
 #[derive(Default)]
 pub struct PinWebviewManager {
     sessions: Mutex<HashMap<String, PinSession>>,
+    /// Webview labels parked off-screen but still "visible" to WebKit, most
+    /// recently parked last. See [`park_pin_webview`].
+    parked: Mutex<Vec<String>>,
+}
+
+/// How many hidden pin webviews stay live (parked off-screen, page visibility
+/// still `visible`). Older ones fall back to a real `hide()`, which keeps the
+/// page, cookies and storage but lets WebKit throttle / suspend it. Every pin
+/// webview — parked or hidden — stays alive until the pin is removed or its
+/// window closes; this cap only bounds CPU / GPU for background pages.
+const MAX_LIVE_PARKED_PINS: usize = 32;
+
+/// Far outside any window: the view is clipped, never painted over the app.
+const PARK_OFFSET: f64 = -32000.0;
+
+/// Leave a pin "hidden" without telling WebKit it is hidden.
+///
+/// `Webview::hide()` maps to `setHidden:` on the WKWebView, which flips the
+/// page to `visibilityState = hidden`, throttles timers and lets WebKit
+/// suspend media / WebRTC. Streaming apps (Amazon WorkSpaces web client) drop
+/// their session on that and demand a fresh login when re-shown. Moving the
+/// view off-screen keeps it visible to WebKit so the session survives a tab
+/// switch. Focus goes back to the app webview so the parked page cannot keep
+/// swallowing keystrokes.
+fn park_pin_webview(app: &AppHandle, webview: &Webview) {
+    let label = webview.label().to_string();
+    let window_label = pin_parent_window_label(webview);
+    let _ = webview.set_position(LogicalPosition::new(PARK_OFFSET, PARK_OFFSET));
+    if let Some(app_webview) = app.get_webview(&window_label) {
+        let _ = app_webview.set_focus();
+    }
+    let Some(manager) = app.try_state::<PinWebviewManager>() else {
+        let _ = webview.hide();
+        return;
+    };
+    let evicted: Vec<String> = match manager.parked.lock() {
+        Ok(mut parked) => {
+            parked.retain(|entry| entry != &label);
+            parked.push(label);
+            let overflow = parked.len().saturating_sub(MAX_LIVE_PARKED_PINS);
+            parked.drain(..overflow).collect()
+        }
+        Err(_) => Vec::new(),
+    };
+    for old in evicted {
+        if let Some(old_webview) = app.get_webview(&old) {
+            let _ = old_webview.hide();
+        }
+    }
+}
+
+fn unpark_pin_webview(manager: &PinWebviewManager, label: &str) {
+    if let Ok(mut parked) = manager.parked.lock() {
+        parked.retain(|entry| entry != label);
+    }
 }
 
 fn sanitize_pin_id(pin_id: &str) -> Result<String, String> {
@@ -579,6 +634,7 @@ fn reuse_existing_webview(
     } else if let Some(url) = current.as_ref() {
         apply_load_verdict(app, manager, pin_id, url, classify_from_url(Some(url)));
     }
+    unpark_pin_webview(manager, webview.label());
     webview.show().map_err(|error| error.to_string())?;
     Ok(session.nav_state(pin_id))
 }
@@ -640,6 +696,11 @@ pub async fn pin_webview_show(
     let builder = WebviewBuilder::new(label, WebviewUrl::External(initial_url))
         .data_directory(profile_dir.clone())
         .data_store_identifier(pin_data_store_identifier(&pin_id))
+        // Pinned sites stay live while you are elsewhere (forms, scroll,
+        // streaming sessions such as Amazon WorkSpaces). Throttling a
+        // background pin can drop those sessions, so it is disabled; the cost
+        // is CPU / bandwidth for pins left open (see MAX_LIVE_PARKED_PINS).
+        .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
         .on_navigation(move |url| {
             if let Some(manager) = nav_app.try_state::<PinWebviewManager>() {
                 record_navigation(&nav_app, &manager, &nav_pin, url);
@@ -699,7 +760,7 @@ pub async fn pin_webview_hide(
     let pin_id = sanitize_pin_id(&pin_id)?;
     let window_label = normalize_window_label(window_label.as_deref());
     if let Some(webview) = app.get_webview(&pin_webview_label(&pin_id, &window_label)) {
-        webview.hide().map_err(|error| error.to_string())?;
+        park_pin_webview(&app, &webview);
     }
     Ok(())
 }
@@ -717,7 +778,7 @@ pub async fn pin_webview_hide_all(
         if pin_parent_window_label(&webview) != window_label {
             continue;
         }
-        let _ = webview.hide();
+        park_pin_webview(&app, &webview);
     }
     Ok(())
 }
