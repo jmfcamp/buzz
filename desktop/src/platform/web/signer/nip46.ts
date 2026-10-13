@@ -44,6 +44,23 @@ const REQUEST_TIMEOUT_MS = 30_000;
 const CONNECT_TIMEOUT_MS = 120_000; // bunker connect / get_public_key
 const AUTH_URL_TIMEOUT_MS = 180_000; // user is approving in a browser tab / signer app
 const HANDSHAKE_METHODS = new Set(["connect", "get_public_key"]);
+/** Dead-socket detection: a REQ probe must reach EOSE within PING_DEADLINE_MS. Kind 24133 is ephemeral (relays never store
+ *  it), so a reply that lands while we have no live socket is gone: sockets are replaced only when a probe proves them dead. */
+const PING_EVERY_MS = 25_000;
+const PING_DEADLINE_MS = 6_000;
+const RETURN_PING_DEADLINE_MS = 2_500;
+/** After a request is answered, the relays that carried answers are remembered; the saved session keeps those + one fallback. */
+export const FALLBACK_SIGNER_RELAY = "wss://relay.primal.net";
+export function pruneSignerRelays(current: string[], answeredOn: Iterable<string>): string[] {
+  const answered = [...new Set(answeredOn)].filter((r) => current.includes(r));
+  if (!answered.length) return current;
+  const keep = answered.slice(0, 2);
+  const fallback = current.includes(FALLBACK_SIGNER_RELAY) && !keep.includes(FALLBACK_SIGNER_RELAY)
+    ? FALLBACK_SIGNER_RELAY
+    : current.find((r) => !keep.includes(r));
+  if (fallback && keep.length < 3) keep.push(fallback);
+  return keep;
+}
 
 // Plain methods plus explicit per-kind sign_event grants: some signers (Primal) only pre-approve kinds that are named.
 // Kinds Buzz web signs: auth 22242, HTTP auth 27235, profile 0, notes 1, deletes 5, reactions 7, chat 9, join/leave 9021/9022,
@@ -72,17 +89,17 @@ export type Nip46Session = {
   userPubkey: string;
 };
 
-export class Nip46Error extends Error {
-  constructor(
-    public code:
+export type Nip46ErrorCode =
       | "timeout"
       | "rejected"
       | "bad-uri"
       | "unreachable"
-      | "protocol",
-    message: string,
-  ) {
+      | "protocol";
+export class Nip46Error extends Error {
+  code: Nip46ErrorCode;
+  constructor(code: Nip46ErrorCode, message: string) {
     super(message);
+    this.code = code;
     this.name = "Nip46Error";
   }
 }
@@ -135,13 +152,21 @@ export function buildNostrConnectUri(
   return `nostrconnect://${clientPubkey}?${p.toString().replace(/\+/g, "%20")}`;
 }
 
+type Waiter = { resolve: (r: string) => void; reject: (e: Error) => void };
 type Pending = {
-  id: string; // request id inside the encrypted payload (responses are matched on this)
+  id: string;
+  /** dedupe key (method + params): an identical request attaches here instead of sending again */
+  key: string;
+  /** callers still waiting; an aborted caller leaves, the request lives on until its own deadline so a late reply still
+   *  resolves whoever attached since (e.g. the wrapper's retry) */
+  waiters: Set<Waiter>; // request id inside the encrypted payload (responses are matched on this)
   event: { id: string; [k: string]: unknown }; // the wire event, republished on reconnect
   resolve: (r: string) => void;
   reject: (e: Error) => void;
   timer: ReturnType<typeof setTimeout>;
   method: string;
+  /** resent as a fresh event after an app return (at most once) */
+  returnResent?: boolean;
   params: string[];
   /** sockets this request was already published on: a request goes to each signer relay ONCE (no multiplied load). */
   sentOn: WeakSet<WebSocket>;
@@ -157,6 +182,9 @@ type RelayConn = {
   ws: WebSocket | null;
   retry: number;
   timer?: ReturnType<typeof setTimeout>;
+  /** outstanding liveness probe on the current socket */
+  ping?: { id: string; deadline: ReturnType<typeof setTimeout>; done: (alive: boolean) => void };
+  pingSeq: number;
 };
 
 /** Low-level NIP-46 transport: signer relays, reconnect, resubscribe, request/response matching. */
@@ -175,43 +203,120 @@ export class Nip46Client {
   onUnsolicited?: (ev: { pubkey: string; content: string; id: string }) => void;
   private hiddenAt = 0;
   private watchdog?: ReturnType<typeof setInterval>;
+  /** relays that delivered a reply from our signer (session relay pruning) */
+  readonly answeredOn = new Set<string>();
+  /** called after the first reply on a relay not yet in answeredOn */
+  onRelayAnswered?: (url: string) => void;
   private onVis = () => {
     if (document.visibilityState === "hidden") {
       this.hiddenAt = Date.now();
       return;
     }
-    // Back from a signer app (Primal etc.): iOS may have frozen sockets that still claim OPEN → replace them, resubscribe with `since`.
     const away = this.hiddenAt ? Date.now() - this.hiddenAt : 0;
     this.hiddenAt = 0;
-    // Back from the signer app with requests still waiting (e.g. the user just switched Clave from Medium to Full access):
-    // the signer already saw (and dropped) our original event id and relays de-duplicate it, so republishing the same event
-    // never reaches it again. Re-sign a fresh event for every pending request and give it a full deadline again.
-    if (this.pending.size && away > 1500) void this.resendPending("foreground", true);
-    this.reconnectAll(away > 3000);
+    void this.resumeFromBackground(away);
   };
-  /** Every 15s while visible: reopen dead signer sockets, and if a request has gone unanswered for 10s, rebuild the sockets once. */
+  /**
+   * Back from the background (iOS: from Primal): keep every socket that answers a probe, replace only the dead ones, and
+   * re-send each still-unanswered request ONCE as a fresh event (the signer may have dropped the original while we were away).
+   */
+  private async resumeFromBackground(away: number) {
+    if (this.closed) return;
+    if (this.handshake) {
+      // nostrconnect pairing: the signer may only now be listening; a fresh socket set is cheap and nothing is in flight.
+      this.reconnectAll(true);
+      return;
+    }
+    const alive = await Promise.all(this.conns.map((c) => this.probe(c, RETURN_PING_DEADLINE_MS)));
+    nlog(`foreground: ${alive.filter(Boolean).length}/${alive.length} signer sockets alive`);
+    if (this.pending.size && away > 1500) {
+      const live = this.conns.some((c) => c.ws?.readyState === WebSocket.OPEN);
+      if (live) void this.resendPending("foreground", true, true);
+      else this.resendOnNextOpen = true;
+    }
+  }
+  private resendOnNextOpen = false;
+  /** Every 25s while visible: reopen CLOSED sockets and probe open ones; a socket is replaced only if its probe fails. */
   private health = () => {
     if (this.closed || document.visibilityState !== "visible") return;
-    for (const c of this.conns)
+    for (const c of this.conns) {
       if (!c.timer && (!c.ws || c.ws.readyState === WebSocket.CLOSED)) this.open(c);
+      else if (c.ws?.readyState === WebSocket.OPEN && !c.ping) void this.probe(c, PING_DEADLINE_MS);
+    }
     const now = Date.now();
-    for (const p of this.pending.values())
-      if (!p.rechecked && now - p.at > 10_000) {
-        p.rechecked = true;
-        nlog(`request ${p.method} unanswered for 10s: rebuilding signer sockets`);
-        this.reconnectAll(true);
-        break;
-      }
     // Handshake requests (connect/get_public_key) that stay unanswered get a fresh event with backoff (20s, 40s, 60s…).
     if ([...this.pending.values()].some((p) => HANDSHAKE_METHODS.has(p.method) && now - p.lastSentAt > Math.min(60_000, 20_000 * 2 ** p.resends)))
       void this.resendPending("backoff", false);
   };
+  /**
+   * Liveness probe: a REQ that matches nothing must come back as EOSE. Resolves true for a live socket. A socket that misses
+   * the deadline is dead (iOS froze it while it still claims OPEN): it is replaced, and any reply it would have carried was
+   * already lost, so pending requests are re-published on the new one.
+   */
+  private probe(c: RelayConn, deadlineMs: number): Promise<boolean> {
+    const ws = c.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      if (!c.timer && (!ws || ws.readyState === WebSocket.CLOSED)) this.open(c);
+      return Promise.resolve(false);
+    }
+    if (c.ping) {
+      const prev = c.ping;
+      return new Promise((resolve) => {
+        const done = prev.done;
+        prev.done = (alive) => {
+          done(alive);
+          resolve(alive);
+        };
+      });
+    }
+    return new Promise((resolve) => {
+      const id = `ping${++c.pingSeq}`;
+      const finish = (alive: boolean) => {
+        if (!c.ping || c.ping.id !== id) return;
+        clearTimeout(c.ping.deadline);
+        const done = c.ping.done;
+        c.ping = undefined;
+        if (ws.readyState === WebSocket.OPEN) {
+          try {
+            ws.send(JSON.stringify(["CLOSE", id]));
+          } catch {}
+        }
+        if (!alive && c.ws === ws) {
+          nlog("signer socket failed its probe: replacing", { relay: c.url });
+          this.replace(c);
+        }
+        done(alive);
+      };
+      c.ping = { id, deadline: setTimeout(() => finish(false), deadlineMs), done: resolve };
+      try {
+        ws.send(JSON.stringify(["REQ", id, { kinds: [NIP46_KIND], "#p": [this.clientPubkey], since: Math.floor(Date.now() / 1000) + 3600, limit: 1 }]));
+      } catch {
+        finish(false);
+      }
+      (c as RelayConn & { pingFinish?: (alive: boolean) => void }).pingFinish = finish;
+    });
+  }
+  private replace(c: RelayConn) {
+    clearTimeout(c.timer);
+    c.timer = undefined;
+    const old = c.ws;
+    c.ws = null;
+    try {
+      old?.close();
+    } catch {}
+    c.retry = 0;
+    this.open(c);
+  }
 
   /** Re-sign and republish every pending request as a NEW event (same request id, so either answer matches). */
-  async resendPending(why: string, extendDeadline: boolean) {
+  async resendPending(why: string, extendDeadline: boolean, oncePerRequest = false) {
     if (this.closed || !this.remotePubkey) return;
     for (const p of [...this.pending.values()]) {
       if (why === "backoff" && !HANDSHAKE_METHODS.has(p.method)) continue;
+      if (oncePerRequest) {
+        if (p.returnResent || Date.now() - p.lastSentAt < 3000) continue;
+        p.returnResent = true;
+      }
       try {
         const content = await this.encrypt(this.remotePubkey, JSON.stringify({ id: p.id, method: p.method, params: p.params }));
         p.event = finalizeEvent(
@@ -240,12 +345,16 @@ export class Nip46Client {
     }
   }
 
+  remotePubkey: string | null;
+  relays: string[];
   constructor(
     clientSecretHex: string,
-    public remotePubkey: string | null,
-    public relays: string[],
+    remotePubkey: string | null,
+    relays: string[],
     since?: number,
   ) {
+    this.remotePubkey = remotePubkey;
+    this.relays = relays;
     if (since !== undefined) this.since = since;
     this.clientSk = hexToBytes(clientSecretHex);
     this.clientPubkey = getPublicKey(this.clientSk);
@@ -256,13 +365,13 @@ export class Nip46Client {
 
   start() {
     this.closed = false;
-    this.conns = this.relays.map((url) => ({ url, ws: null, retry: 0 }));
+    this.conns = this.relays.map((url) => ({ url, ws: null, retry: 0, pingSeq: 0 }));
     for (const c of this.conns) this.open(c);
     document.addEventListener("visibilitychange", this.onVis);
     window.addEventListener("online", this.onVis);
     window.addEventListener("pageshow", this.onVis);
     clearInterval(this.watchdog);
-    this.watchdog = setInterval(this.health, 15_000);
+    this.watchdog = setInterval(this.health, PING_EVERY_MS);
   }
   stop() {
     this.closed = true;
@@ -279,7 +388,7 @@ export class Nip46Client {
     }
     for (const [id, p] of this.pending) {
       clearTimeout(p.timer);
-      p.reject(new Nip46Error("unreachable", "Signer connection closed."));
+      for (const w of p.waiters) w.reject(new Nip46Error("unreachable", "Signer connection closed."));
       this.pending.delete(id);
     }
     signerStatus.set({ pending: 0, authUrl: null });
@@ -291,14 +400,15 @@ export class Nip46Client {
     nlog(`foreground/online: reconnecting signer relays${force ? " (forced)" : ""}`);
     for (const c of this.conns) {
       // A socket iOS froze in the background can still claim OPEN; after being away (force) or during the handshake replace it.
-      if (!force && !this.handshake && c.ws && c.ws.readyState === WebSocket.OPEN)
+      if (!force && !this.handshake && c.ws && c.ws.readyState !== WebSocket.CLOSED)
         continue;
-      clearTimeout(c.timer);
-      try {
-        c.ws?.close();
-      } catch {}
-      c.retry = 0;
-      this.open(c);
+      // Never drop a socket that may be carrying a reply: with requests in flight, a forced rebuild only replaces sockets that
+      // fail a probe (see probe()). Pairing (handshake) and an idle client may rebuild freely.
+      if (force && !this.handshake && this.pending.size && c.ws?.readyState === WebSocket.OPEN) {
+        void this.probe(c, RETURN_PING_DEADLINE_MS);
+        continue;
+      }
+      this.replace(c);
     }
   }
 
@@ -322,6 +432,10 @@ export class Nip46Client {
           { kinds: [NIP46_KIND], "#p": [this.clientPubkey], since: this.since },
         ]),
       );
+      if (this.resendOnNextOpen) {
+        this.resendOnNextOpen = false;
+        void this.resendPending("foreground", true, true);
+      }
       // (re)publish anything still waiting: it may have been sent into a dead socket
       for (const p of this.pending.values())
         if (!p.sentOn.has(ws)) {
@@ -329,8 +443,17 @@ export class Nip46Client {
           ws.send(JSON.stringify(["EVENT", p.event]));
         }
     };
-    ws.onmessage = (m) => void this.onMsg(String(m.data));
+    ws.onmessage = (m) => {
+      const raw = String(m.data);
+      // Any inbound frame proves the socket alive; EOSE for our probe settles it.
+      if (c.ping && c.ws === ws) {
+        const fin = (c as RelayConn & { pingFinish?: (alive: boolean) => void }).pingFinish;
+        if (raw.startsWith('["EOSE"') || raw.startsWith('["CLOSED"') || raw.startsWith('["EVENT"')) fin?.(true);
+      }
+      void this.onMsg(raw, c.url);
+    };
     ws.onclose = () => {
+      if (c.ping) (c as RelayConn & { pingFinish?: (alive: boolean) => void }).pingFinish?.(false);
       if (c.ws === ws) {
         nip46Debug.setRelay(c.url, false);
         this.scheduleRetry(c);
@@ -377,7 +500,7 @@ export class Nip46Client {
     nlog("decrypt FAILED (nip44 and nip04)");
     throw last;
   }
-  private async onMsg(raw: string) {
+  private async onMsg(raw: string, relayUrl?: string) {
     let msg: unknown[];
     try {
       msg = JSON.parse(raw);
@@ -410,6 +533,10 @@ export class Nip46Client {
     } catch {
       return;
     }
+    if (this.remotePubkey && ev.pubkey === this.remotePubkey && relayUrl && !this.answeredOn.has(relayUrl)) {
+      this.answeredOn.add(relayUrl);
+      this.onRelayAnswered?.(relayUrl);
+    }
     const p = body.id ? this.pending.get(body.id) : undefined;
     if (!p) {
       if (!this.remotePubkey && !body.method)
@@ -435,15 +562,15 @@ export class Nip46Client {
     if (body.error && p.method === "connect" && p.resends > 0 && /secret|already/i.test(body.error)) {
       nlog(`connect re-send answered "${body.error}": treating as connected, verifying via get_public_key`);
       signerHealth.success();
-      p.resolve("ack");
+      for (const w of p.waiters) w.resolve("ack");
       return;
     }
     if (body.error) {
       signerHealth.error(body.error);
-      p.reject(new Nip46Error("rejected", body.error));
+      for (const w of p.waiters) w.reject(new Nip46Error("rejected", body.error));
     } else {
       signerHealth.success();
-      p.resolve(body.result ?? "");
+      for (const w of p.waiters) w.resolve(body.result ?? "");
     }
   }
   private openAuthUrl(url: string) {
@@ -455,15 +582,14 @@ export class Nip46Client {
   }
   private fail(p: Pending, code: "timeout") {
     this.pending.delete(p.id);
-    // encrypt/decrypt are background work (settings, key wraps, snapshots); only signatures/handshakes count toward "unresponsive"
-    signerHealth.timeout({ background: /crypt/.test(p.method) });
+    // Nobody waiting any more (every caller aborted): the wrapper already reported its own timeout; don't double-count.
+    if (p.waiters.size) signerHealth.timeout({ background: /crypt/.test(p.method) });
     this.updateStatus();
-    p.reject(
-      new Nip46Error(
-        code,
-        `Your signer didn't respond to "${p.method}". Open your signer app and try again.`,
-      ),
+    const err = new Nip46Error(
+      code,
+      `Your signer didn't respond to "${p.method}". Open your signer app and try again.`,
     );
+    for (const w of p.waiters) w.reject(err);
   }
   private updateStatus() {
     signerStatus.set({
@@ -481,15 +607,36 @@ export class Nip46Client {
         );
   }
 
-  /** Send one request; resolves with the `result` string. */
+  /**
+   * Send one request; resolves with the `result` string. ONE deadline per request (`timeoutMs`). `signal` cancels only this
+   * caller's wait: the request stays live until its deadline, and an identical request (same method + params) attaches to it
+   * instead of sending again, so a late reply still resolves the retry.
+   */
   async request(
     method: string,
     params: string[],
     timeoutMs = REQUEST_TIMEOUT_MS,
+    signal?: AbortSignal,
   ): Promise<string> {
     if (!this.remotePubkey)
       throw new Nip46Error("protocol", "No remote signer pubkey yet.");
     if (this.closed) this.start();
+    if (signal?.aborted) throw new Nip46Error("timeout", "Cancelled.");
+    const key = `${method}\0${JSON.stringify(params)}`;
+    const attach = (p: Pending) =>
+      new Promise<string>((resolve, reject) => {
+        const w: Waiter = { resolve, reject };
+        p.waiters.add(w);
+        signal?.addEventListener(
+          "abort",
+          () => {
+            if (!p.waiters.delete(w)) return;
+            reject(new Nip46Error("timeout", `Your signer didn't respond to "${method}" in time.`));
+          },
+          { once: true },
+        );
+      });
+    for (const p of this.pending.values()) if (p.key === key) return attach(p);
     const id = crypto.randomUUID();
     const content = await this.encrypt(
       this.remotePubkey,
@@ -504,34 +651,37 @@ export class Nip46Client {
       },
       this.clientSk,
     );
-    return new Promise<string>((resolve, reject) => {
-      const p: Pending = {
-        id,
-        event: event as unknown as Pending["event"],
-        resolve,
-        reject,
-        method,
-        params,
-        sentOn: new WeakSet(),
-        at: Date.now(),
-        resends: 0,
-        lastSentAt: Date.now(),
-        timeoutMs,
-        timer: setTimeout(() => this.fail(p, "timeout"), timeoutMs),
-      };
-      this.pending.set(id, p);
-      this.updateStatus();
-      let sent = false;
-      for (const c of this.conns)
-        if (c.ws?.readyState === WebSocket.OPEN) {
-          if (!p.sentOn.has(c.ws)) {
-            p.sentOn.add(c.ws);
-            c.ws.send(JSON.stringify(["EVENT", event]));
-          }
-          sent = true;
+    for (const p of this.pending.values()) if (p.key === key) return attach(p); // raced while encrypting
+    const p: Pending = {
+      id,
+      key,
+      waiters: new Set(),
+      event: event as unknown as Pending["event"],
+      resolve: () => {},
+      reject: () => {},
+      method,
+      params,
+      sentOn: new WeakSet(),
+      at: Date.now(),
+      resends: 0,
+      lastSentAt: Date.now(),
+      timeoutMs,
+      timer: setTimeout(() => this.fail(p, "timeout"), timeoutMs),
+    };
+    this.pending.set(id, p);
+    const result = attach(p);
+    this.updateStatus();
+    let sent = false;
+    for (const c of this.conns)
+      if (c.ws?.readyState === WebSocket.OPEN) {
+        if (!p.sentOn.has(c.ws)) {
+          p.sentOn.add(c.ws);
+          c.ws.send(JSON.stringify(["EVENT", event]));
         }
-      if (!sent) this.reconnectAll(); // onopen will publish pending
-    });
+        sent = true;
+      }
+    if (!sent) this.reconnectAll(); // reopens CLOSED sockets only; onopen publishes pending
+    return result;
   }
 
   /**
@@ -637,18 +787,31 @@ export function createNip46SignerFromClient(
   userPubkey: string,
 ): Signer & { client: Nip46Client } {
   currentClient = client;
+  // Session relay pruning: once the signer has answered, keep only the relays it answers on (+1 fallback). Applies from the
+  // next launch (live sockets are never dropped mid-session).
+  client.onRelayAnswered = () => {
+    const next = pruneSignerRelays(client.relays, client.answeredOn);
+    if (!client.remotePubkey || next.join() === client.relays.join()) return;
+    void saveNip46Session({
+      kind: "nip46",
+      clientSecret: client.clientSecret,
+      remotePubkey: client.remotePubkey,
+      relays: next,
+      userPubkey,
+    }).then(() => nlog(`signer relays pruned for next launch: ${next.join(", ")}`));
+  };
   return {
     kind: "nip46",
     client,
     getPublicKey: async () => userPubkey,
-    async signEvent(ev: UnsignedEvent): Promise<SignedEvent> {
+    async signEvent(ev: UnsignedEvent, opts?: { signal?: AbortSignal }): Promise<SignedEvent> {
       const draft = {
         kind: ev.kind,
         content: ev.content,
         tags: ev.tags,
         created_at: ev.created_at ?? Math.floor(Date.now() / 1000),
       };
-      const res = await client.request("sign_event", [JSON.stringify(draft)]);
+      const res = await client.request("sign_event", [JSON.stringify(draft)], REQUEST_TIMEOUT_MS, opts?.signal);
       let signed: SignedEvent;
       try {
         signed = JSON.parse(res);
@@ -665,8 +828,8 @@ export function createNip46SignerFromClient(
       return signed;
     },
     nip44: {
-      encrypt: (peer, pt) => client.request("nip44_encrypt", [peer, pt]),
-      decrypt: (peer, ct) => client.request("nip44_decrypt", [peer, ct]),
+      encrypt: (peer, pt, signal) => client.request("nip44_encrypt", [peer, pt], REQUEST_TIMEOUT_MS, signal),
+      decrypt: (peer, ct, signal) => client.request("nip44_decrypt", [peer, ct], REQUEST_TIMEOUT_MS, signal),
     },
   };
 }

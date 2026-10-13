@@ -389,7 +389,7 @@ let nip07Mode = false; // set by instrumentSigner: browser-extension signer (pop
 function schedule<T>(
   rec: CallRecord,
   crypto: boolean,
-  fn: () => Promise<T>,
+  fn: (signal: AbortSignal) => Promise<T>,
   timeoutMs: number,
   gated = false,
 ): Promise<T> {
@@ -399,6 +399,9 @@ function schedule<T>(
       rec.startedAt = Date.now();
       emit();
       let done = false;
+      // One deadline: when ours fires, the transport stops waiting for us too (the request itself lives on in nip46.ts so
+      // a late reply still resolves an identical retry).
+      const ctrl = new AbortController();
       const finish = (ok: boolean, v?: T, e?: unknown) => {
         if (done) return;
         done = true;
@@ -427,10 +430,13 @@ function schedule<T>(
         pump();
       };
       const t = setTimeout(
-        () => finish(false, undefined, new Error(`signer did not answer "${rec.label}" in time`)),
+        () => {
+          finish(false, undefined, new Error(`signer did not answer "${rec.label}" in time`));
+          ctrl.abort();
+        },
         nip07Mode ? timeoutMs * NIP07_TIMEOUT_SCALE : timeoutMs,
       );
-      fn().then(
+      fn(ctrl.signal).then(
         (v) => finish(true, v),
         (e) => finish(false, undefined, e),
       );
@@ -584,8 +590,8 @@ export function instrumentSigner<S extends Signer>(inner: S): S {
     return schedule(
       rec,
       false,
-      () => {
-        const q = inner.signEvent(ev);
+      (signal) => {
+        const q = inner.signEvent(ev, { signal });
         if (key) {
           const held: Held = { promise: q, abandoned: false, at: Date.now() };
           userSigns.set(key, held);
@@ -629,7 +635,7 @@ export function instrumentSigner<S extends Signer>(inner: S): S {
     lastTypingAt = now;
     typingActive = true;
     const rec = newRec("sign_event", 3, ev.kind, ev);
-    return schedule(rec, false, () => inner.signEvent(ev), BG_TIMEOUT_MS).finally(() => {
+    return schedule(rec, false, (signal) => inner.signEvent(ev, { signal }), BG_TIMEOUT_MS).finally(() => {
       typingActive = false;
     });
   };
@@ -651,7 +657,7 @@ export function instrumentSigner<S extends Signer>(inner: S): S {
     if (why) return dropped(ev.kind, why);
     lastBgReadAt = now;
     const rec = newRec("sign_event", 3, ev.kind, ev);
-    return schedule(rec, false, () => inner.signEvent(ev), BG_TIMEOUT_MS);
+    return schedule(rec, false, (signal) => inner.signEvent(ev, { signal }), BG_TIMEOUT_MS);
   };
 
   const signPresence = (ev: UnsignedEvent): Promise<SignedEvent> => {
@@ -683,7 +689,7 @@ export function instrumentSigner<S extends Signer>(inner: S): S {
         }
         if (!changed && isSlow() && sinceLast < PRESENCE_FORCE_GAP_MS) return settleDrop("signer is slow (p50 > 3s)");
         const rec = newRec("sign_event", 3, ev.kind, ev);
-        schedule(rec, false, () => inner.signEvent(ev), BG_TIMEOUT_MS).then(
+        schedule(rec, false, (signal) => inner.signEvent(ev, { signal }), BG_TIMEOUT_MS).then(
           (sv) => {
             lastPresenceAt = Date.now();
             lastPresenceContent = content;
@@ -731,7 +737,7 @@ export function instrumentSigner<S extends Signer>(inner: S): S {
       method: "nip44_encrypt" | "nip44_decrypt",
       peer: string,
       text: string,
-      call: () => Promise<string>,
+      call: (signal: AbortSignal) => Promise<string>,
       seedKey?: (out: string) => void,
     ): Promise<string> => {
       const key = ck(method, peer, text);
@@ -785,11 +791,11 @@ export function instrumentSigner<S extends Signer>(inner: S): S {
     };
     (wrapped as Record<string, unknown>).nip44 = {
       encrypt: (peer: string, pt: string) =>
-        crypto("nip44_encrypt", peer, pt, () => n.encrypt(peer, pt), (ct) =>
+        crypto("nip44_encrypt", peer, pt, (signal) => n.encrypt(peer, pt, signal), (ct) =>
           cachePut(ck("nip44_decrypt", peer, ct), pt),
         ),
       decrypt: (peer: string, ct: string) =>
-        crypto("nip44_decrypt", peer, ct, () => n.decrypt(peer, ct)),
+        crypto("nip44_decrypt", peer, ct, (signal) => n.decrypt(peer, ct, signal)),
     };
   }
   return wrapped as unknown as S;
