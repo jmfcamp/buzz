@@ -2,7 +2,7 @@
 // (AppTopChrome), driven by the same router history (useBackForwardControls), with no destination labels. It is one
 // fixed 40px row under the safe area on every phone screen (channel, Inbox, Channels/Me/Search lists, Settings), so the
 // floating tab-count pill (PhoneTabSwitcher) sits at its right end and never needs a row of its own.
-import { ChevronLeft, ChevronRight, House } from "lucide-react";
+import { ChevronLeft, ChevronRight, House, RefreshCw } from "lucide-react";
 
 export function PhoneNavRow({
   canGoBack,
@@ -19,6 +19,17 @@ export function PhoneNavRow({
 }) {
   return (
     <nav aria-label="Navigation" className="phone-nav-row" data-testid="phone-nav-row">
+      {/* Same as desktop's top-chrome Refresh (AppTopChrome reloadDesktopWindow): a full page reload, not a refetch. */}
+      <button
+        aria-label="Refresh"
+        className="phone-nav-button"
+        data-testid="phone-nav-refresh"
+        onClick={() => window.location.reload()}
+        title="Refresh"
+        type="button"
+      >
+        <RefreshCw aria-hidden="true" />
+      </button>
       <button
         aria-label="Go back"
         className="phone-nav-button"

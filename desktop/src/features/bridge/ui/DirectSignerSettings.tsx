@@ -5,7 +5,7 @@ import { SettingsOptionGroup, SettingsOptionRow } from "@/features/settings/ui/S
 import { Button } from "@/shared/ui/button";
 import { getProxyDirect } from "../remoteCmd";
 import { revokeSignerDevice, localSignerStore, signerLog, subscribeSignerStore } from "../directSigner";
-import { DirectSignerClient, forgetPairing, isPairedWith } from "../directSignerClient";
+import { DirectSignerClient, forgetAndRevoke, isPairedWith, PAIRING_EVENT } from "../directSignerClient";
 import { useDirectState } from "./DirectAgentsPanel";
 import { StatusChip } from "./DesktopData";
 import { browserLabel } from "./useDirectSignerBanner";
@@ -18,6 +18,10 @@ export function WebDirectSignerCard() {
   const direct = getProxyDirect();
   const { live } = useDirectState(direct);
   const [, bump] = React.useReducer((n: number) => n + 1, 0);
+  React.useEffect(() => {
+    window.addEventListener(PAIRING_EVENT, bump);
+    return () => window.removeEventListener(PAIRING_EVENT, bump);
+  }, []);
   const [busy, setBusy] = React.useState(false);
   const [note, setNote] = React.useState<string | null>(null);
   if (!host?.hasDirect)
@@ -51,7 +55,7 @@ export function WebDirectSignerCard() {
         <div className="min-w-0">
           <p className="flex items-center gap-2 text-sm font-medium">
             Desktop signer
-            <StatusChip tone={paired ? (live ? "green" : "grey") : "grey"} testId="web-direct-signer-chip">
+            <StatusChip tone={paired ? "green" : "grey"} testId="web-direct-signer-chip">
               {paired ? (live ? "Active" : "Paired") : "Not paired"}
             </StatusChip>
           </p>
@@ -63,7 +67,10 @@ export function WebDirectSignerCard() {
           {note && <p className="mt-1 text-sm font-normal text-muted-foreground" data-testid="web-direct-signer-note">{note}</p>}
         </div>
         {paired ? (
-          <Button data-testid="web-direct-signer-forget" disabled={busy} onClick={() => (forgetPairing(host.id), bump())} size="sm" variant="outline">
+          <Button data-testid="web-direct-signer-forget" disabled={busy} onClick={() => {
+              forgetAndRevoke(host.id, direct ? new DirectSignerClient(direct, host.id) : null);
+              setNote(direct ? "Forgotten here and on your desktop." : "Forgotten here. Your desktop will be told the next time Direct connects.");
+            }} size="sm" variant="outline">
             Forget
           </Button>
         ) : (

@@ -43,6 +43,8 @@ export type StatusSpec = {
   secondary?: StatusAction[];
   /** Optional, never required (the state recovers on its own). */
   onHide?: () => void;
+  /** × close button (instead of a "Hide" label). */
+  onDismiss?: () => void;
   testId?: string;
 };
 
@@ -64,6 +66,7 @@ const CSS = `
 .buzz-status-desc{font-size:12px;color:hsl(var(--muted-foreground))}
 .buzz-status-btn{flex-shrink:0;border:1px solid hsl(var(--primary));border-radius:10px;padding:5px 12px;font:600 13px/1.2 inherit;font-family:inherit;background:transparent;color:hsl(var(--primary));cursor:pointer}
 .buzz-status-btn:disabled{opacity:.6}
+.buzz-status-x{flex-shrink:0;border:0;background:transparent;color:hsl(var(--muted-foreground));font:18px/1 inherit;font-family:inherit;width:28px;height:28px;border-radius:9999px;cursor:pointer;display:grid;place-items:center}
 .buzz-status-hide{flex-shrink:0;border:0;background:transparent;color:hsl(var(--muted-foreground));font:inherit;font-size:13px;padding:2px 4px;cursor:pointer}
 @keyframes buzz-status-rot{to{transform:rotate(360deg)}}
 @keyframes buzz-status-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
@@ -162,6 +165,17 @@ function build(id: string, spec: StatusSpec): HTMLDivElement {
     h.onclick = () => run();
     el.append(h);
   }
+  if (spec.onDismiss) {
+    const x = document.createElement("button");
+    x.type = "button";
+    x.className = "buzz-status-x";
+    x.textContent = "×";
+    x.setAttribute("aria-label", "Dismiss");
+    x.setAttribute("data-testid", `${spec.testId ?? `status-${id}`}-dismiss`);
+    const run = spec.onDismiss;
+    x.onclick = () => run();
+    el.append(x);
+  }
   (el as HTMLDivElement & { _order?: number })._order = ORDER[spec.tone];
   return el;
 }
@@ -207,7 +221,7 @@ export function noteStatus(id: string, title: string, description?: string): voi
   }, STATUS_TIMING.NOTE_MS);
 }
 
-type Tracked = { grace?: number; success?: number; visible: boolean; active: boolean };
+type Tracked = { grace?: number; success?: number; visible: boolean; active: boolean; dismissed?: boolean };
 const tracked = new Map<string, Tracked>();
 
 /**
@@ -217,32 +231,59 @@ const tracked = new Map<string, Tracked>();
 export function trackProgress(
   id: string,
   active: boolean,
-  copy: { title: string; description?: string; successTitle?: string; testId?: string },
+  copy: {
+    title: string;
+    description?: string;
+    successTitle?: string;
+    testId?: string;
+    /** Wait this long before showing (default GRACE_MS). */
+    graceMs?: number;
+    /** Show an ×: hides the pill for the rest of THIS episode; a new episode (after recovering) shows it again. */
+    dismissible?: boolean;
+  },
 ): void {
   const t = tracked.get(id) ?? { visible: false, active: false };
   tracked.set(id, t);
+  const progressSpec = (): StatusSpec => ({
+    tone: "progress",
+    title: copy.title,
+    description: copy.description,
+    testId: copy.testId,
+    onDismiss: copy.dismissible
+      ? () => {
+          t.dismissed = true;
+          t.visible = false;
+          clearStatus(id);
+        }
+      : undefined,
+  });
   if (active) {
+    if (t.dismissed) {
+      t.active = true;
+      return;
+    }
     if (t.success) {
       window.clearTimeout(t.success);
       t.success = undefined;
     }
     t.active = true;
     if (t.visible) {
-      showStatus(id, { tone: "progress", title: copy.title, description: copy.description, testId: copy.testId });
+      showStatus(id, progressSpec());
       return;
     }
     if (!t.grace) {
       t.grace = window.setTimeout(() => {
         t.grace = undefined;
-        if (!t.active) return;
+        if (!t.active || t.dismissed) return;
         t.visible = true;
-        showStatus(id, { tone: "progress", title: copy.title, description: copy.description, testId: copy.testId });
-      }, STATUS_TIMING.GRACE_MS);
+        showStatus(id, progressSpec());
+      }, copy.graceMs ?? STATUS_TIMING.GRACE_MS);
     }
     return;
   }
   if (!t.active) return;
   t.active = false;
+  t.dismissed = false; // recovered: the next disconnect is a new episode
   if (t.grace) {
     window.clearTimeout(t.grace);
     t.grace = undefined;

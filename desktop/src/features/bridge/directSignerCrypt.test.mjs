@@ -84,3 +84,4 @@ test("old desktops keep the old no-prompt list; sign-any desktops add presence/t
   assert.equal(isAutoSignKind(5, ["sign-any"]), false, "deletion still prompts");
   for (const k of AUTO_SIGN_KINDS) assert.equal(isAutoSignKind(k), true);
 });
+

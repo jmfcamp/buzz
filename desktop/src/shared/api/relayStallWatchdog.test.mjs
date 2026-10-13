@@ -104,3 +104,28 @@ test("start() is idempotent — does not create duplicate intervals", async () =
   wd.stop();
   assert.equal(stalls.length, 1);
 });
+
+test("web probe fires once after half the idle window; a timer gap (iOS suspend) never counts as a stall", async () => {
+  const { RelayStallWatchdog } = await import("./relayStallWatchdog.ts");
+  let t = 1000;
+  const handlers = [];
+  const origSet = globalThis.window?.setInterval;
+  globalThis.window ??= globalThis;
+  const prevSI = window.setInterval, prevCI = window.clearInterval;
+  window.setInterval = (fn) => (handlers.push(fn), 1);
+  window.clearInterval = () => {};
+  let probes = 0, stalls = 0;
+  const w = new RelayStallWatchdog({ intervalMs: 10, idleTimeoutMs: 60, probe: () => probes++, onStall: () => stalls++, now: () => t });
+  w.start();
+  const tick = (dt) => { t += dt; handlers[0](); };
+  for (let i = 0; i < 3; i++) tick(10);
+  assert.equal(probes, 1);
+  assert.equal(stalls, 0);
+  tick(10); tick(10);
+  assert.equal(probes, 1, "one probe per quiet stretch");
+  w.recordInbound();
+  tick(500); // timers frozen for a while
+  assert.equal(stalls, 0);
+  window.setInterval = prevSI; window.clearInterval = prevCI;
+  void origSet;
+});

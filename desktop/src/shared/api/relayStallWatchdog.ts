@@ -10,6 +10,9 @@
 export type RelayStallWatchdogConfig = {
   intervalMs: number;
   idleTimeoutMs: number;
+  /** Optional active probe (web only: browsers never surface the relay's WS ping frames to JS, so a quiet but healthy
+   *  socket looks idle). Called once the socket has been quiet for half the idle timeout; any reply counts as inbound. */
+  probe?: () => void;
   /** Called once when a stall is detected. The watchdog stops itself first. */
   onStall: (error: Error) => void;
   /** Optional override for tests. */
@@ -24,12 +27,16 @@ export class RelayStallWatchdog {
 
   private intervalHandle: number | null = null;
   private lastInboundAt = 0;
+  private lastCheckAt = 0;
+  private probedAt = 0;
+  private readonly probe?: () => void;
 
   constructor(config: RelayStallWatchdogConfig) {
     this.intervalMs = config.intervalMs;
     this.idleTimeoutMs = config.idleTimeoutMs;
     this.onStall = config.onStall;
     this.now = config.now ?? (() => Date.now());
+    this.probe = config.probe;
   }
 
   /** Idempotent. Safe to call from `connect()` completion. */
@@ -62,12 +69,27 @@ export class RelayStallWatchdog {
   }
 
   private checkIdle(): void {
+    const now = this.now();
+    const sinceCheck = this.lastCheckAt ? now - this.lastCheckAt : 0;
+    this.lastCheckAt = now;
     if (this.lastInboundAt === 0) {
-      this.lastInboundAt = this.now();
+      this.lastInboundAt = now;
       return;
     }
+    // The page was suspended (iOS background/lock freezes timers): the quiet time is ours, not the relay's. Give the
+    // socket a fresh window (and a probe) instead of declaring a stall the moment timers resume.
+    if (sinceCheck > this.intervalMs * 3 || (typeof document !== "undefined" && document.visibilityState === "hidden")) {
+      this.lastInboundAt = now;
+      this.probedAt = 0;
+      if (sinceCheck > this.intervalMs * 3) this.probe?.();
+      return;
+    }
+    if (this.probe && now - this.lastInboundAt >= this.idleTimeoutMs / 2 && this.probedAt < this.lastInboundAt) {
+      this.probedAt = now;
+      this.probe();
+    }
 
-    if (this.now() - this.lastInboundAt < this.idleTimeoutMs) {
+    if (now - this.lastInboundAt < this.idleTimeoutMs) {
       return;
     }
 

@@ -159,6 +159,7 @@ export function AppTopChrome({
         <Button
           aria-label="Refresh"
           className={TOP_CHROME_ICON_BUTTON_CLASS}
+          data-testid="global-refresh"
           onClick={reloadDesktopWindow}
           size="icon"
           title="Refresh"

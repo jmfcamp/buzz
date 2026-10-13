@@ -246,6 +246,8 @@ export function useSidebarRelayConnectionCard(
       description: "Your messages will catch up automatically",
       successTitle: "Connected",
       testId: "relay-status-pill",
+      graceMs: 3_000, // fast reconnects (iOS resume, socket swap) never show it
+      dismissible: true,
     });
   }, [relayDown, isWaitingOnReconnectHook]);
   React.useEffect(() => {

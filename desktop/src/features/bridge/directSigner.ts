@@ -5,6 +5,8 @@
 //  - signer.sign  {device, seq, event, sig}
 //      sig = device schnorr over signDigest(nonce of THIS connection, seq, event); seq strictly increasing per connection.
 //      AUTO_SIGN_KINDS are signed straight away; any other kind needs a desktop approval prompt.
+//  - signer.unpair {device, sig}       -> the browser forgot this desktop: revoke it here too (logged)
+//  - a revoked device gets an explicit "revoked" error (not "not_paired") so the browser clears its pairing at once
 //  - signer.crypt {device, seq, op, peer, text, sig}   (advertised as caps ["nip44"] in hello)
 //      NIP-44 encrypt/decrypt for the user's own synced app data. Self (peer = own pubkey) runs without asking; encrypting
 //      to anyone else needs a desktop prompt; decrypting from one of the user's OWN agents/bots (observer activity frames) runs
@@ -16,6 +18,7 @@ import {
   cryptDigest,
   type CryptOp,
   pairDigest,
+  unpairDigest,
   SIGNER_CAP_NIP44,
   signDigest,
   verifyDevice,
@@ -92,6 +95,11 @@ function parseEvent(v: unknown): SignReqEvent {
 export function createDirectSigner(deps: SignerDeps) {
   const conns = new Map<string, Conn>(); // Direct connection id -> session
   const approved = (pk: string) => deps.store.devices().find((d) => d.pubkey === pk && !d.revokedAt);
+  const revoked = (pk: string) => deps.store.devices().some((d) => d.pubkey === pk && d.revokedAt) && !approved(pk);
+  const notApproved = (device: string): never => {
+    if (revoked(device)) throw new MgmtError("revoked", "This browser was revoked on the desktop.");
+    throw new MgmtError("not_paired", "This browser isn't approved on the desktop.");
+  };
   const connOf = (p: Record<string, unknown>, device: string): Conn => {
     const c = conns.get(String(p._conn ?? ""));
     if (!c || c.device !== device) throw new MgmtError("signer_session", "Say hello on this connection first.");
@@ -114,7 +122,7 @@ export function createDirectSigner(deps: SignerDeps) {
           if (conns.size > 64) conns.delete(conns.keys().next().value as string);
           const nonce = deps.randomHex(16);
           conns.set(connId, { nonce, device, seq: 0, at: deps.now() });
-          return { nonce, approved: !!approved(device), caps: deps.crypt ? [SIGNER_CAP_SIGN_ANY, SIGNER_CAP_NIP44] : [SIGNER_CAP_SIGN_ANY] };
+          return { nonce, approved: !!approved(device), revoked: revoked(device), caps: deps.crypt ? [SIGNER_CAP_SIGN_ANY, SIGNER_CAP_NIP44] : [SIGNER_CAP_SIGN_ANY] };
         }
         case "signer.pair": {
           const c = connOf(p, device);
@@ -131,9 +139,18 @@ export function createDirectSigner(deps: SignerDeps) {
           deps.store.saveDevices([...others, { pubkey: device, label, approvedAt: deps.now() }]);
           return { approved: true };
         }
+        case "signer.unpair": {
+          const c = connOf(p, device);
+          if (!verifyDevice(unpairDigest(c.nonce, device), sigOf(p), device)) throw new MgmtError("bad_signature", "Device signature didn't verify.");
+          if (approved(device)) {
+            deps.store.saveDevices(deps.store.devices().map((d) => (d.pubkey === device ? { ...d, revokedAt: deps.now() } : d)));
+            deps.store.log({ at: deps.now(), device, kind: -1, ok: true, note: "forgotten by the browser" });
+          }
+          return { unpaired: true };
+        }
         case "signer.sign": {
           const c = connOf(p, device);
-          if (!approved(device)) throw new MgmtError("not_paired", "This browser isn't approved on the desktop.");
+          if (!approved(device)) notApproved(device);
           const seq = p.seq;
           if (typeof seq !== "number" || !Number.isInteger(seq) || seq <= c.seq) bad("bad seq");
           const ev = parseEvent(p.event);
@@ -162,7 +179,7 @@ export function createDirectSigner(deps: SignerDeps) {
           const cr = deps.crypt;
           if (!cr) throw new MgmtError("unknown_op", "That operation isn't supported.");
           const c = connOf(p, device);
-          if (!approved(device)) throw new MgmtError("not_paired", "This browser isn't approved on the desktop.");
+          if (!approved(device)) notApproved(device);
           const seq = p.seq;
           if (typeof seq !== "number" || !Number.isInteger(seq) || seq <= c.seq) bad("bad seq");
           const op = p.op === "nip44_encrypt" || p.op === "nip44_decrypt" ? (p.op as CryptOp) : bad("bad op");

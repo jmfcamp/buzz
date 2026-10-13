@@ -13,13 +13,23 @@ import {
   type CryptOp,
   devicePubkeyOf,
   pairDigest,
+  unpairDigest,
   SIGNER_CAP_NIP44,
   signDigest,
   signWithDevice,
 } from "./directSignerProto";
 
 const KEY = "buzz-direct-signer-device";
-type Stored = { secret: string; pairedWith: string[] };
+/** pendingUnpair: desktops this browser forgot while Direct was down; told on the next connect. */
+type Stored = { secret: string; pairedWith: string[]; pendingUnpair?: string[] };
+export const PAIRING_EVENT = "buzz-direct-signer-pairing";
+const notifyPairing = () => {
+  try {
+    window.dispatchEvent(new Event(PAIRING_EVENT));
+  } catch {
+    /* no window (tests) */
+  }
+};
 
 function load(): Stored {
   try {
@@ -45,10 +55,33 @@ const save = (s: Stored) => {
 };
 
 export const isPairedWith = (desktopId: string) => load().pairedWith.includes(desktopId);
+/** Local only (e.g. the desktop said "revoked"): no message back. */
 export function forgetPairing(desktopId: string) {
   const s = load();
+  if (!s.pairedWith.includes(desktopId)) return;
   save({ ...s, pairedWith: s.pairedWith.filter((d) => d !== desktopId) });
+  notifyPairing();
 }
+/** The user clicked Forget: unpair here and tell the desktop (now if possible, else on the next connect). */
+export function forgetAndRevoke(desktopId: string, client?: DirectSignerClient | null) {
+  const s = load();
+  save({
+    ...s,
+    pairedWith: s.pairedWith.filter((d) => d !== desktopId),
+    pendingUnpair: [...new Set([...(s.pendingUnpair ?? []), desktopId])],
+  });
+  notifyPairing();
+  void client?.flushUnpair().catch(() => {});
+}
+/** The desktop revoked us: unpair now and say so (no silent switch to the other signer). */
+function revokedByDesktop(desktopId: string) {
+  if (!isPairedWith(desktopId)) return;
+  forgetPairing(desktopId);
+  void import("@/shared/ui/statusPills")
+    .then((m) => m.noteStatus("direct-signer-revoked", "Your desktop revoked this browser", "Signing uses your usual signer. Pair again in Settings → Desktop signing."))
+    .catch(() => {});
+}
+const isRevoked = (e: unknown) => /revoked/.test(String((e as { code?: string })?.code ?? e));
 
 export class DirectSignerClient {
   private agents: DirectAgents;
@@ -67,10 +100,39 @@ export class DirectSignerClient {
   private async ensureHello(force = false) {
     const gen = this.agents.expiresAt; // changes with each new signed connection
     if (!force && this.hello && this.helloFor === gen) return this.hello;
-    this.hello = await this.agents.call<{ nonce: string; approved: boolean; caps?: string[] }>("signer.hello", { device: this.device });
+    this.hello = await this.agents.call<{ nonce: string; approved: boolean; revoked?: boolean; caps?: string[] }>("signer.hello", {
+      device: this.device,
+    });
     this.helloFor = gen;
     this.seq = 0;
+    // Re-check on every (re)connect: a desktop that no longer approves us means we're not paired, shown right away.
+    if (!this.hello.approved && isPairedWith(this.desktopId)) revokedByDesktop(this.desktopId);
     return this.hello;
+  }
+
+  /** Re-check pairing with the desktop (on load / reconnect) and deliver a queued Forget. Never throws. */
+  async refresh(): Promise<void> {
+    if (!this.agents.live) return;
+    try {
+      await this.ensureHello(true);
+      await this.flushUnpair();
+    } catch {
+      /* desktop unreachable or older: try again next time */
+    }
+  }
+
+  /** Send a queued Forget for this desktop. Older desktops don't know signer.unpair: the entry is dropped then. */
+  async flushUnpair(): Promise<void> {
+    const s = load();
+    if (!s.pendingUnpair?.includes(this.desktopId) || !this.agents.live) return;
+    const h = await this.ensureHello();
+    try {
+      await this.agents.call("signer.unpair", { device: this.device, sig: signWithDevice(unpairDigest(h.nonce, this.device), load().secret) });
+    } catch (e) {
+      if (!/unknown_op/.test(String((e as { code?: string })?.code ?? e))) throw e;
+    }
+    const now = load();
+    save({ ...now, pendingUnpair: (now.pendingUnpair ?? []).filter((d) => d !== this.desktopId) });
   }
 
   /** Ask the desktop to approve this browser (shows a prompt on the desktop). Needs a live or new Direct connection. */
@@ -80,7 +142,12 @@ export class DirectSignerClient {
     const r = await this.agents.call<{ approved: boolean }>("signer.pair", { device: this.device, label, sig });
     if (r.approved) {
       const s = load();
-      if (!s.pairedWith.includes(this.desktopId)) save({ ...s, pairedWith: [...s.pairedWith, this.desktopId] });
+      save({
+        ...s,
+        pairedWith: s.pairedWith.includes(this.desktopId) ? s.pairedWith : [...s.pairedWith, this.desktopId],
+        pendingUnpair: (s.pendingUnpair ?? []).filter((d) => d !== this.desktopId),
+      });
+      notifyPairing();
     }
     return !!r.approved;
   }
@@ -111,7 +178,7 @@ export class DirectSignerClient {
         return r.text;
       } catch (e) {
         if (attempt === 0 && /signer_session|bad seq/.test(String((e as { code?: string })?.code ?? e))) continue;
-        if (/not_paired/.test(String((e as { code?: string })?.code ?? e))) forgetPairing(this.desktopId);
+        if (isRevoked(e) || /not_paired/.test(String((e as { code?: string })?.code ?? e))) revokedByDesktop(this.desktopId);
         throw e;
       }
     }
@@ -135,7 +202,7 @@ export class DirectSignerClient {
         return r.event;
       } catch (e) {
         if (attempt === 0 && /signer_session|bad seq/.test(String((e as { code?: string })?.code ?? e))) continue;
-        if (/not_paired/.test(String((e as { code?: string })?.code ?? e))) forgetPairing(this.desktopId);
+        if (isRevoked(e) || /not_paired/.test(String((e as { code?: string })?.code ?? e))) revokedByDesktop(this.desktopId);
         throw e;
       }
     }
