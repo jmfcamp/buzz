@@ -562,7 +562,8 @@
   :is(
     [data-sidebar="trigger"],
     [data-testid="global-back"],
-    [data-testid="global-forward"]
+    [data-testid="global-forward"],
+    [data-testid="global-refresh"]
   ) {
   color: var(--buzz-chrome-foreground);
 }

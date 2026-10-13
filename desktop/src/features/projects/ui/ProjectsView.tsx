@@ -1,4 +1,5 @@
 import { Activity, Plus } from "lucide-react";
+import { PhoneFilterToggle } from "@/features/projects/ui/PhoneFilterToggle";
 import * as React from "react";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
@@ -142,6 +143,7 @@ export function ProjectsView() {
   // Phone: one pane at a time (project list OR activity), never a split; the header pill switches. iPad/desktop unchanged.
   const phone = usePhoneLayout();
   const [phonePane, setPhonePane] = React.useState<"list" | "activity">("list");
+  const [phoneListFiltersOpen, setPhoneListFiltersOpen] = React.useState(false);
   const [sort, setSort] = React.useState<ProjectsSort>(() => readStoredSort());
 
   const handleSortChange = React.useCallback((nextSort: ProjectsSort) => {
@@ -381,13 +383,25 @@ export function ProjectsView() {
                     )}
                     data-testid="projects-page-tabs"
                   >
-                    <ProjectsSectionSearch
-                      onCollapseAll={handleCollapseAll}
-                      onExpandAll={handleExpandAll}
-                      onQueryChange={setSearchQuery}
-                      onSortChange={handleSortChange}
-                      sort={sort}
-                    />
+                    {phone ? (
+                      <>
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium">Projects</span>
+                        <PhoneFilterToggle
+                          active={searchQuery.trim().length > 0}
+                          onToggle={() => setPhoneListFiltersOpen((v) => !v)}
+                          open={phoneListFiltersOpen}
+                          testId="projects-list-phone-filters"
+                        />
+                      </>
+                    ) : (
+                      <ProjectsSectionSearch
+                        onCollapseAll={handleCollapseAll}
+                        onExpandAll={handleExpandAll}
+                        onQueryChange={setSearchQuery}
+                        onSortChange={handleSortChange}
+                        sort={sort}
+                      />
+                    )}
                     {phone ? (
                       <Button
                         aria-label="Show activity"
@@ -415,6 +429,20 @@ export function ProjectsView() {
                       <Plus className="h-4 w-4" />
                     </Button>
                   </div>
+                  {phone ? (
+                    <div
+                      className={cn("flex min-w-0 items-center", !phoneListFiltersOpen && "hidden")}
+                      data-testid="projects-list-phone-filter-row"
+                    >
+                      <ProjectsSectionSearch
+                        onCollapseAll={handleCollapseAll}
+                        onExpandAll={handleExpandAll}
+                        onQueryChange={setSearchQuery}
+                        onSortChange={handleSortChange}
+                        sort={sort}
+                      />
+                    </div>
+                  ) : null}
                   <ProjectsWorkItemsLoadNotice
                     error={projectsWorkItemsQuery.error}
                     failedSections={

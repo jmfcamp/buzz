@@ -55,6 +55,7 @@ import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import { DrawerPanelIcon } from "@/shared/ui/DrawerPanelIcon";
+import { PhoneFilterToggle } from "@/features/projects/ui/PhoneFilterToggle";
 
 const ACTIVITY_SELECT_CLASS =
   "h-8 w-full min-w-0 truncate rounded-md bg-transparent px-2 text-xs text-foreground outline-hidden hover:bg-muted/50 focus:ring-1 focus:ring-ring";
@@ -173,6 +174,10 @@ export function ProjectsIndexActivity({
   const [activityType, setActivityType] =
     React.useState<ActivityType>(ACTIVITY_TYPE_ALL);
   const [sort, setSort] = React.useState<ActivitySort>("newest");
+  const phone = !!onPhoneBack;
+  const [phoneFiltersOpen, setPhoneFiltersOpen] = React.useState(false);
+  const filtersActive =
+    filter.type !== "all" || memberId !== ACTIVITY_MEMBER_EVERYONE || activityType !== ACTIVITY_TYPE_ALL || sort !== "newest";
   // Rosters are read only when some other view already loaded them. This
   // pane does not start those fetches.
   const membersQuery = useRelayMembersQuery(false);
@@ -475,37 +480,7 @@ export function ProjectsIndexActivity({
     [goProject],
   );
 
-  return (
-    <div
-      className={cn(
-        "flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden border-l border-border/60 transition-[width] duration-200",
-        onPhoneBack ? "w-full flex-1 border-l-0" : collapsed ? "w-10" : "w-1/2",
-      )}
-      data-testid="projects-index-activity"
-    >
-      <div
-        className={cn(
-          "flex h-13 min-w-0 items-center gap-2",
-          collapsed ? "justify-center px-1" : "px-4",
-          PROJECT_COLUMN_HEADER_BACKDROP_CLASS,
-        )}
-      >
-        {collapsed ? null : (
-          <>
-            {onPhoneBack ? (
-              <button
-                aria-label="Show projects"
-                className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-border px-2.5 text-xs text-muted-foreground hover:text-foreground"
-                data-testid="projects-phone-pane-back"
-                onClick={onPhoneBack}
-                type="button"
-              >
-                <FolderKanban aria-hidden className="h-3.5 w-3.5" />
-                <span>Projects</span>
-              </button>
-            ) : (
-              <span className="shrink-0 text-sm font-medium">Activity</span>
-            )}
+  const activityFilters = (
             <div className="flex min-w-0 flex-1 items-center gap-1">
               <label className="min-w-0 flex-1">
                 <span className="sr-only">Filter activity</span>
@@ -599,8 +574,55 @@ export function ProjectsIndexActivity({
                 </select>
               </label>
             </div>
+  );
+
+  return (
+    <div
+      className={cn(
+        "flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden border-l border-border/60 transition-[width] duration-200",
+        onPhoneBack ? "w-full flex-1 border-l-0" : collapsed ? "w-10" : "w-1/2",
+      )}
+      data-testid="projects-index-activity"
+    >
+      <div
+        className={cn(
+          "flex h-13 min-w-0 items-center gap-2",
+          collapsed ? "justify-center px-1" : "px-4",
+          PROJECT_COLUMN_HEADER_BACKDROP_CLASS,
+        )}
+      >
+        {collapsed ? null : (
+          <>
+            {onPhoneBack ? (
+              <button
+                aria-label="Show projects"
+                className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-border px-2.5 text-xs text-muted-foreground hover:text-foreground"
+                data-testid="projects-phone-pane-back"
+                onClick={onPhoneBack}
+                type="button"
+              >
+                <FolderKanban aria-hidden className="h-3.5 w-3.5" />
+                <span>Projects</span>
+              </button>
+            ) : (
+              <span className="shrink-0 text-sm font-medium">Activity</span>
+            )}
+            {phone ? (
+              <>
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">Activity</span>
+                <PhoneFilterToggle
+                  active={filtersActive}
+                  onToggle={() => setPhoneFiltersOpen((v) => !v)}
+                  open={phoneFiltersOpen}
+                  testId="projects-activity-phone-filters"
+                />
+              </>
+            ) : (
+              activityFilters
+            )}
           </>
         )}
+        {phone ? null : (
         <Button
           aria-expanded={!collapsed}
           aria-label={collapsed ? "Expand activity" : "Collapse activity"}
@@ -620,7 +642,16 @@ export function ProjectsIndexActivity({
             side={collapsed ? "right" : "left"}
           />
         </Button>
+        )}
       </div>
+      {phone ? (
+        <div
+          className={cn("flex min-w-0 items-center px-4 pb-2", !phoneFiltersOpen && "hidden")}
+          data-testid="projects-activity-phone-filter-row"
+        >
+          {activityFilters}
+        </div>
+      ) : null}
       {collapsed ? null : (
         <div className="buzz-content-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 pb-4">
           <div className="space-y-3">

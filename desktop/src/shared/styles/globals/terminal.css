@@ -556,3 +556,13 @@
   flex-direction: column;
   align-items: stretch;
 }
+
+/* Phone: Buzz Term (maximized, visible) is its own screen. Above the previous screen's content and its pinned header
+   (chat-header is z-30 in the same stacking context and later in the DOM, so it used to paint over the terminal),
+   below full-screen lists (110), the nav row (125) and the tab bar/pill. Leaving Term hides the substrate again. */
+[data-phone] .buzz-terminal-substrate[data-terminal-mode="maximized"][data-terminal-visible="true"] {
+  z-index: 100 !important;
+}
+[data-phone] body:has(.buzz-terminal-substrate[data-terminal-mode="maximized"][data-terminal-visible="true"]) [data-testid="chat-header"] {
+  visibility: hidden;
+}

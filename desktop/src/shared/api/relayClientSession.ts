@@ -108,6 +108,17 @@ export class RelayClient {
   private stallWatchdog = new RelayStallWatchdog({
     intervalMs: STALL_CHECK_INTERVAL_MS,
     idleTimeoutMs: STALL_IDLE_TIMEOUT_MS,
+    // Web: the relay's 30s WS pings are invisible to JS, so a quiet channel used to "stall" (and reconnect, flashing
+    // "Reconnecting to relay…") every ~60-70s. Ask for a no-match REQ: its EOSE is inbound proof the socket is alive.
+    probe:
+      import.meta.env?.VITE_BUZZ_PLATFORM === "web"
+        ? () => {
+            const id = `ka${Date.now().toString(36)}`;
+            void this.sendRaw(["REQ", id, { kinds: [65535], limit: 0, since: Math.floor(Date.now() / 1000) + 86_400 }])
+              .then(() => this.sendRaw(["CLOSE", id]))
+              .catch(() => {});
+          }
+        : undefined,
     onStall: (error) => {
       this.connectionStateEmitter.set("stalled");
       this.resetConnection(error);

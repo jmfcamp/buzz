@@ -302,6 +302,10 @@ export function WebRemoteWatcher() {
   useDirectSignerBanner(direct, host?.id, !!host && rh.reachOf(host) === "reachable");
   // The desktop's data replaces the web's empty defaults the moment the connection goes live (and back when it ends).
   const live = useDirectState(direct).live;
+  // On load and every reconnect: re-check pairing with the desktop and deliver a queued Forget.
+  React.useEffect(() => {
+    if (live && direct && host?.id) void new DirectSignerClient(direct, host.id).refresh();
+  }, [live, direct, host?.id]);
   React.useEffect(() => {
     void queryClient.invalidateQueries({ predicate: (q) => DESKTOP_QUERY.test(String(q.queryKey[0])) });
   }, [live, direct, queryClient]);

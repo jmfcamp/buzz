@@ -46,6 +46,10 @@ export function cryptDigest(sessionNonce: string, seq: number, op: CryptOp, peer
   return sha256(utf8ToBytes(`buzz-direct-crypt\n${sessionNonce}\n${seq}\n${body}`));
 }
 
+export function unpairDigest(sessionNonce: string, devicePubkey: string): Uint8Array {
+  return sha256(utf8ToBytes(`buzz-direct-unpair\n${sessionNonce}\n${devicePubkey}`));
+}
+
 export function pairDigest(sessionNonce: string, devicePubkey: string): Uint8Array {
   return sha256(utf8ToBytes(`buzz-direct-pair\n${sessionNonce}\n${devicePubkey}`));
 }
