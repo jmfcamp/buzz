@@ -1,4 +1,5 @@
 import * as React from "react";
+import { usePhoneLayout } from "@/shared/lib/phoneLayout";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { usePersonasQuery } from "@/features/agents/hooks";
@@ -40,6 +41,7 @@ const AGENTS_PROFILE_SEARCH_KEYS = [
 
 export function AgentsScreen() {
   const identityQuery = useIdentityQuery();
+  const isPhone = usePhoneLayout();
   const personasQuery = usePersonasQuery();
   const { applyPatch, values } = useHistorySearchState(
     AGENTS_PROFILE_SEARCH_KEYS,
@@ -121,16 +123,21 @@ export function AgentsScreen() {
     [goChannel, openDmMutation],
   );
 
+  // Phone: an open bot/agent profile is its own full-screen page (no squeezed side panel next to the list).
+  const phoneDetail = isPhone && Boolean(profilePanelTarget);
+
   return (
     <ProfilePanelProvider
       onOpenPersonaProfilePanel={handleOpenPersonaProfilePanel}
       onOpenProfilePanel={handleOpenProfilePanel}
     >
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <div className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
-          <React.Suspense fallback={<ViewLoadingFallback kind="agents" />}>
-            <AgentsView />
-          </React.Suspense>
+        <div className={`flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden${phoneDetail ? " phone-detail-full" : ""}`}>
+          {phoneDetail ? null : (
+            <React.Suspense fallback={<ViewLoadingFallback kind="agents" />}>
+              <AgentsView />
+            </React.Suspense>
+          )}
           {profilePanelTarget ? (
             <UserProfilePanel
               canResetWidth={threadPanelWidth.canReset}

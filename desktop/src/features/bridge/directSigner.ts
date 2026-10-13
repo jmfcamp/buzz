@@ -5,11 +5,26 @@
 //  - signer.sign  {device, seq, event, sig}
 //      sig = device schnorr over signDigest(nonce of THIS connection, seq, event); seq strictly increasing per connection.
 //      AUTO_SIGN_KINDS are signed straight away; any other kind needs a desktop approval prompt.
+//  - signer.crypt {device, seq, op, peer, text, sig}   (advertised as caps ["nip44"] in hello)
+//      NIP-44 encrypt/decrypt for the user's own synced app data. Self (peer = own pubkey) runs without asking; encrypting
+//      to anyone else needs a desktop prompt; decrypting from one of the user's OWN agents/bots (observer activity frames) runs
+//      without asking; decrypting from anyone else is not offered (the browser uses its remote signer).
 // Every signature is logged per device; Settings can revoke a device. The account key is never returned or exported.
-import { AUTO_SIGN_KINDS, pairDigest, signDigest, verifyDevice, type SignReqEvent } from "./directSignerProto";
+import {
+  AUTO_SIGN_KINDS_V2,
+  SIGNER_CAP_SIGN_ANY,
+  cryptDigest,
+  type CryptOp,
+  pairDigest,
+  SIGNER_CAP_NIP44,
+  signDigest,
+  verifyDevice,
+  type SignReqEvent,
+} from "./directSignerProto";
 import { MgmtError } from "./mgmtError";
 
 export type SignerDevice = { pubkey: string; label: string; approvedAt: number; revokedAt?: number };
+/** kind: event kind for signatures, -1 for pairing/revoke, -2 for encrypt/decrypt (note says which). */
 export type SignerLogEntry = { at: number; device: string; kind: number; ok: boolean; note?: string };
 
 export type SignerStore = {
@@ -25,9 +40,31 @@ export type SignerDeps = {
   /** Sign with the desktop's account key (never exported). */
   sign(ev: SignReqEvent): Promise<unknown>;
   randomHex(bytes: number): string;
+  /** NIP-44 with the account key. Optional: without it the desktop doesn't advertise encrypt/decrypt. */
+  crypt?: {
+    selfPubkey(): Promise<string> | string;
+    encryptToSelf(text: string): Promise<string>;
+    encryptToPeer(peer: string, text: string): Promise<string>;
+    decryptFromSelf(text: string): Promise<string>;
+    /** Observer frames (kind 24200) from the user's OWN agents/bots: decrypt without a prompt. Optional (newer desktops). */
+    decryptFromPeer?(peer: string, text: string): Promise<string>;
+    isOwnAgent?(peer: string): Promise<boolean>;
+  };
   now(): number;
 };
 
+const KIND_NAMES: Record<number, string> = {
+  0: "a profile update (kind 0)",
+  3: "a follow list update (kind 3)",
+  5: "a deletion (kind 5)",
+  10002: "a relay list update (kind 10002)",
+  9000: "a member/channel admin change (kind 9000)",
+  9001: "a member removal (kind 9001)",
+  9002: "a channel edit (kind 9002)",
+  9007: "a channel creation (kind 9007)",
+  9008: "a channel deletion (kind 9008)",
+};
+const describeKind = (k: number) => KIND_NAMES[k] ?? `a kind ${k} event`;
 const HEX64 = /^[0-9a-f]{64}$/;
 const HEX128 = /^[0-9a-f]{128}$/;
 const MAX_CONTENT = 256_000;
@@ -77,7 +114,7 @@ export function createDirectSigner(deps: SignerDeps) {
           if (conns.size > 64) conns.delete(conns.keys().next().value as string);
           const nonce = deps.randomHex(16);
           conns.set(connId, { nonce, device, seq: 0, at: deps.now() });
-          return { nonce, approved: !!approved(device) };
+          return { nonce, approved: !!approved(device), caps: deps.crypt ? [SIGNER_CAP_SIGN_ANY, SIGNER_CAP_NIP44] : [SIGNER_CAP_SIGN_ANY] };
         }
         case "signer.pair": {
           const c = connOf(p, device);
@@ -102,10 +139,10 @@ export function createDirectSigner(deps: SignerDeps) {
           const ev = parseEvent(p.event);
           if (!verifyDevice(signDigest(c.nonce, seq as number, ev), sigOf(p), device)) throw new MgmtError("bad_signature", "Device signature didn't verify.");
           c.seq = seq as number;
-          if (!AUTO_SIGN_KINDS.has(ev.kind)) {
+          if (!AUTO_SIGN_KINDS_V2.has(ev.kind)) {
             const ok = await deps.confirm(
               "Sign this for your browser?",
-              `Your browser asks this computer to sign a kind ${ev.kind} event${ev.content ? `:\n\n${ev.content.slice(0, 300)}` : "."}`,
+              `Your browser asks this computer to sign ${describeKind(ev.kind)}${ev.content ? `:\n\n${ev.content.slice(0, 300)}` : "."}`,
             );
             if (!ok) {
               deps.store.log({ at: deps.now(), device, kind: ev.kind, ok: false, note: "declined" });
@@ -118,6 +155,55 @@ export function createDirectSigner(deps: SignerDeps) {
             return { event: signed };
           } catch (e) {
             deps.store.log({ at: deps.now(), device, kind: ev.kind, ok: false, note: "sign failed" });
+            throw e;
+          }
+        }
+        case "signer.crypt": {
+          const cr = deps.crypt;
+          if (!cr) throw new MgmtError("unknown_op", "That operation isn't supported.");
+          const c = connOf(p, device);
+          if (!approved(device)) throw new MgmtError("not_paired", "This browser isn't approved on the desktop.");
+          const seq = p.seq;
+          if (typeof seq !== "number" || !Number.isInteger(seq) || seq <= c.seq) bad("bad seq");
+          const op = p.op === "nip44_encrypt" || p.op === "nip44_decrypt" ? (p.op as CryptOp) : bad("bad op");
+          const peer = typeof p.peer === "string" && HEX64.test(p.peer.toLowerCase()) ? p.peer.toLowerCase() : bad("bad peer");
+          const text = typeof p.text === "string" && p.text.length <= MAX_CONTENT ? p.text : bad("bad text");
+          if (!verifyDevice(cryptDigest(c.nonce, seq as number, op, peer, text), sigOf(p), device))
+            throw new MgmtError("bad_signature", "Device signature didn't verify.");
+          c.seq = seq as number;
+          const self = peer === String(await cr.selfPubkey()).toLowerCase();
+          const what = op === "nip44_encrypt" ? "encrypt" : "decrypt";
+          const log = (ok: boolean, extra = "") =>
+            deps.store.log({ at: deps.now(), device, kind: -2, ok, note: `${what}${self ? " (self)" : ` ${op === "nip44_decrypt" ? "from" : "to"} ${peer.slice(0, 8)}…`}${extra}` });
+          const ownAgent =
+            !self && op === "nip44_decrypt" && !!cr.decryptFromPeer && !!cr.isOwnAgent && (await cr.isOwnAgent(peer).catch(() => false));
+          if (!self && !ownAgent) {
+            if (op === "nip44_decrypt") {
+              log(false, ": not offered");
+              throw new MgmtError("unsupported", "Only your own data can be decrypted here.");
+            }
+            const ok = await deps.confirm(
+              "Encrypt this for your browser?",
+              `Your browser asks this computer to encrypt something to another key (${peer.slice(0, 8)}…). Only allow this if you just did something that needs it.`,
+            );
+            if (!ok) {
+              log(false, ": declined");
+              throw new MgmtError("declined", "Declined on the desktop.");
+            }
+          }
+          try {
+            const out =
+              op === "nip44_decrypt"
+                ? ownAgent && cr.decryptFromPeer
+                  ? await cr.decryptFromPeer(peer, text)
+                  : await cr.decryptFromSelf(text)
+                : self
+                  ? await cr.encryptToSelf(text)
+                  : await cr.encryptToPeer(peer, text);
+            if (!ownAgent) log(true); // observer frames are many per second: only failures are logged for them
+            return { text: out };
+          } catch (e) {
+            log(false, ": failed");
             throw e;
           }
         }

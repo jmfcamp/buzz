@@ -770,6 +770,26 @@ pub async fn nip44_decrypt_from_self(
     .map_err(|e| format!("spawn_blocking failed: {e}"))?
 }
 
+/// Decrypt a NIP-44 payload from another pubkey. Used only by the Direct desktop signer for observer frames from the
+/// user's own agents (the caller restricts the peer); older desktops lack this command.
+#[tauri::command]
+pub async fn nip44_decrypt_from_peer(
+    peer_pubkey: String,
+    ciphertext: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let keys = state.signing_keys()?;
+    let peer = nostr::PublicKey::from_hex(peer_pubkey.trim())
+        .map_err(|e| format!("invalid peer pubkey: {e}"))?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        nip44::decrypt(keys.secret_key(), &peer, &ciphertext)
+            .map_err(|e| format!("nip44 decrypt failed: {e}"))
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking failed: {e}"))?
+}
+
 #[cfg(test)]
 mod nostr_identity_binding_tests {
     use super::build_nostr_identity_binding_event;

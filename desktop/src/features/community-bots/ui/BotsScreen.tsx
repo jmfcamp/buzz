@@ -7,6 +7,7 @@ import {
 } from "@/features/community-bots/lib/directory";
 import { useHistorySearchState } from "@/shared/hooks/useHistorySearchState";
 import { useThreadPanelWidth } from "@/shared/hooks/useThreadPanelWidth";
+import { usePhoneLayout } from "@/shared/lib/phoneLayout";
 import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 
 const BotsView = React.lazy(async () => {
@@ -28,16 +29,20 @@ export function BotsScreen() {
   const selectedBotId = botsDirectorySelectedBotId(values.bot);
   const threadPanelWidth = useThreadPanelWidth();
   const { goChannel, goSettings } = useAppNavigation();
+  // Phone: an open bot profile is its own full-screen page (no squeezed side panel next to the list).
+  const phoneDetail = usePhoneLayout() && Boolean(selectedBotId);
 
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
-        <React.Suspense fallback={<ViewLoadingFallback kind="bots" />}>
-          <BotsView
-            onOpenBot={(botId) => applyPatch({ bot: botId })}
-            onOpenBotsSettings={() => void goSettings("bots")}
-          />
-        </React.Suspense>
+      <div className={`flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden${phoneDetail ? " phone-detail-full" : ""}`}>
+        {phoneDetail ? null : (
+          <React.Suspense fallback={<ViewLoadingFallback kind="bots" />}>
+            <BotsView
+              onOpenBot={(botId) => applyPatch({ bot: botId })}
+              onOpenBotsSettings={() => void goSettings("bots")}
+            />
+          </React.Suspense>
+        )}
         {selectedBotId ? (
           <React.Suspense fallback={null}>
             <BotDetailPanel

@@ -4,7 +4,6 @@
 // holds a secret key, so crypto goes through the signer's nip44 (cached by the instrumented signer).
 import { verifyEvent } from "nostr-tools";
 import { getSigner } from "./signer";
-import { prioritizeDecrypt } from "./signer/instrument";
 
 type Args = Record<string, any> | undefined;
 
@@ -16,6 +15,31 @@ const HEX64 = /^[0-9a-f]{64}$/;
 
 const contentLooksLikeNip44 = (c: string) =>
   c.length >= NIP44_MIN_CONTENT_LEN && c.length <= NIP44_MAX_CONTENT_LEN;
+
+// Live frames arrive several per second while an agent thinks; each needs a signer decrypt. They go through ONE low-priority
+// lane (one at a time) with a short backlog: when the signer (Primal) falls behind, the oldest waiting frames are dropped so
+// the panel catches up to the latest state instead of flooding the signer. The paired desktop (Direct) answers in ms.
+const OBSERVER_LANE_MAX_BACKLOG = 6;
+type Job = { run: () => Promise<string>; resolve: (s: string) => void; reject: (e: unknown) => void };
+const lane: Job[] = [];
+let laneBusy = false;
+function pump() {
+  if (laneBusy) return;
+  const job = lane.shift();
+  if (!job) return;
+  laneBusy = true;
+  job.run().then(job.resolve, job.reject).finally(() => {
+    laneBusy = false;
+    pump();
+  });
+}
+export function observerDecryptLane(run: () => Promise<string>): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    lane.push({ run, resolve, reject });
+    while (lane.length > OBSERVER_LANE_MAX_BACKLOG) lane.shift()?.reject(new Error("stale observer frame skipped (signer busy)"));
+    pump();
+  });
+}
 
 export async function decryptObserverEvent(a: Args): Promise<unknown> {
   let ev: { id: string; pubkey: string; content: string; sig: string; kind: number; tags: string[][]; created_at: number };
@@ -31,9 +55,7 @@ export async function decryptObserverEvent(a: Args): Promise<unknown> {
     throw new Error(`decrypt observer event failed: invalid NIP-44 ciphertext length: ${ev.content.length}`);
   const n = getSigner().nip44;
   if (!n) throw new Error("Your signer does not support NIP-44 decryption.");
-  // The Activity panel is on screen: don't queue behind settings decrypts (user-visible, priority 1).
-  prioritizeDecrypt(ev.content);
-  const plaintext = await n.decrypt(ev.pubkey, ev.content);
+  const plaintext = await observerDecryptLane(() => n.decrypt(ev.pubkey, ev.content));
   if (plaintext.length > OBSERVER_MAX_PLAINTEXT_LEN)
     throw new Error(`decrypt observer event failed: observer plaintext exceeds ${OBSERVER_MAX_PLAINTEXT_LEN} bytes`);
   try {

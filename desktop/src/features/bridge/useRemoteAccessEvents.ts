@@ -14,7 +14,8 @@ import { listPersonas } from "@/shared/api/tauriPersonas";
 import { CMD_WRITES } from "./directCmd";
 import { handleMgmt, mgmtErrorString, type MgmtDeps } from "./directMgmt";
 import { createDirectSigner, localSignerStore } from "./directSigner";
-import { signRelayEvent } from "@/shared/api/tauri";
+import { nip44DecryptFromPeer, nip44DecryptFromSelf, nip44EncryptToPeer, nip44EncryptToSelf, signRelayEvent } from "@/shared/api/tauri";
+import { getIdentity } from "@/shared/api/tauriIdentity";
 import { isAgentManagementAllowed, refreshRemoteAccess, subscribeRemoteAccess } from "./remoteAccessStore";
 
 /** The real agent APIs behind direct-connection management requests. `pubkey` is the signed-in member (scope guard for start). */
@@ -36,6 +37,7 @@ export function realMgmtDeps(pubkey: string | undefined): MgmtDeps {
 }
 
 /** Desktop as signer for this account's approved web devices (keys never leave the desktop). */
+let ownAgentsCache: { at: number; keys: Set<string> } | null = null;
 const directSigner = createDirectSigner({
   store: localSignerStore,
   confirm: async (title, message) =>
@@ -49,6 +51,19 @@ const directSigner = createDirectSigner({
   sign: (ev) => signRelayEvent({ kind: ev.kind, content: ev.content, createdAt: ev.created_at, tags: ev.tags, allowSelfTagging: true }),
   randomHex: (n) => Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => b.toString(16).padStart(2, "0")).join(""),
   now: Date.now,
+  crypt: {
+    selfPubkey: async () => (await getIdentity()).pubkey,
+    encryptToSelf: nip44EncryptToSelf,
+    encryptToPeer: nip44EncryptToPeer,
+    decryptFromSelf: nip44DecryptFromSelf,
+    decryptFromPeer: nip44DecryptFromPeer,
+    isOwnAgent: async (peer) => {
+      const now = Date.now();
+      if (!ownAgentsCache || now - ownAgentsCache.at > 30_000)
+        ownAgentsCache = { at: now, keys: new Set((await listManagedAgents()).map((a) => a.pubkey.toLowerCase())) };
+      return ownAgentsCache.keys.has(peer.toLowerCase());
+    },
+  },
 });
 
 /** Ops that change agent state: the desktop's own agent lists (and the bridge snapshot) must refresh after them. */

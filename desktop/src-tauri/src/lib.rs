@@ -659,6 +659,7 @@ pub fn run() {
             nip44_encrypt_to_self,
             nip44_encrypt_to_peer,
             nip44_decrypt_from_self,
+            nip44_decrypt_from_peer,
             get_channels,
             get_open_channel_directory,
             create_channel,

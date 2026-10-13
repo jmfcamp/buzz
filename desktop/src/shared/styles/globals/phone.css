@@ -620,3 +620,14 @@
   color: hsl(var(--primary) / 0.4);
   opacity: 1;
 }
+
+/* Bots / Agents: an open profile fills the screen (list hidden while it's open; the panel's close returns). */
+[data-phone] .phone-detail-full > * {
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  flex: 1 1 auto !important;
+}
+[data-phone] .phone-detail-full [data-testid="user-profile-resize-handle"] {
+  display: none !important;
+}

@@ -2,6 +2,7 @@
 // (nsec.app, Amber, Primal, a bunker...). We hold only an ephemeral *client* keypair that identifies this browser to
 // the signer over the signer's own relay(s). Requests/responses are kind 24133 events encrypted with NIP-44
 // (NIP-04 only if the signer answers in NIP-04).
+import { desktopSignerActive, onDirectSignerChange } from "./directRoute";
 import {
   finalizeEvent,
   generateSecretKey,
@@ -225,6 +226,10 @@ export class Nip46Client {
       this.reconnectAll(true);
       return;
     }
+    if (this.dormant()) {
+      this.park();
+      return;
+    }
     const alive = await Promise.all(this.conns.map((c) => this.probe(c, RETURN_PING_DEADLINE_MS)));
     nlog(`foreground: ${alive.filter(Boolean).length}/${alive.length} signer sockets alive`);
     if (this.pending.size && away > 1500) {
@@ -234,9 +239,37 @@ export class Nip46Client {
     }
   }
   private resendOnNextOpen = false;
+  /** Paired desktop signs over Direct and nothing is waiting on us: no sockets, keepalive or probes (lazy wake-up). */
+  private dormant(): boolean {
+    return !this.handshake && this.pending.size === 0 && desktopSignerActive();
+  }
+  /** Close every socket without scheduling a retry; request() reopens them on demand (onopen publishes pending). */
+  private park() {
+    let closed = 0;
+    for (const c of this.conns) {
+      clearTimeout(c.timer);
+      c.timer = undefined;
+      if (c.ping) (c as RelayConn & { pingFinish?: (alive: boolean) => void }).pingFinish?.(true);
+      const ws = c.ws;
+      if (!ws) continue;
+      c.ws = null;
+      closed++;
+      try {
+        ws.close();
+      } catch {}
+      nip46Debug.setRelay(c.url, false);
+    }
+    if (closed) nlog(`desktop signer active: remote signer sockets parked (${closed})`);
+  }
+  private offDirect?: () => void;
   /** Every 25s while visible: reopen CLOSED sockets and probe open ones; a socket is replaced only if its probe fails. */
   private health = () => {
     if (this.closed || document.visibilityState !== "visible") return;
+    if (this.dormant()) {
+      this.park();
+      signerHealth.desktopCovered();
+      return;
+    }
     for (const c of this.conns) {
       if (!c.timer && (!c.ws || c.ws.readyState === WebSocket.CLOSED)) this.open(c);
       else if (c.ws?.readyState === WebSocket.OPEN && !c.ping) void this.probe(c, PING_DEADLINE_MS);
@@ -364,15 +397,25 @@ export class Nip46Client {
   start() {
     this.closed = false;
     this.conns = this.relays.map((url) => ({ url, ws: null, retry: 0, pingSeq: 0 }));
-    for (const c of this.conns) this.open(c);
+    if (!this.dormant()) for (const c of this.conns) this.open(c);
+    this.offDirect?.();
+    // Desktop signer came or went: park now, or wake the sockets so the remote signer is ready again.
+    this.offDirect = onDirectSignerChange(() => queueMicrotask(() => this.onDirectChange()));
     document.addEventListener("visibilitychange", this.onVis);
     window.addEventListener("online", this.onVis);
     window.addEventListener("pageshow", this.onVis);
     clearInterval(this.watchdog);
     this.watchdog = setInterval(this.health, PING_EVERY_MS);
   }
+  private onDirectChange() {
+    if (this.closed) return;
+    if (this.dormant()) return; // health() parks on its next tick once the desktop is actually live + paired
+    for (const c of this.conns) if (!c.ws && !c.timer) this.open(c);
+  }
   stop() {
     this.closed = true;
+    this.offDirect?.();
+    this.offDirect = undefined;
     clearInterval(this.watchdog);
     document.removeEventListener("visibilitychange", this.onVis);
     window.removeEventListener("online", this.onVis);
@@ -461,6 +504,10 @@ export class Nip46Client {
   }
   private scheduleRetry(c: RelayConn) {
     if (this.closed) return;
+    if (this.dormant()) {
+      c.ws = null;
+      return;
+    }
     c.retry++;
     c.timer = setTimeout(
       () => this.open(c),

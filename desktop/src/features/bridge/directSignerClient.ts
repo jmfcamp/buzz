@@ -6,7 +6,17 @@ import { schnorr } from "@noble/curves/secp256k1.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import type { SignedEvent, UnsignedEvent } from "@/platform/web/signer/types";
 import type { DirectAgents } from "./directAgents";
-import { AUTO_SIGN_KINDS, devicePubkeyOf, pairDigest, signDigest, signWithDevice } from "./directSignerProto";
+import {
+  isAutoSignKind,
+  SIGNER_CAP_SIGN_ANY,
+  cryptDigest,
+  type CryptOp,
+  devicePubkeyOf,
+  pairDigest,
+  SIGNER_CAP_NIP44,
+  signDigest,
+  signWithDevice,
+} from "./directSignerProto";
 
 const KEY = "buzz-direct-signer-device";
 type Stored = { secret: string; pairedWith: string[] };
@@ -43,7 +53,7 @@ export function forgetPairing(desktopId: string) {
 export class DirectSignerClient {
   private agents: DirectAgents;
   private desktopId: string;
-  private hello: { nonce: string; approved: boolean } | null = null;
+  private hello: { nonce: string; approved: boolean; caps?: string[] } | null = null;
   private helloFor: unknown = null;
   private seq = 0;
   constructor(agents: DirectAgents, desktopId: string) {
@@ -57,7 +67,7 @@ export class DirectSignerClient {
   private async ensureHello(force = false) {
     const gen = this.agents.expiresAt; // changes with each new signed connection
     if (!force && this.hello && this.helloFor === gen) return this.hello;
-    this.hello = await this.agents.call<{ nonce: string; approved: boolean }>("signer.hello", { device: this.device });
+    this.hello = await this.agents.call<{ nonce: string; approved: boolean; caps?: string[] }>("signer.hello", { device: this.device });
     this.helloFor = gen;
     this.seq = 0;
     return this.hello;
@@ -75,14 +85,48 @@ export class DirectSignerClient {
     return !!r.approved;
   }
 
+  /** Will this kind be signed without a prompt on the desktop? (unknown before the first hello: assume the old list) */
+  isAuto(kind: number): boolean {
+    return isAutoSignKind(kind, this.hello?.caps);
+  }
+
+  /** Paired + Direct live: the remote signer can stay dormant. */
+  active(): boolean {
+    return this.agents.live && isPairedWith(this.desktopId) && this.hello?.approved !== false;
+  }
+
+  /** NIP-44 encrypt/decrypt over Direct. Throws "unsupported" on desktops that don't advertise it (caller falls back). */
+  async crypt(op: CryptOp, peer: string, text: string): Promise<string> {
+    if (!this.agents.live) throw new Error("direct not live");
+    if (!isPairedWith(this.desktopId)) throw new Error("not paired");
+    for (let attempt = 0; ; attempt++) {
+      const h = await this.ensureHello(attempt > 0);
+      if (!h.approved) throw new Error("not paired");
+      if (!h.caps?.includes(SIGNER_CAP_NIP44)) throw new Error("unsupported: desktop can't encrypt/decrypt yet");
+      const seq = ++this.seq;
+      const sig = signWithDevice(cryptDigest(h.nonce, seq, op, peer, text), load().secret);
+      try {
+        const r = await this.agents.call<{ text: string }>("signer.crypt", { device: this.device, seq, op, peer, text, sig });
+        if (typeof r?.text !== "string") throw new Error("bad crypt reply");
+        return r.text;
+      } catch (e) {
+        if (attempt === 0 && /signer_session|bad seq/.test(String((e as { code?: string })?.code ?? e))) continue;
+        if (/not_paired/.test(String((e as { code?: string })?.code ?? e))) forgetPairing(this.desktopId);
+        throw e;
+      }
+    }
+  }
+
   /** Sign over the live Direct connection; throws (caller falls back) when not live / not paired / declined. */
   async sign(ev: UnsignedEvent & { created_at: number }): Promise<SignedEvent> {
     if (!this.agents.live) throw new Error("direct not live");
     if (!isPairedWith(this.desktopId)) throw new Error("not paired");
-    if (!AUTO_SIGN_KINDS.has(ev.kind)) throw new Error("kind needs desktop approval; use the remote signer");
     for (let attempt = 0; ; attempt++) {
       const h = await this.ensureHello(attempt > 0);
       if (!h.approved) throw new Error("not paired");
+      // Older desktops sign only the no-prompt list; newer ones (sign-any) sign everything, prompting there for the rest.
+      if (!isAutoSignKind(ev.kind, h.caps) && !h.caps?.includes(SIGNER_CAP_SIGN_ANY))
+        throw new Error("kind needs desktop approval; use the remote signer");
       const seq = ++this.seq;
       const req = { kind: ev.kind, created_at: ev.created_at, tags: ev.tags, content: ev.content };
       const sig = signWithDevice(signDigest(h.nonce, seq, req), load().secret);
