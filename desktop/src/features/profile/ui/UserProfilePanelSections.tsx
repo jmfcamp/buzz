@@ -618,6 +618,69 @@ export function ProfileSummaryView({
   );
 }
 
+/** The profile hero avatar (80px, presence cutout, squircle for bots). Shared with the community bot profile so both match. */
+export function ProfileHeroAvatar({
+  avatarUrl,
+  displayName,
+  isBot,
+  presenceStatus,
+  pubkey,
+  showOpenClawBadge = false,
+}: {
+  avatarUrl: string | null;
+  displayName: string;
+  isBot: boolean;
+  presenceStatus: "online" | "away" | "offline" | undefined;
+  pubkey?: string | null;
+  showOpenClawBadge?: boolean;
+}) {
+  return (
+    <span className="relative inline-flex h-20 w-20">
+      <MaskedAvatarBadgeFrame
+        badge={
+          presenceStatus ? (
+            <span
+              aria-label={getPresenceLabel(presenceStatus)}
+              className="flex h-6 w-6 items-center justify-center rounded-full"
+              data-testid="user-profile-presence-badge"
+              role="img"
+            >
+              <PresenceDot
+                className={isBot ? "h-4.5 w-4.5" : "h-3.5 w-3.5"}
+                status={presenceStatus}
+              />
+            </span>
+          ) : null
+        }
+        badgeBox={PROFILE_HERO_PRESENCE_BADGE.shell}
+        className="h-20 w-20"
+        cornerRadius={isBot ? 24 : undefined}
+        curve={STATUS_DOT_MASK_CURVE}
+        cutout={PROFILE_HERO_PRESENCE_BADGE.cutout}
+        size={80}
+      >
+        <ProfileAvatar
+          avatarUrl={avatarUrl}
+          className="h-full w-full text-xl"
+          iconClassName="h-8 w-8"
+          label={displayName}
+          plain
+          pubkey={pubkey}
+          shape={isBot ? "squircle" : "circle"}
+          showOpenClawWorkspaceBadge={false}
+          testId="user-profile-avatar"
+        />
+      </MaskedAvatarBadgeFrame>
+      {showOpenClawBadge ? (
+        <OpenClawWorkspaceBadge
+          className="pointer-events-none absolute bottom-0 left-0 z-10"
+          size={openClawWorkspaceBadgeSizeForAvatar(80)}
+        />
+      ) : null}
+    </span>
+  );
+}
+
 // ── Hero & metadata ──────────────────────────────────────────────────────────
 
 function ProfileHero({
@@ -643,7 +706,6 @@ function ProfileHero({
 }) {
   const fromContext = useOpenClawWorkspaceAvatarEnabled(pubkey);
   const showOpenClawBadge = showOpenClawWorkspaceBadge ?? fromContext;
-  const presenceDotClassName = isBot ? "h-4.5 w-4.5" : "h-3.5 w-3.5";
   const botIndicator = isBot ? (
     <BotIdenticon
       className="shrink-0 rounded"
@@ -655,49 +717,14 @@ function ProfileHero({
 
   return (
     <div className="flex flex-col items-center gap-3 text-center">
-      <span className="relative inline-flex h-20 w-20">
-        <MaskedAvatarBadgeFrame
-          badge={
-            presenceStatus ? (
-              <span
-                aria-label={getPresenceLabel(presenceStatus)}
-                className="flex h-6 w-6 items-center justify-center rounded-full"
-                data-testid="user-profile-presence-badge"
-                role="img"
-              >
-                <PresenceDot
-                  className={presenceDotClassName}
-                  status={presenceStatus}
-                />
-              </span>
-            ) : null
-          }
-          badgeBox={PROFILE_HERO_PRESENCE_BADGE.shell}
-          className="h-20 w-20"
-          cornerRadius={isBot ? 24 : undefined}
-          curve={STATUS_DOT_MASK_CURVE}
-          cutout={PROFILE_HERO_PRESENCE_BADGE.cutout}
-          size={80}
-        >
-          <ProfileAvatar
-            avatarUrl={profile?.avatarUrl ?? null}
-            className="h-full w-full text-xl"
-            iconClassName="h-8 w-8"
-            label={displayName}
-            plain
-            pubkey={pubkey}
-            shape={isBot ? "squircle" : "circle"}
-            showOpenClawWorkspaceBadge={false}
-            testId="user-profile-avatar"
-          />
-        </MaskedAvatarBadgeFrame>
-        {showOpenClawBadge ? (
-          <OpenClawWorkspaceBadge
-            className="pointer-events-none absolute bottom-0 left-0 z-10"
-            size={openClawWorkspaceBadgeSizeForAvatar(80)}
-          />
-        ) : null}
-      </span>
+      <ProfileHeroAvatar
+        avatarUrl={profile?.avatarUrl ?? null}
+        displayName={displayName}
+        isBot={isBot}
+        presenceStatus={presenceStatus}
+        pubkey={pubkey}
+        showOpenClawBadge={showOpenClawBadge}
+      />
 
       <div className="flex flex-col items-center gap-1">
         {onEditAgent ? (
