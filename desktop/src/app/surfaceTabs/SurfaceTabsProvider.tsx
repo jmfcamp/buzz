@@ -11,7 +11,17 @@ import {
   surfaceTabsStorageKey,
   surfaceTabsWithThreadLabel,
   surfaceTabsWithoutThread,
+  surfaceTabKey,
 } from "@/app/surfaceTabs/surfaceTabModel";
+import {
+  SURFACE_TABS_LANE,
+  projectSurfaceTabs,
+  seedSurfaceTabs,
+  surfaceTabEdits,
+  withStableTabIds,
+} from "@/app/surfaceTabs/surfaceTabSync";
+import { useLaneSync } from "@/features/sidebar/lib/sidebarLaneReconciler";
+import { isEmptyTree } from "@/features/sidebar/lib/sidebarLwwMap";
 import { parkPlaygroundHost } from "@/features/playground/lib/sessions";
 import {
   leaveLeftNavBuzzTerm,
@@ -75,8 +85,8 @@ export function useRegisterAssistantTabOpener(open: () => void): void {
 }
 
 function readTabs(communityId: string): SurfaceTab[] {
-  return readStoredSurfaceTabs(
-    getStorageItem(surfaceTabsStorageKey(communityId)),
+  return withStableTabIds(
+    readStoredSurfaceTabs(getStorageItem(surfaceTabsStorageKey(communityId))),
   );
 }
 
@@ -163,9 +173,14 @@ function openTarget(
 export function SurfaceTabsProvider({
   children,
   communityId,
+  pubkey,
+  relayUrl,
 }: {
   children: React.ReactNode;
   communityId: string;
+  /** With both set, tabs sync across devices (see surfaceTabSync.ts). */
+  pubkey?: string;
+  relayUrl?: string;
 }) {
   const sidebar = useSidebar();
   const navigation = useAppNavigation();
@@ -185,6 +200,24 @@ export function SurfaceTabsProvider({
   openRef.current = sidebar.open;
   navigationRef.current = navigation;
   sidebarSetOpenRef.current = sidebar.setOpen;
+  const { tree: syncTree, edit: editSync } = useLaneSync(
+    SURFACE_TABS_LANE,
+    pubkey,
+    relayUrl,
+  );
+  const syncOn = Boolean(pubkey && relayUrl);
+  const syncOnRef = React.useRef(syncOn);
+  syncOnRef.current = syncOn;
+  const editSyncRef = React.useRef(editSync);
+  editSyncRef.current = editSync;
+  /** Single write path: local state, plus synced registers when sync is on. */
+  const commitTabs = React.useCallback((next: SurfaceTab[]) => {
+    const prev = tabsRef.current;
+    tabsRef.current = next;
+    setTabs(next);
+    if (syncOnRef.current)
+      editSyncRef.current((tree) => surfaceTabEdits(tree, prev, next));
+  }, []);
 
   if (scopedCommunityId !== communityId) {
     const nextTabs = readTabs(communityId);
@@ -227,12 +260,13 @@ export function SurfaceTabsProvider({
 
   const addTab = React.useCallback(
     (input: { label: string; target: SurfaceTabTarget }) => {
-      const result = insertSurfaceTab(tabsRef.current, input);
-      tabsRef.current = result.tabs;
-      setTabs(result.tabs);
+      const result = insertSurfaceTab(tabsRef.current, input, () =>
+        surfaceTabKey(input.target),
+      );
+      commitTabs(result.tabs);
       if (result.id) activate(result.id, input.target);
     },
-    [activate],
+    [activate, commitTabs],
   );
 
   const selectTab = React.useCallback(
@@ -247,37 +281,32 @@ export function SurfaceTabsProvider({
   const closeTab = React.useCallback(
     (id: string) => {
       const next = tabsRef.current.filter((tab) => tab.id !== id);
-      tabsRef.current = next;
-      setTabs(next);
+      commitTabs(next);
       if (activeIdRef.current === id) showNormalLayout();
     },
-    [showNormalLayout],
+    [commitTabs, showNormalLayout],
   );
 
   const closeThreadTabs = React.useCallback(
     (input: { channelId?: string; rootId: string }) => {
       const result = surfaceTabsWithoutThread(tabsRef.current, input);
       if (result.removedIds.length === 0) return;
-      const next = [...result.tabs];
-      tabsRef.current = next;
-      setTabs(next);
+      commitTabs([...result.tabs]);
       const activeId = activeIdRef.current;
       if (activeId && result.removedIds.includes(activeId)) {
         showNormalLayout();
       }
     },
-    [showNormalLayout],
+    [commitTabs, showNormalLayout],
   );
 
   const renameThreadTab = React.useCallback(
     (input: { channelId?: string; label: string; rootId: string }) => {
       const result = surfaceTabsWithThreadLabel(tabsRef.current, input);
       if (!result.changed) return;
-      const next = [...result.tabs];
-      tabsRef.current = next;
-      setTabs(next);
+      commitTabs([...result.tabs]);
     },
-    [],
+    [commitTabs],
   );
 
   const registerAssistantOpener = React.useCallback((open: () => void) => {
@@ -288,6 +317,40 @@ export function SurfaceTabsProvider({
       }
     };
   }, []);
+
+  // Remote edits (or the cached synced doc) replace the local strip.
+  React.useEffect(() => {
+    if (!syncOn || isEmptyTree(syncTree)) return;
+    const next = projectSurfaceTabs(syncTree);
+    const same =
+      next.length === tabsRef.current.length &&
+      next.every(
+        (tab, i) =>
+          tab.id === tabsRef.current[i]?.id &&
+          tab.label === tabsRef.current[i]?.label,
+      );
+    if (same) return;
+    tabsRef.current = next;
+    setTabs(next);
+    const active = activeIdRef.current;
+    if (active && !next.some((tab) => tab.id === active)) showNormalLayout();
+  }, [syncOn, syncTree, showNormalLayout]);
+
+  // Seed this device's existing tabs once, after the relay head has had a
+  // moment to land so remote tombstones are seen first (no resurrection).
+  const seededRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!pubkey || !relayUrl) return;
+    const scope = `${pubkey}|${relayUrl}`;
+    if (seededRef.current === scope) return;
+    const timer = setTimeout(() => {
+      seededRef.current = scope;
+      const local = tabsRef.current;
+      if (local.length > 0)
+        editSyncRef.current((tree) => seedSurfaceTabs(tree, local));
+    }, 4_000);
+    return () => clearTimeout(timer);
+  }, [pubkey, relayUrl]);
 
   React.useEffect(() => {
     setStorageItem(surfaceTabsStorageKey(communityId), JSON.stringify(tabs));

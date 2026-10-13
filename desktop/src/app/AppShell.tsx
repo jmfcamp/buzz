@@ -1005,6 +1005,8 @@ export function AppShell() {
             >
               <SurfaceTabsProvider
                 communityId={communitiesHook.activeCommunity?.id ?? ""}
+                pubkey={identityQuery.data?.pubkey}
+                relayUrl={communitiesHook.activeCommunity?.relayUrl}
               >
                 <AppProfilePanelProvider>
                   <AppWorkflowEditorOverlayProvider>

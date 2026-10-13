@@ -178,7 +178,7 @@ function nonEmpty(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function parseTarget(value: unknown): SurfaceTabTarget | null {
+export function parseSurfaceTabTarget(value: unknown): SurfaceTabTarget | null {
   if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
   switch (record.kind) {
@@ -220,7 +220,7 @@ function parseTarget(value: unknown): SurfaceTabTarget | null {
 function parseTab(value: unknown): SurfaceTab | null {
   if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
-  const target = parseTarget(record.target);
+  const target = parseSurfaceTabTarget(record.target);
   if (!target || !nonEmpty(record.id)) return null;
   const label = surfaceTabFullLabel(
     typeof record.label === "string" ? record.label : "",
