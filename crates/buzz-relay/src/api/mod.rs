@@ -4,13 +4,14 @@ pub mod admin;
 pub mod bridge;
 pub mod events;
 pub mod gifs;
-pub mod huddle_screen;
 pub mod git;
+pub mod huddle_screen;
 pub mod invites;
 pub mod media;
 pub mod mesh_demo;
 pub mod nip05;
 pub mod operator;
+pub mod web_session;
 pub mod workflows;
 
 // Re-export imeta helpers used by ingest pipeline.

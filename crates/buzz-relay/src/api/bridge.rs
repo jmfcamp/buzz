@@ -1108,17 +1108,21 @@ pub async fn query_events(
         })?;
 
     let url = nip98_expected_url(&state.config.relay_url, &tenant, "/query");
+    // Web session bearer (one signature per session) or per-request NIP-98.
     let VerifiedBridgeAuth {
         pubkey,
         event_id_bytes,
         signed_created_at,
-    } = verify_bridge_auth(
-        &headers,
-        "POST",
-        &url,
-        Some(&body),
-        state.config.require_auth_token,
-    )?;
+    } = match super::web_session::resolve(&state, &tenant, &headers).await {
+        Some(session) => session?,
+        None => verify_bridge_auth(
+            &headers,
+            "POST",
+            &url,
+            Some(&body),
+            state.config.require_auth_token,
+        )?,
+    };
     let pubkey_hex = pubkey.to_hex();
 
     // Admission, replay, membership, and filter execution all run inside the
@@ -1720,17 +1724,21 @@ pub async fn count_events(
         })?;
 
     let url = nip98_expected_url(&state.config.relay_url, &tenant, "/count");
+    // Web session bearer (one signature per session) or per-request NIP-98.
     let VerifiedBridgeAuth {
         pubkey,
         event_id_bytes,
         signed_created_at,
-    } = verify_bridge_auth(
-        &headers,
-        "POST",
-        &url,
-        Some(&body),
-        state.config.require_auth_token,
-    )?;
+    } = match super::web_session::resolve(&state, &tenant, &headers).await {
+        Some(session) => session?,
+        None => verify_bridge_auth(
+            &headers,
+            "POST",
+            &url,
+            Some(&body),
+            state.config.require_auth_token,
+        )?,
+    };
     let pubkey_hex = pubkey.to_hex();
 
     // Admission, replay, membership, and count execution all run inside the
