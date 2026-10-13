@@ -1,5 +1,5 @@
 import { useSearch } from "@tanstack/react-router";
-import { Maximize2, Plus } from "lucide-react";
+import { FolderGit2, Maximize2, MessageSquareText, Plus } from "lucide-react";
 import * as React from "react";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
@@ -26,6 +26,7 @@ import type { EntityLinkTab } from "@/shared/lib/entityLink";
 import { useThreadPanelWidth } from "@/shared/hooks/useThreadPanelWidth";
 import { SIDEBAR_WIDTH_MIN } from "@/shared/layout/sidebarLayout";
 import { cn } from "@/shared/lib/cn";
+import { usePhoneLayout } from "@/shared/lib/phoneLayout";
 import { Button } from "@/shared/ui/button";
 import { DrawerPanelIcon } from "@/shared/ui/DrawerPanelIcon";
 import { useOptionalSidebar } from "@/shared/ui/sidebar";
@@ -60,6 +61,26 @@ const ChannelScreenView = React.lazy(async () => {
 
 function ignoreForumPost() {}
 function ignoreForumPostSelect() {}
+
+const PHONE_PANE_KEY = "buzz.phone.projectPane";
+
+/** Phone pane switch: same pill as the Projects directory's Activity/Projects toggle. */
+function PhonePaneButton({ children, label, onClick, testId }: { children: React.ReactNode; label: string; onClick: () => void; testId: string }) {
+  return (
+    <Button
+      aria-label={`Show ${label.toLowerCase()}`}
+      className="h-7 w-auto shrink-0 gap-1 rounded-full border border-border px-2.5 text-xs text-muted-foreground hover:text-foreground"
+      data-testid={testId}
+      onClick={onClick}
+      size="sm"
+      type="button"
+      variant="ghost"
+    >
+      {children}
+      <span>{label}</span>
+    </Button>
+  );
+}
 
 function ProjectHomeHeaderToggle({
   children,
@@ -128,6 +149,23 @@ export function ProjectChannelHome({
     messageId?: string;
   };
   const [summaryOpen, setSummaryOpen] = React.useState(true);
+  // Phone: one pane at a time (project chat vs Overview), like the Projects directory. Remembered for this session.
+  const phone = usePhoneLayout();
+  const [phonePane, setPhonePaneState] = React.useState<"chat" | "overview">(() => {
+    try {
+      return sessionStorage.getItem(PHONE_PANE_KEY) === "overview" ? "overview" : "chat";
+    } catch {
+      return "chat";
+    }
+  });
+  const setPhonePane = React.useCallback((pane: "chat" | "overview") => {
+    setPhonePaneState(pane);
+    try {
+      sessionStorage.setItem(PHONE_PANE_KEY, pane);
+    } catch {
+      /* private mode */
+    }
+  }, []);
   const [section, setSection] = React.useState("chat");
   const [sectionRepositoryId, setSectionRepositoryId] = React.useState<
     string | null
@@ -174,8 +212,10 @@ export function ProjectChannelHome({
   React.useEffect(() => {
     previousWorkspaceSheetOpenRef.current = workspaceSheetOpen;
   }, [workspaceSheetOpen]);
-  const summaryVisible =
-    summaryOpen && (section !== "chat" || !workspaceSheetOpen);
+  const summaryVisible = phone
+    ? phonePane === "overview"
+    : summaryOpen && (section !== "chat" || !workspaceSheetOpen);
+  const splitSummary = summaryVisible && !phone;
   const selectSection = React.useCallback((next: string) => {
     if (next !== "chat") {
       setWorkspaceCreateAction(null);
@@ -387,6 +427,7 @@ export function ProjectChannelHome({
         >
           <ProjectDetailChrome
             actions={
+              phone ? null : (
               <ProjectHomeHeaderToggle
                 label="Overview"
                 onClick={() => {
@@ -404,6 +445,7 @@ export function ProjectChannelHome({
                   side={summaryVisible ? "left" : "right"}
                 />
               </ProjectHomeHeaderToggle>
+              )
             }
             activeTabCrumb={null}
             activeWorkItemCrumb={null}
@@ -419,32 +461,44 @@ export function ProjectChannelHome({
             }}
             project={project}
             repository={scopedRepository}
-            rounded={summaryVisible}
+            rounded={splitSummary}
           />
           <div
             className={cn(
               "flex min-h-0 min-w-0 flex-1 overflow-hidden pt-2",
-              summaryVisible && "bg-sidebar pr-2",
-              summaryVisible && sidebar?.open === false && "pl-2",
+              splitSummary && "bg-sidebar pr-2",
+              splitSummary && sidebar?.open === false && "pl-2",
             )}
           >
             <div
               className={cn(
                 "relative flex min-h-0 min-w-60 flex-1 flex-col overflow-hidden",
-                summaryVisible
+                splitSummary
                   ? "mb-2 ml-px rounded-2xl bg-background"
                   : "bg-muted/20",
+                phone && "min-w-0",
+                phone && phonePane === "overview" && "hidden",
               )}
             >
               <div
-                className={`flex h-10 shrink-0 items-center overflow-hidden border-b border-border/60 px-4 ${PROJECT_COLUMN_HEADER_BACKDROP_CLASS}`}
+                className={cn(
+                  `flex h-10 shrink-0 items-center overflow-hidden border-b border-border/60 ${PROJECT_COLUMN_HEADER_BACKDROP_CLASS}`,
+                  phone ? "gap-2 px-3" : "px-4",
+                )}
                 data-testid="project-channel-identity"
               >
-                <ProjectChannelPrimaryCodebase
-                  onOpenRepository={handleOpenPrimaryCodebase}
-                  project={project}
-                  repository={scopedRepository ?? undefined}
-                />
+                <div className="min-w-0 flex-1 overflow-hidden">
+                  <ProjectChannelPrimaryCodebase
+                    onOpenRepository={handleOpenPrimaryCodebase}
+                    project={project}
+                    repository={scopedRepository ?? undefined}
+                  />
+                </div>
+                {phone ? (
+                  <PhonePaneButton label="Overview" onClick={() => setPhonePane("overview")} testId="project-phone-pane-toggle">
+                    <FolderGit2 aria-hidden className="h-3.5 w-3.5" />
+                  </PhonePaneButton>
+                ) : null}
               </div>
               <Tabs
                 className={`flex h-13 shrink-0 items-center overflow-hidden px-4 ${PROJECT_COLUMN_HEADER_BACKDROP_CLASS}`}
@@ -569,6 +623,40 @@ export function ProjectChannelHome({
               project={project}
               projects={projects}
             />
+            {phone && phonePane === "overview" ? (
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background" data-testid="project-phone-overview-pane">
+                <div
+                  className={`flex h-10 shrink-0 items-center gap-2 overflow-hidden border-b border-border/60 px-3 ${PROJECT_COLUMN_HEADER_BACKDROP_CLASS}`}
+                >
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">Overview</span>
+                  <PhonePaneButton label="Chat" onClick={() => setPhonePane("chat")} testId="project-phone-pane-toggle">
+                    <MessageSquareText aria-hidden className="h-3.5 w-3.5" />
+                  </PhonePaneButton>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain">
+                  <ProjectHomeContextPanel
+                    activeWorkspaceTab={workspaceSheetTab}
+                    channel={homeChannel}
+                    channels={channelsQuery.data ?? []}
+                    identityPubkey={identityQuery.data?.pubkey}
+                    onAddRepository={handleAddFiles}
+                    onOpenChannel={(channelId) => {
+                      void goChannel(channelId);
+                    }}
+                    onOpenRepository={handleOpenRepository}
+                    onOpenWorkspace={(...args: Parameters<typeof handleOpenWorkspace>) => {
+                      setPhonePane("chat"); // the workspace sheet lives in the chat pane
+                      handleOpenWorkspace(...args);
+                    }}
+                    onRepositoryChange={handleRepositoryChange}
+                    project={project}
+                    projects={projects}
+                    repositoryId={scopedRepositoryId}
+                  />
+                </div>
+              </div>
+            ) : null}
+            {phone ? null : (
             <ProjectContextRail
               animateWidth={!workspaceSheetVisibilityChanged}
               open={summaryVisible}
@@ -605,6 +693,7 @@ export function ProjectChannelHome({
                 </ProjectHomeColumn>
               ) : null}
             </ProjectContextRail>
+            )}
           </div>
         </div>
       </ProjectSelectionProvider>
