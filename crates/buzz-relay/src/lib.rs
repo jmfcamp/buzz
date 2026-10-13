@@ -39,6 +39,7 @@ pub mod openclaw_workspace_provision;
 /// NIP-01 client/relay message parsing.
 pub mod protocol;
 /// Durable NIP-PL matcher and delivery worker.
+pub mod push_prefetch;
 pub mod push_runtime;
 mod readiness;
 /// Axum router construction.
