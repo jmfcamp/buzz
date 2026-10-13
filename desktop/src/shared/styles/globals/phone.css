@@ -588,3 +588,7 @@
 [data-phone] [data-phone-solo="content"] > [data-testid="project-context-rail"] {
   width: 0 !important;
 }
+[data-phone] [data-phone-solo="repository"] [data-testid="project-context-rail-panel"] > * {
+  width: 100% !important;
+  max-width: none !important;
+}
