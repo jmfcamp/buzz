@@ -77,9 +77,18 @@ test("desktop bunker: pair, sign, failover when asleep, switch back, revoke, for
     assert.equal(await ds.crypt("nip44_decrypt", desk.userPk, ct), "secret settings");
     assert.equal(clave.log.requests.length, 0, "Clave not used while the desktop answers");
 
-    // 3. desktop asleep: a check fails, the route goes offline and signing fails FAST (instant Clave fallback)
+    // 2b. relay drops every socket (iOS background / network change): both sides reconnect and signing still works
+    clave.dropAllSockets();
+    await new Promise((r) => setTimeout(r, 2500));
+    const again = await ds.sign({ kind: 9, content: "after drop", tags: [], created_at: Math.floor(Date.now() / 1000) });
+    assert.ok(verifyEvent(again));
+
+    // 3. desktop asleep: ONE missed check keeps the desktop route (no flapping); the second marks it offline and
+    //    signing fails FAST (instant Clave fallback)
     desk.sleep();
-    assert.equal(await web.check(1500), false);
+    assert.equal(await web.check(700), false);
+    assert.equal(web.desktopBunkerStatus(), "online");
+    assert.equal(await web.check(700), false);
     assert.equal(web.desktopBunkerStatus(), "offline");
     assert.equal(route.desktopSignerActive(), false);
     const t0 = Date.now();

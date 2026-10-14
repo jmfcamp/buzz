@@ -6,6 +6,7 @@
 // that doesn't answer in time is torn down and reported closed, which hands control to the session's own reconnect
 // (exponential backoff with jitter, NIP-42 re-auth and `since`-backfilled re-subscription).
 import { onOffline, onResume, isPageVisible } from "@/shared/lib/resumeSignals";
+import { kbNote } from "./kbDebug/kbDebug";
 
 type Sink = { onmessage: (m: unknown) => void };
 type Entry = {
@@ -20,6 +21,7 @@ type Entry = {
   lastRx: number;
   probe: ReturnType<typeof setTimeout> | null;
   dead: boolean;
+  openedAt: number;
 };
 const sockets = new Map<number, Entry>();
 let next = 1;
@@ -33,6 +35,8 @@ const ZERO_ID = "0".repeat(64);
 function report(id: number, e: Entry, code: number, reason: string) {
   if (e.dead) return;
   e.dead = true;
+  // Diagnostics overlay (Settings → Appearance): why each relay socket ended (heartbeat timeout, offline, server close…).
+  kbNote(`ws#${id} closed ${code} ${reason || ""} ${e.authed ? "authed" : "unauthed"} age ${Math.round((Date.now() - e.openedAt) / 1000)}s`);
   for (const f of deadListeners.get(e) ?? []) f();
   deadListeners.delete(e);
   e.side.clear();
@@ -113,7 +117,7 @@ export function wsConnect(url: string, sink: Sink): Promise<number> {
   return new Promise((resolve, reject) => {
     const id = next++;
     const ws = new WebSocket(url);
-    const e: Entry = { ws, url, authId: null, authed: false, side: new Map(), sink, lastRx: Date.now(), probe: null, dead: false };
+    const e: Entry = { ws, url, authId: null, authed: false, side: new Map(), sink, lastRx: Date.now(), probe: null, dead: false, openedAt: Date.now() };
     sockets.set(id, e);
     ws.onopen = () => {
       e.lastRx = Date.now();

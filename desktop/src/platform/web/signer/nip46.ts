@@ -479,6 +479,11 @@ export class Nip46Client {
       if (this.resendOnNextOpen) {
         this.resendOnNextOpen = false;
         void this.resendPending("foreground", true, true);
+      } else if (this.quiet && this.pending.size) {
+        // Desktop bunker: the Hula signer relay stores nothing, so a reply sent while this socket was down is gone, and the
+        // desktop ignores a re-published event id it already answered. Re-send pending requests as FRESH events.
+        void this.resendPending("reopen", false);
+        return;
       }
       // (re)publish anything still waiting: it may have been sent into a dead socket
       for (const p of this.pending.values())
