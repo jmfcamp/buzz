@@ -27,7 +27,34 @@ use crate::state::{
 };
 
 /// Maximum time a new socket may hold a connection slot without completing NIP-42 auth.
-const AUTH_TIMEOUT: Duration = Duration::from_secs(5);
+/// NIP-42 AUTH window after connect. `BUZZ_AUTH_TIMEOUT_SECS` overrides (clamped to 1..=120); default 30s so web
+/// clients whose remote signer (iOS Clave/Primal) must wake up can still answer the challenge.
+const AUTH_TIMEOUT_DEFAULT_SECS: u64 = 30;
+const AUTH_TIMEOUT_MAX_SECS: u64 = 120;
+fn auth_timeout() -> Duration {
+    static T: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+    *T.get_or_init(|| parse_auth_timeout(std::env::var("BUZZ_AUTH_TIMEOUT_SECS").ok().as_deref()))
+}
+fn parse_auth_timeout(v: Option<&str>) -> Duration {
+    let secs = v
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .unwrap_or(AUTH_TIMEOUT_DEFAULT_SECS)
+        .clamp(1, AUTH_TIMEOUT_MAX_SECS);
+    Duration::from_secs(secs)
+}
+
+#[cfg(test)]
+mod auth_timeout_tests {
+    use super::*;
+    #[test]
+    fn parses_and_clamps() {
+        assert_eq!(parse_auth_timeout(None), Duration::from_secs(30));
+        assert_eq!(parse_auth_timeout(Some("junk")), Duration::from_secs(30));
+        assert_eq!(parse_auth_timeout(Some("10")), Duration::from_secs(10));
+        assert_eq!(parse_auth_timeout(Some("0")), Duration::from_secs(1));
+        assert_eq!(parse_auth_timeout(Some("9999")), Duration::from_secs(120));
+    }
+}
 
 /// Maximum time the writer may spend flushing terminal frames after cancellation.
 /// This stays well inside the process-wide 30-second hard drain.
@@ -679,11 +706,11 @@ async fn handle_active_connection(
     let auth_timeout_cancel = cancel.clone();
     let auth_timeout_task = tokio::spawn(async move {
         tokio::select! {
-            _ = tokio::time::sleep(AUTH_TIMEOUT) => {
+            _ = tokio::time::sleep(auth_timeout()) => {
                 if auth_timeout_conn.expire_auth() {
                     warn!(
                         conn_id = %auth_timeout_conn.conn_id,
-                        timeout_secs = AUTH_TIMEOUT.as_secs(),
+                        timeout_secs = auth_timeout().as_secs(),
                         "NIP-42 auth timeout — closing connection"
                     );
                     metrics::counter!("buzz_ws_auth_timeouts_total").increment(1);
