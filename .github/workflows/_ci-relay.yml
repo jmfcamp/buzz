@@ -409,7 +409,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: [desktop-e2e-integration-shard]
-    if: always() && github.repository != 'jmfcamp/buzz' && & inputs.lane == 'required' && (github.event_name == 'push' || inputs.desktop || inputs.desktop_rust || inputs.rust)
+    if: always() && github.repository != 'jmfcamp/buzz' && inputs.lane == 'required' && (github.event_name == 'push' || inputs.desktop || inputs.desktop_rust || inputs.rust)
     permissions:
       contents: read
     steps:
