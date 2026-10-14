@@ -567,7 +567,11 @@
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  max-width: calc(100% - 2 * min(46vw, 150px));
+  /* The header holds only the title (Back lives in the fixed nav row above), so it can use the full width. */
+  max-width: calc(100% - 32px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-align: center;
   pointer-events: none;
 }
@@ -684,4 +688,21 @@
   -webkit-user-select: none;
   user-select: none;
   touch-action: manipulation;
+}
+
+/* Settings section headers with actions (Pinned sites Import/Add, etc.): stack on phone. Title full width, description
+   full width, then the action buttons on their own left-aligned row (wrapping if needed). */
+[data-phone] .settings-section-header:has(> div + div) {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+[data-phone] .settings-section-header:has(> div + div) > div:first-child {
+  width: 100%;
+}
+[data-phone] .settings-section-header:has(> div + div) > div:last-child {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-start;
 }

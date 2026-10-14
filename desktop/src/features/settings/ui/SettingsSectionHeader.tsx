@@ -18,7 +18,7 @@ export function SettingsSectionHeader({
   return (
     <PageHeader
       action={action}
-      className="mb-12"
+      className="settings-section-header mb-12"
       description={
         <span data-settings-subcopy className="text-muted-foreground/70">
           {description}
