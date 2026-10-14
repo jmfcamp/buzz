@@ -175,6 +175,9 @@ export function AppShell() {
   useUserSignerDraftListener(true);
   const popout = usePopoutBootstrap();
   const hideAppChrome = isHuddleRoom || popout != null;
+  // Every popout/companion window boots the full AppShell. Only the main
+  // window may own OS notifications, or each open window fires its own copy.
+  const ownsDesktopNotifications = !isHuddleRoom && popout == null;
   const hasCommunityRail = communitiesHook.communities.length > 1;
   const addCommunityDialog = useAddCommunityDialogState();
   const [isChannelManagementOpen, setIsChannelManagementOpen] =
@@ -455,7 +458,7 @@ export function AppShell() {
     return ids;
   }, [channelsQuery.data]);
   useReminderNotifications(
-    identityQuery.data?.pubkey,
+    ownsDesktopNotifications ? identityQuery.data?.pubkey : undefined,
     notificationSettings.settings,
     channels,
   );
@@ -596,7 +599,7 @@ export function AppShell() {
     handleThreadReplyDesktopNotification,
   } = useAppShellDesktopNotifications({
     channels,
-    enabled: !isHuddleRoom,
+    enabled: ownsDesktopNotifications,
     goChannel,
     goHome,
     notificationSettings: notificationSettings.settings,
