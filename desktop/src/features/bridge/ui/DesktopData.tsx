@@ -3,7 +3,7 @@
 import { isTauri } from "@tauri-apps/api/core";
 import * as React from "react";
 
-import { getProxyDirect, NEEDS_DIRECT, proxyCmd, subscribeProxy } from "../remoteCmd";
+import { directDiag, getProxyDirect, NEEDS_DIRECT, proxyCmd, subscribeProxy } from "../remoteCmd";
 
 export const isWebBuild = () => !isTauri();
 
@@ -13,7 +13,8 @@ export function useDesktopData(): { web: boolean; live: boolean; reason: string 
   const [, bump] = React.useReducer((x: number) => x + 1, 0);
   const direct = React.useSyncExternalStore(subscribeProxy, getProxyDirect);
   React.useEffect(() => (direct ? direct.subscribe(bump) : undefined), [direct]);
-  return { web, live: !web || !!direct?.live, reason: NEEDS_DIRECT };
+  const live = !web || !!direct?.live;
+  return { web, live, reason: live ? NEEDS_DIRECT : `${NEEDS_DIRECT} [${directDiag()}]` };
 }
 
 /** Connects once when a settings page opens (never in the background). */
