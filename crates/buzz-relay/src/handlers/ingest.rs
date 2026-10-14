@@ -456,6 +456,28 @@ fn valid_link_preview_text(value: &str, max: usize, allow_newlines: bool) -> boo
             .any(|character| character.is_control() && !(allow_newlines && character == '\n'))
 }
 
+/// The canonical URL must be authored in the content. URL parsing appends
+/// `/` to a bare origin (`https://host` -> `https://host/`), so accept the
+/// authored bare-origin spelling when the canonical's path is just `/`.
+fn link_preview_canonical_in_content(content: &str, raw: &str, canonical: &url::Url) -> bool {
+    if content.contains(raw) {
+        return true;
+    }
+    if canonical.path() != "/" || canonical.query().is_some() {
+        return false;
+    }
+    let bare = raw.trim_end_matches('/');
+    bare != raw
+        && content.match_indices(bare).any(|(index, _)| {
+            content[index + bare.len()..]
+                .chars()
+                .next()
+                .is_none_or(|next| {
+                    !(next.is_alphanumeric() || matches!(next, '.' | '-' | ':' | '@' | '_'))
+                })
+        })
+}
+
 fn validate_link_preview_tags(event: &Event, media_base_url: &str) -> Result<(), String> {
     const MAX_SNAPSHOTS: usize = 8;
     const MAX_TITLE: usize = 300;
@@ -493,7 +515,7 @@ fn validate_link_preview_tags(event: &Event, media_base_url: &str) -> Result<(),
             || canonical.password().is_some()
             || canonical.fragment().is_some()
             || !seen.insert(parts[3].clone())
-            || !event.content.contains(&parts[3])
+            || !link_preview_canonical_in_content(&event.content, &parts[3], &canonical)
         {
             return Err("invalid link-preview canonical URL".into());
         }
@@ -3837,6 +3859,37 @@ async fn ingest_event_inner(
 
 #[cfg(test)]
 mod postgres_tests {
+
+    #[test]
+    fn link_preview_canonical_accepts_bare_origin_spelling() {
+        let canonical = url::Url::parse("https://hulabuzz.huladesk.com/").unwrap();
+        let raw = "https://hulabuzz.huladesk.com/";
+        assert!(super::link_preview_canonical_in_content(
+            "see https://hulabuzz.huladesk.com now",
+            raw,
+            &canonical
+        ));
+        assert!(super::link_preview_canonical_in_content(
+            "see https://hulabuzz.huladesk.com/ now",
+            raw,
+            &canonical
+        ));
+        assert!(!super::link_preview_canonical_in_content(
+            "see https://hulabuzz.huladesk.com.evil.example now",
+            raw,
+            &canonical
+        ));
+        assert!(!super::link_preview_canonical_in_content(
+            "no link", raw, &canonical
+        ));
+        let path = url::Url::parse("https://example.com/a").unwrap();
+        assert!(!super::link_preview_canonical_in_content(
+            "https://example.com/ab",
+            "https://example.com/a/",
+            &path
+        ));
+    }
+
     use std::sync::Mutex;
 
     use super::*;
