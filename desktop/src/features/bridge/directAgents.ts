@@ -250,7 +250,7 @@ export function directErrorCopy(e: unknown): string {
     case "wrong_desktop":
       return "A different HulaBuzz on your Mac is answering this device's connection. Open the HulaBuzz you use there (or quit the other one) and this reconnects on its own.";
     case "unknown_op":
-      return "Reload your desktop to see this (it's running an older version of the app).";
+      return "Your desktop needs the next Hula Buzz update to do this from the web. You can do it in the desktop app now.";
     default:
       return e.detail || `The desktop refused the request (${e.code}).`;
   }
