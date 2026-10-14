@@ -12,9 +12,13 @@ import {
   useProvisionChannelManagedAgentMutation,
 } from "@/features/agents/hooks";
 import { resolvePersonaRuntime } from "@/features/agents/lib/resolvePersonaRuntime";
-import { useAddChannelMembersMutation } from "@/features/channels/hooks";
+import {
+  useAddChannelMembersMutation,
+  useChannelsQuery,
+} from "@/features/channels/hooks";
 import { useCanAddChannelMembers } from "@/features/channels/useCanAddChannelMembers";
 import { useNonMemberInvite } from "./useNonMemberInvite";
+import { PRIVATE_CHANNEL_ADD_DENIED_MESSAGE as PRIVATE_CHANNEL_ADD_DENIED_MESSAGE_HULA } from "@/features/channels/lib/channelMemberAdmission";
 import { dmThreadAgentMentionError } from "@/features/messages/lib/dmThreadAgentMentionError";
 import {
   prepareBackgroundMediaUpload,
@@ -82,6 +86,16 @@ export function useMentionSendFlow({
     string | null
   >(null);
   const [isMentionSendPending, setIsMentionSendPending] = React.useState(false);
+  // Hula: post-send "<Name> isn't in #channel. Add / Not now" card.
+  const [addMentionedPrompt, setAddMentionedPrompt] = React.useState<{
+    channelId: string;
+    pubkeys: string[];
+  } | null>(null);
+  const [addMentionedError, setAddMentionedError] = React.useState<
+    string | null
+  >(null);
+  const [isAddMentionedPending, setIsAddMentionedPending] =
+    React.useState(false);
   // Persistence identity is independent of the host component and destination
   // channel. A -> B -> A must not revive A's previous invitation or recovery.
   const sourceOwner = React.useMemo(
@@ -891,14 +905,27 @@ export function useMentionSendFlow({
           recoveryDraftKey,
           savedMentionRefs,
         };
-        if (promptNonMemberPubkeys.length > 0) {
-          if (sourceOwnerRef.current !== sourceOwner) return;
-          setNonMemberPromptError(null);
-          setPendingNonMemberSend(pendingDraft);
-          return;
-        }
+        // Hula: send first, then offer to add mentioned non-members (people
+        // and bots, including our own agents) with a calm card under the
+        // composer instead of a blocking pre-send dialog.
+        const postSendNonMembers = nonMemberPubkeys.filter(
+          (pubkey) => !createdPersonaAgentPubkeySet.has(normalizePubkey(pubkey)),
+        );
+        void promptNonMemberPubkeys;
         sendPromoted = true;
         await completeSend(pendingDraft, pubkeys);
+        if (
+          postSendNonMembers.length > 0 &&
+          effectiveChannelId &&
+          isMountedRef.current &&
+          sourceOwnerRef.current === sourceOwner
+        ) {
+          setAddMentionedError(null);
+          setAddMentionedPrompt({
+            channelId: effectiveChannelId,
+            pubkeys: postSendNonMembers,
+          });
+        }
       } catch (error) {
         toast.error(
           getErrorMessage(error, "Could not prepare mentions. Please retry."),
@@ -966,7 +993,92 @@ export function useMentionSendFlow({
     setPendingNonMemberSend(null);
     setNonMemberPromptError(null);
   }, [invitation.cancel]);
+  const channelsQuery = useChannelsQuery();
+  const addMentionedChannelName = React.useMemo(() => {
+    if (!addMentionedPrompt) return null;
+    return (
+      channelsQuery.data?.find((c) => c.id === addMentionedPrompt.channelId)
+        ?.name ?? null
+    );
+  }, [addMentionedPrompt, channelsQuery.data]);
+  const addMentionedNames = React.useMemo(
+    () =>
+      addMentionedPrompt?.pubkeys.map(
+        (pubkey) =>
+          mentions.getMentionDisplayName(pubkey) ?? truncateNpub(pubkey),
+      ) ?? [],
+    [addMentionedPrompt, mentions.getMentionDisplayName],
+  );
+  // Leaving the channel/draft drops the card.
+  React.useEffect(() => {
+    setAddMentionedPrompt((p) => (p && p.channelId !== channelId ? null : p));
+  }, [channelId]);
+  const dismissAddMentioned = React.useCallback(() => {
+    setAddMentionedPrompt(null);
+    setAddMentionedError(null);
+  }, []);
+  const addMentioned = React.useCallback(() => {
+    const prompt = addMentionedPrompt;
+    if (!prompt || isAddMentionedPending) return;
+    if (!canInviteNonMembers) {
+      setAddMentionedError(PRIVATE_CHANNEL_ADD_DENIED_MESSAGE_HULA);
+      return;
+    }
+    setIsAddMentionedPending(true);
+    setAddMentionedError(null);
+    void (async () => {
+      const errors: string[] = [];
+      for (const role of ["member", "bot"] as const) {
+        const pubkeys = prompt.pubkeys.filter(
+          (key) =>
+            (mentions.isAgentPubkey(key) ||
+              mentions.isManagedAgentPubkey(key)) === (role === "bot"),
+        );
+        if (pubkeys.length === 0) continue;
+        const result = await addMembersMutation.mutateAsync({
+          channelId: prompt.channelId,
+          pubkeys,
+          role,
+        });
+        errors.push(...result.errors.map((e) => e.error));
+      }
+      if (errors.length > 0) setAddMentionedError(errors.join("; "));
+      else {
+        setAddMentionedPrompt(null);
+        toast.success(
+          `Added ${addMentionedNames.join(", ")} to ${
+            addMentionedChannelName ? `#${addMentionedChannelName}` : "the channel"
+          }`,
+        );
+      }
+    })()
+      .catch((error) =>
+        setAddMentionedError(
+          error instanceof Error ? error.message : "Could not add to channel.",
+        ),
+      )
+      .finally(() => setIsAddMentionedPending(false));
+  }, [
+    addMentionedPrompt,
+    isAddMentionedPending,
+    canInviteNonMembers,
+    mentions.isAgentPubkey,
+    mentions.isManagedAgentPubkey,
+    addMembersMutation.mutateAsync,
+    addMentionedNames,
+    addMentionedChannelName,
+  ]);
   return {
+    addMentionedCardProps: {
+      open: addMentionedPrompt !== null,
+      names: addMentionedNames,
+      channelName: addMentionedChannelName,
+      canAdd: canInviteNonMembers,
+      error: addMentionedError,
+      isPending: isAddMentionedPending,
+      onAdd: addMentioned,
+      onDismiss: dismissAddMentioned,
+    },
     // Agent starts are detached (publish-first), so useDetachedAgentStart's
     // in-flight state deliberately does not gate the composer — a background
     // start must not block the next send.

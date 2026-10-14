@@ -6,7 +6,6 @@ mod git_runtime_tests;
 
 mod acp;
 mod config;
-mod cross_channel;
 mod edit_routing;
 mod engram_fetch;
 mod filter;
@@ -3241,7 +3240,6 @@ async fn run_harness(
         tracing::warn!("no channel subscriptions resolved — agent will sit idle");
     }
     let mut subscribed_channel_ids = HashSet::with_capacity(channel_filters.len());
-    let mut non_member_cap = cross_channel::RateCap::default();
     for (channel_id, filter) in &channel_filters {
         if let Err(e) = relay.subscribe_channel(*channel_id, filter.clone()).await {
             tracing::warn!("failed to subscribe to channel {channel_id}: {e}");
@@ -3764,7 +3762,21 @@ async fn run_harness(
                                         )
                                     } {
                                         tracing::info!(channel_id = %ch, "membership notification: subscribing to new channel");
-                                        if let Err(e) = relay.subscribe_channel_from(ch, filter, Some(ts)).await {
+                                        // Hula: if we were added because someone @mentioned us
+                                        // (the "Add to channel" card), replay from that mention so
+                                        // it reaches us as the prompt to answer.
+                                        let replay_from = triggering_mention_since(
+                                            &ctx.rest_client,
+                                            ch,
+                                            &pubkey_hex,
+                                            ts,
+                                        )
+                                        .await
+                                        .unwrap_or(ts);
+                                        if replay_from < ts {
+                                            tracing::info!(channel_id = %ch, replay_from, "membership notification: replaying triggering mention");
+                                        }
+                                        if let Err(e) = relay.subscribe_channel_from(ch, filter, Some(replay_from)).await {
                                             tracing::warn!("failed to subscribe to new channel {ch}: {e}");
                                         } else {
                                             subscribed_channel_ids.insert(ch);
@@ -3824,29 +3836,6 @@ async fn run_harness(
                             if config.ignore_self && buzz_event.event.pubkey.to_hex() == pubkey_hex {
                                 tracing::debug!(channel_id = %buzz_event.channel_id, "dropping self-authored event");
                                 continue;
-                            }
-
-                            // Cross-channel mention from a channel we are not
-                            // subscribed to: admit only open channels, rate-capped.
-                            if !subscribed_channel_ids.contains(&buzz_event.channel_id) {
-                                let ch = buzz_event.channel_id;
-                                let channel_type = ctx
-                                    .channel_info
-                                    .resolve_channel_metadata(ch)
-                                    .await
-                                    .map(|info| info.channel_type);
-                                if !cross_channel::channel_type_admits_non_member(channel_type.as_deref()) {
-                                    tracing::info!(channel_id = %ch, ?channel_type, "cross-channel mention dropped: channel not open");
-                                    continue;
-                                }
-                                if !non_member_cap.try_admit(std::time::Instant::now()) {
-                                    tracing::warn!(channel_id = %ch, "cross-channel mention dropped: 30/hr cap");
-                                    continue;
-                                }
-                                tracing::info!(channel_id = %ch, "cross-channel mention admitted (not a member)");
-                                cross_channel::mark_non_member(ch);
-                            } else {
-                                cross_channel::clear_non_member(buzz_event.channel_id);
                             }
 
                             // Check: kind:9, content "!shutdown", from owner, mentions THIS agent.
@@ -14051,4 +14040,42 @@ mod observer_payload_trim_tests {
         assert!(leaf.ends_with('…'));
         assert!(leaf.contains("[elided"));
     }
+}
+
+/// How far back (seconds) an "added after being mentioned" replay may reach.
+const ADD_MENTION_LOOKBACK_SECS: u64 = 30 * 60;
+
+/// Timestamp of the most recent kind:9 in `channel` that p-tags `agent_hex`,
+/// sent within [`ADD_MENTION_LOOKBACK_SECS`] before `added_at`. `None` when
+/// there is none or the lookup fails (the subscription then starts at the add).
+async fn triggering_mention_since(
+    rest: &relay::RestClient,
+    channel: Uuid,
+    agent_hex: &str,
+    added_at: u64,
+) -> Option<u64> {
+    let filter = serde_json::json!({
+        "kinds": [9],
+        "#h": [channel.to_string()],
+        "#p": [agent_hex],
+        "since": added_at.saturating_sub(ADD_MENTION_LOOKBACK_SECS),
+        "until": added_at,
+        "limit": 1,
+    });
+    let res = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        rest.query_raw(&[filter]),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    triggering_mention_ts(&res, agent_hex)
+}
+
+fn triggering_mention_ts(json: &serde_json::Value, agent_hex: &str) -> Option<u64> {
+    json.as_array()?
+        .iter()
+        .filter(|e| e.get("pubkey").and_then(|p| p.as_str()) != Some(agent_hex))
+        .filter_map(|e| e.get("created_at").and_then(|t| t.as_u64()))
+        .max()
 }

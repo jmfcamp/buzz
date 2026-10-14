@@ -145,19 +145,6 @@ struct MatchContext {
     thread_participants: std::collections::HashSet<(Vec<u8>, Vec<u8>)>,
     /// Lease author -> synced notification prefs (`buzz:push-prefs`).
     member_prefs: std::collections::HashMap<Vec<u8>, MemberPushPrefs>,
-    /// Batch channels with `open` visibility. A p-tagged non-member may get a
-    /// `mention` wake only in these (open content is relay-readable anyway).
-    open_channels: std::collections::HashSet<uuid::Uuid>,
-}
-
-/// True when `author` is p-tagged on `event`.
-fn event_p_tags(event: &nostr::Event, author: &[u8]) -> bool {
-    let hex = hex::encode(author);
-    event.tags.iter().any(|t| {
-        let s = t.as_slice();
-        s.first().map(String::as_str) == Some("p")
-            && s.get(1).is_some_and(|v| v.eq_ignore_ascii_case(&hex))
-    })
 }
 
 /// Per-member notification switches + mutes, published by the clients as a
@@ -300,20 +287,6 @@ async fn load_match_context(
             decode_member_prefs(&state.relay_keypair, &author, &content).map(|p| (author, p))
         })
         .collect();
-    let mut open_channels = std::collections::HashSet::new();
-    for channel in &channels {
-        match state
-            .channel_visibility_cached(batch.community, *channel, None)
-            .await
-        {
-            Ok(v) if v == "open" => {
-                open_channels.insert(*channel);
-            }
-            Ok(_) => {}
-            // Fail closed: unknown visibility keeps the membership gate.
-            Err(e) => warn!(%channel, "push open-channel lookup failed: {e}"),
-        }
-    }
     Ok(MatchContext {
         leases,
         memberships,
@@ -321,7 +294,6 @@ async fn load_match_context(
         thread_roots,
         thread_participants,
         member_prefs,
-        open_channels,
     })
 }
 
@@ -455,21 +427,12 @@ fn match_job(
         if !reader_authorized_for_event(&job.event.event, &author_hex) {
             continue;
         }
-        // Non-members are admitted only for a `mention`-class match on an
-        // event that p-tags them in an open channel (enforced below).
-        let mut non_member_mention_only = false;
         if let Some(channel) = job.event.channel_id {
             if !context
                 .memberships
                 .contains(&(channel, lease.author.clone()))
             {
-                if context.open_channels.contains(&channel)
-                    && event_p_tags(&job.event.event, &lease.author)
-                {
-                    non_member_mention_only = true;
-                } else {
-                    continue;
-                }
+                continue;
             }
         }
         let subscriptions: Vec<Subscription> = serde_json::from_value(lease.subscriptions.clone())?;
@@ -511,9 +474,6 @@ fn match_job(
             }
         }
         let Some(class) = class else { continue };
-        if non_member_mention_only && class != "mention" {
-            continue;
-        }
         if prefs_silence(context.member_prefs.get(&lease.author), class, job, context) {
             continue;
         }
@@ -668,17 +628,6 @@ async fn deliver_one(
             .await
         {
             Ok(true) => {}
-            // Open-channel mention wakes were admitted for p-tagged
-            // non-members at match time; re-check visibility (fail closed).
-            Ok(false)
-                if outcome.class == "mention"
-                    && matches!(
-                        state
-                            .channel_visibility_cached(outcome.community, channel, None)
-                            .await
-                            .as_deref(),
-                        Ok("open")
-                    ) => {}
             Ok(false) => {
                 let _ = state
                     .db
@@ -1047,7 +996,6 @@ mod tests {
             thread_roots: Default::default(),
             thread_participants: Default::default(),
             member_prefs: Default::default(),
-            open_channels: Default::default(),
         }
     }
 
@@ -1060,63 +1008,6 @@ mod tests {
             event: buzz_core::StoredEvent::new(event, Some(channel)),
             attempt: 1,
         }
-    }
-
-    fn mention_message(
-        author: &nostr::Keys,
-        channel: uuid::Uuid,
-        target: &nostr::Keys,
-    ) -> buzz_db::push::BatchedMatch {
-        let event = EventBuilder::new(Kind::Custom(9), "@x hi")
-            .tag(Tag::parse(["h", &channel.to_string()]).unwrap())
-            .tag(Tag::parse(["p", &target.public_key().to_hex()]).unwrap())
-            .sign_with_keys(author)
-            .unwrap();
-        buzz_db::push::BatchedMatch {
-            event: buzz_core::StoredEvent::new(event, Some(channel)),
-            attempt: 1,
-        }
-    }
-
-    #[test]
-    fn open_channel_p_tag_wakes_non_member_with_mention_only() {
-        let (member, other) = (nostr::Keys::generate(), nostr::Keys::generate());
-        let channel = uuid::Uuid::new_v4();
-        let subs = serde_json::json!([
-            {"filter":{"kinds":[9],"#p":[member.public_key().to_hex()]},"class":"mention","ignore":[]},
-            {"filter":{"kinds":[9]},"class":"thread_reply","ignore":[]}
-        ]);
-        let mut ctx = scoped_context(&member, subs, channel);
-        ctx.memberships.clear();
-        let tagged = mention_message(&other, channel, &member);
-        let untagged = channel_message(&other, channel);
-        // Private (not open): non-member gets nothing even when p-tagged.
-        assert!(match_job(&tagged, &ctx).unwrap().is_empty());
-        ctx.open_channels.insert(channel);
-        let wakes = match_job(&tagged, &ctx).unwrap();
-        assert_eq!(wakes.len(), 1);
-        assert_eq!(wakes[0].class, "mention");
-        // Open but not p-tagged: still no wake for a non-member.
-        assert!(match_job(&untagged, &ctx).unwrap().is_empty());
-        // Mention pref off silences it.
-        ctx.member_prefs.insert(
-            member.public_key().to_bytes().to_vec(),
-            serde_json::from_value(serde_json::json!({"off":["mention"]})).unwrap(),
-        );
-        assert!(match_job(&tagged, &ctx).unwrap().is_empty());
-    }
-
-    #[test]
-    fn open_non_member_non_mention_class_is_dropped() {
-        let (member, other) = (nostr::Keys::generate(), nostr::Keys::generate());
-        let channel = uuid::Uuid::new_v4();
-        let subs = serde_json::json!([{"filter":{"kinds":[9]},"class":"thread_reply","ignore":[]}]);
-        let mut ctx = scoped_context(&member, subs, channel);
-        ctx.memberships.clear();
-        ctx.open_channels.insert(channel);
-        assert!(match_job(&mention_message(&other, channel, &member), &ctx)
-            .unwrap()
-            .is_empty());
     }
 
     #[test]
