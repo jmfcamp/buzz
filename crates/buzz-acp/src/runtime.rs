@@ -92,6 +92,7 @@ fn make_prompt_context(
         system_prompt: config.system_prompt.clone(),
         session_title: config.session_title.clone(),
         gateway_agent_id: config.gateway_agent_id.clone(),
+        openclaw_cli: config.openclaw_cli.clone(),
         team_instructions: config.team_instructions.clone(),
         base_prompt: if config.no_base_prompt {
             None

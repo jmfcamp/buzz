@@ -914,6 +914,8 @@ pub struct PromptContext {
     /// When set with a channel scope, buzz-acp sends
     /// `agent:<id>:buzz:ch:<channelUuid>` (or thread/DM variants).
     pub gateway_agent_id: Option<String>,
+    /// OpenClaw CLI argv prefix used to label Gateway sessions (see config).
+    pub openclaw_cli: Option<Vec<String>>,
     pub team_instructions: Option<String>,
     pub heartbeat_prompt: Option<String>,
     /// Base instructions with the configured policy's Session Model appended,
@@ -1621,11 +1623,9 @@ pub(crate) fn computed_prompt_session_title(
 }
 
 /// Append the OpenClaw sidebar-label rename instruction when a title is set.
-fn push_session_title_rename(sections: &mut Vec<String>, title: Option<&str>) {
-    if let Some(title) = title.map(str::trim).filter(|t| !t.is_empty()) {
-        sections.push(crate::prompt_framing::openclaw_session_label_section(title));
-    }
-}
+/// No longer used: buzz-acp labels OpenClaw sessions itself (see
+/// [`crate::openclaw_label`]), and no agent has a tool to rename its session.
+fn push_session_title_rename(_sections: &mut Vec<String>, _title: Option<&str>) {}
 
 /// Create a new ACP session via `session_new_full()`, populate model capabilities
 /// on the agent (first session only), and apply `desired_model` if set.
@@ -1710,6 +1710,23 @@ async fn create_session_and_apply_model(
             session_key.as_deref(),
         )
         .await?;
+
+    // OpenClaw ignores `_meta.sessionTitle` and gives agents no tool to set a
+    // session label, so buzz-acp labels the Gateway session itself.
+    if agent.agent_name == crate::openclaw_label::OPENCLAW_ACP_NAME {
+        if let (Some(cli), Some(key), Some(title)) = (
+            ctx.openclaw_cli.as_ref(),
+            session_key.as_deref(),
+            session_title.as_deref(),
+        ) {
+            let label = crate::openclaw_label::session_label(
+                title,
+                channel.channel_type,
+                channel.scope.map(SessionScope::channel_id),
+            );
+            crate::openclaw_label::spawn_set_label(cli.clone(), key.to_string(), label);
+        }
+    }
 
     if is_goose && agent.goose_system_prompt_supported != Some(false) {
         if let Some(prompt) = combined_system_prompt.as_deref() {
@@ -3020,7 +3037,7 @@ pub async fn run_prompt_task(
                 target: "pool::session",
                 "sending initial_message to session {session_id} for channel {cid}"
             );
-            let mut init_msg = prepend_standing_for_legacy(
+            let init_msg = prepend_standing_for_legacy(
                 if agent.has_system_prompt_support() {
                     2
                 } else {
@@ -3036,12 +3053,7 @@ pub async fn run_prompt_task(
                 resolved_channel_info.as_ref(),
                 Some(scope),
             );
-            if let Some(title) = init_title.as_deref() {
-                init_msg.push_str("\n\n");
-                init_msg.push_str(&crate::prompt_framing::openclaw_session_label_section(
-                    title,
-                ));
-            }
+            let _ = init_title;
             let init_result = agent
                 .acp
                 .session_prompt_with_idle_timeout(
@@ -10678,6 +10690,7 @@ printf '%s\n' '{{"jsonrpc":"2.0","id":0,"result":{{"stopReason":"end_turn"}}}}'"
             system_prompt: None,
             session_title: None,
             gateway_agent_id: None,
+            openclaw_cli: None,
             team_instructions: None,
             heartbeat_prompt: None,
             base_prompt: None,

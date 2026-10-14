@@ -611,6 +611,10 @@ pub struct Config {
     /// OpenClaw Gateway agent id for `_meta.sessionKey` composition.
     /// `None` for non-OpenClaw agents (sessionKey omitted; CLI `--session` wins).
     pub gateway_agent_id: Option<String>,
+    /// Argv prefix that runs the OpenClaw CLI (e.g. `[node, .../openclaw/dist/index.js]`
+    /// or `[openclaw]`), derived from the agent command when it is `… acp`.
+    /// Used to label Gateway sessions via `gateway call sessions.patch`.
+    pub openclaw_cli: Option<Vec<String>>,
     /// Permission mode to apply after session creation. `Default` = skip.
     pub permission_mode: PermissionMode,
     /// Inbound author gate mode.
@@ -743,6 +747,20 @@ pub(crate) fn parse_openclaw_gateway_agent_id(session: &str) -> Option<String> {
     } else {
         None
     }
+}
+
+/// Argv prefix for the OpenClaw CLI when the agent is launched as `<cli…> acp …`.
+///
+/// `node /…/openclaw/dist/index.js acp --session …` → `[node, /…/index.js]`;
+/// `openclaw acp …` → `[openclaw]`. `None` when no `acp` subcommand is present.
+pub(crate) fn resolve_openclaw_cli(
+    agent_command: &str,
+    agent_args: &[String],
+) -> Option<Vec<String>> {
+    let acp_idx = agent_args.iter().position(|a| a == "acp")?;
+    let mut argv = vec![agent_command.to_string()];
+    argv.extend(agent_args[..acp_idx].iter().cloned());
+    Some(argv)
 }
 
 /// Resolve the OpenClaw Gateway agent id from an explicit override or agent args.
@@ -1225,6 +1243,9 @@ impl Config {
 
         let gateway_agent_id =
             resolve_gateway_agent_id(args.gateway_agent_id.as_deref(), &agent_args);
+        let openclaw_cli = gateway_agent_id
+            .as_ref()
+            .and_then(|_| resolve_openclaw_cli(&agent_command, &agent_args));
 
         let config = Config {
             keys,
@@ -1267,6 +1288,7 @@ impl Config {
                 .as_deref()
                 .and_then(sanitize_session_title),
             gateway_agent_id,
+            openclaw_cli,
             permission_mode: args.permission_mode,
             respond_to: args.respond_to,
             respond_to_allowlist,
@@ -1696,6 +1718,7 @@ mod tests {
             effort_level: None,
             session_title: None,
             gateway_agent_id: None,
+            openclaw_cli: None,
             permission_mode: PermissionMode::BypassPermissions,
             respond_to: RespondTo::Anyone,
             respond_to_allowlist: HashSet::new(),
@@ -3353,6 +3376,28 @@ channels = "ALL"
         );
         assert_eq!(parse_openclaw_gateway_agent_id("agent:mo:main"), None);
         assert_eq!(parse_openclaw_gateway_agent_id("not-a-key"), None);
+    }
+
+    #[test]
+    fn resolve_openclaw_cli_prefix_before_acp() {
+        let args: Vec<String> = vec![
+            "/x/openclaw/dist/index.js".into(),
+            "acp".into(),
+            "--session".into(),
+            "agent:mo:buzz".into(),
+        ];
+        assert_eq!(
+            resolve_openclaw_cli("/usr/bin/node", &args),
+            Some(vec![
+                "/usr/bin/node".into(),
+                "/x/openclaw/dist/index.js".into()
+            ])
+        );
+        assert_eq!(
+            resolve_openclaw_cli("openclaw", &["acp".into()]),
+            Some(vec!["openclaw".into()])
+        );
+        assert_eq!(resolve_openclaw_cli("claude-agent-acp", &[]), None);
     }
 
     #[test]
