@@ -553,7 +553,28 @@ jobs:
               --notes "$NOTES" \
               ${PRERELEASE_FLAGS[@]+"${PRERELEASE_FLAGS[@]}"}
           fi
-          gh release upload "$TAG" staged/* --repo "$HULA_REPO" --clobber
+          # Upload one file at a time with retries. gh can get HTTP 422
+          # "ReleaseAsset.name already exists" when a large upload is retried
+          # after the asset actually landed; accept it if the size matches.
+          for f in staged/*; do
+            name="$(basename "$f")"
+            want="$(stat -f%z "$f" 2>/dev/null || stat -c%s "$f")"
+            ok=0
+            for attempt in 1 2 3 4; do
+              if gh release upload "$TAG" "$f" --repo "$HULA_REPO" --clobber; then
+                ok=1; break
+              fi
+              have="$(gh release view "$TAG" --repo "$HULA_REPO" --json assets \
+                --jq ".assets[] | select(.name == \"$name\" and .state == \"uploaded\") | .size" || true)"
+              if [[ "$have" == "$want" ]]; then
+                echo "$name already uploaded with matching size ($want); continuing"
+                ok=1; break
+              fi
+              echo "::warning::upload of $name failed (attempt $attempt); retrying"
+              sleep $((attempt * 10))
+            done
+            [[ "$ok" == 1 ]] || { echo "::error::could not upload $name"; exit 1; }
+          done
 
       - name: Update rolling hula-desktop-latest
         if: needs.setup.outputs.promote_updater == 'true'
