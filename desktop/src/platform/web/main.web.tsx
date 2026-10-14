@@ -50,7 +50,12 @@ startSignerBanner(signerActions);
 if (getSession()?.kind === "nip46") {
   startBackgroundSignerCheck(signerActions);
   const { setRelayPreConnectHook } = await import("@/shared/api/relayClientSession");
-  setRelayPreConnectHook(() => ensureSignerAwake(signerActions));
+  // Paired desktop first (Direct, device-key auth): it signs the relay AUTH with no Clave round trip; else the Clave flow.
+  const warmDesktop = async () => {
+    const [{ warmDesktopSigner }, { getSigner }] = await Promise.all([import("@/features/bridge/coldDirect"), import("./signer")]);
+    return warmDesktopSigner(async (e) => JSON.stringify(await getSigner().signEvent({ kind: e.kind, content: e.content, created_at: e.createdAt, tags: e.tags })));
+  };
+  setRelayPreConnectHook(() => ensureSignerAwake(signerActions, warmDesktop));
 }
 void import("./updateCheck").then((m) => m.startUpdateCheck()).catch(() => undefined);
 void import("./permissionPrompts").then((m) => m.startPermissionPrompts()).catch(() => undefined);

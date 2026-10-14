@@ -26,6 +26,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { directAgentsFor } from "../directAgents";
 import { acquireProxyDirect, getProxyDirect, setDirectDiscoveryNote } from "../remoteCmd";
 import { DirectSignerClient } from "../directSignerClient";
+import { rememberDesktop } from "../coldDirect";
 import { useDirectSignerBanner } from "./useDirectSignerBanner";
 import { setDirectSigner } from "@/platform/web/signer/directRoute";
 import { useBridgeAgents } from "../useBridgeAgents";
@@ -308,6 +309,7 @@ export function WebRemoteWatcher() {
   React.useEffect(() => {
     if (!direct || !host?.id) return;
     const c = new DirectSignerClient(direct, host.id);
+    rememberDesktop(host.id, host.url);
     setDirectSigner({ sign: (ev) => c.sign(ev), active: () => c.active(), isAuto: (k) => c.isAuto(k), crypt: (op, peer, text) => c.crypt(op, peer, text), isPaired: () => c.isPaired() });
     return () => setDirectSigner(null);
   }, [direct, host?.id]);

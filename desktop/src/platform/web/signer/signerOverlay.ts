@@ -262,9 +262,10 @@ const waitForReturn = (ms: number) =>
  * signs over Direct or the remote signer answered in the last 20s; otherwise wake it with a get_public_key round trip and,
  * if it stays silent (iOS suspended Clave), wait for the user to come back to the PWA and try again. Never gives up.
  */
-export async function ensureSignerAwake(a: SignerActions): Promise<void> {
+export async function ensureSignerAwake(a: SignerActions, warmDesktop?: () => Promise<boolean>): Promise<void> {
   for (;;) {
     if (desktopSignerActive()) return;
+    if (warmDesktop && document.visibilityState === "visible" && (await warmDesktop().catch(() => false))) return;
     if (Date.now() - signerHealth.lastAlive() < WARM_MS) return;
     if (signerHealth.get().reason === "revoked") return; // let the relay error/banner explain; Reconnect is offered
     if (document.visibilityState === "visible") {
