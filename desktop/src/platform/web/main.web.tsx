@@ -1,7 +1,7 @@
 // Web entry: register SW (prod only), unlock via signer (NIP-07), then boot the shared desktop app.
 import "./web.css";
 import { getSession, probeActiveSigner, resumeSession, signOutSigner, signerPubkey } from "./signer";
-import { runBootGate, startSignerBanner, type SignerActions } from "./signer/signerOverlay";
+import { startBackgroundSignerCheck, startSignerBanner, type SignerActions } from "./signer/signerOverlay";
 import { startBootWatch } from "./signer/bootWatch";
 import { sendStatus } from "@/shared/lib/sendStatus";
 import { isStaleChunkError, reloadForStaleBuild } from "@/shared/lib/lazyWithReload";
@@ -30,7 +30,7 @@ if ("serviceWorker" in navigator && import.meta.env.PROD) {
 sendStatus.configure({ keepFailedRows: true });
 startBootWatch(signOutSigner);
 const signerActions: SignerActions = {
-  probe: (onAttempt) => probeActiveSigner(8000, onAttempt),
+  probe: (onAttempt) => probeActiveSigner(15000, onAttempt),
   reconnect: async () => {
     const before = signerPubkey();
     const { showUnlockOverlay } = await import("./UnlockScreen");
@@ -42,11 +42,12 @@ const signerActions: SignerActions = {
 if (!(await resumeSession())) {
   const { showUnlock } = await import("./UnlockScreen");
   await showUnlock();
-} else if (getSession()?.kind === "nip46") {
-  // A saved session can be dead (signer app removed it, offline, revoked): prove it before relay auth starts.
-  await runBootGate(signerActions);
 }
+// No blocking boot gate for a saved NIP-46 session: iOS suspends a backgrounded signer app (Clave), so a startup ping
+// would dead-end on every reload/update. The cached session boots straight in (reads need no signer), signing is lazy,
+// the paired desktop signs over Direct first, and a quiet background check raises the non-blocking banner if needed.
 startSignerBanner(signerActions);
+if (getSession()?.kind === "nip46") startBackgroundSignerCheck(signerActions);
 void import("./updateCheck").then((m) => m.startUpdateCheck()).catch(() => undefined);
 void import("./permissionPrompts").then((m) => m.startPermissionPrompts()).catch(() => undefined);
 if (import.meta.env.VITE_BUZZ_WEB_PUSH_URL) void import("./push/banner").then((m) => m.startWebPush()).catch(() => undefined);

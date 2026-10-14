@@ -34,10 +34,10 @@ export function describeDown(reason: SignerHealthReason): string {
     case "revoked":
       return "Your signer says this connection is no longer authorized (the session was revoked or removed). Reconnect it to continue.";
     case "long-wait":
-      return "Your signer has been silent for a while. Open your signer app (Primal, Amber, nsec.app…) and make sure it's running, then retry.";
+      return "Your signer has been silent for a while. Open your signer app (Clave, Primal, Amber…) and leave it open while you approve. iOS pauses it in the background. Buzz retries when you come back.";
     case "probe-failed":
     case "timeout":
-      return "Your signer didn't answer. Open your signer app and make sure it's running and online, then retry — or reconnect it.";
+      return "Your signer didn't answer. Open your signer app (Clave, Primal…). iOS pauses it in the background. Buzz retries automatically when you switch back here, or sign with your paired desktop.";
     default:
       return "Your signer isn't available.";
   }
@@ -204,4 +204,34 @@ export function startSignerBanner(a: SignerActions) {
   };
   signerHealth.subscribe(render);
   render();
+}
+
+/**
+ * Non-blocking replacement for the old boot gate: after the app (and the paired-desktop Direct route) has had a moment to
+ * start, quietly probe the remote signer. A miss only marks health unresponsive (suppressed while the paired desktop covers
+ * signing), which shows the dismissible banner. While unresponsive, every return to the PWA (visibility/focus, e.g. back
+ * from Clave) re-probes automatically, so there is never a dead end.
+ */
+export function startBackgroundSignerCheck(a: SignerActions, initialDelayMs = 4000) {
+  let running = false;
+  const check = async () => {
+    if (running || document.visibilityState !== "visible") return;
+    running = true;
+    try {
+      await a.probe().catch(() => false);
+    } finally {
+      running = false;
+    }
+  };
+  setTimeout(() => void check(), initialDelayMs);
+  let last = 0;
+  const onBack = () => {
+    if (document.visibilityState !== "visible" || signerHealth.get().state !== "unresponsive") return;
+    if (Date.now() - last < 3000) return;
+    last = Date.now();
+    setTimeout(() => void check(), 800); // let iOS re-open sockets first
+  };
+  document.addEventListener("visibilitychange", onBack);
+  window.addEventListener("focus", onBack);
+  window.addEventListener("pageshow", onBack);
 }
