@@ -1,8 +1,10 @@
+import { useRefreshPress } from "@/shared/ui/useRefreshPress";
+import { BusyRefreshIcon } from "@/shared/ui/BusyRefreshIcon";
 // Phone nav row ([data-phone] only): the same Back / Forward / Home controls desktop and iPad have in their top chrome
 // (AppTopChrome), driven by the same router history (useBackForwardControls), with no destination labels. It is one
 // fixed 40px row under the safe area on every phone screen (channel, Inbox, Channels/Me/Search lists, Settings), so the
 // floating tab-count pill (PhoneTabSwitcher) sits at its right end and never needs a row of its own.
-import { ChevronLeft, ChevronRight, House, RefreshCw } from "lucide-react";
+import { ChevronLeft, ChevronRight, House } from "lucide-react";
 
 export function PhoneNavRow({
   canGoBack,
@@ -17,6 +19,7 @@ export function PhoneNavRow({
   onGoForward: () => void;
   onHome: () => void;
 }) {
+  const refreshPress = useRefreshPress(() => window.location.reload());
   return (
     <nav aria-label="Navigation" className="phone-nav-row" data-testid="phone-nav-row">
       {/* Same as desktop's top-chrome Refresh (AppTopChrome reloadDesktopWindow): a full page reload, not a refetch. */}
@@ -24,11 +27,11 @@ export function PhoneNavRow({
         aria-label="Refresh"
         className="phone-nav-button"
         data-testid="phone-nav-refresh"
-        onClick={() => window.location.reload()}
+        {...refreshPress}
         title="Refresh"
         type="button"
       >
-        <RefreshCw aria-hidden="true" />
+        <BusyRefreshIcon />
       </button>
       <button
         aria-label="Go back"

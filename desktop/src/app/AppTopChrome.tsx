@@ -1,6 +1,8 @@
+import { useRefreshPress } from "@/shared/ui/useRefreshPress";
+import { BusyRefreshIcon } from "@/shared/ui/BusyRefreshIcon";
 import * as React from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import {
   SurfaceTabHomeButton,
@@ -132,6 +134,7 @@ export function AppTopChrome({
     };
   }, []);
 
+  const refreshPress = useRefreshPress(reloadDesktopWindow);
   return (
     <div
       ref={topChromeRef}
@@ -160,13 +163,13 @@ export function AppTopChrome({
           aria-label="Refresh"
           className={TOP_CHROME_ICON_BUTTON_CLASS}
           data-testid="global-refresh"
-          onClick={reloadDesktopWindow}
+          {...refreshPress}
           size="icon"
           title="Refresh"
           type="button"
           variant="ghost"
         >
-          <RefreshCw />
+          <BusyRefreshIcon />
         </Button>
         <Button
           aria-label="Go back"

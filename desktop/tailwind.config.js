@@ -65,9 +65,14 @@ export default {
           "-1px 0 0 0 hsl(var(--border) / 0.8), -16px 0 32px -12px rgb(0 0 0 / 0.18)",
       },
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        // Reference (JM): Me tab grouped menu card, rounded-xl = 12px. Containers share --radius;
+        // controls (buttons, inputs, keys, chips) one step below at 8px. rounded-full unchanged (avatars, switches, badges).
+        sm: "calc(var(--radius) - 6px)", // 6px
+        md: "calc(var(--radius) - 4px)", // 8px controls
+        lg: "var(--radius)", // 12px containers
+        xl: "var(--radius)", // 12px (reference)
+        "2xl": "var(--radius)", // 12px (was 16px)
+        "3xl": "var(--radius)", // 12px (was 24px)
       },
       spacing: {
         4.5: "1.125rem",

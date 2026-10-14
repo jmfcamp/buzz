@@ -19,6 +19,9 @@ export type RemoteAccessStatus = {
 // Desktop-side preferences for "Allow remote agent management" (frontend-persisted; relay commands are gated on it).
 const PREF_AGENTS = "buzz-remote-agent-mgmt";
 const PREF_TTL = "buzz-remote-sig-ttl";
+/** "Allow remote terminal" as the user last set it. The Rust listener starts with terminals off on every launch, so the
+ *  saved choice is re-applied at startup exactly like flipping the switch (listener up, terminals on, heartbeat re-published). */
+const PREF_TERMS = "buzz-remote-terminals";
 const PREF_TERM_TTL = "buzz-remote-term-sig-ttl";
 export type RemotePrefs = { agentManagement: boolean; sigTtlS: number; termSigTtlS: number };
 const validTtl = (n: number) => ((SIG_TTL_OPTIONS_S as readonly number[]).includes(n) ? n : SIG_TTL_DEFAULT_S);
@@ -118,6 +121,9 @@ export async function refreshRemoteAccess(): Promise<void> {
     startupSynced = true;
     await pushAgentConfig();
     if (getRemotePrefs().agentManagement) await syncListener().catch(() => {});
+    if (localStorage.getItem(PREF_TERMS) === "1" && !status?.terminals) {
+      await applyTerminals(true).catch((e) => console.warn("[remote] couldn't restore Allow remote terminal", e));
+    }
   }
 }
 
@@ -163,6 +169,10 @@ export function setSignatureTtl(seconds: number): void {
 }
 /** Turn terminals on/off; terminals need the tailnet listener, which this starts if needed. */
 export async function setTerminalsAllowed(on: boolean): Promise<void> {
+  localStorage.setItem(PREF_TERMS, on ? "1" : "0");
+  await applyTerminals(on);
+}
+async function applyTerminals(on: boolean): Promise<void> {
   if (on && !status?.tailscaleUp) throw new Error(status?.reason ?? "Remote terminals need Tailscale running on this computer.");
   await pushTermConfig();
   if (on && !status?.enabled) await setRemoteAccessEnabled(true);

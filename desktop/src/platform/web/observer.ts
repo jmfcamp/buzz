@@ -1,3 +1,5 @@
+import { beginBusy } from "@/shared/lib/backgroundBusy";
+import { observerDecryptFailed, observerDecryptStarted, observerDecryptSucceeded } from "@/shared/lib/observerDecryptStatus";
 // Web ports of the agent-observer crypto commands (src-tauri/src/commands/identity.rs:
 // decrypt_observer_event, build_observer_control_event; crates/buzz-core observer.rs, buzz-sdk builders.rs).
 // Frames are NIP-44 v2 between the agent key (event author) and the owner key (the web signer); the page never
@@ -55,7 +57,19 @@ export async function decryptObserverEvent(a: Args): Promise<unknown> {
     throw new Error(`decrypt observer event failed: invalid NIP-44 ciphertext length: ${ev.content.length}`);
   const n = getSigner().nip44;
   if (!n) throw new Error("Your signer does not support NIP-44 decryption.");
-  const plaintext = await observerDecryptLane(() => n.decrypt(ev.pubkey, ev.content));
+  const done = observerDecryptStarted();
+  const busyDone = beginBusy("observer-decrypt");
+  let plaintext: string;
+  try {
+    plaintext = await observerDecryptLane(() => n.decrypt(ev.pubkey, ev.content));
+    observerDecryptSucceeded();
+  } catch (e) {
+    observerDecryptFailed();
+    throw e;
+  } finally {
+    done();
+    busyDone();
+  }
   if (plaintext.length > OBSERVER_MAX_PLAINTEXT_LEN)
     throw new Error(`decrypt observer event failed: observer plaintext exceeds ${OBSERVER_MAX_PLAINTEXT_LEN} bytes`);
   try {

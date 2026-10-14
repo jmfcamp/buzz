@@ -1,3 +1,4 @@
+import { useObserverWaitingForSigner } from "@/shared/lib/observerDecryptStatus";
 import * as React from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { CheckCheck, Clock, Radio } from "lucide-react";
@@ -128,6 +129,7 @@ export function AgentSessionTranscriptList({
   scrollScopeKey?: string | null;
   variant?: AgentSessionTranscriptVariant;
 }) {
+  const waitingForSigner = useObserverWaitingForSigner();
   const activeTurns = useActiveAgentTurns(agentPubkey);
   const isTurnLive = React.useMemo(
     () => isAgentTurnLive(activeTurns, channelId),
@@ -210,7 +212,7 @@ export function AgentSessionTranscriptList({
           ) : (
             <>
               <Radio className="mx-auto h-4 w-4 text-muted-foreground" />
-              <p className="mt-3 text-sm font-medium">No ACP activity yet</p>
+              <p className="mt-3 text-sm font-medium">{waitingForSigner ? "Waiting for signer…" : "No ACP activity yet"}</p>
               <p className="mt-1 text-sm text-muted-foreground">
                 {emptyDescription}
               </p>

@@ -1,3 +1,4 @@
+import { connectionMessagesOn } from "@/shared/lib/connectionMessages";
 // One host for every transient popup on web: status pills ("Reconnecting to relay…", "Connected", Direct reconnecting,
 // "Waiting for your signer…"), the update prompt, the notifications banner and calm error notes. Framework-free (vanilla
 // DOM) so the non-React web modules (updateCheck, push banner, signer status) and React hooks share it.
@@ -240,8 +241,14 @@ export function trackProgress(
     graceMs?: number;
     /** Show an ×: hides the pill for the rest of THIS episode; a new episode (after recovering) shows it again. */
     dismissible?: boolean;
+    /** Background connection status: shown only while "connection messages" mode is on (long-press Refresh). */
+    connectionMessage?: boolean;
   },
 ): void {
+  if (copy.connectionMessage) {
+    if (!connectionMessagesOn()) active = false;
+    else copy = { ...copy, graceMs: 0 };
+  }
   const t = tracked.get(id) ?? { visible: false, active: false };
   tracked.set(id, t);
   const progressSpec = (): StatusSpec => ({

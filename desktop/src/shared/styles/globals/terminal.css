@@ -366,7 +366,7 @@
   .buzz-terminal-touch-key {
     background: hsl(var(--muted, 0 0% 94%));
     border: 1px solid hsl(var(--border, 0 0% 80%));
-    border-radius: 8px;
+    border-radius: var(--radius-key);
     color: inherit;
     flex: 1 0 auto;
     font: 600 14px "JetBrains Mono", monospace;
@@ -388,7 +388,7 @@
   .buzz-terminal-touch-menu {
     background: hsl(var(--popover, 0 0% 100%));
     border: 1px solid hsl(var(--border, 0 0% 80%));
-    border-radius: 10px;
+    border-radius: var(--radius);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
     display: flex;
     gap: 2px;
@@ -399,7 +399,7 @@
   .buzz-terminal-touch-menu button {
     background: transparent;
     border: 0;
-    border-radius: 6px;
+    border-radius: var(--radius-key);
     color: inherit;
     font: 600 14px system-ui, sans-serif;
     min-height: 36px;
@@ -445,7 +445,10 @@
     padding: 0 env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px) !important;
   }
   [data-phone] .buzz-terminal-substrate[data-terminal-mode="maximized"][data-keyboard-open="true"] {
-    padding-top: env(safe-area-inset-top, 0px) !important; /* keyboard layout unchanged */
+    /* keyboard open: the substrate is laid out from the visual viewport's top (iOS scrolls it when the keyboard rises), but the
+       fixed nav row (refresh/back/forward/home) still paints over that top band. Reserve exactly the nav row + safe area so
+       the tab strip sits directly under it. */
+    padding-top: calc(var(--phone-safe-top, env(safe-area-inset-top, 0px)) + var(--phone-nav-row-h, 40px)) !important;
   }
   /* Phone: no "Buzz term" page title or status/subtitle lines (Opening/Connecting/Running…) while the terminal is up (the tab strip sits right under the nav row) */
   [data-phone] body:has(.buzz-terminal-substrate[data-terminal-mode="maximized"][data-terminal-visible="true"]) [data-testid="buzz-term-title"],
@@ -499,7 +502,7 @@
 .buzz-terminal-touch-group-row {
   background: hsl(var(--background, 0 0% 100%));
   border: 1px solid hsl(var(--border, 0 0% 80%));
-  border-radius: 12px;
+  border-radius: var(--radius-chrome);
   box-shadow: 0 4px 16px #0003;
   display: flex;
   gap: 4px;
@@ -517,7 +520,7 @@
 .buzz-terminal-newtab-menu {
   background: hsl(var(--popover, var(--background)));
   border: 1px solid hsl(var(--border));
-  border-radius: 8px;
+  border-radius: var(--radius);
   box-shadow: 0 6px 20px #0003;
   color: hsl(var(--popover-foreground, var(--foreground)));
   display: flex;
@@ -530,7 +533,7 @@
 .buzz-terminal-newtab-menu > button {
   background: transparent;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-key);
   color: inherit;
   font: inherit;
   font-size: 13px;

@@ -198,22 +198,26 @@ export function BuzzTermPage() {
           </div>
         ) : (
           <div data-testid="remote-unavailable-page" data-feature="term">
-            <p className="text-sm text-muted-foreground">{c.summary}</p>
-            {termsOff && (
-              <p className="mt-2 text-sm font-medium" data-testid="remote-terminals-off">
-                "Allow remote terminal" is off on {deviceName}. Turn it on there in Settings → Buzz Term → Allow remote terminal.
+            {/* One explanation: when terminals are off, say it once (summary, the off line and "why" all said the same). */}
+            {termsOff ? (
+              <p className="text-sm text-muted-foreground" data-testid="remote-terminals-off">
+                "Allow remote terminal" is off on {deviceName}. Turn it on there in Settings → Buzz Term, then tap Refresh here.
               </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">{c.summary}</p>
             )}
-            {why && (
+            {why && !termsOff && why !== c.summary && (
               <p className="mt-2 text-sm font-medium" data-testid="buzz-term-why">
                 {why}
               </p>
             )}
+            {termsOff ? null : (
             <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm" data-testid="remote-unavailable-steps">
               {c.steps.map((t) => (
                 <li key={t}>{t}</li>
               ))}
             </ol>
+            )}
           </div>
         )}
       </div>
