@@ -8,6 +8,9 @@ import {
   Upload,
 } from "lucide-react";
 import * as React from "react";
+import { isTauri } from "@tauri-apps/api/core";
+
+import { setWebPinOpenInBuzz, useWebPinOpenInBuzz } from "@/features/pinned-sites/lib/webPinOpen";
 import { toast } from "sonner";
 
 import { Badge } from "@/shared/ui/badge";
@@ -263,6 +266,7 @@ function PinRow({
         >
           {pin.url}
         </p>
+        <WebOpenWithBuzzToggle pinId={pin.id} />
       </div>
       {canManage ? (
         <DropdownMenu modal={false}>
@@ -535,5 +539,23 @@ function PinFormDialog({
         </form>
       </ChooserDialogContent>
     </Dialog>
+  );
+}
+
+/** Web only, per device (never synced): open this pin inside Buzz (kept-alive iframe) instead of the browser. */
+function WebOpenWithBuzzToggle({ pinId }: { pinId: string }) {
+  const on = useWebPinOpenInBuzz(pinId);
+  if (isTauri()) return null;
+  return (
+    <label className="mt-1.5 inline-flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+      <input
+        checked={on}
+        className="h-3.5 w-3.5 accent-[hsl(var(--primary))]"
+        data-testid={`pinned-site-open-in-buzz-${pinId}`}
+        onChange={(e) => setWebPinOpenInBuzz(pinId, e.target.checked)}
+        type="checkbox"
+      />
+      Open with Buzz <span className="opacity-70">(this device)</span>
+    </label>
   );
 }

@@ -175,7 +175,7 @@ export function SurfaceTabStrip({ className }: { className?: string }) {
               type="button"
             >
               <span className="min-w-0 truncate">{visible}</span>
-              {tab.target.kind === "pin" && pinsOpenExternally() ? (
+              {tab.target.kind === "pin" && pinsOpenExternally(tab.target.pinId) ? (
                 <ExternalLink aria-hidden className="h-3 w-3 shrink-0 opacity-60" data-testid="surface-tab-external" />
               ) : null}
               {working ? (

@@ -56,10 +56,13 @@ export function AddSurfaceTabMenuItem({
 /** Right-click menu with a single Add as Tab action. */
 export function SidebarSurfaceTabMenu({
   children,
+  extra,
   label,
   target,
 }: {
   children: React.ReactElement;
+  /** Extra items under Add as Tab (e.g. web "Open with Buzz" for pins). */
+  extra?: React.ReactNode;
   label: string;
   target: SurfaceTabTarget;
 }) {
@@ -68,6 +71,7 @@ export function SidebarSurfaceTabMenu({
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
       <ContextMenuContent>
         <AddSurfaceTabMenuItem label={label} target={target} />
+        {extra}
       </ContextMenuContent>
     </ContextMenu>
   );

@@ -1,5 +1,6 @@
 import * as React from "react";
 import { isTauri } from "@tauri-apps/api/core";
+import { OpenWithBuzzMenuItem } from "@/features/pinned-sites/ui/OpenWithBuzzMenuItem";
 import { useNavigate } from "@tanstack/react-router";
 import {
   useWebRemoteNav,
@@ -475,6 +476,7 @@ function PinnedSiteMenuItem({
   }, [isActive, pin.id, pin.pollForChanges]);
   return (
     <SidebarSurfaceTabMenu
+      extra={<OpenWithBuzzMenuItem pinId={pin.id} />}
       label={pin.name}
       target={{ kind: "pin", pinId: pin.id }}
     >

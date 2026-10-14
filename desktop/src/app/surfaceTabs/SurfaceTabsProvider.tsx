@@ -252,7 +252,7 @@ export function SurfaceTabsProvider({
 
   const activate = React.useCallback((id: string, target: SurfaceTabTarget) => {
     // Web: a pinned-site tab is a launcher; it opens the site externally and never becomes the active surface.
-    if (target.kind === "pin" && pinsOpenExternally()) {
+    if (target.kind === "pin" && pinsOpenExternally(target.pinId)) {
       openWebPinExternally(target.pinId);
       return;
     }
@@ -279,7 +279,7 @@ export function SurfaceTabsProvider({
       );
       commitTabs(result.tabs);
       // Web: adding a pinned-site tab never opens the site; the tab is a launcher.
-      const webPin = input.target.kind === "pin" && pinsOpenExternally();
+      const webPin = input.target.kind === "pin" && pinsOpenExternally(input.target.pinId);
       if (result.id && options?.activate !== false && !webPin)
         activate(result.id, input.target);
     },
