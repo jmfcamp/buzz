@@ -51,9 +51,19 @@ body {
   }
   /* Keyboard up (phoneLayout installTabletKeyboardFrame): pin the frame to the visible area above the keyboard;
      no home indicator to clear then. Both vars are 0/absent when the keyboard is down, i.e. the initial layout. */
+  /* Fixed, screen-based frame height (phoneLayout --tablet-frame-h), not 100dvh/innerHeight, which iOS can leave
+     shrunk after the keyboard. html/body follow it too (web.css sets them to 100dvh for other layouts). */
+  :root:not([data-phone]),
+  :root:not([data-phone]) body {
+    height: var(--tablet-frame-h, 100dvh);
+  }
   :root:not([data-phone]) body > #root {
     top: var(--tablet-vv-top, 0px);
-    bottom: var(--tablet-kb, 0px);
+    bottom: auto;
+    height: var(--tablet-frame-h, 100dvh);
+  }
+  :root:not([data-phone])[data-tablet-keyboard] body > #root {
+    height: var(--tablet-vv-h, 100dvh);
   }
   :root:not([data-phone])[data-tablet-keyboard] body > #root {
     padding-bottom: 0;

@@ -75,6 +75,26 @@ function note(type: string) {
   if (el) render();
 }
 
+function rectStr(sel: string): string {
+  const n = document.querySelector(sel);
+  if (!n) return "none";
+  const b = n.getBoundingClientRect();
+  const c = getComputedStyle(n);
+  return `t${r(b.top)} b${r(b.bottom)} h${r(b.height)} mb${c.marginBottom} pb${c.paddingBottom}`;
+}
+
+function scrolledAncestors(): string {
+  const out: string[] = [];
+  let n = document.querySelector('[data-testid="message-composer"]')?.parentElement ?? null;
+  for (; n; n = n.parentElement) {
+    if (n.scrollTop || n.scrollLeft) {
+      const id = n.getAttribute("data-testid") || n.id || n.tagName.toLowerCase();
+      out.push(`${id}:${r(n.scrollTop)}/${getComputedStyle(n).overflowY}`);
+    }
+  }
+  return out.length ? out.join(" ") : "none";
+}
+
 function render() {
   if (!body) return;
   const vv = window.visualViewport;
@@ -101,6 +121,10 @@ function render() {
     `--phone-vh ${cs.getPropertyValue("--phone-vh").trim() || "–"} --phone-vv-top ${cs.getPropertyValue("--phone-vv-top").trim() || "–"} kbd ${html.hasAttribute("data-phone-keyboard")}`,
     `composer bottom ${r(comp?.bottom)} (gap to vv bottom ${comp && vv ? r(vv.offsetTop + vv.height - comp.bottom) : "–"}) dock pb ${dock ? getComputedStyle(dock).paddingBottom : "–"}`,
     `tabbar ${tab ? (getComputedStyle(tab).display === "none" ? "hidden" : `shown top${r(tab.getBoundingClientRect().top)}`) : "none"}  focus ${active?.getAttribute("data-testid") || active?.tagName || "–"}`,
+    `tablet --tablet-frame-h ${cs.getPropertyValue("--tablet-frame-h").trim() || "–"} --tablet-vv-top ${cs.getPropertyValue("--tablet-vv-top").trim() || "–"} --tablet-kb ${cs.getPropertyValue("--tablet-kb").trim() || "–"} kbd ${html.hasAttribute("data-tablet-keyboard")}`,
+    `html h${r(html.getBoundingClientRect().height)} body h${r(document.body.getBoundingClientRect().height)}  shell ${rectStr(".buzz-huddle-shell")}`,
+    `main ${rectStr("main[data-buzz-main]")}  surface ${rectStr("[data-buzz-content-surface]")}`,
+    `scrolled ancestors of composer: ${scrolledAncestors()}`,
     `term ${p.transport || "no Direct connection"}`,
     `  key→echo ${s(p.echo)}`,
     `  key→paint ${s(p.paint)}`,

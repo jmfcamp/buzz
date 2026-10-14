@@ -36,8 +36,26 @@ function installTabletKeyboardFrame(phoneMql: MediaQueryList): void {
   let maxH = 0;
   let lastW = window.innerWidth;
   const active = () => frameMql.matches && !phoneMql.matches;
+  // Frame height from the screen, never from innerHeight / 100dvh / visualViewport, which iOS can leave shrunk after
+  // the keyboard closes. Installed iPad: the app owns the whole screen, so frame = screen's short or long side.
+  const setFrameHeight = () => {
+    if (!active()) {
+      root.style.removeProperty("--tablet-frame-h");
+      return;
+    }
+    const landscape = window.innerWidth > window.innerHeight;
+    const sw = Math.min(screen.width, screen.height);
+    const sh = Math.max(screen.width, screen.height);
+    const h = landscape ? sw : sh;
+    // Sanity: if the engine's screen doesn't match the window (split view / Stage Manager), fall back to the tallest
+    // keyboard-free height seen for this orientation.
+    const useScreen = Math.abs((landscape ? sh : sw) - window.innerWidth) < 4;
+    root.style.setProperty("--tablet-frame-h", `${Math.round(useScreen ? h : Math.max(maxH, window.innerHeight))}px`);
+  };
   const clear = () => {
+    setFrameHeight();
     root.style.removeProperty("--tablet-kb");
+    root.style.removeProperty("--tablet-vv-h");
     root.style.removeProperty("--tablet-vv-top");
     root.removeAttribute("data-tablet-keyboard");
   };
@@ -77,6 +95,7 @@ function installTabletKeyboardFrame(phoneMql: MediaQueryList): void {
     const kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
     root.style.setProperty("--tablet-vv-top", `${top}px`);
     root.style.setProperty("--tablet-kb", `${kb}px`);
+    root.style.setProperty("--tablet-vv-h", `${Math.round(vv.height)}px`);
   };
   const later = (...ms: number[]) => {
     for (const m of ms) window.setTimeout(sync, m);
