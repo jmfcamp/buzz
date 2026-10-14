@@ -15,6 +15,8 @@ export type DirectSigner = {
   /** true when the desktop signs this kind without a prompt (short timeout); false = prompt there (long timeout). */
   isAuto?: (kind: number) => boolean;
   crypt?: (op: DirectCryptOp, peer: string, text: string) => Promise<string>;
+  /** This browser is paired with the desktop (whether or not Direct is live right now). */
+  isPaired?: () => boolean;
 };
 let current: DirectSigner | null = null;
 const listeners = new Set<() => void>();

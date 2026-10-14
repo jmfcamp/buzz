@@ -166,6 +166,11 @@ export class DirectSignerClient {
     return isAutoSignKind(kind, this.hello?.caps);
   }
 
+  /** Paired with this desktop (Direct may or may not be live). */
+  isPaired(): boolean {
+    return isPairedWith(this.desktopId);
+  }
+
   /** Paired + Direct live: the remote signer can stay dormant. */
   active(): boolean {
     return this.agents.live && isPairedWith(this.desktopId) && this.hello?.approved !== false;

@@ -296,7 +296,7 @@ export function WebRemoteWatcher() {
   React.useEffect(() => {
     if (!direct || !host?.id) return;
     const c = new DirectSignerClient(direct, host.id);
-    setDirectSigner({ sign: (ev) => c.sign(ev), active: () => c.active(), isAuto: (k) => c.isAuto(k), crypt: (op, peer, text) => c.crypt(op, peer, text) });
+    setDirectSigner({ sign: (ev) => c.sign(ev), active: () => c.active(), isAuto: (k) => c.isAuto(k), crypt: (op, peer, text) => c.crypt(op, peer, text), isPaired: () => c.isPaired() });
     return () => setDirectSigner(null);
   }, [direct, host?.id]);
   useDirectSignerBanner(direct, host?.id, !!host && rh.reachOf(host) === "reachable");

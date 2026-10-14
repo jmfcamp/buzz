@@ -236,3 +236,12 @@ export function keyboardInset(
   const open = covered > minKeyboardPx || innerHeight - vv.height > minKeyboardPx;
   return { open, top: vv.offsetTop, height: vv.height, width: vv.width };
 }
+
+/**
+ * Key-bar keys on touch: text iOS was still composing (predictive "marked" text, e.g. the `H` of `cd Documents/H`) sits in
+ * the hidden input and was never sent (Safari only commits it at compositionend). Returns that text, minus the sentinel
+ * padding, so it can be sent BEFORE the key (Tab must complete `H`, not the word before it).
+ */
+export function pendingTouchInput(value: string, sentinel: string): string {
+  return value.split(sentinel).join("");
+}
