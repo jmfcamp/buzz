@@ -35,6 +35,7 @@ import {
   dedupeQueuedAgentWakes,
   enqueueAgentWake,
   formatMessageSendError,
+  isRateLimitedSendError,
   getErrorMessage,
   mentionRevalidationOptions,
   withoutInvitingRecipients,
@@ -637,7 +638,7 @@ export function useMentionSendFlow({
                 await finishSend(uploaded, signal);
               } catch (error) {
                 restoreComposerAfterFailure();
-                toast.error(
+                (isRateLimitedSendError(error) ? toast.info : toast.error)(
                   error instanceof AgentMentionAuthorizationError
                     ? error.message
                     : formatMessageSendError(error),
@@ -669,7 +670,7 @@ export function useMentionSendFlow({
             await finishSend([]);
           } catch (error) {
             restoreComposerAfterFailure();
-            toast.error(
+            (isRateLimitedSendError(error) ? toast.info : toast.error)(
               error instanceof AgentMentionAuthorizationError
                 ? error.message
                 : formatMessageSendError(error),

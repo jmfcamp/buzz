@@ -123,6 +123,19 @@ fn send_admission_result(
         Ok(()) => true,
         Err(AdmissionError::Exceeded { reset_in_secs }) => {
             metrics::counter!("buzz_admission_rejections_total", "transport" => "websocket", "reason" => "quota", "bucket" => bucket).increment(1);
+            // Attribute floods without logging content: principal prefix,
+            // connection, bucket and frame type only.
+            let principal = match conn.auth_state_snapshot() {
+                AuthState::Authenticated(ctx) => ctx.pubkey.to_hex()[..8].to_string(),
+                _ => String::from("anon"),
+            };
+            let frame = match msg {
+                ClientMessage::Event(event) => format!("EVENT kind {}", event.kind.as_u16()),
+                ClientMessage::Req { .. } => String::from("REQ"),
+                ClientMessage::Count { .. } => String::from("COUNT"),
+                _ => String::from("other"),
+            };
+            tracing::warn!(principal = %principal, conn_id = %conn.conn_id, bucket, frame = %frame, reset_in_secs, "ws admission quota exceeded");
             conn.send(request_rejection_message(
                 target,
                 &format!("rate-limited: quota exceeded; retry in {reset_in_secs}s"),
