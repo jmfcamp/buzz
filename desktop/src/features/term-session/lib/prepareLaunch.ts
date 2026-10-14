@@ -6,7 +6,10 @@ import { getTermSessionPrompt } from "./promptStore.ts";
 
 export type PrepareTermSessionLaunchResult = {
   promptPath: string;
+  /** Legacy (desktop ≤ hula.8): per-sid CLAUDE_CONFIG_DIR. Newer desktops return null. */
   claudeConfigDir: string | null;
+  /** Per-sid MCP JSON passed via `claude --mcp-config` (keeps the user's Claude login). */
+  mcpConfigPath?: string | null;
   /** Standing instructions were prepended into the prompt file when true. */
   openclawWired: boolean;
   /** `{app_data}/user-signer` when buzz-dev-mcp was wired for user IPC. */
@@ -45,9 +48,11 @@ export function buildLaunchFromPrepare(
   extraEnv: Record<string, string>;
 } {
   const extraEnv: Record<string, string> = {};
-  if (prepared.claudeConfigDir) {
-    extraEnv.CLAUDE_CONFIG_DIR = prepared.claudeConfigDir;
-  }
+  // Never export CLAUDE_CONFIG_DIR: it hides the user's Claude login and forces
+  // a fresh sign-in. MCP wiring rides on --mcp-config instead.
+  const mcpConfigPath =
+    prepared.mcpConfigPath ??
+    (prepared.claudeConfigDir ? `${prepared.claudeConfigDir.replace(/\/+$/, "")}/.claude.json` : null);
   // Also expose the IPC dir on the PTY for shell debugging / non-Claude tools.
   // Contains no secrets — only the request/response directory path.
   if (prepared.userSignerDir) {
@@ -58,9 +63,7 @@ export function buildLaunchFromPrepare(
       tool: card.tool,
       promptPath: prepared.promptPath,
       cwd: card.cwd,
-      // Env is also injected at PTY spawn; keep export in the typed command as
-      // a belt-and-suspenders for shells that remount without re-attach env.
-      claudeConfigDir: prepared.claudeConfigDir,
+      mcpConfigPath,
     }),
     extraEnv,
   };

@@ -52,7 +52,11 @@ pub struct PrepareTermSessionLaunchInput {
 #[serde(rename_all = "camelCase")]
 pub struct PrepareTermSessionLaunchResult {
     prompt_path: String,
+    /// Always `None` now: handoff reuses the user's normal Claude config/login
+    /// (~/.claude + keychain). Kept for older frontends.
     claude_config_dir: Option<String>,
+    /// Per-sid MCP JSON (`{"mcpServers":…}`) passed via `claude --mcp-config`.
+    mcp_config_path: Option<String>,
     openclaw_wired: bool,
     /// Absolute path to `{app_data}/user-signer` when buzz-dev-mcp was wired.
     user_signer_dir: Option<String>,
@@ -128,7 +132,8 @@ pub fn prepare_term_session_launch(
 
     let want_openclaw = input.openclaw_workspace && tool == "claude";
     let mut prompt_body = input.prompt.clone();
-    let mut claude_config_dir: Option<String> = None;
+    let claude_config_dir: Option<String> = None;
+    let mut mcp_config_path: Option<String> = None;
     let mut openclaw_wired = false;
     let mut user_signer_dir: Option<String> = None;
     let mut buzz_dev_mcp_wired = false;
@@ -169,7 +174,27 @@ pub fn prepare_term_session_launch(
             openclaw_wired = true;
         }
 
-        claude_config_dir = Some(config_dir.display().to_string());
+        // The per-sid dir is only a scratch home for the upserts above. Do NOT
+        // export it as CLAUDE_CONFIG_DIR (that hides the user's Claude login and
+        // forces a fresh sign-in); lift its mcpServers into a --mcp-config file.
+        let scratch = config_dir.join(".claude.json");
+        let servers = std::fs::read_to_string(&scratch)
+            .ok()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+            .and_then(|v| v.get("mcpServers").cloned())
+            .filter(|v| v.as_object().is_some_and(|o| !o.is_empty()));
+        if let Some(servers) = servers {
+            let path = root.join("mcp.json");
+            let body = serde_json::json!({ "mcpServers": servers });
+            std::fs::write(&path, body.to_string())
+                .map_err(|e| format!("failed to write mcp config: {e}"))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+            }
+            mcp_config_path = Some(path.display().to_string());
+        }
     } else if input.openclaw_workspace && tool == "codex" {
         // Codex has no equivalent MCP config bridge yet — Claude-first gap.
         openclaw_wired = false;
@@ -184,6 +209,7 @@ pub fn prepare_term_session_launch(
     Ok(PrepareTermSessionLaunchResult {
         prompt_path: prompt_path.display().to_string(),
         claude_config_dir,
+        mcp_config_path,
         openclaw_wired,
         user_signer_dir,
         buzz_dev_mcp_wired,
