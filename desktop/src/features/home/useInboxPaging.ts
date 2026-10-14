@@ -6,9 +6,8 @@ import type { FeedItem, HomeFeedResponse } from "@/shared/api/types";
 /** Page size for older inbox pages (matches the first page). */
 export const INBOX_PAGE_SIZE = 50;
 
-/** Inbox paging is web-only: the web get_feed honours `until`; desktop's Rust command does not yet. */
-export const INBOX_PAGING_ENABLED =
-  import.meta.env?.VITE_BUZZ_PLATFORM === "web";
+/** Desktop and web share one Inbox builder, which honours `until`, so both page. */
+export const INBOX_PAGING_ENABLED = true;
 
 function oldestCreatedAt(feed: HomeFeedResponse["feed"]): number | null {
   let oldest: number | null = null;

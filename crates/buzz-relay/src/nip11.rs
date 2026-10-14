@@ -37,6 +37,9 @@ pub struct RelayInfo {
     /// Opt-in, host-bound private accessory API; separate from legacy NIP-RS.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub buzz_v1: Option<BuzzV1Descriptor>,
+    /// Server-side Inbox projection (`buzz_inbox` /query extension).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub buzz_inbox: Option<serde_json::Value>,
     /// NIP-AR artifact query transport and enforced resource limits.
     pub artifacts: serde_json::Value,
     /// Relay operator's public key (hex), if published.
@@ -278,6 +281,7 @@ impl RelayInfo {
             icon: icon.filter(|s| !s.is_empty()).map(|s| s.to_string()),
             read_state_snapshot: None,
             buzz_v1: None,
+            buzz_inbox: None,
             artifacts: serde_json::json!({
                 "version": 1, "revision_kind": 45010, "removal_kind": 45011,
                 "query": "/query", "count": "/count",
@@ -411,6 +415,12 @@ pub(crate) async fn nip11_document(state: &crate::state::AppState, raw_host: &st
                 eligible_kinds: ELIGIBLE_KINDS,
             });
         }
+        info.buzz_inbox = Some(serde_json::json!({
+            "version": 1,
+            "max_limit": buzz_db::inbox::INBOX_MAX_LIMIT,
+            "max_roots": buzz_db::inbox::INBOX_MAX_EXTRA_ROOTS,
+            "categories": ["mention", "needs_action", "dm", "thread_reply"],
+        }));
         info.read_state_snapshot = Some(serde_json::json!({
             "version": 1,
             "community_id": tenant.community().as_uuid(),

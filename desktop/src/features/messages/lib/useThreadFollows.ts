@@ -1,5 +1,7 @@
 import * as React from "react";
 
+import { recordInboxState } from "@/features/inbox/inboxStateSync";
+
 const STORAGE_KEY_PREFIX = "buzz-thread-follows.v1";
 const MAX_ENTRIES = 500;
 
@@ -106,6 +108,7 @@ export function useThreadFollows(pubkey: string | undefined): {
       if (!pubkey) {
         return;
       }
+      recordInboxState(pubkey, "followed", rootId, true);
       setEntries((prev) => {
         if (prev.some((e) => e.rootId === rootId)) {
           return prev;
@@ -125,6 +128,7 @@ export function useThreadFollows(pubkey: string | undefined): {
       if (!pubkey) {
         return;
       }
+      recordInboxState(pubkey, "followed", rootId, false);
       setEntries((prev) => {
         const next = prev.filter((e) => e.rootId !== rootId);
         if (!writeToStorage(pubkey, next)) {

@@ -5,6 +5,7 @@ import {
   createDesktopNotificationActivationQueue,
   shouldBounceForChannelNotification,
 } from "@/app/AppShell.helpers";
+import { useInboxStateSync } from "@/features/inbox/useInboxStateSync";
 import { useCommunityJoinAlerts } from "@/features/community-members/useCommunityJoinAlerts";
 import { hasMentionForEvent } from "@/features/notifications/lib/shouldNotify";
 import type { NotificationSettings } from "@/features/notifications/hooks";
@@ -59,6 +60,9 @@ export function useAppShellDesktopNotifications({
       notificationSettings.eventAlertsEnabled.community_join,
   });
 
+  // Synced Inbox state (done/unread/muted/followed/starred) lives with the
+  // notification owner: main window only.
+  useInboxStateSync(pubkey, enabled);
   const resolveSenderName = useNotificationSenderName();
 
   const handleChannelNotification = React.useEffectEvent(

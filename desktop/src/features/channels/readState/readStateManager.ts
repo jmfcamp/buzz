@@ -36,10 +36,10 @@ import {
 import { setLocalStorageItemWithRecovery } from "@/shared/lib/localStorageQuota";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 
-const PUBLISH_DEBOUNCE_MS = 5_000;
-/** Web signs every read-marker publish through a remote (NIP-46) signer, so
- * batch them: one publish per window, flushed immediately when the page hides. */
-const WEB_PUBLISH_WINDOW_MS = 45_000;
+/** Desktop and web publish read markers on the same fixed window, so a read on
+ * one device reaches the other on the same schedule (Inbox sync). Web still
+ * batches remote-signer prompts: one signature per window, flushed on hide. */
+const PUBLISH_WINDOW_MS = 8_000;
 const LOCAL_PERSIST_MAX_WAIT_MS = 1_000;
 /** How many of our own just-published event ids to remember so the live
  * subscription can drop their relay echoes before the nip44 decrypt. A
@@ -667,18 +667,14 @@ export class ReadStateManager {
 
   private schedulePublish(): void {
     if (this.destroyed) return;
-    const web = isWebPlatform();
-    if (this.debounceTimer !== null) {
-      // Web: fixed window (don't let continuous reading postpone it forever).
-      if (web) return;
-      window.clearTimeout(this.debounceTimer);
-    }
+    // Fixed window on every platform: continuous reading can't postpone it.
+    if (this.debounceTimer !== null) return;
     this.debounceTimer = window.setTimeout(
       () => {
         this.debounceTimer = null;
         void this.publish();
       },
-      web ? WEB_PUBLISH_WINDOW_MS : PUBLISH_DEBOUNCE_MS,
+      PUBLISH_WINDOW_MS,
     );
   }
 

@@ -46,6 +46,25 @@ const TIMELINE_KINDS: [u32; 11] = [
     buzz_core_pkg::kind::KIND_HUDDLE_STARTED,
 ];
 
+/// Server-side Inbox page (`buzz_inbox` /query extension). The webview owns
+/// capability detection and fallback; this only signs and forwards.
+#[tauri::command]
+pub async fn query_buzz_inbox(
+    until: Option<i64>,
+    limit: Option<u32>,
+    roots: Option<Vec<String>>,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let mut filter = serde_json::json!({ "buzz_inbox": 1, "limit": limit.unwrap_or(50).min(100) });
+    if let Some(until) = until {
+        filter["until"] = serde_json::json!(until);
+    }
+    if let Some(roots) = roots.filter(|r| !r.is_empty()) {
+        filter["roots"] = serde_json::json!(roots);
+    }
+    crate::relay::query_relay_value(&state, &[filter]).await
+}
+
 #[tauri::command]
 pub async fn get_feed(
     since: Option<i64>,

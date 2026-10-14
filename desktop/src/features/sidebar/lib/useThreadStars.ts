@@ -1,5 +1,7 @@
 import * as React from "react";
 
+import { recordInboxState } from "@/features/inbox/inboxStateSync";
+
 import {
   boundThreadStarStore,
   DEFAULT_THREAD_STAR_STORE,
@@ -124,6 +126,11 @@ export function useThreadStars(pubkey: string | undefined): {
         channelName: input.channelName.trim() || "channel",
         starredAt: Math.floor(Date.now() / 1000),
       };
+      recordInboxState(pubkey, "starred", rootId, true, {
+        channelId: entry.channelId,
+        title: entry.title,
+        channelName: entry.channelName,
+      });
       const prev = getStore(pubkey);
       setStore(
         pubkey,
@@ -146,6 +153,7 @@ export function useThreadStars(pubkey: string | undefined): {
       if (!trimmed) return;
       const prev = getStore(pubkey);
       if (!(trimmed in prev.threads)) return;
+      recordInboxState(pubkey, "starred", trimmed, false);
       const nextThreads = { ...prev.threads };
       delete nextThreads[trimmed];
       setStore(pubkey, { version: 1, threads: nextThreads });

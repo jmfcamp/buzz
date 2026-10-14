@@ -28,6 +28,7 @@ mod event_follow_up_postgres_tests;
 
 /// Home feed queries.
 pub mod feed;
+pub mod inbox;
 /// Git repository name registry (NIP-34 kind:30617).
 pub mod git_repo;
 /// Community moderation: reports, bans/timeouts, audit actions.

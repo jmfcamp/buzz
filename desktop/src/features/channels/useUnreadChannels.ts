@@ -57,6 +57,10 @@ import {
 } from "@/features/channels/unreadMembership";
 import { useThreadActivityPersistence } from "@/features/channels/useThreadActivityPersistence";
 import { unreadCatchUp } from "@/shared/api/tauriUnreadCatchUp";
+import {
+  INBOX_STATE_APPLIED_EVENT,
+  recordInboxState,
+} from "@/features/inbox/inboxStateSync";
 
 type UseUnreadChannelsOptions = UseLiveChannelUpdatesOptions & {
   pubkey?: string;
@@ -577,6 +581,7 @@ export function useUnreadChannels(
   const muteThread = React.useCallback(
     (rootId: string) => {
       const didAdd = !mutedRootIdsRef.current.has(rootId);
+      recordInboxState(normalizedPubkey ?? undefined, "muted", rootId, true);
       mutedRootIdsRef.current.add(rootId);
       observedPersistence.updateMembership("muted_root", rootId, true);
       if (normalizedPubkey !== null) {
@@ -593,6 +598,7 @@ export function useUnreadChannels(
   const unmuteThread = React.useCallback(
     (rootId: string) => {
       const didDelete = mutedRootIdsRef.current.delete(rootId);
+      recordInboxState(normalizedPubkey ?? undefined, "muted", rootId, false);
       observedPersistence.updateMembership("muted_root", rootId, false);
       if (normalizedPubkey !== null) {
         mutedStore.write(normalizedPubkey, mutedRootIdsRef.current);
@@ -604,6 +610,33 @@ export function useUnreadChannels(
     },
     [normalizedPubkey, observedPersistence],
   );
+
+  // Synced Inbox state rewrote the muted-thread cache: diff it into memory.
+  React.useEffect(() => {
+    const onApplied = (e: Event) => {
+      const pk = (e as CustomEvent<{ pubkey: string }>).detail?.pubkey;
+      if (!pk || pk !== normalizedPubkey) return;
+      const next = mutedStore.read(pk);
+      const prev = mutedRootIdsRef.current;
+      let changed = false;
+      for (const id of next)
+        if (!prev.has(id)) {
+          observedPersistence.updateMembership("muted_root", id, true);
+          changed = true;
+        }
+      for (const id of prev)
+        if (!next.has(id)) {
+          observedPersistence.updateMembership("muted_root", id, false);
+          changed = true;
+        }
+      if (!changed) return;
+      mutedRootIdsRef.current = next;
+      bumpMembershipVersion();
+      bumpLatestVersion();
+    };
+    window.addEventListener(INBOX_STATE_APPLIED_EVENT, onApplied);
+    return () => window.removeEventListener(INBOX_STATE_APPLIED_EVENT, onApplied);
+  }, [normalizedPubkey, observedPersistence]);
 
   useLiveChannelUpdates(channels, activeChannelId, {
     ...liveUpdateOptions,
