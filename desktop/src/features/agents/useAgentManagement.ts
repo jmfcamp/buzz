@@ -158,6 +158,7 @@ export function useAgentManagement() {
     input: CreatePersonaInput | UpdatePersonaInput,
     intent: AgentCreateIntent,
     backendIntent: BackendIntent | null,
+    effortLevel: string | null,
     options?: { useOpenClawWorkspace?: boolean },
   ): Promise<boolean> {
     if (request?.action !== "create" || "id" in input) {
@@ -191,6 +192,7 @@ export function useAgentManagement() {
             runtime,
             undefined,
             backendIntent ?? undefined,
+            effortLevel,
             {
               useOpenClawWorkspace: options?.useOpenClawWorkspace === true,
             },
