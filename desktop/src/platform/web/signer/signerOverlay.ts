@@ -4,6 +4,7 @@
 //  * startSignerBanner(): mid-session, a non-blocking banner with the same actions once health turns unresponsive.
 import { clearStatus, showStatus } from "@/shared/ui/statusPills";
 import { signerHealth, type SignerHealthReason } from "./signerHealth";
+import { desktopSignerActive } from "./directRoute";
 
 export type SignerActions = {
   /** Round-trip probe; true if the signer answered. */
@@ -234,4 +235,42 @@ export function startBackgroundSignerCheck(a: SignerActions, initialDelayMs = 40
   document.addEventListener("visibilitychange", onBack);
   window.addEventListener("focus", onBack);
   window.addEventListener("pageshow", onBack);
+}
+
+const WARM_MS = 20_000;
+/** Resolves when the visible page comes back (or after `ms`). */
+const waitForReturn = (ms: number) =>
+  new Promise<void>((resolve) => {
+    const done = () => {
+      if (document.visibilityState !== "visible") return;
+      clearTimeout(t);
+      document.removeEventListener("visibilitychange", done);
+      window.removeEventListener("focus", done);
+      resolve();
+    };
+    const t = setTimeout(() => {
+      document.removeEventListener("visibilitychange", done);
+      window.removeEventListener("focus", done);
+      resolve();
+    }, ms);
+    document.addEventListener("visibilitychange", done);
+    window.addEventListener("focus", done);
+  });
+
+/**
+ * Before a relay socket opens (NIP-42 AUTH must be signed within the relay's 5s): return at once when the paired desktop
+ * signs over Direct or the remote signer answered in the last 20s; otherwise wake it with a get_public_key round trip and,
+ * if it stays silent (iOS suspended Clave), wait for the user to come back to the PWA and try again. Never gives up.
+ */
+export async function ensureSignerAwake(a: SignerActions): Promise<void> {
+  for (;;) {
+    if (desktopSignerActive()) return;
+    if (Date.now() - signerHealth.lastAlive() < WARM_MS) return;
+    if (signerHealth.get().reason === "revoked") return; // let the relay error/banner explain; Reconnect is offered
+    if (document.visibilityState === "visible") {
+      const ok = await a.probe().catch(() => false);
+      if (ok || desktopSignerActive()) return;
+    }
+    await waitForReturn(30_000);
+  }
 }

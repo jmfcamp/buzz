@@ -69,6 +69,14 @@ const CSS = `
 .buzz-status-btn:disabled{opacity:.6}
 .buzz-status-x{flex-shrink:0;border:0;background:transparent;color:hsl(var(--muted-foreground));font:18px/1 inherit;font-family:inherit;width:28px;height:28px;border-radius:9999px;cursor:pointer;display:grid;place-items:center}
 .buzz-status-hide{flex-shrink:0;border:0;background:transparent;color:hsl(var(--muted-foreground));font:inherit;font-size:13px;padding:2px 4px;cursor:pointer}
+.buzz-status-host:has(> [data-status-id="signer-down"]) > .buzz-status-pill[data-tone="progress"],
+.buzz-status-host:has(> [data-status-id="signer-down"]) > [data-status-id="relay-error"]{display:none}
+@media (max-width:520px){
+  .buzz-status-pill[data-wide]{flex-wrap:wrap;row-gap:8px}
+  .buzz-status-pill[data-wide] .buzz-status-text{flex:1 1 calc(100% - 40px)}
+  .buzz-status-pill[data-wide] .buzz-status-btn{margin-left:36px}
+  .buzz-status-pill[data-wide] .buzz-status-btn,.buzz-status-pill[data-wide] .buzz-status-hide{flex:1 1 auto;min-height:32px}
+}
 @keyframes buzz-status-rot{to{transform:rotate(360deg)}}
 @keyframes buzz-status-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
 `;
