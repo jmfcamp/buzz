@@ -5,7 +5,7 @@ import { SettingsOptionGroup, SettingsOptionRow } from "@/features/settings/ui/S
 import { Button } from "@/shared/ui/button";
 import { getProxyDirect } from "../remoteCmd";
 import { revokeSignerDevice, localSignerStore, signerLog, subscribeSignerStore } from "../directSigner";
-import { DirectSignerClient, forgetAndRevoke, isPairedWith, PAIRING_EVENT } from "../directSignerClient";
+import { describePairingError, DirectSignerClient, forgetAndRevoke, isPairedWith, PairingError, PAIRING_EVENT } from "../directSignerClient";
 import { useDirectState } from "./DirectAgentsPanel";
 import { StatusChip } from "./DesktopData";
 import { browserLabel } from "./useDirectSignerBanner";
@@ -24,6 +24,8 @@ export function WebDirectSignerCard() {
   }, []);
   const [busy, setBusy] = React.useState(false);
   const [note, setNote] = React.useState<string | null>(null);
+  const [details, setDetails] = React.useState<string | null>(null);
+  const [copied, setCopied] = React.useState(false);
   if (!host?.hasDirect)
     return (
       <SettingsOptionGroup data-testid="web-direct-signer" title="Sign with your desktop">
@@ -39,12 +41,16 @@ export function WebDirectSignerCard() {
   const pair = async () => {
     if (!direct) return;
     setBusy(true);
-    setNote("Approve the request on your desktop…");
+    setDetails(null);
+    setCopied(false);
+    setNote("Connecting to your desktop… then approve the request there.");
     try {
       const ok = await new DirectSignerClient(direct, host.id).pair(browserLabel());
       setNote(ok ? "Paired. This browser now signs through your desktop while Direct is connected." : "Not approved.");
-    } catch {
-      setNote("Pairing didn't finish. Check that your desktop is on and connected, then try again.");
+    } catch (e) {
+      const pe = PairingError.from("connect", e);
+      setNote(`Pairing didn't finish: ${describePairingError(pe)}`);
+      setDetails(pairingDetails(pe, direct.target.url, host.id));
     }
     setBusy(false);
     bump();
@@ -65,6 +71,21 @@ export function WebDirectSignerCard() {
             there. When the desktop isn't reachable, your usual signer is used.
           </p>
           {note && <p className="mt-1 text-sm font-normal text-muted-foreground" data-testid="web-direct-signer-note">{note}</p>}
+          {details && (
+            <div className="mt-1">
+              <pre className="whitespace-pre-wrap break-all text-xs text-muted-foreground/80" data-testid="web-direct-signer-details">{details}</pre>
+              <button
+                className="text-sm text-muted-foreground underline"
+                data-testid="web-direct-signer-copy"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(details).then(() => setCopied(true), () => setCopied(false));
+                }}
+                type="button"
+              >
+                {copied ? "Copied" : "Copy details"}
+              </button>
+            </div>
+          )}
         </div>
         {paired ? (
           <Button data-testid="web-direct-signer-forget" disabled={busy} onClick={() => {
@@ -81,6 +102,27 @@ export function WebDirectSignerCard() {
       </SettingsOptionRow>
     </SettingsOptionGroup>
   );
+}
+
+/** Diagnostics for a failed pairing (no keys or secrets: step, error, Direct host, browser). */
+function pairingDetails(e: PairingError, url: string, desktopId: string): string {
+  let host = url;
+  try {
+    const u = new URL(url);
+    host = `${u.protocol}//${u.host}`;
+  } catch {
+    /* keep raw */
+  }
+  return [
+    `step: ${e.step}${e.stage ? ` / ${e.stage}` : ""}`,
+    `error: ${e.code}${e.detail ? ` (${e.detail})` : ""}`,
+    `direct: ${host}`,
+    `desktop: ${desktopId.slice(0, 12)}`,
+    `browser: ${browserLabel()} · ${typeof navigator !== "undefined" ? navigator.userAgent : ""}`,
+    `standalone: ${typeof matchMedia !== "undefined" && matchMedia("(display-mode: standalone)").matches}`,
+    `online: ${typeof navigator !== "undefined" ? navigator.onLine : "?"}`,
+    `time: ${new Date().toISOString()}`,
+  ].join("\n");
 }
 
 const kindName = (k: number) =>

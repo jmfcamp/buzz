@@ -152,21 +152,30 @@ export class DirectSignerClient {
     save({ ...now, pendingUnpair: (now.pendingUnpair ?? []).filter((d) => d !== this.desktopId) });
   }
 
-  /** Ask the desktop to approve this browser (shows a prompt on the desktop). Needs a live or new Direct connection. */
+  /** Ask the desktop to approve this browser (shows a prompt on the desktop). Needs a live or new Direct connection.
+   *  Failures throw a PairingError naming the step that failed (connect / hello / pair request). */
   async pair(label: string): Promise<boolean> {
-    const h = await this.ensureHello(true);
-    const sig = signWithDevice(pairDigest(h.nonce, this.device), load().secret);
-    const r = await this.agents.call<{ approved: boolean }>("signer.pair", { device: this.device, label, sig });
-    if (r.approved) {
-      const s = load();
-      save({
-        ...s,
-        pairedWith: s.pairedWith.includes(this.desktopId) ? s.pairedWith : [...s.pairedWith, this.desktopId],
-        pendingUnpair: (s.pendingUnpair ?? []).filter((d) => d !== this.desktopId),
-      });
-      notifyPairing();
+    let step: PairingStep = "connect";
+    try {
+      await this.agents.connect();
+      step = "hello";
+      const h = await this.ensureHello(true);
+      step = "pair";
+      const sig = signWithDevice(pairDigest(h.nonce, this.device), load().secret);
+      const r = await this.agents.call<{ approved: boolean }>("signer.pair", { device: this.device, label, sig });
+      if (r.approved) {
+        const s = load();
+        save({
+          ...s,
+          pairedWith: s.pairedWith.includes(this.desktopId) ? s.pairedWith : [...s.pairedWith, this.desktopId],
+          pendingUnpair: (s.pendingUnpair ?? []).filter((d) => d !== this.desktopId),
+        });
+        notifyPairing();
+      }
+      return !!r.approved;
+    } catch (e) {
+      throw PairingError.from(step, e);
     }
-    return !!r.approved;
   }
 
   /** Will this kind be signed without a prompt on the desktop? (unknown before the first hello: assume the old list) */
@@ -229,4 +238,50 @@ export class DirectSignerClient {
       }
     }
   }
+}
+
+export type PairingStep = "connect" | "hello" | "pair";
+/** A failed pairing, with the step and the low-level code so the card can say exactly what went wrong. */
+export class PairingError extends Error {
+  step: PairingStep;
+  /** connect sub-step from RemoteConnection: url / socket / challenge / signing / auth */
+  stage?: string;
+  code: string;
+  detail?: string;
+  constructor(step: PairingStep, code: string, detail?: string, stage?: string) {
+    super(`${step}${stage ? `/${stage}` : ""}: ${code}${detail ? ` (${detail})` : ""}`);
+    this.step = step;
+    this.code = code;
+    this.detail = detail;
+    this.stage = stage;
+  }
+  static from(step: PairingStep, e: unknown): PairingError {
+    if (e instanceof PairingError) return e;
+    const x = e as { code?: unknown; detail?: unknown; stage?: unknown; message?: unknown };
+    const code = typeof x?.code === "string" ? x.code : "error";
+    const detail = typeof x?.detail === "string" ? x.detail : typeof x?.message === "string" && x.message !== code ? x.message : e instanceof Error ? undefined : String(e);
+    return new PairingError(step, code, detail, typeof x?.stage === "string" ? x.stage : undefined);
+  }
+}
+
+/** Plain-language explanation of a failed pairing step. */
+export function describePairingError(e: PairingError): string {
+  const c = e.code;
+  if (e.step === "connect") {
+    if (c === "bad_url") return "This browser has no valid Direct address for your desktop (it needs a wss:// tailnet address). Turn Direct off and on again on the desktop.";
+    if (c === "wrong_desktop") return "A different Hula Buzz app on the Mac is serving Direct (port 9443). Turn Direct on in the app you want to pair with.";
+    if (e.stage === "socket" || c === "unreachable")
+      return "Couldn't open a connection to your desktop over the tailnet. Check that Tailscale is connected on this device (VPN on), that the desktop is awake with Direct on, and that this device can open the desktop's .ts.net address.";
+    if (e.stage === "challenge") return "Connected to your desktop, but it didn't send a sign-in challenge. Restart Direct on the desktop.";
+    if (e.stage === "signing")
+      return c === "declined" ? "Your signer declined the sign-in to your desktop." : c === "timeout" ? "Your signer didn't answer the sign-in to your desktop in time. Open your signer app, then try again." : "Your signer couldn't sign the sign-in to your desktop.";
+    if (e.stage === "auth")
+      return c === "timeout" ? "Your desktop didn't confirm the sign-in." : `Your desktop refused the sign-in (${c}). Make sure this browser is signed in with the same account as the desktop.`;
+    return `Connecting to your desktop failed (${c}).`;
+  }
+  if (e.step === "hello") return `Connected to your desktop, but it didn't answer the signer hello (${c}). Your desktop may need an update.`;
+  if (c === "declined") return "Declined on the desktop.";
+  if (c === "timeout") return "The pair request reached your desktop, but nobody answered the Allow prompt in time. Look for the prompt on the Mac and try again.";
+  if (c === "closed") return "The connection to your desktop dropped while waiting for approval. Try again.";
+  return `Your desktop rejected the pair request (${c}).`;
 }

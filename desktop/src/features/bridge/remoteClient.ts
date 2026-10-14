@@ -71,6 +71,8 @@ export class RemoteError extends Error {
   code: string;
   /** Human-readable detail from the desktop, when it sent one. */
   detail?: string;
+  /** Which connect step failed (socket / challenge / signing / auth), for pairing diagnostics. */
+  stage?: string;
   constructor(code: string, detail?: string) {
     super(detail ? `${code}: ${detail}` : code);
     this.code = code;
@@ -213,8 +215,21 @@ export class RemoteConnection {
     });
   }
 
+  /** Last connect step reached (diagnostics). */
+  stage = "idle";
   async connect(): Promise<void> {
+    try {
+      await this.connectInner();
+    } catch (e) {
+      const err = e instanceof RemoteError ? e : new RemoteError(/reject|denied|declin/i.test(String(e)) ? "declined" : "failed", e instanceof Error ? e.message : String(e));
+      err.stage ??= this.stage;
+      throw err;
+    }
+  }
+  private async connectInner(): Promise<void> {
+    this.stage = "url";
     if (!safeRemoteUrl(this.info.url)) throw new RemoteError("bad_url");
+    this.stage = "socket";
     const ws = this.makeWs(this.info.url);
     this.ws = ws;
     ws.onmessage = (e) => {
@@ -281,10 +296,25 @@ export class RemoteConnection {
     ws.onclose = closed;
     this.fireClosed = closed;
     await new Promise<void>((resolve, reject) => {
-      ws.onopen = () => resolve();
-      ws.onerror = () => reject(new RemoteError("unreachable"));
+      const t = setTimeout(() => {
+        reject(new RemoteError("unreachable", "the socket didn't open within 20 s"));
+        try {
+          ws.close();
+        } catch {
+          /* closing */
+        }
+      }, 20_000);
+      ws.onopen = () => {
+        clearTimeout(t);
+        resolve();
+      };
+      ws.onerror = () => {
+        clearTimeout(t);
+        reject(new RemoteError("unreachable", "the socket failed to open (DNS, tailnet, TLS or no listener)"));
+      };
     });
-    const challenge = await this.waitFor((f) => f.t === "challenge");
+    this.stage = "challenge";
+    const challenge = await this.waitFor((f) => f.t === "challenge", 20_000);
     // The Mac's single tailnet entry (:9443) belongs to whichever HulaBuzz turned remote access on last. If that's a different
     // app than the one this device paired with (e.g. Buzz Dev vs the installed HulaBuzz), its signature check would refuse us:
     // stop before asking the signer, so there's no pointless approval prompt and the page can say what's going on.
@@ -305,6 +335,7 @@ export class RemoteConnection {
         device = null;
       }
     }
+    this.stage = device ? "auth" : "signing";
     if (device) {
       ws.send(JSON.stringify({ t: "auth", device: device.device, sig: device.sig, nonce: String(challenge.nonce) }));
     } else {
@@ -318,6 +349,7 @@ export class RemoteConnection {
         this.onAwaitingSigner?.(false);
       }
       ws.send(JSON.stringify({ t: "auth", event }));
+      this.stage = "auth";
     }
     let ready: Frame;
     try {
@@ -328,6 +360,7 @@ export class RemoteConnection {
       throw e;
     }
     this.deviceAuthed = !!device;
+    this.stage = "ready";
     this.ready = true;
     this.terminals = ready.terminals === true;
     this.agents = ready.agents === true;
