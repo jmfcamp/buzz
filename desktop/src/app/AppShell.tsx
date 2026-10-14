@@ -1,3 +1,4 @@
+import { useDesktopPermissionPrompts } from "@/features/agents/permissionPrompts/useDesktopPermissionPrompts";
 import * as React from "react";
 import { ProtectedGlobalOverlay } from "@protected-feature-components";
 import { useQueryClient } from "@tanstack/react-query";
@@ -431,6 +432,11 @@ export function AppShell() {
   const channelsQuery = useChannelsQuery();
   const channels = channelsQuery.data ?? [];
   useRemoteAccessEvents(identityQuery.data?.pubkey);
+  // Desktop: agent permission prompts (cards, Approvals alert, push nudge for phones). No-op outside Tauri.
+  const approvalsAlertRef = React.useRef(false);
+  approvalsAlertRef.current =
+    notificationSettings.settings.desktopEnabled && notificationSettings.settings.slotAlertsEnabled.needs_action;
+  useDesktopPermissionPrompts(identityQuery.data?.pubkey, () => approvalsAlertRef.current);
   // PWA bridge (slice A): desktop publishes agent status for the member's own browser. No-op outside Tauri.
   useBridgePublisher(
     identityQuery.data?.pubkey,
