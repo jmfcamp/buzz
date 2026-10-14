@@ -6,10 +6,13 @@ import { CMD_NAMES } from "./directCmd";
 import { type DirectAgents, directErrorCopy } from "./directAgents";
 
 export const NEEDS_DIRECT = "Needs a Direct connection over your tailnet: turn on Allow remote agent management on your desktop and connect this device to Tailscale.";
+export const NEEDS_SIGNER_APPROVAL = "Approve the sign-in request in your signer to connect to your desktop, then try again.";
+/** How long to keep waiting while the remote signer is asked to approve the connect signature (older desktops only). */
+const SIGNER_WAIT_MS = 90_000;
 export class NeedsDirectError extends Error {
   code = "needs_direct";
-  constructor() {
-    super(NEEDS_DIRECT);
+  constructor(message: string = NEEDS_DIRECT) {
+    super(message);
     this.name = "NeedsDirectError";
   }
 }
@@ -52,7 +55,9 @@ export async function ensureProxyDirectLive(timeoutMs = 8000): Promise<boolean> 
   if (!d) return false;
   if (d.live) return true;
   if (d.state !== "connecting") void d.connect().catch(() => undefined);
-  while (Date.now() < deadline) {
+  // A connect that is waiting on the remote signer gets up to SIGNER_WAIT_MS (the user is approving it in Primal).
+  const signerDeadline = Date.now() + SIGNER_WAIT_MS;
+  while (Date.now() < deadline || (current?.state === "connecting" && current.awaitingSigner && Date.now() < signerDeadline)) {
     if (current?.live) return true;
     await new Promise((r) => setTimeout(r, 150));
   }
@@ -87,7 +92,13 @@ export async function proxyCmd<T = unknown>(name: string, args?: Record<string, 
   // instead of failing straight away.
   if (!current?.live) await ensureProxyDirectLive();
   const d = current;
-  if (!d || !d.live) throw new NeedsDirectError();
+  if (!d || !d.live) {
+    // Say what's actually in the way: a signer approval or a refusal from the desktop, not "connect to Tailscale".
+    if (d?.awaitingSigner) throw new NeedsDirectError(NEEDS_SIGNER_APPROVAL);
+    const code = d?.lastError?.code;
+    if (code && !["unreachable", "timeout", "closed", "bad_url", "idle_timeout"].includes(code)) throw new NeedsDirectError(directErrorCopy(d!.lastError));
+    throw new NeedsDirectError();
+  }
   try {
     const v = (await slot(() => d.call("cmd", { name, args: args ?? {} }))) as T;
     staleCmds.delete(name);
