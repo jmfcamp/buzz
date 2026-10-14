@@ -619,7 +619,13 @@ export function TerminalSubstrate({
   const keyBarRefocus = React.useEffectEvent(() => {
     handoffRef.current = { ...INITIAL_HANDOFF_STATE };
     const area = textareaRef.current;
-    if (area && area.value) area.value = "";
+    // Touch: put the sentinel seed back (never empty). An EMPTY field made iOS start a fresh predictive-text composition for
+    // the next word, and Safari fires its final `input` BEFORE compositionend, so that text was dropped: "frozen after Tab".
+    if (area) {
+      const want = touchUi ? TOUCH_SEED : "";
+      if (area.value !== want) area.value = want;
+      if (touchUi) area.setSelectionRange(TOUCH_SEED.length, TOUCH_SEED.length);
+    }
     reclaimTerminalInputFocus({ claimOwner: true });
   });
   const isTouchPointer = (event: React.PointerEvent) => touchUi && event.pointerType !== "mouse";
@@ -1800,6 +1806,7 @@ export function TerminalSubstrate({
           aria-label="Terminal input"
           autoCapitalize="off"
           autoComplete="off"
+          autoCorrect="off"
           className="buzz-terminal-input"
           inputMode={touchUi && !kbWanted ? "none" : undefined}
           onBlur={() => {
@@ -1809,10 +1816,21 @@ export function TerminalSubstrate({
               if (textareaRef.current) textareaRef.current.inputMode = "none";
             }
           }}
-          onCompositionEnd={() => {
+          onCompositionEnd={(event) => {
             handoffRef.current = reduceHandoff(handoffRef.current, {
               type: "composition-end",
             }).state;
+            // Touch (iOS Safari): the last `input` of a composition fires BEFORE compositionend while still composing, so
+            // onInput skipped it. Flush what the composition left in the field now (and mark it handled so a browser that
+            // also fires a trailing `input`, e.g. Android Chrome, doesn't send it twice).
+            if (!touchUi) return;
+            const area = event.currentTarget;
+            const committed = area.value.replaceAll(TOUCH_SENTINEL, "");
+            area.value = TOUCH_SEED;
+            area.setSelectionRange(TOUCH_SEED.length, TOUCH_SEED.length);
+            if (!committed) return;
+            printableKeyHandledRef.current = committed;
+            sendInput(committed);
           }}
           onCompositionStart={() => {
             handoffRef.current = reduceHandoff(handoffRef.current, {

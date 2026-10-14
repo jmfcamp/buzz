@@ -22,6 +22,8 @@ type AgentIdentityCardProps = {
   onClick: () => void;
   /** Optional badge rendered below the label (e.g. "Restart required"). */
   statusBadge?: ReactNode;
+  /** Single-row footer (name bottom-left, status dot bottom-right) laid out BELOW the avatar so the name never overlaps it. */
+  statusDot?: "online" | "away" | "offline" | null;
 };
 
 export function AgentIdentityCard({
@@ -35,7 +37,9 @@ export function AgentIdentityCard({
   subtitle,
   onClick,
   statusBadge,
+  statusDot,
 }: AgentIdentityCardProps) {
+  const rowFooter = statusDot !== undefined;
   const trimmedAvatarUrl = avatarUrl?.trim() || null;
   const overlayRef = useRef<HTMLButtonElement>(null);
   // Web without Direct: the card still shows (cached/relay data) but its controls (start/stop on the avatar, the ⋯ menu) are off.
@@ -74,8 +78,11 @@ export function AgentIdentityCard({
         type="button"
       />
 
-      <div className="pointer-events-none relative z-20 flex h-full w-full min-w-0 flex-col items-center justify-center gap-5 px-4 pb-12 text-center">
-        <div className="flex h-24 w-24 items-center justify-center">
+      <div className={cn(
+          "pointer-events-none relative z-20 flex h-full w-full min-w-0 flex-col items-center justify-center gap-5 px-4 text-center",
+          rowFooter ? "pt-3 pb-11" : "pb-12",
+        )}>
+        <div className={cn("flex items-center justify-center", rowFooter ? "aspect-square h-auto max-h-24 w-auto max-w-24 min-h-0 flex-1" : "h-24 w-24")}>
           {avatar && controlsOff ? gate(avatar, `${dataTestId}-controls-off`) : avatar ??
             (trimmedAvatarUrl ? (
               <ProfileAvatar
@@ -99,6 +106,24 @@ export function AgentIdentityCard({
         <div className="absolute top-3 right-3 z-40" data-card-control="">{actions}</div>
       ) : null}
 
+      {rowFooter ? (
+        <div
+          className="pointer-events-none absolute right-3 bottom-3 left-3 z-30 flex min-w-0 items-center gap-2 text-left text-sm leading-5"
+          data-testid={`${dataTestId}-footer`}
+        >
+          <span className="min-w-0 flex-1 truncate font-semibold text-foreground tracking-normal">{label}</span>
+          <span
+            aria-label={statusDot === "online" ? "Online" : statusDot === "away" ? "Away" : "Offline"}
+            className={cn(
+              "h-2.5 w-2.5 shrink-0 rounded-full",
+              statusDot === "online" ? "bg-emerald-500" : statusDot === "away" ? "bg-amber-400" : "bg-muted-foreground/40",
+            )}
+            data-testid={`${dataTestId}-status-dot`}
+            role="img"
+            title={subtitle ?? undefined}
+          />
+        </div>
+      ) : (
       <div className="pointer-events-none absolute right-3 bottom-3 left-3 z-30 flex min-w-0 items-end gap-2 text-left text-sm leading-5">
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="min-w-0 truncate font-semibold text-foreground tracking-normal">
@@ -120,6 +145,7 @@ export function AgentIdentityCard({
           <div className="shrink-0">{footerAccessory}</div>
         ) : null}
       </div>
+      )}
     </div>
   );
 }

@@ -110,6 +110,11 @@
 [data-phone] [data-testid="app-top-chrome"] [data-phone-hide] {
   display: none !important;
 }
+/* Breadcrumbs in the top chrome band ("Projects > Projects" next to Home) are hidden on phone; the nav row covers it. */
+[data-phone] #app-top-chrome-content nav[aria-label*="breadcrumb" i],
+[data-phone] #app-top-chrome-content [data-testid^="project-breadcrumb"] {
+  display: none !important;
+}
 /* The Channels tab is the list only: Inbox/Agents/Buzz term live in the tab bar, Projects/Bots/Browsers under Me. */
 [data-phone] .phone-fullscreen .sidebar-primary-menu {
   display: none;

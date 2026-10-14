@@ -63,6 +63,7 @@ export function BotsDirectoryGrid({
           key={card.id}
           label={card.name}
           subtitle={card.status.label}
+          statusDot={card.status.id === "online" || card.status.id === "away" ? card.status.id : "offline"}
           onClick={() => onOpenBot(card.id)}
         />
       ))}

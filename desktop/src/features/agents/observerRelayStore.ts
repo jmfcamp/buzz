@@ -203,15 +203,25 @@ function unregisterKnownAgents(subscriptionId: string) {
 
 let connectionState: ConnectionState = "idle";
 let errorMessage: string | null = null;
-let noticeMessage: string | null = null;
+// Per agent: one bot's undecryptable frames must not put a notice on every agent's pane.
+const noticeByAgent = new Map<string, string>();
 export const OBSERVER_SIGNER_WAIT_NOTE = "Waiting for signer to show live activity…";
 /** A decrypt that failed only because the signer was slow/busy (or the frame was dropped as stale): not an error. */
 const isSignerWait = (e: unknown) =>
   /didn't respond|in time|timeout|skipped|not answering|stale|signer/i.test(String((e as Error)?.message ?? e));
-function setNotice(next: string | null) {
-  if (noticeMessage === next) return;
-  noticeMessage = next;
-  snapshotByAgent.clear();
+function setNotice(next: string | null, agentPubkey?: string) {
+  if (!agentPubkey) {
+    if (next === null && noticeByAgent.size === 0) return;
+    noticeByAgent.clear();
+    snapshotByAgent.clear();
+    notifyListeners();
+    return;
+  }
+  const key = normalizePubkey(agentPubkey);
+  if ((noticeByAgent.get(key) ?? null) === next) return;
+  if (next === null) noticeByAgent.delete(key);
+  else noticeByAgent.set(key, next);
+  snapshotByAgent.delete(key);
   notifyListeners();
 }
 let unsubscribeRelay: (() => Promise<void>) | null = null;
@@ -590,14 +600,18 @@ async function handleRelayObserverEvent(
       return;
     }
     processLiveObserverEvents(agentPubkey, unwrapObserverBatch(parsed));
-    setNotice(null);
+    setNotice(null, agentPubkey);
   } catch (error) {
     if (activeGeneration !== generation) {
       return;
     }
+    if (String((error as Error)?.message ?? error).includes("next desktop update")) {
+      setNotice(String((error as Error).message), agentPubkey);
+      return;
+    }
     if (isSignerWait(error)) {
       // Live frames keep coming; the next decrypt that succeeds clears this. Never a red/pink error.
-      setNotice(OBSERVER_SIGNER_WAIT_NOTE);
+      setNotice(OBSERVER_SIGNER_WAIT_NOTE, agentPubkey);
       return;
     }
     setConnectionState(
@@ -762,6 +776,7 @@ export function getAgentObserverSnapshot(
     return IDLE_SNAPSHOT;
   }
   const key = normalizePubkey(agentPubkey);
+  const noticeMessage = noticeByAgent.get(key) ?? null;
   const cached = snapshotByAgent.get(key);
   if (
     cached &&

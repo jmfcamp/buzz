@@ -6,6 +6,7 @@ import { observerDecryptFailed, observerDecryptStarted, observerDecryptSucceeded
 // holds a secret key, so crypto goes through the signer's nip44 (cached by the instrumented signer).
 import { verifyEvent } from "nostr-tools";
 import { getSigner } from "./signer";
+import { desktopSignerActive, getDirectSigner } from "./signer/directRoute";
 
 type Args = Record<string, any> | undefined;
 
@@ -23,24 +24,59 @@ const contentLooksLikeNip44 = (c: string) =>
 // the panel catches up to the latest state instead of flooding the signer. The paired desktop (Direct) answers in ms.
 const OBSERVER_LANE_MAX_BACKLOG = 6;
 type Job = { run: () => Promise<string>; resolve: (s: string) => void; reject: (e: unknown) => void };
-const lane: Job[] = [];
-let laneBusy = false;
-function pump() {
-  if (laneBusy) return;
-  const job = lane.shift();
+// One lane PER AGENT: a bot whose frames are slow to decrypt (e.g. falling back to a sleeping Primal) must not starve or
+// drop the frames of the user's other agents.
+type Lane = { jobs: Job[]; busy: boolean };
+const lanes = new Map<string, Lane>();
+function pump(l: Lane) {
+  if (l.busy) return;
+  const job = l.jobs.shift();
   if (!job) return;
-  laneBusy = true;
+  l.busy = true;
   job.run().then(job.resolve, job.reject).finally(() => {
-    laneBusy = false;
-    pump();
+    l.busy = false;
+    pump(l);
   });
 }
-export function observerDecryptLane(run: () => Promise<string>): Promise<string> {
+export function observerDecryptLane(run: () => Promise<string>, agent = ""): Promise<string> {
+  let l = lanes.get(agent);
+  if (!l) lanes.set(agent, (l = { jobs: [], busy: false }));
+  const lane = l;
   return new Promise<string>((resolve, reject) => {
-    lane.push({ run, resolve, reject });
-    while (lane.length > OBSERVER_LANE_MAX_BACKLOG) lane.shift()?.reject(new Error("stale observer frame skipped (signer busy)"));
-    pump();
+    lane.jobs.push({ run, resolve, reject });
+    while (lane.jobs.length > OBSERVER_LANE_MAX_BACKLOG) lane.jobs.shift()?.reject(new Error("stale observer frame skipped (signer busy)"));
+    pump(lane);
   });
+}
+
+// While the paired desktop is live over Direct, observer frames are decrypted there FIRST. When the desktop refuses a peer
+// (hula.8 only decrypts frames from its local managed agents; community/Hula bots need the next desktop release) we
+// remember that peer for a while and do NOT fall back to the remote signer (Primal sleeps while Direct is live, so every
+// frame would wait out its timeouts, trip the breaker and leave the pane on "Waiting for signer" forever).
+export const OBSERVER_NEEDS_DESKTOP_UPDATE = "Live activity for this bot shows after the next desktop update.";
+const REFUSED_TTL_MS = 5 * 60_000;
+const DIRECT_OBSERVER_TIMEOUT_MS = 6_000;
+const refusedPeers = new Map<string, number>();
+const isRefusal = (e: unknown) =>
+  /own data|not offered|unsupported|not_supported/i.test(`${(e as { code?: string })?.code ?? ""} ${(e as Error)?.message ?? e}`) &&
+  !/can't encrypt\/decrypt yet/i.test(String((e as Error)?.message ?? e));
+async function observerDecrypt(peer: string, ct: string, fallback: () => Promise<string>): Promise<string> {
+  const ds = getDirectSigner();
+  if (!ds?.crypt || !desktopSignerActive()) return fallback();
+  const refusedAt = refusedPeers.get(peer);
+  if (refusedAt && Date.now() - refusedAt < REFUSED_TTL_MS) throw new Error(OBSERVER_NEEDS_DESKTOP_UPDATE);
+  try {
+    return await Promise.race([
+      ds.crypt("nip44_decrypt", peer, ct),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error("direct crypt timeout")), DIRECT_OBSERVER_TIMEOUT_MS)),
+    ]);
+  } catch (e) {
+    if (isRefusal(e)) {
+      refusedPeers.set(peer, Date.now());
+      throw new Error(OBSERVER_NEEDS_DESKTOP_UPDATE);
+    }
+    return fallback();
+  }
 }
 
 export async function decryptObserverEvent(a: Args): Promise<unknown> {
@@ -57,14 +93,15 @@ export async function decryptObserverEvent(a: Args): Promise<unknown> {
     throw new Error(`decrypt observer event failed: invalid NIP-44 ciphertext length: ${ev.content.length}`);
   const n = getSigner().nip44;
   if (!n) throw new Error("Your signer does not support NIP-44 decryption.");
-  const done = observerDecryptStarted();
+  const agent = String(ev.pubkey).toLowerCase();
+  const done = observerDecryptStarted(agent);
   const busyDone = beginBusy("observer-decrypt");
   let plaintext: string;
   try {
-    plaintext = await observerDecryptLane(() => n.decrypt(ev.pubkey, ev.content));
-    observerDecryptSucceeded();
+    plaintext = await observerDecryptLane(() => observerDecrypt(agent, ev.content, () => n.decrypt(ev.pubkey, ev.content)), agent);
+    observerDecryptSucceeded(agent);
   } catch (e) {
-    observerDecryptFailed();
+    if (String((e as Error)?.message ?? e) !== OBSERVER_NEEDS_DESKTOP_UPDATE) observerDecryptFailed(agent);
     throw e;
   } finally {
     done();
