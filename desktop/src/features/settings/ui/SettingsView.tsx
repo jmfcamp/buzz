@@ -67,7 +67,7 @@ export const settingsNavGroups: Array<{
       "huddle",
       "shortcuts",
       "buzz-term",
-      ...(isTauri() ? (["pinned-sites"] as SettingsSection[]) : []), // web: pinned sites are desktop-only (docs/pwa-web-differences.md #1)
+      "pinned-sites" as SettingsSection, // web: pins open in an iframe panel
       "custom-emoji",
       "local-archive",
       "channel-templates",

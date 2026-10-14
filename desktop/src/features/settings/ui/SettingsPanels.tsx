@@ -920,7 +920,7 @@ export function renderSettingsSection(
     case "buzz-term":
       return <BuzzTermSettingsPanel />;
     case "pinned-sites":
-      return isTauri() ? <PinnedSitesSettingsCard /> : null;
+      return <PinnedSitesSettingsCard />;
     case "hosted-communities":
       return isTauri() ? <HostedCommunitiesSettingsCard /> : null;
     case "community-members":
