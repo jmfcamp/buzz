@@ -6,6 +6,7 @@ mod git_runtime_tests;
 
 mod acp;
 mod config;
+mod cross_channel;
 mod edit_routing;
 mod engram_fetch;
 mod filter;
@@ -3240,6 +3241,7 @@ async fn run_harness(
         tracing::warn!("no channel subscriptions resolved — agent will sit idle");
     }
     let mut subscribed_channel_ids = HashSet::with_capacity(channel_filters.len());
+    let mut non_member_cap = cross_channel::RateCap::default();
     for (channel_id, filter) in &channel_filters {
         if let Err(e) = relay.subscribe_channel(*channel_id, filter.clone()).await {
             tracing::warn!("failed to subscribe to channel {channel_id}: {e}");
@@ -3822,6 +3824,29 @@ async fn run_harness(
                             if config.ignore_self && buzz_event.event.pubkey.to_hex() == pubkey_hex {
                                 tracing::debug!(channel_id = %buzz_event.channel_id, "dropping self-authored event");
                                 continue;
+                            }
+
+                            // Cross-channel mention from a channel we are not
+                            // subscribed to: admit only open channels, rate-capped.
+                            if !subscribed_channel_ids.contains(&buzz_event.channel_id) {
+                                let ch = buzz_event.channel_id;
+                                let channel_type = ctx
+                                    .channel_info
+                                    .resolve_channel_metadata(ch)
+                                    .await
+                                    .map(|info| info.channel_type);
+                                if !cross_channel::channel_type_admits_non_member(channel_type.as_deref()) {
+                                    tracing::info!(channel_id = %ch, ?channel_type, "cross-channel mention dropped: channel not open");
+                                    continue;
+                                }
+                                if !non_member_cap.try_admit(std::time::Instant::now()) {
+                                    tracing::warn!(channel_id = %ch, "cross-channel mention dropped: 30/hr cap");
+                                    continue;
+                                }
+                                tracing::info!(channel_id = %ch, "cross-channel mention admitted (not a member)");
+                                cross_channel::mark_non_member(ch);
+                            } else {
+                                cross_channel::clear_non_member(buzz_event.channel_id);
                             }
 
                             // Check: kind:9, content "!shutdown", from owner, mentions THIS agent.

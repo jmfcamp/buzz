@@ -666,6 +666,8 @@ enum RelayMessage {
 const MEMBERSHIP_NOTIF_SUB_ID: &str = "membership-notif";
 /// Subscription ID for encrypted owner-to-agent observer control frames.
 const OBSERVER_CONTROL_SUB_ID: &str = "agent-observer-control";
+/// Message kinds delivered by the cross-channel mention filter (stream message, forum post).
+const CROSS_CHANNEL_MENTION_KINDS: [u32; 2] = [9, 40002];
 
 /// Commands sent from `HarnessRelay` to the background WebSocket task.
 enum RelayCommand {
@@ -2200,7 +2202,10 @@ async fn handle_ws_message(
                 Ok(m) => m,
                 Err(e) => {
                     // Never log frames verbatim: they can carry credentials.
-                    warn!("failed to parse relay message: {e} — {}", frame_summary(&text));
+                    warn!(
+                        "failed to parse relay message: {e} — {}",
+                        frame_summary(&text)
+                    );
                     return true;
                 }
             };
@@ -2240,7 +2245,33 @@ async fn handle_ws_message(
                         }
                     };
 
-                    if subscription_id == OBSERVER_CONTROL_SUB_ID {
+                    if subscription_id == OBSERVER_CONTROL_SUB_ID
+                        && CROSS_CHANNEL_MENTION_KINDS.contains(&(event.kind.as_u16() as u32))
+                    {
+                        // Cross-channel mention. Channels we subscribe to
+                        // deliver their own copy; only forward the rest.
+                        let Some(channel_uuid) = extract_h_tag_uuid(&event) else {
+                            return true;
+                        };
+                        if state.active_subscriptions.contains_key(&channel_uuid) {
+                            return true;
+                        }
+                        if !state.seen_ids.insert(event.id.to_hex()) {
+                            return true;
+                        }
+                        let buzz_event = BuzzEvent {
+                            connection_generation: state.connection_generation,
+                            channel_id: channel_uuid,
+                            event: *event,
+                        };
+                        match event_tx.try_send(Some(buzz_event)) {
+                            Ok(()) => {}
+                            Err(mpsc::error::TrySendError::Full(_)) => {
+                                warn!(channel_id = %channel_uuid, "cross-channel mention dropped (backpressure)");
+                            }
+                            Err(mpsc::error::TrySendError::Closed(_)) => return false,
+                        }
+                    } else if subscription_id == OBSERVER_CONTROL_SUB_ID {
                         match observer_control_tx.try_send(*event) {
                             Ok(()) => {}
                             Err(mpsc::error::TrySendError::Full(_)) => {
@@ -3467,16 +3498,25 @@ async fn send_membership_subscribe(
 
 /// Send a NIP-01 REQ for owner-to-agent observer control frames.
 async fn send_observer_control_subscribe(ws: &mut WsStream, agent_pubkey_hex: &str) -> bool {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    // Second filter: cross-channel @mentions of this agent (no `#h`), so an
+    // agent p-tagged in an open channel it has not joined still sees it. The
+    // harness admits these only for open channels, rate-capped.
     let req = json!([
         "REQ",
         OBSERVER_CONTROL_SUB_ID,
         {
             "kinds": [KIND_AGENT_OBSERVER_FRAME],
             "#p": [agent_pubkey_hex],
-            "since": std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
+            "since": now,
+        },
+        {
+            "kinds": CROSS_CHANNEL_MENTION_KINDS,
+            "#p": [agent_pubkey_hex],
+            "since": now,
         }
     ]);
 
@@ -6990,11 +7030,13 @@ mod tests {
     }
 }
 
-
 /// The first element of a relay frame (`"EVENT"`, `"HULA"`, …), if it is a JSON array starting with a string.
 pub(crate) fn frame_type(text: &str) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(text).ok()?;
-    v.as_array()?.first()?.as_str().map(|s| s.chars().take(32).collect())
+    v.as_array()?
+        .first()?
+        .as_str()
+        .map(|s| s.chars().take(32).collect())
 }
 
 /// Log-safe description of a relay frame: its type and size only, never its contents.
@@ -7020,9 +7062,13 @@ mod frame_redaction_tests {
 
     #[test]
     fn unknown_type_error_has_no_raw_text() {
-        let err = parse_relay_message(r#"["WAT",{"token":"SECRET"}]"#).unwrap_err().to_string();
+        let err = parse_relay_message(r#"["WAT",{"token":"SECRET"}]"#)
+            .unwrap_err()
+            .to_string();
         assert!(!err.contains("SECRET"));
-        let err = parse_relay_message(r#"["OK",{"token":"SECRET"}]"#).unwrap_err().to_string();
+        let err = parse_relay_message(r#"["OK",{"token":"SECRET"}]"#)
+            .unwrap_err()
+            .to_string();
         assert!(!err.contains("SECRET"));
     }
 }

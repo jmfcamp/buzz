@@ -327,7 +327,15 @@ async fn reply_mentions(rest: &RestClient, channel_id: Uuid, text: &str) -> Vec<
     };
     let (mut mentions, unresolved) =
         resolve_reply_mentions(&stripped, &directory, &uri_pubkeys, &self_hex);
-    if !unresolved.is_empty() {
+    // Relay-wide fallback only in open channels: a private channel must not
+    // notify (or leak content to) people who cannot read it.
+    if !unresolved.is_empty() && !channel_is_open(rest, channel_id).await {
+        tracing::info!(
+            channel = %channel_id,
+            names = ?unresolved,
+            "last-mile: channel not open; non-member @names left as text"
+        );
+    } else if !unresolved.is_empty() {
         let relay_hits = resolve_names_on_relay(rest, &unresolved).await;
         let still = merge_relay_mention_hits(&mut mentions, &unresolved, &relay_hits, &self_hex);
         if !still.is_empty() {
@@ -341,12 +349,27 @@ async fn reply_mentions(rest: &RestClient, channel_id: Uuid, text: &str) -> Vec<
     mentions
 }
 
+/// True only when the channel's kind:39000 metadata says it is an open stream.
+/// Lookup failure or missing metadata fails closed.
+async fn channel_is_open(rest: &RestClient, channel_id: Uuid) -> bool {
+    let filter = serde_json::json!({"kinds": [39000], "#d": [channel_id.to_string()], "limit": 1});
+    match tokio::time::timeout(LAST_MILE_TIMEOUT, rest.query_raw(&[filter])).await {
+        Ok(Ok(json)) => metadata_says_open(&json),
+        _ => false,
+    }
+}
+
+fn metadata_says_open(json: &serde_json::Value) -> bool {
+    json.as_array()
+        .and_then(|a| a.first())
+        .and_then(|e| e.get("tags"))
+        .and_then(|t| t.as_array())
+        .is_some_and(|tags| crate::relay::channel_type_from_tags(tags) == "stream")
+}
+
 /// NIP-50 kind:0 search for each unresolved `@Name`. Returns `(lower_name, pubkey)`
 /// only when exactly one profile matches that display name or name.
-async fn resolve_names_on_relay(
-    rest: &RestClient,
-    names: &[String],
-) -> Vec<(String, String)> {
+async fn resolve_names_on_relay(rest: &RestClient, names: &[String]) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for name in names {
         let filter = serde_json::json!({
@@ -610,6 +633,17 @@ fn thread_ref_from_anchor(anchor: &str) -> Option<buzz_sdk::ThreadRef> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn metadata_open_only_for_stream_channels() {
+        let open = serde_json::json!([{"tags":[["d","x"],["name","g"]]}]);
+        let private = serde_json::json!([{"tags":[["d","x"],["private"]]}]);
+        let dm = serde_json::json!([{"tags":[["d","x"],["t","dm"]]}]);
+        assert!(metadata_says_open(&open));
+        assert!(!metadata_says_open(&private));
+        assert!(!metadata_says_open(&dm));
+        assert!(!metadata_says_open(&serde_json::json!([])));
+    }
+
     use super::*;
     use crate::queue::{BatchEvent, FlushBatch};
     use nostr::{EventBuilder, Keys, Kind, Tag};
@@ -716,8 +750,7 @@ mod tests {
         let wayfinder = pk('w');
         let d = dir(&[(&quasar, "Quasar"), (&stitch, "Stitch")]);
         let text = strip("@Quasar @Korg @Mo @Stitch @Wayfinder — announce yourselves");
-        let (mut mentions, unresolved) =
-            resolve_reply_mentions(&text, &d, &[], &pk('f'));
+        let (mut mentions, unresolved) = resolve_reply_mentions(&text, &d, &[], &pk('f'));
         assert_eq!(mentions, vec![quasar.clone(), stitch.clone()]);
         assert_eq!(
             unresolved,
@@ -734,10 +767,7 @@ mod tests {
         ];
         let still = merge_relay_mention_hits(&mut mentions, &unresolved, &relay_hits, &pk('f'));
         assert!(still.is_empty());
-        assert_eq!(
-            mentions,
-            vec![quasar, stitch, korg, mo, wayfinder]
-        );
+        assert_eq!(mentions, vec![quasar, stitch, korg, mo, wayfinder]);
     }
 
     #[test]
