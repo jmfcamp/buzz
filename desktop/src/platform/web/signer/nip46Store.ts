@@ -129,3 +129,23 @@ export async function clearPendingConnect(): Promise<void> {
     await tx("readwrite", (st) => st.delete(PENDING_KEY));
   } catch {}
 }
+
+// ── Desktop bunker session (desktopBunker.ts): its own slot, so it can sit next to a Clave session ──
+const BUNKER_KEY = "desktop-bunker-session";
+export type DesktopBunkerSession = { clientSecret: string; remotePubkey: string; relays: string[]; userPubkey: string; label?: string };
+export async function saveDesktopBunkerSession(s: DesktopBunkerSession): Promise<void> {
+  await tx("readwrite", (st) => st.put(s, BUNKER_KEY));
+}
+export async function loadDesktopBunkerSession(): Promise<DesktopBunkerSession | null> {
+  try {
+    const v = (await tx("readonly", (st) => st.get(BUNKER_KEY))) as DesktopBunkerSession | undefined;
+    return v && v.clientSecret && v.remotePubkey && v.relays?.length && v.userPubkey ? v : null;
+  } catch {
+    return null;
+  }
+}
+export async function clearDesktopBunkerSession(): Promise<void> {
+  try {
+    await tx("readwrite", (st) => st.delete(BUNKER_KEY));
+  } catch {}
+}

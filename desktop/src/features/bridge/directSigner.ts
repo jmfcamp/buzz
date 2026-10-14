@@ -29,7 +29,8 @@ import {
 } from "./directSignerProto";
 import { MgmtError } from "./mgmtError";
 
-export type SignerDevice = { pubkey: string; label: string; approvedAt: number; revokedAt?: number };
+/** via: how the browser reaches this desktop ("direct" = Direct/tailnet pairing, "bunker" = NIP-46 over the signer relay). */
+export type SignerDevice = { pubkey: string; label: string; approvedAt: number; revokedAt?: number; via?: "direct" | "bunker" };
 /** kind: event kind for signatures, -1 for pairing/revoke, -2 for encrypt/decrypt (note says which). */
 export type SignerLogEntry = { at: number; device: string; kind: number; ok: boolean; note?: string };
 

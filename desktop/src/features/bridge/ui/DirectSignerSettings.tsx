@@ -156,7 +156,7 @@ export function DesktopDirectSignerCard(props: { empty?: boolean } = {}) {
                 <StatusChip tone={d.revokedAt ? "grey" : "green"}>{d.revokedAt ? "Revoked" : "Allowed"}</StatusChip>
               </p>
               <p className="text-sm font-normal text-muted-foreground/70" data-settings-subcopy>
-                Device {d.pubkey.slice(0, 12)}… · approved {new Date(d.approvedAt).toLocaleString()} · {entries.filter((e) => e.kind >= 0 && e.ok).length} recent signatures
+                {d.via === "bunker" ? "Sign-in code (any network)" : "Direct"} · device {d.pubkey.slice(0, 12)}… · approved {new Date(d.approvedAt).toLocaleString()} · {entries.filter((e) => e.kind >= 0 && e.ok).length} recent signatures
               </p>
               <button className="text-sm text-muted-foreground underline" onClick={() => setOpen(open === d.pubkey ? null : d.pubkey)} type="button">
                 {open === d.pubkey ? "Hide log" : "Show log"}

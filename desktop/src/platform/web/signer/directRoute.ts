@@ -18,15 +18,57 @@ export type DirectSigner = {
   /** This browser is paired with the desktop (whether or not Direct is live right now). */
   isPaired?: () => boolean;
 };
+// Two desktop routes, Direct (tailnet) first, then the desktop bunker (NIP-46 over the Hula signer relay, desktopBunker.ts).
+// Callers see ONE desktop signer: the first route that is live right now. When neither is live, signing goes straight to
+// the remote signer (Clave) or, with no remote signer, fails fast (read-only).
+let direct: DirectSigner | null = null;
+let bunker: DirectSigner | null = null;
 let current: DirectSigner | null = null;
 const listeners = new Set<() => void>();
+const live = (s: DirectSigner | null) => {
+  try {
+    return !!s?.active();
+  } catch {
+    return false;
+  }
+};
+const pick = (): DirectSigner | null => (live(direct) ? direct : live(bunker) ? bunker : (direct ?? bunker));
+const composite: DirectSigner = {
+  sign: (ev) => {
+    const s = pick();
+    return s ? s.sign(ev) : Promise.reject(new Error("no desktop signer"));
+  },
+  active: () => live(direct) || live(bunker),
+  isAuto: (k) => pick()?.isAuto?.(k) ?? true,
+  crypt: (op, peer, text) => {
+    const s = live(direct) && direct?.crypt ? direct : live(bunker) ? bunker : direct;
+    return s?.crypt ? s.crypt(op, peer, text) : Promise.reject(new Error("desktop can't encrypt"));
+  },
+  isPaired: () => !!direct?.isPaired?.() || !!bunker?.isPaired?.(),
+};
+const recompute = () => {
+  current = direct || bunker ? composite : null;
+  for (const l of listeners) l();
+};
+/** Direct (tailnet) route. */
 export const setDirectSigner = (s: DirectSigner | null) => {
-  current = s;
+  direct = s;
+  recompute();
+};
+/** Desktop bunker route (signer relay). */
+export const setBunkerSigner = (s: DirectSigner | null) => {
+  bunker = s;
+  recompute();
+};
+/** Live-ness changed inside a route (bunker came back / went away): wake listeners (remote signer park/unpark). */
+export const notifyDirectSignerChange = () => {
   for (const l of listeners) l();
 };
 /** Back-compat: a bare sign route (always considered inactive for dormancy, no crypt). */
 export const setDirectSignRoute = (r: DirectSignRoute | null) => setDirectSigner(r ? { sign: r, active: () => false } : null);
 export const getDirectSignRoute = (): DirectSignRoute | null => current?.sign ?? null;
+/** The Direct route itself (not the composite): for code that manages the Direct connection. */
+export const getDirectRoute = () => direct;
 export const getDirectSigner = () => current;
 /** Paired desktop reachable over a live Direct connection: the remote signer may sleep. */
 let lastActiveAt = 0;

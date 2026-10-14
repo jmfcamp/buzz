@@ -14,7 +14,7 @@ import {
 import { bytesToHex, hexToBytes } from "nostr-tools/utils";
 
 // `ws` is only a transitive dev dependency (via jsdom); resolve it directly or from the pnpm store.
-async function loadWs() {
+export async function loadWs() {
   try {
     return await import("ws");
   } catch {}
@@ -251,5 +251,52 @@ export async function startMockSigner({
       for (const c of wss.clients) c.terminate();
       await new Promise((r) => wss.close(r));
     },
+  };
+}
+
+/**
+ * The REAL desktop bunker (src/features/bridge/desktopBunker.ts) on a mock signer relay, with an in-memory device store
+ * and the account key in this process (like the desktop app). Needs the TS test loader (pnpm test / --experimental-strip-types).
+ *   confirm: (title, message) => boolean | Promise<boolean>   (the desktop Allow/Deny prompt)
+ */
+export async function startMockDesktopBunker({ relayUrl, userSkHex, confirm = () => true, now = () => Date.now() }) {
+  const { createBunkerPolicy, createBunkerService } = await import("../../src/features/bridge/desktopBunker.ts");
+  const { WebSocket: WS } = await loadWs();
+  const userSk = hexToBytes(userSkHex);
+  const userPk = getPublicKey(userSk);
+  let devices = [];
+  const log = [];
+  const prompts = [];
+  const policy = createBunkerPolicy({
+    store: { devices: () => devices, saveDevices: (d) => (devices = d), log: (e) => log.push(e) },
+    confirm: async (t, m) => (prompts.push(t), confirm(t, m)),
+    sign: async (ev) => finalizeEvent({ kind: ev.kind, content: ev.content, tags: ev.tags, created_at: ev.created_at }, userSk),
+    randomHex: (n) => bytesToHex(crypto.getRandomValues(new Uint8Array(n))),
+    now,
+    userPubkey: () => userPk,
+    crypt: {
+      selfPubkey: () => userPk,
+      encryptToSelf: async (t) => nip44.v2.encrypt(t, nip44.v2.utils.getConversationKey(userSk, userPk)),
+      encryptToPeer: async (p, t) => nip44.v2.encrypt(t, nip44.v2.utils.getConversationKey(userSk, p)),
+      decryptFromSelf: async (c) => nip44.v2.decrypt(c, nip44.v2.utils.getConversationKey(userSk, userPk)),
+      decryptFromPeer: async (p, c) => nip44.v2.decrypt(c, nip44.v2.utils.getConversationKey(userSk, p)),
+    },
+  });
+  const service = createBunkerService({ policy, secretKey: generateSecretKey(), relays: [relayUrl], WebSocketImpl: WS });
+  service.start();
+  return {
+    userPk,
+    policy,
+    service,
+    log,
+    prompts,
+    devices: () => devices,
+    /** A fresh one-time sign-in code, like Settings → Show code. */
+    code: () => service.uriFor(policy.newCode().secret),
+    revokeAll: () => (devices = devices.map((d) => ({ ...d, revokedAt: Date.now() }))),
+    /** Desktop asleep: stop answering (socket closed). */
+    sleep: () => service.stop(),
+    wake: () => service.start(),
+    stop: () => service.stop(),
   };
 }

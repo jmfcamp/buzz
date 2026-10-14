@@ -47,13 +47,19 @@ if (!(await resumeSession())) {
 // would dead-end on every reload/update. The cached session boots straight in (reads need no signer), signing is lazy,
 // the paired desktop signs over Direct first, and a quiet background check raises the non-blocking banner if needed.
 startSignerBanner(signerActions);
-if (getSession()?.kind === "nip46") {
+void import("./signer/desktopBunkerBanner").then((m) =>
+  m.startDesktopBunkerBanner({ sessionKind: () => getSession()?.kind, signInAgain: () => void signerActions.reconnect() }),
+);
+if (getSession()?.kind === "nip46" || getSession()?.kind === "desktop") {
   startBackgroundSignerCheck(signerActions);
   const { setRelayPreConnectHook } = await import("@/shared/api/relayClientSession");
   // Paired desktop first (Direct, device-key auth): it signs the relay AUTH with no Clave round trip; else the Clave flow.
   const warmDesktop = async () => {
     const [{ warmDesktopSigner }, { getSigner }] = await Promise.all([import("@/features/bridge/coldDirect"), import("./signer")]);
-    return warmDesktopSigner(async (e) => JSON.stringify(await getSigner().signEvent({ kind: e.kind, content: e.content, created_at: e.createdAt, tags: e.tags })));
+    // Desktop bunker (signer relay, any network) and Direct (tailnet) race; either one live is enough.
+    const { warmDesktopBunker } = await import("./signer/desktopBunker");
+    const viaDirect = warmDesktopSigner(async (e) => JSON.stringify(await getSigner().signEvent({ kind: e.kind, content: e.content, created_at: e.createdAt, tags: e.tags })));
+    return Promise.any([warmDesktopBunker(5000), viaDirect].map((p) => p.then((ok) => (ok ? true : Promise.reject(new Error("no")))))).catch(() => false);
   };
   setRelayPreConnectHook(() => ensureSignerAwake(signerActions, warmDesktop));
 }

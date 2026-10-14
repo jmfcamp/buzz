@@ -1,7 +1,7 @@
 // Web cold start via the paired desktop: remember the last desktop this browser used as signer (public info only: desktop
 // id + Direct URL; the device key stays where directSignerClient keeps it) so the next launch can open Direct first,
 // authenticated by the device key (no remote-signer round trip), and sign the relay's NIP-42 AUTH there.
-import { setDirectSigner, desktopSignerActive, getDirectSigner } from "@/platform/web/signer/directRoute";
+import { setDirectSigner, desktopSignerActive, getDirectRoute } from "@/platform/web/signer/directRoute";
 import { directAgentsFor } from "./directAgents";
 import { DirectSignerClient, isPairedWith } from "./directSignerClient";
 import type { SignJson } from "./remoteClient";
@@ -39,7 +39,7 @@ export function warmDesktopSigner(sign: SignJson, timeoutMs = 6000): Promise<boo
   attempt ??= (async () => {
     try {
       const agents = directAgentsFor({ desktopId: last.desktopId, url: last.url }, sign);
-      if (!getDirectSigner()) {
+      if (!getDirectRoute()) {
         const c = new DirectSignerClient(agents, last.desktopId);
         setDirectSigner({ sign: (ev) => c.sign(ev), active: () => c.active(), isAuto: (k) => c.isAuto(k), crypt: (op, peer, text) => c.crypt(op, peer, text), isPaired: () => c.isPaired() });
       }

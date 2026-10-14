@@ -9,7 +9,10 @@ import {
   signIn,
   signOutSigner,
   getSession,
+  signInWithDesktop,
 } from "./signer";
+import { DesktopSignInPanel } from "./DesktopSignInPanel";
+import { isDesktopBunkerUri } from "./signer/desktopBunker";
 import {
   DEFAULT_SIGNER_RELAYS,
   type NostrConnectFlow,
@@ -140,7 +143,8 @@ function Nip46Panel({ onDone }: { onDone: (pubkey: string) => void }) {
     setBusy("bunker");
     setErr(null);
     try {
-      onDone(await adopt(await connectBunker(bunker)));
+      // A desktop sign-in code pasted here: same as "Sign in with your desktop" (desktop first, read-only when it's away).
+      onDone(isDesktopBunkerUri(bunker) ? await signInWithDesktop(bunker) : await adopt(await connectBunker(bunker)));
     } catch (e) {
       setErr(errText(e));
       setBusy(null);
@@ -400,6 +404,10 @@ function Unlock({ onDone }: { onDone: (pubkey: string) => void }) {
           Your private key never enters this page. Sign-in and every message is
           signed by your browser extension or remote signer.
         </p>
+        <div style={{ display: "grid", gap: 8 }} data-testid="web-unlock-desktop">
+          <strong>Sign in with your desktop</strong>
+          <DesktopSignInPanel connect={async (code) => onDone(await signInWithDesktop(code))} />
+        </div>
         {ext === null && <p style={note}>Looking for a Nostr extension…</p>}
         {ext === true && (
           <button
@@ -438,13 +446,13 @@ function Unlock({ onDone }: { onDone: (pubkey: string) => void }) {
         )}
         <div
           style={{
-            borderTop: ext ? "1px solid #e5e5e5" : undefined,
+            borderTop: "1px solid #e5e5e5",
             paddingTop: 12,
             display: "grid",
             gap: 8,
           }}
         >
-          <strong data-testid="web-unlock-nip46">Remote signer (NIP-46)</strong>
+          <strong data-testid="web-unlock-nip46">Or a remote signer (NIP-46)</strong>
           <p style={note}>
             Sign with nsec.app, Amber, Primal, Clave or any bunker. Your key
             stays in that app. Using Clave on this iPhone? Paste its bunker://
