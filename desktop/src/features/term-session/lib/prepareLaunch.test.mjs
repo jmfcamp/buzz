@@ -24,7 +24,7 @@ test("buildLaunchFromPrepare keeps the user Claude login: --mcp-config, no CLAUD
   assert.equal(extraEnv.CLAUDE_CONFIG_DIR, undefined);
   assert.equal(extraEnv.BUZZ_USER_SIGNER_DIR, "/tmp/user-signer");
   assert.doesNotMatch(launchCommand, /CLAUDE_CONFIG_DIR/);
-  assert.match(launchCommand, /claude --mcp-config '\/tmp\/claude-sid\/\.claude\.json' /);
+  assert.match(launchCommand, /claude --mcp-config='\/tmp\/claude-sid\/\.claude\.json' -- /);
 });
 
 test("buildLaunchFromPrepare omits signer env when not wired", () => {
@@ -54,5 +54,5 @@ test("buildLaunchFromPrepare prefers mcpConfigPath", () => {
     { hula: "term-session", v: 1, name: "t", tool: "claude", sid: "s", prompt: "hi" },
     { promptPath: "/p", claudeConfigDir: null, mcpConfigPath: "/s/mcp.json", openclawWired: false },
   );
-  assert.equal(launchCommand, `claude --mcp-config '/s/mcp.json' "$(cat '/p')"`);
+  assert.equal(launchCommand, `claude --mcp-config='/s/mcp.json' -- "$(cat '/p')"`);
 });
