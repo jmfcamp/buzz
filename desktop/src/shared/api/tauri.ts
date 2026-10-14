@@ -392,10 +392,35 @@ export async function leaveChannel(channelId: string): Promise<void> {
   record(channelId);
 }
 
+async function desktopHomeFeed(input: GetHomeFeedInput): Promise<RawHomeFeedResponse> {
+  const [{ getFeed }, { buzzInboxFeedEvents }, { ownersFromProfiles }, { relayClient }, identity] =
+    await Promise.all([
+      import("@/features/inbox/inboxEligibility"),
+      import("@/features/inbox/inboxRelay"),
+      import("@/platform/web/nipOa"),
+      import("@/shared/api/relayClient"),
+      import("@/shared/api/tauriIdentity").then((m) => m.getIdentity()),
+    ]);
+  const query = async (filters: Record<string, unknown>[]) =>
+    (await Promise.all(filters.map((f) => relayClient.fetchEvents(f as never)))).flat();
+  return (await getFeed(
+    input as never,
+    identity.pubkey.toLowerCase(),
+    query as never,
+    (p) => ownersFromProfiles(p as never),
+    (page) => buzzInboxFeedEvents(page) as never,
+  )) as unknown as RawHomeFeedResponse;
+}
+
 export async function getHomeFeed(
   input: GetHomeFeedInput = {},
 ): Promise<HomeFeedResponse> {
-  const response = await invokeTauri<RawHomeFeedResponse>("get_feed", input);
+  // One Inbox definition for desktop and web: desktop now runs the shared builder too (it used to
+  // call the Rust `get_feed`, which had no paging and diverged from web).
+  const response =
+    import.meta.env?.VITE_BUZZ_PLATFORM === "web"
+      ? await invokeTauri<RawHomeFeedResponse>("get_feed", input)
+      : await desktopHomeFeed(input);
 
   return {
     feed: {

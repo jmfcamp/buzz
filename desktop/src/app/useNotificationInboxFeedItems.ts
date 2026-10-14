@@ -7,6 +7,8 @@ import {
   participatedRoots,
 } from "@/features/home/lib/notificationInbox";
 import { INBOX_WINDOW_SECONDS } from "@/features/channels/readState/readStateFormat";
+import { getThreadReference } from "@/features/messages/lib/threading";
+import { fetchBuzzInboxPage } from "@/features/inbox/inboxRelay";
 import { relayClient } from "@/shared/api/relayClient";
 import type { Channel, FeedItem, RelayEvent } from "@/shared/api/types";
 import { useRelayConnection } from "@/shared/api/useRelayConnection";
@@ -17,7 +19,8 @@ const MY_HISTORY_SECS = 30 * 24 * 3600;
 const MAX_DM_CHANNELS = 60;
 const MAX_ROOTS = 100;
 
-type Raw = { dms: RelayEvent[]; mine: RelayEvent[]; replies: RelayEvent[] };
+/** `serverRoots`: thread roots the relay already proved you are in (buzz_inbox mode). */
+type Raw = { dms: RelayEvent[]; mine: RelayEvent[]; replies: RelayEvent[]; serverRoots?: string[] };
 
 /**
  * DMs and thread replies that notified you (toast / phone push), fetched from the
@@ -77,6 +80,17 @@ export function useNotificationInboxFeedItems({
     staleTime: 20_000,
     gcTime: 5 * 60_000,
     queryFn: async (): Promise<Raw> => {
+      // Relay-side Inbox: no 60-DM / 100-thread / 14-day limits. Falls back below when absent.
+      const page = await fetchBuzzInboxPage({ limit: 100, roots: extraRoots });
+      if (page) {
+        const dms = page.items.filter((i) => i.category === "dm").map((i) => i.event);
+        const replies = page.items.filter((i) => i.category === "thread_reply").map((i) => i.event);
+        const serverRoots = replies.flatMap((ev) => {
+          const root = getThreadReference(ev.tags).rootId;
+          return root ? [root] : [];
+        });
+        return { dms, mine: [], replies, serverRoots };
+      }
       const now = Math.floor(Date.now() / 1_000);
       const [dms, mine] = await Promise.all([
         dmIds.length
@@ -122,11 +136,14 @@ export function useNotificationInboxFeedItems({
   return React.useMemo(() => {
     const data = query.data;
     if (!data || !enabled) return [];
-    const roots = participatedRoots(
-      data.mine,
-      (mentions ?? []).map((m) => ({ id: m.id, tags: m.tags })),
-      extraRoots,
+    const roots = new Set(
+      participatedRoots(
+        data.mine,
+        (mentions ?? []).map((m) => ({ id: m.id, tags: m.tags })),
+        extraRoots,
+      ),
     );
+    for (const root of data.serverRoots ?? []) roots.add(root);
     return buildNotificationInboxItems(data.dms, data.replies, roots, {
       me,
       channels,

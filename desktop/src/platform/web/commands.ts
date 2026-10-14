@@ -8,7 +8,8 @@ import { parity2Handlers } from "./parity2";
 import { observedUnreadHandlers } from "./observedUnread";
 import { ownersFromProfiles } from "./nipOa";
 import { getFeed, type FeedArgs } from "./feed";
-import { queryRelay } from "./relayHttp";
+import { queryRelay, queryRelayHttp } from "./relayHttp";
+import { buzzInboxFeedEvents } from "@/features/inbox/inboxRelay";
 import {
   defaultRelayWsUrl,
   relayHttpBase,
@@ -211,7 +212,20 @@ export const handlers: Record<string, Handler> = {
         feed: { mentions: [], needs_action: [], activity: [], agent_activity: [] },
         meta: { since: 0, total: 0, generated_at: Math.floor(Date.now() / 1000) },
       };
-    return getFeed(a as FeedArgs, me, (filters) => queryRelay(filters as never) as never, (p) => ownersFromProfiles(p as never));
+    return getFeed(
+      a as FeedArgs,
+      me,
+      (filters) => queryRelay(filters as never) as never,
+      (p) => ownersFromProfiles(p as never),
+      (page) => buzzInboxFeedEvents(page) as never,
+    );
+  },
+  // Server-side Inbox page (`buzz_inbox` /query extension); callers check the NIP-11 capability first.
+  query_buzz_inbox: (a) => {
+    const f: Record<string, unknown> = { buzz_inbox: 1, limit: Math.min(Number(a?.limit ?? 50), 100) };
+    if (a?.until != null) f.until = a.until;
+    if (Array.isArray(a?.roots) && a.roots.length) f.roots = a.roots;
+    return queryRelayHttp([f as never]);
   },
   get_voice_input_mode: () => "push_to_talk",
   get_audio_output_device: () => "",

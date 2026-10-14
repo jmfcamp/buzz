@@ -3,6 +3,7 @@
 //! These endpoints provide HTTP access to the relay's Nostr protocol,
 //! authenticated via NIP-98 signed events.
 
+mod inbox;
 mod read_state_snapshot;
 
 use std::sync::Arc;
@@ -1423,6 +1424,10 @@ async fn query_events_authed(
         &mut accessible_channels,
     )
     .await?;
+
+    if inbox::requested(&raw_filters) {
+        return inbox::query(state, tenant, &pubkey, &accessible_channels, &raw_filters).await;
+    }
 
     if filters.iter().any(|f| f.search.is_some()) {
         if has_mixed_search_filters(&filters) {

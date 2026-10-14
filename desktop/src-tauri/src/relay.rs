@@ -386,6 +386,28 @@ pub async fn query_relay_at(
     .await
 }
 
+/// POST /query with an extension envelope whose response is not an event
+/// array (e.g. `buzz_inbox`). Same NIP-98 auth and rate-limit admission.
+pub async fn query_relay_value(
+    state: &AppState,
+    filters: &[serde_json::Value],
+) -> Result<serde_json::Value, String> {
+    crate::relay_admission::wait_for_rate_limit().await;
+    let url = format!("{}/query", relay_api_base_url_with_override(state));
+    let body_bytes =
+        serde_json::to_vec(filters).map_err(|e| format!("filter serialization failed: {e}"))?;
+    let auth = build_nip98_auth_header(&Method::POST, &url, &body_bytes, state)?;
+    send_query_request(
+        &state.http_client,
+        &url,
+        &auth,
+        None,
+        body_bytes,
+        QUERY_REQUEST_TIMEOUT,
+    )
+    .await
+}
+
 pub async fn query_relay_at_with_keys(
     state: &AppState,
     api_base_url: &str,
@@ -448,14 +470,14 @@ fn build_authenticated_relay_request(
 /// can drive the real send/timeout/classify path with a short deadline against
 /// a stalled loopback. A timeout surfaces through `classify_request_error` as
 /// the stable `"relay unreachable: request timed out"` string.
-async fn send_query_request(
+async fn send_query_request<T: DeserializeOwned>(
     http_client: &reqwest::Client,
     url: &str,
     auth: &str,
     auth_tag: Option<&str>,
     body_bytes: Vec<u8>,
     timeout: std::time::Duration,
-) -> Result<Vec<nostr::Event>, String> {
+) -> Result<T, String> {
     let response = build_authenticated_relay_request(
         http_client,
         Method::POST,

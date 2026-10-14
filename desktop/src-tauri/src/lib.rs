@@ -696,6 +696,7 @@ pub fn run() {
             get_canvas_history,
             set_canvas,
             get_feed,
+            query_buzz_inbox,
             search_messages,
             send_channel_message,
             send_managed_agent_channel_message,

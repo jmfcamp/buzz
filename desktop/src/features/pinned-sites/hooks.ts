@@ -30,6 +30,11 @@ import {
   upsertPersonalPin,
   type PersonalPinnedSitesBlob,
 } from "./lib/personalPins";
+import {
+  PERSONAL_PINS_APPLIED_EVENT,
+  recordPersonalPins,
+  startPersonalPinsSync,
+} from "./lib/personalPinsSync";
 import type { PinnedSite, PinnedSiteDraft } from "./lib/types";
 import { normalizePinnedSiteName, normalizePinnedSiteUrl } from "./lib/url";
 
@@ -156,6 +161,23 @@ export function useCommunityPinnedSitesLiveUpdates(): void {
   }, [queryClient]);
 }
 
+/** Main window only: sync personal pins with the relay doc and reload the cache on remote edits. */
+export function usePersonalPinsSync(enabled: boolean) {
+  const queryClient = useQueryClient();
+  const { pubkey, relayUrl } = usePinnedSitesScope();
+  React.useEffect(() => {
+    if (!enabled || !pubkey || !relayUrl) return;
+    const onApplied = () =>
+      void queryClient.invalidateQueries({ queryKey: personalPinnedSitesQueryKey });
+    window.addEventListener(PERSONAL_PINS_APPLIED_EVENT, onApplied);
+    const stop = startPersonalPinsSync(pubkey, relayUrl);
+    return () => {
+      window.removeEventListener(PERSONAL_PINS_APPLIED_EVENT, onApplied);
+      stop();
+    };
+  }, [enabled, pubkey, queryClient, relayUrl]);
+}
+
 export function usePinnedSites() {
   const queryClient = useQueryClient();
   const { pubkey, relayUrl } = usePinnedSitesScope();
@@ -177,6 +199,7 @@ export function usePinnedSites() {
     (blob: PersonalPinnedSitesBlob) => {
       if (!pubkey || !relayUrl) return;
       savePersonalPinnedSites(pubkey, relayUrl, blob);
+      recordPersonalPins(pubkey, relayUrl, blob.pins);
       void queryClient.invalidateQueries({
         queryKey: personalPinnedSitesQueryKey,
       });
