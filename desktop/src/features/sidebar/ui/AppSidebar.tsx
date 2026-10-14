@@ -7,6 +7,7 @@ import { SidebarDndContext } from "@/features/sidebar/ui/SidebarDnd";
 import { AddCommunityDialog } from "@/features/communities/ui/AddCommunityDialog";
 import { useIsMobile } from "@/shared/hooks/use-mobile";
 import { usePhoneLayout } from "@/shared/lib/phoneLayout";
+import { useScrollRestore } from "@/shared/lib/useScrollRestore";
 import { useDeferredLoad } from "@/shared/hooks/useDeferredStartup";
 import {
   useChannelSections,
@@ -192,6 +193,7 @@ export function AppSidebar({
   );
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const menuRef = React.useRef<HTMLDivElement>(null);
+  useScrollRestore(isPhone ? "phone-channels" : null, scrollRef);
   const menuAway = usePrimaryMenuScrollAway(scrollRef, menuRef);
   useSidebarScrollLock(scrollRef);
   // biome-ignore format: keep compact to stay within file size limit

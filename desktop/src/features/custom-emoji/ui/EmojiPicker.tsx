@@ -37,6 +37,11 @@ function disableSearchInputCorrections(
     input.spellcheck = false;
     input.setAttribute("autocorrect", "off");
     input.setAttribute("autocapitalize", "off");
+    // The search field lives in a shadow root, so the global 16px touch rule can't reach it; at emoji-mart's ~13px
+    // iOS zoomed the whole page in on focus (content cut off on the right, composer pushed below the screen).
+    if (window.matchMedia?.("(hover: none) and (pointer: coarse)").matches) {
+      input.style.fontSize = "16px";
+    }
     if (autoFocus) {
       input.focus();
     }
