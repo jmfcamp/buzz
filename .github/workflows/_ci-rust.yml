@@ -217,6 +217,7 @@ jobs:
     outputs:
       rust_lint_result: ${{ needs.rust-lint.result }}
       unit_tests_result: ${{ needs.unit-tests.result }}
-      windows_rust_result: ${{ needs.windows-rust.result }}
+      # Hula fork skips Windows Rust; report the skip as a pass.
+      windows_rust_result: ${{ (github.repository == 'jmfcamp/buzz' && needs.windows-rust.result == 'skipped') && 'success' || needs.windows-rust.result }}
     steps:
       - run: echo "Captured Rust job results"

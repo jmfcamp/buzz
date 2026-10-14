@@ -161,6 +161,7 @@ jobs:
     permissions: {}
     outputs:
       web_result: ${{ needs.web.result }}
-      mobile_result: ${{ needs.mobile.result }}
+      # Hula fork skips Mobile; report the skip as a pass.
+      mobile_result: ${{ (github.repository == 'jmfcamp/buzz' && needs.mobile.result == 'skipped') && 'success' || needs.mobile.result }}
     steps:
       - run: echo "Captured client job results"

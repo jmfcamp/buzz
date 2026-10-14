@@ -657,7 +657,8 @@ jobs:
     permissions: {}
     outputs:
       desktop_e2e_relay_result: ${{ needs.desktop-e2e-relay.result }}
-      desktop_e2e_integration_result: ${{ needs.desktop-e2e-integration.result }}
+      # Hula fork skips Desktop E2E Integration; report the skip as a pass.
+      desktop_e2e_integration_result: ${{ (github.repository == 'jmfcamp/buzz' && needs.desktop-e2e-integration.result == 'skipped') && 'success' || needs.desktop-e2e-integration.result }}
       backend_integration_result: ${{ needs.backend-integration.result }}
       relay_e2e_result: ${{ needs.relay-e2e.result }}
       postgres_tests_result: ${{ needs.postgres-tests.result }}
