@@ -21,6 +21,72 @@ export function installPhoneLayoutAttribute(): void {
   mql.addEventListener("change", sync);
   installPhoneViewportHeight(mql);
   installPhoneTouchBehaviors(mql);
+  installTabletKeyboardFrame(mql);
+}
+
+/** Installed tablet-width app (iPad portrait/landscape, iPhone landscape; the web.css standalone >=600px frame): the
+ *  same visual-viewport keyboard handling the phone shell uses, applied to the fixed #root frame. While the keyboard
+ *  is up, --tablet-vv-top / --tablet-kb pin the frame to the visible area (so iOS's focus scroll can't push the header
+ *  under the status bar); when it closes both reset to 0 and the document scroll snaps back to 0,0, so the layout
+ *  returns exactly to the initial one. Rotation re-baselines the keyboard detection. */
+function installTabletKeyboardFrame(phoneMql: MediaQueryList): void {
+  const vv = window.visualViewport;
+  const frameMql = window.matchMedia("(min-width: 600px) and (display-mode: standalone)");
+  const root = document.documentElement;
+  let maxH = 0;
+  let lastW = window.innerWidth;
+  const active = () => frameMql.matches && !phoneMql.matches;
+  const clear = () => {
+    root.style.removeProperty("--tablet-kb");
+    root.style.removeProperty("--tablet-vv-top");
+    root.removeAttribute("data-tablet-keyboard");
+  };
+  const resetScroll = () => {
+    if (!active()) return;
+    if (window.scrollY !== 0 || window.scrollX !== 0) window.scrollTo(0, 0);
+    for (const el of [document.documentElement, document.body, document.getElementById("root")]) {
+      if (el && (el.scrollTop !== 0 || el.scrollLeft !== 0)) {
+        el.scrollTop = 0;
+        el.scrollLeft = 0;
+      }
+    }
+  };
+  const sync = () => {
+    if (!active() || !vv) {
+      clear();
+      return;
+    }
+    if (window.innerWidth !== lastW) {
+      // Rotation: heights change meaning, so forget the old baseline.
+      lastW = window.innerWidth;
+      maxH = 0;
+    }
+    maxH = Math.max(maxH, window.innerHeight, vv.height);
+    const keyboard = vv.height < maxH - 150;
+    if (!keyboard) {
+      clear();
+      resetScroll();
+      return;
+    }
+    root.setAttribute("data-tablet-keyboard", "");
+    const top = Math.max(0, Math.round(vv.offsetTop));
+    const kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+    root.style.setProperty("--tablet-vv-top", `${top}px`);
+    root.style.setProperty("--tablet-kb", `${kb}px`);
+  };
+  const later = (...ms: number[]) => {
+    for (const m of ms) window.setTimeout(sync, m);
+  };
+  document.addEventListener("focusin", () => later(0, 100, 300, 600), true);
+  document.addEventListener("focusout", () => later(50, 300, 600), true);
+  window.addEventListener("scroll", () => (root.hasAttribute("data-tablet-keyboard") ? sync() : resetScroll()), { passive: true });
+  vv?.addEventListener("resize", sync);
+  vv?.addEventListener("scroll", sync);
+  window.addEventListener("resize", sync);
+  window.addEventListener("orientationchange", () => later(0, 300, 800));
+  frameMql.addEventListener("change", sync);
+  phoneMql.addEventListener("change", sync);
+  sync();
 }
 
 /** iOS: track the visual viewport (shrinks with the soft keyboard) as --phone-vh so the shell and composer stay on
