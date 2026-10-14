@@ -1,5 +1,6 @@
 #![recursion_limit = "256"] // Deep Tauri command futures exceed the default layout query depth.
 mod app_menu;
+mod fd_limit;
 mod app_state;
 mod archive;
 mod browser_agent;
@@ -111,6 +112,8 @@ use tauri_plugin_window_state::StateFlags;
 use tray_menu::show_main_window;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Before anything spawns: children (Buzz Term shells, Herdr, agents) inherit a sane open-file limit.
+    fd_limit::raise_nofile_soft_limit();
     mesh_runtime::install_mesh_worker_runtime();
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
