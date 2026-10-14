@@ -31,11 +31,32 @@ body {
    ends exactly above the home indicator. Desktop browser tabs and iPhone (portrait < 600px or [data-phone]) never
    match this block, so they keep the pre-#325 layout. */
 @media (min-width: 600px) and (display-mode: standalone) {
+  /* Edge to edge: whatever shows around the padded content (notch side, home-indicator strip) is the app's own
+     sidebar colour, never the boot-black canvas, so landscape has no black letterbox bars. */
+  :root:not([data-phone]),
+  :root:not([data-phone]) body,
+  :root:not([data-phone]) body > #root {
+    background-color: hsl(var(--sidebar-background, var(--background)));
+  }
   :root:not([data-phone]) body > #root {
     position: fixed;
     inset: 0;
     height: auto;
     min-height: 0;
+    /* Bottom: just the home-indicator inset, trimmed 8px (the indicator line sits low in its inset band), so the
+       sidebar footer / composer row sit closer to the edge without going under it. Left/right only where the notch
+       actually is (iOS reports 0 on the non-notch side). */
+    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+      max(0px, calc(env(safe-area-inset-bottom, 0px) - 8px)) env(safe-area-inset-left, 0px);
+  }
+  /* Slide-in left panel (Radix sheet, portalled to <body>, so it ignores #root's padding): its background runs to the
+     physical edge, but its content is inset like the app content so it lines up and never sits under the notch. */
+  :root:not([data-phone]) [data-sidebar="sidebar"][data-mobile="true"] {
+    padding-top: env(safe-area-inset-top, 0px) !important;
+    padding-left: env(safe-area-inset-left, 0px) !important;
+    padding-bottom: max(0px, calc(env(safe-area-inset-bottom, 0px) - 8px)) !important;
+    width: calc(var(--sidebar-width) + env(safe-area-inset-left, 0px)) !important;
+    box-sizing: border-box;
   }
   :root:not([data-phone]) #root :has(.buzz-huddle-shell),
   :root:not([data-phone]) #root .buzz-huddle-shell {
