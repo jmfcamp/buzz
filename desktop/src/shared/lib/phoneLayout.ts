@@ -62,10 +62,14 @@ function installTabletKeyboardFrame(phoneMql: MediaQueryList): void {
       maxH = 0;
     }
     maxH = Math.max(maxH, window.innerHeight, vv.height);
-    const keyboard = vv.height < maxH - 150;
+    const ae = document.activeElement;
+    const fieldFocused =
+      ae instanceof HTMLElement && (ae.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName));
+    const keyboard = fieldFocused && vv.height < maxH - 150;
     if (!keyboard) {
       clear();
       resetScroll();
+      resetHiddenAncestors();
       return;
     }
     root.setAttribute("data-tablet-keyboard", "");
@@ -77,8 +81,44 @@ function installTabletKeyboardFrame(phoneMql: MediaQueryList): void {
   const later = (...ms: number[]) => {
     for (const m of ms) window.setTimeout(sync, m);
   };
-  document.addEventListener("focusin", () => later(0, 100, 300, 600), true);
-  document.addEventListener("focusout", () => later(50, 300, 600), true);
+  // iOS reveals a focused field by scrolling the nearest ancestors, including overflow:hidden ones the user can't
+  // scroll back (the main content surface around the composer). Remember the field and, once the keyboard is gone,
+  // put every non-scrollable ancestor back to scrollTop 0; otherwise the main panel stays shifted up with a gap.
+  let lastField: Element | null = null;
+  const resetHiddenAncestors = () => {
+    for (let el = lastField?.parentElement ?? null; el && el !== document.body; el = el.parentElement) {
+      if (el.scrollTop === 0 && el.scrollLeft === 0) continue;
+      const cs = getComputedStyle(el);
+      const fixedY = cs.overflowY === "hidden" || cs.overflowY === "clip" || cs.overflowY === "visible";
+      const fixedX = cs.overflowX === "hidden" || cs.overflowX === "clip" || cs.overflowX === "visible";
+      if (fixedY) el.scrollTop = 0;
+      if (fixedX) el.scrollLeft = 0;
+    }
+  };
+  const settleClosed = () => {
+    if (!active()) return;
+    const ae = document.activeElement;
+    if (ae instanceof HTMLElement && (ae.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName))) return;
+    // No field focused: the keyboard is down, whatever the viewport heights say.
+    clear();
+    resetScroll();
+    resetHiddenAncestors();
+  };
+  document.addEventListener(
+    "focusin",
+    (e) => {
+      lastField = e.target instanceof Element ? e.target : null;
+      later(0, 100, 300, 600);
+    },
+    true,
+  );
+  document.addEventListener(
+    "focusout",
+    () => {
+      for (const m of [50, 300, 600]) window.setTimeout(settleClosed, m);
+    },
+    true,
+  );
   window.addEventListener("scroll", () => (root.hasAttribute("data-tablet-keyboard") ? sync() : resetScroll()), { passive: true });
   vv?.addEventListener("resize", sync);
   vv?.addEventListener("scroll", sync);
