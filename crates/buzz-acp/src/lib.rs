@@ -11,6 +11,7 @@ mod engram_fetch;
 mod filter;
 mod isolated_execution;
 mod last_mile;
+mod media_fetch;
 mod observer;
 mod openclaw_label;
 mod openclaw_session_store;

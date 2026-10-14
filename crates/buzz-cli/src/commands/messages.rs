@@ -121,12 +121,15 @@ async fn resolve_channel_id(client: &BuzzClient, event_id: &str) -> Result<Uuid,
     channel_id_from_event(event_id, &event)
 }
 
+/// Soft channel-directory resolve. Returns `(resolved_pubkeys, unresolved_names)`.
+/// Ambiguous channel matches still error unless `has_explicit_mentions`.
 fn resolve_names_to_pubkeys(
     names: &[String],
     name_to_pubkeys: &std::collections::HashMap<String, Vec<String>>,
     has_explicit_mentions: bool,
-) -> Result<Vec<String>, CliError> {
+) -> Result<(Vec<String>, Vec<String>), CliError> {
     let mut resolved = Vec::new();
+    let mut unresolved = Vec::new();
     for name in names {
         match name_to_pubkeys
             .get(name)
@@ -134,27 +137,55 @@ fn resolve_names_to_pubkeys(
             .unwrap_or_default()
         {
             [pubkey] => resolved.push(pubkey.clone()),
-            [] if has_explicit_mentions => {}
-            [] => {
-                return Err(CliError::Usage(format!(
-                    "mention '@{name}' does not match a current channel member; retry with --mention <pubkey>"
-                )))
-            }
+            [] => unresolved.push(name.clone()),
             _ if has_explicit_mentions => {}
             candidates => {
                 return Err(CliError::Usage(format!(
-                    "mention '@{name}' is ambiguous; candidates: {}. Retry with --mention <pubkey>",
+                    "mention '@{name}' is ambiguous among channel members; candidates: {}. Retry with --mention <pubkey>",
                     candidates.join(", ")
                 )))
             }
         }
     }
-    Ok(resolved)
+    Ok((resolved, unresolved))
 }
 
-/// Resolve mention text against the channel membership snapshot.
+/// NIP-50 kind:0 search for a display name. Returns the unique pubkey when
+/// exactly one profile matches `display_name` or `name` (case-insensitive).
+async fn resolve_name_on_relay(
+    client: &BuzzClient,
+    name: &str,
+) -> Result<Option<String>, CliError> {
+    let filter = serde_json::json!({
+        "kinds": [0],
+        "search": name,
+        "limit": 100
+    });
+    let raw = client.query(&filter).await.map_err(|e| {
+        CliError::Other(format!("could not search relay profiles for mention '@{name}': {e}"))
+    })?;
+    let events: Vec<serde_json::Value> = serde_json::from_str(&raw).unwrap_or_default();
+    let matches = match_profiles_by_name(&events, name);
+    match matches.len() {
+        1 => Ok(Some(matches[0].0.clone())),
+        0 => Ok(None),
+        _ => Err(CliError::Usage(format!(
+            "mention '@{name}' is ambiguous on the relay; candidates: {}. Retry with --mention <pubkey>",
+            matches
+                .iter()
+                .take(5)
+                .map(|(pk, n)| format!("{n} ({pk})"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))),
+    }
+}
+
+/// Resolve mention text against channel members, then unique relay profiles.
 ///
-/// Returns both the current member set and uniquely name-resolved pubkeys.
+/// Returns the current channel member set (for diagnostics) and uniquely
+/// name-resolved pubkeys. Non-members that uniquely match a relay profile are
+/// included so community agents can be notified without joining the channel.
 /// Lookup failures are fatal when mention processing is requested: publishing
 /// visible mention text without its intended `p` tag is worse than not sending.
 async fn resolve_content_mentions(
@@ -224,7 +255,26 @@ async fn resolve_content_mentions(
 
     let known_refs: Vec<&str> = display_names.iter().map(String::as_str).collect();
     let names = extract_at_mentions_with_known(&stripped, &known_refs);
-    let resolved = resolve_names_to_pubkeys(&names, &name_to_pubkeys, has_explicit_mentions)?;
+    let (mut resolved, unresolved) =
+        resolve_names_to_pubkeys(&names, &name_to_pubkeys, has_explicit_mentions)?;
+
+    // Fall back to unique relay profiles so community agents (and other relay
+    // members) get p-tagged even when they are not in this channel.
+    for name in &unresolved {
+        match resolve_name_on_relay(client, name).await? {
+            Some(pubkey) => {
+                if !resolved.iter().any(|p| p.eq_ignore_ascii_case(&pubkey)) {
+                    resolved.push(pubkey);
+                }
+            }
+            None if has_explicit_mentions => {}
+            None => {
+                return Err(CliError::Usage(format!(
+                    "mention '@{name}' does not match a channel member or unique relay profile; retry with --mention <pubkey>"
+                )));
+            }
+        }
+    }
     Ok((member_pubkeys, resolved))
 }
 
@@ -269,6 +319,7 @@ fn merge_message_mentions(
     Ok(mentions)
 }
 
+#[cfg(test)]
 fn missing_members(mentions: &[String], members: &[String]) -> Vec<String> {
     let members: std::collections::HashSet<&str> = members.iter().map(String::as_str).collect();
     mentions
@@ -634,18 +685,11 @@ pub async fn cmd_send_message(
     let (member_pubkeys, auto_resolved) =
         resolve_content_mentions(client, &p.channel_id, &p.content, has_explicit_mentions).await?;
     let mention_pubkeys = merge_message_mentions(&explicit_mentions, &uri_pubkeys, &auto_resolved)?;
-
-    let missing = missing_members(&mention_pubkeys, &member_pubkeys);
-    if !missing.is_empty() {
-        return Err(CliError::Usage(
-            serde_json::json!({
-                "message": "mentioned pubkeys are not channel members; add them explicitly before retrying",
-                "missing_member_pubkeys": missing,
-                "add_member_command": format!("buzz channels add-member --channel {} --pubkey <pubkey> --role <member|bot>", p.channel_id),
-            })
-            .to_string(),
-        ));
-    }
+    // Channel membership is no longer required for p-tags: uniquely resolved
+    // relay profiles (community agents, other members) are tagged so mentions
+    // and notifications can target them. `member_pubkeys` remains available for
+    // diagnostics but does not gate the send.
+    let _ = member_pubkeys;
 
     // Upload files and build imeta tags
     let mut media_tags: Vec<Vec<String>> = Vec::new();
@@ -1464,14 +1508,18 @@ mod tests {
     }
 
     #[test]
-    fn explicit_mentions_authorize_presentation_text_without_name_resolution() {
+    fn unresolved_names_are_soft_for_relay_fallback() {
         let names = vec!["renamed user".into()];
         let profiles = std::collections::HashMap::new();
+        // Soft resolve: empty channel hit becomes unresolved for relay fallback.
         assert_eq!(
             resolve_names_to_pubkeys(&names, &profiles, true).unwrap(),
-            Vec::<String>::new()
+            (Vec::<String>::new(), vec!["renamed user".into()])
         );
-        assert!(resolve_names_to_pubkeys(&names, &profiles, false).is_err());
+        assert_eq!(
+            resolve_names_to_pubkeys(&names, &profiles, false).unwrap(),
+            (Vec::<String>::new(), vec!["renamed user".into()])
+        );
     }
 
     #[test]
@@ -1483,7 +1531,7 @@ mod tests {
         )]);
         assert_eq!(
             resolve_names_to_pubkeys(&names, &profiles, true).unwrap(),
-            Vec::<String>::new()
+            (Vec::<String>::new(), Vec::<String>::new())
         );
         let error = resolve_names_to_pubkeys(&names, &profiles, false).unwrap_err();
         assert!(error.to_string().contains(PK_VALID_A));
@@ -1491,14 +1539,17 @@ mod tests {
     }
 
     #[test]
-    fn explicit_mentions_make_all_at_names_presentation_only() {
+    fn unique_channel_hits_and_unresolved_are_split() {
         let names = vec!["alice".into(), "bob".into()];
         let profiles = std::collections::HashMap::from([("alice".into(), vec![PK_VALID_A.into()])]);
         assert_eq!(
             resolve_names_to_pubkeys(&names, &profiles, true).unwrap(),
-            vec![PK_VALID_A]
+            (vec![PK_VALID_A.into()], vec!["bob".into()])
         );
-        assert!(resolve_names_to_pubkeys(&names, &profiles, false).is_err());
+        assert_eq!(
+            resolve_names_to_pubkeys(&names, &profiles, false).unwrap(),
+            (vec![PK_VALID_A.into()], vec!["bob".into()])
+        );
     }
 
     #[test]

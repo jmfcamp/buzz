@@ -884,7 +884,27 @@ impl AcpClient {
         idle_timeout: std::time::Duration,
         max_duration: std::time::Duration,
     ) -> Result<StopReason, AcpError> {
-        let params = build_prompt_params(session_id, prompt_blocks);
+        self.session_prompt_blocks_with_media(
+            session_id,
+            prompt_blocks,
+            &[],
+            idle_timeout,
+            max_duration,
+        )
+        .await
+    }
+
+    /// Like [`session_prompt_blocks_with_idle_timeout`] but also appends ACP
+    /// image content blocks (already shaped) after the text blocks.
+    pub async fn session_prompt_blocks_with_media(
+        &mut self,
+        session_id: &str,
+        prompt_blocks: &[&str],
+        image_blocks: &[serde_json::Value],
+        idle_timeout: std::time::Duration,
+        max_duration: std::time::Duration,
+    ) -> Result<StopReason, AcpError> {
+        let params = build_prompt_params(session_id, prompt_blocks, image_blocks);
         let hard_deadline = tokio::time::Instant::now() + max_duration;
         self.current_hard_deadline = Some(hard_deadline);
 
@@ -2258,12 +2278,18 @@ impl AcpClient {
     }
 }
 
-/// Build `session/prompt` params from one or more text content blocks.
-fn build_prompt_params(session_id: &str, prompt_blocks: &[&str]) -> serde_json::Value {
-    let blocks: Vec<serde_json::Value> = prompt_blocks
+/// Build `session/prompt` params from text content blocks plus optional
+/// image blocks (already shaped as ACP `{type,mimeType,data}` values).
+fn build_prompt_params(
+    session_id: &str,
+    prompt_blocks: &[&str],
+    image_blocks: &[serde_json::Value],
+) -> serde_json::Value {
+    let mut blocks: Vec<serde_json::Value> = prompt_blocks
         .iter()
         .map(|text| serde_json::json!({ "type": "text", "text": text }))
         .collect();
+    blocks.extend(image_blocks.iter().cloned());
     serde_json::json!({
         "sessionId": session_id,
         "prompt": blocks,
@@ -2970,6 +2996,7 @@ mod tests {
                 "/goal ship it",
                 "[Buzz event: @mention]\nContent: @Eva /goal ship it",
             ],
+            &[],
         );
         let prompt = params["prompt"].as_array().unwrap();
         assert_eq!(prompt.len(), 2);
