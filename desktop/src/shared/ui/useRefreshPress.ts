@@ -7,6 +7,28 @@ const MODE_NOTE_MS = 2_500;
 let modeNoteTimer: ReturnType<typeof setTimeout> | null = null;
 
 const LONG_PRESS_MS = 500;
+const SUPPRESS_MS = 1_200;
+
+/** For a moment after a long press, swallow the contextmenu iOS raises (anywhere) and clear any text selection it made. */
+function suppressAfterLongPress() {
+  const onCtx = (e: Event) => e.preventDefault();
+  const onSel = () => {
+    try {
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed) sel.removeAllRanges();
+    } catch {
+      /* ignore */
+    }
+  };
+  document.addEventListener("contextmenu", onCtx, true);
+  document.addEventListener("selectionchange", onSel);
+  onSel();
+  setTimeout(() => {
+    document.removeEventListener("contextmenu", onCtx, true);
+    document.removeEventListener("selectionchange", onSel);
+    onSel();
+  }, SUPPRESS_MS);
+}
 
 /**
  * Nav Refresh: a tap reloads (`onReload`); a long press (~500ms) or right-click toggles "show connection messages" instead
@@ -49,11 +71,18 @@ export function useRefreshPress(onReload: () => void) {
         longFired.current = true;
         setPressing(false);
         toggle();
+        suppressAfterLongPress();
       }, LONG_PRESS_MS);
     },
     onPointerUp: clear,
     onPointerLeave: clear,
     onPointerCancel: clear,
+    // iOS: no callout / text selection from holding the button.
+    style: { userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none", touchAction: "manipulation" } as React.CSSProperties,
+    onTouchEnd: (e: React.TouchEvent) => {
+      // After a long press, cancel the synthetic click/selection iOS would fire on lift.
+      if (longFired.current && e.cancelable) e.preventDefault();
+    },
     onContextMenu: (e: React.MouseEvent) => {
       e.preventDefault();
       const alreadyToggled = longFired.current; // iOS raises contextmenu after our long-press timer fired

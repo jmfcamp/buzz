@@ -26,7 +26,7 @@ type Props = {
  * Keys a phone keyboard doesn't have. Buttons act on pointer-down and never take focus, so the hidden input (and with it the
  * on-screen keyboard) stays up while you tap them; arrows repeat while held.
  */
-export type TouchKeyGroupItem = { id: string; label: string; ariaLabel?: string; on?: boolean; action: () => void };
+export type TouchKeyGroupItem = { id: string; label: string; ariaLabel?: string; on?: boolean; action: () => void; /** Close the stack after this key (Tab). */ close?: boolean };
 
 /**
  * Reusable key-bar group: one button that opens a floating vertical stack of options directly above it. Tapping an option
@@ -92,8 +92,10 @@ export function TouchKeyGroup({ label, ariaLabel, items, testId }: { label: stri
               onPointerDown={(e) => {
                 e.preventDefault();
                 it.action();
+                if (it.close) setOpen(false);
               }}
               onMouseDown={(e) => e.preventDefault()}
+              onClick={(e) => e.preventDefault()}
             >
               {it.label}
             </button>
@@ -163,7 +165,7 @@ export function TerminalTouchBar({ ctrl, alt, meta, onToggleCtrl, onToggleAlt, o
         ariaLabel="Modifiers"
         testId="tk-mods"
         items={[
-          { id: "tab", label: "Tab", action: () => onKey(TOUCH_KEYS.tab) },
+          { id: "tab", label: "Tab", action: () => onKey(TOUCH_KEYS.tab), close: true },
           { id: "ctrl", label: "Ctrl", ariaLabel: "Control (next key)", on: ctrl, action: onToggleCtrl },
           { id: "alt", label: "⌥ Alt", ariaLabel: "Option (next key)", on: alt, action: onToggleAlt },
           { id: "cmd", label: "⌘ Cmd", ariaLabel: "Command (next key)", on: meta, action: onToggleMeta },

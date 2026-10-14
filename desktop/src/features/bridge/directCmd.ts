@@ -83,6 +83,7 @@ export const CMD_READS = [
   "list_managed_agents",
   "list_managed_agent_runtimes",
   "list_personas",
+  "list_teams",
   "discover_acp_providers",
   "agent_access_owner_only",
   "get_global_agent_config",
@@ -350,6 +351,9 @@ export async function handleCmd(name: string, args: unknown, deps: CmdDeps): Pro
       return list(await inv(name), (x) => x, 200);
     case "list_personas":
       return list(await inv(name), sanitizePersona, 200);
+    case "list_teams":
+      // Agent teams for the web Agents page (names, persona ids, instructions; no secrets).
+      return list(await inv(name), (x) => obj(x), 200);
     case "discover_acp_providers":
       return list(await inv(name, { force: a.force === true }), sanitizeRuntime, 200);
     case "prepare_term_session_launch": {

@@ -105,6 +105,7 @@ export const PROXIED_READS: Record<string, () => unknown> = {
   list_managed_agents: () => [],
   list_managed_agent_runtimes: () => [],
   list_personas: () => [],
+  list_teams: () => [],
   discover_acp_providers: () => [],
   agent_access_owner_only: () => false,
   get_global_agent_config: () => ({ env_vars: {}, provider: null, model: null, preferred_runtime: null }),

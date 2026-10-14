@@ -129,7 +129,7 @@ export function AgentSessionTranscriptList({
   scrollScopeKey?: string | null;
   variant?: AgentSessionTranscriptVariant;
 }) {
-  const waitingForSigner = useObserverWaitingForSigner();
+  const waitingForSigner = useObserverWaitingForSigner(agentPubkey);
   const activeTurns = useActiveAgentTurns(agentPubkey);
   const isTurnLive = React.useMemo(
     () => isAgentTurnLive(activeTurns, channelId),
