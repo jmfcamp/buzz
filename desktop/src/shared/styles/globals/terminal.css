@@ -430,6 +430,29 @@
     box-shadow: none;
     margin: 0;
   }
+  /* Opened from a thread/channel header (not the Buzz Term tab): the page underneath keeps its own header (Thread title,
+     pencil, star, info…) in the band under the transparent nav row, so both painted there. While a maximized Term is up:
+     hide the conversation headers, and give the nav band (safe area + nav row) an opaque background so the nav row is the
+     only thing on top. Same --phone-safe-top / --phone-nav-row-h offsets as every phone screen. */
+  [data-phone] body:has(.buzz-terminal-substrate[data-terminal-mode="maximized"][data-terminal-visible="true"]) [data-testid="chat-header"],
+  [data-phone] body:has(.buzz-terminal-substrate[data-terminal-mode="maximized"][data-terminal-visible="true"]) [data-testid="message-thread-head"],
+  [data-phone] body:has(.buzz-terminal-substrate[data-terminal-mode="maximized"][data-terminal-visible="true"]) [data-testid="channel-shared-header-backdrop"],
+  [data-phone] body:has(.buzz-terminal-substrate[data-terminal-mode="maximized"][data-terminal-visible="true"]) [data-testid="focus-thread-drawer-overlay"]:not(:has(.buzz-terminal-substrate)) {
+    visibility: hidden;
+  }
+  [data-phone] body:has(.buzz-terminal-substrate[data-terminal-mode="maximized"][data-terminal-visible="true"])::before {
+    content: "";
+    position: fixed;
+    inset: 0 0 auto 0;
+    height: calc(var(--phone-safe-top, env(safe-area-inset-top, 0px)) + var(--phone-nav-row-h, 40px));
+    background: hsl(var(--background));
+    z-index: 124; /* just under the nav row (125) and tab pill (130) */
+    pointer-events: none;
+  }
+  /* the Term itself above any page overlay (thread drawer z-110, full-screen lists z-110), below the nav band */
+  [data-phone] .buzz-terminal-substrate[data-terminal-mode="maximized"][data-terminal-visible="true"] {
+    z-index: 120 !important;
+  }
   /* pin to the full viewport width (the content surface's parents keep a few px of inset on the left) */
   [data-phone] .buzz-terminal-substrate[data-terminal-mode="maximized"][data-touch-ui="true"]:not([data-keyboard-open="true"]) {
     left: 0 !important;
@@ -465,6 +488,38 @@
   [data-phone] .buzz-terminal-substrate[data-terminal-mode="maximized"] .buzz-terminal-new-tab {
     height: 28px;
     padding: 0 6px;
+  }
+  /* Phone tabs (Buzz Term tab and the overlay opened from threads): flex row, the name truncates with an ellipsis and the ×
+     gets its own 28px slot after it instead of floating over the name. */
+  [data-phone] .buzz-terminal-substrate .buzz-terminal-tab {
+    display: flex;
+    align-items: center;
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 60vw;
+    padding: 0 !important;
+  }
+  [data-phone] .buzz-terminal-substrate .buzz-terminal-tab-select {
+    order: 0;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+  }
+  [data-phone] .buzz-terminal-substrate .buzz-terminal-tab-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  [data-phone] .buzz-terminal-substrate .buzz-terminal-close {
+    order: 1;
+    position: static;
+    flex: 0 0 28px;
+    width: 28px;
+    height: 28px;
+    justify-content: center;
+    opacity: 1;
+    pointer-events: auto;
   }
   /* key bar flush at the bottom; only the home-indicator inset below it (the substrate adds none) */
   [data-phone] .buzz-terminal-substrate[data-terminal-mode="maximized"] .buzz-terminal-touchbar {
