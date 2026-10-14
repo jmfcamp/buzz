@@ -20,7 +20,9 @@ export function noteReachability(desktopId: string, reachable: boolean) {
 
 export function browserLabel(): string {
   const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
-  const dev = /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) ? "iPad" : /Android/.test(ua) ? "Android" : /Mac/.test(ua) ? "Mac" : "Computer";
+  // iPadOS Safari reports itself as a Mac: a touch "Mac" is an iPad.
+  const touchMac = /Macintosh/.test(ua) && typeof navigator !== "undefined" && navigator.maxTouchPoints > 1;
+  const dev = /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) || touchMac ? "iPad" : /Android/.test(ua) ? "Android" : /Mac/.test(ua) ? "Mac" : "Computer";
   const br = /CriOS|Chrome/.test(ua) ? "Chrome" : /Firefox|FxiOS/.test(ua) ? "Firefox" : /Safari/.test(ua) ? "Safari" : "Browser";
   return `${br} on ${dev}`;
 }

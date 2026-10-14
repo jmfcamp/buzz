@@ -127,7 +127,7 @@ export class DirectAgents {
       try {
         await c.connect();
       } catch (e) {
-        const err = e instanceof RemoteError ? e : new RemoteError(/reject|denied|declin/i.test(String(e)) ? "declined" : "failed");
+        const err = e instanceof RemoteError ? e : new RemoteError(/reject|denied|declin/i.test(String(e)) ? "declined" : "failed", String(e));
         this.set("failed", err);
         if (err.code !== "declined") this.auto.start(); // unreachable/failed: keep trying on our own (never after a decline)
         throw err;
