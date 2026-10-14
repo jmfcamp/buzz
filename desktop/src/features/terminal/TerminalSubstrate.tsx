@@ -1,3 +1,4 @@
+import { openUrl } from "@tauri-apps/plugin-opener";
 import * as React from "react";
 import { termProbe } from "@/platform/web/kbDebug/termProbe";
 import { createPortal } from "react-dom";
@@ -274,6 +275,9 @@ export function TerminalSubstrate({
   // ── touch ──
   const [mods, setMods] = React.useState<StickyMods>({ ctrl: false, alt: false, meta: false });
   const [selectMode, setSelectMode] = React.useState(false);
+  const [linkCard, setLinkCard] = React.useState<{ url: string; row: number; lastRow: number; col: number } | null>(null);
+  const [linkCopied, setLinkCopied] = React.useState(false);
+  React.useEffect(() => setLinkCopied(false), [linkCard]);
   const [newTabMenu, setNewTabMenu] = React.useState<{ left: number; top: number } | null>(null);
   const newTabMenuRef = React.useRef<HTMLDivElement>(null);
   React.useEffect(() => {
@@ -400,6 +404,17 @@ export function TerminalSubstrate({
           setPasteBox(false);
           setOwner("terminal");
           textareaRef.current?.focus({ preventScroll: true });
+          {
+            // A tap on a URL (even one wrapped over several rows) offers Open / Copy for the whole link.
+            const cell = cellAt(action.x, action.y);
+            const grid = gridRef.current;
+            const link = grid?.linkAt(cell.row, cell.col, grid.paneAt(cell.col)) ?? null;
+            if (link) {
+              setLinkCard({ url: link.url, row: link.firstRow, lastRow: link.lastRow, col: cell.col });
+              break;
+            }
+            setLinkCard(null);
+          }
           if (mouseReportingRef.current && onMouseRef.current) {
             const cell = cellAt(action.x, action.y);
             sendMouseAt(cell, "press");
@@ -1810,6 +1825,45 @@ export function TerminalSubstrate({
             onPaste={() => void pasteFromClipboard()}
             onDone={() => setTouchSel(null)}
           />
+        ) : null}
+        {touchUi && linkCard ? (
+          <div
+            className="buzz-terminal-link-card"
+            data-testid="terminal-link-card"
+            style={{
+              top: (() => {
+                const top = (canvasRef.current?.offsetTop ?? 0) + (linkCard.lastRow + 1) * cellMetrics.height + 6;
+                const max = (canvasRef.current?.offsetTop ?? 0) + (canvasRef.current?.clientHeight ?? 0) - 96;
+                return top > max ? Math.max(4, (canvasRef.current?.offsetTop ?? 0) + linkCard.row * cellMetrics.height - 96) : top;
+              })(),
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onPointerUp={(e) => e.stopPropagation()}
+          >
+            <div className="buzz-terminal-link-url" title={linkCard.url}>{linkCard.url}</div>
+            <div className="buzz-terminal-link-actions">
+              <button
+                type="button"
+                onClick={() => {
+                  void openUrl(linkCard.url).catch(() => window.open(linkCard.url, "_blank", "noopener"));
+                  setLinkCard(null);
+                }}
+              >
+                Open
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void copyToClipboard(linkCard.url);
+                  setLinkCopied(true);
+                  window.setTimeout(() => setLinkCard(null), 900);
+                }}
+              >
+                {linkCopied ? "Copied" : "Copy"}
+              </button>
+              <button type="button" onClick={() => setLinkCard(null)}>Close</button>
+            </div>
+          </div>
         ) : null}
         {touchUi && pasteBox ? (
           <textarea
