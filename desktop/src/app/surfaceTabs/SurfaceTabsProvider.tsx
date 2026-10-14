@@ -34,7 +34,11 @@ import { useSidebar } from "@/shared/ui/sidebar";
 type SurfaceTabsContextValue = {
   tabs: SurfaceTab[];
   activeId: string | null;
-  addTab: (input: { label: string; target: SurfaceTabTarget }) => void;
+  /** activate:false adds (or refreshes) the tab without navigating to it (phone Me long-press). */
+  addTab: (
+    input: { label: string; target: SurfaceTabTarget },
+    options?: { activate?: boolean },
+  ) => void;
   selectTab: (id: string) => void;
   closeTab: (id: string) => void;
   /** Remove a starred-thread tab. The open thread stays on its route. */
@@ -259,12 +263,16 @@ export function SurfaceTabsProvider({
   }, []);
 
   const addTab = React.useCallback(
-    (input: { label: string; target: SurfaceTabTarget }) => {
+    (
+      input: { label: string; target: SurfaceTabTarget },
+      options?: { activate?: boolean },
+    ) => {
       const result = insertSurfaceTab(tabsRef.current, input, () =>
         surfaceTabKey(input.target),
       );
       commitTabs(result.tabs);
-      if (result.id) activate(result.id, input.target);
+      if (result.id && options?.activate !== false)
+        activate(result.id, input.target);
     },
     [activate, commitTabs],
   );

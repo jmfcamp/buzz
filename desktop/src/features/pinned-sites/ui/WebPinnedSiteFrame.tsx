@@ -83,7 +83,7 @@ export function WebPinnedSiteFrame({ pinId }: { pinId: string }) {
 
   return (
     <div
-      className="flex h-full min-h-0 flex-1 flex-col"
+      className="phone-pin-panel flex h-full min-h-0 flex-1 flex-col"
       data-testid="web-pinned-site"
     >
       <div

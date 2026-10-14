@@ -1224,7 +1224,10 @@ export function AppShell() {
                               }}
                               onManagePinnedSites={() => {
                                 setPhoneOverlay(null);
-                                handleOpenSettings("pinned-sites");
+                                // Phone Settings shows a section full screen only when pushed with phoneSettingsDetail
+                                // (SettingsView openPhoneSection); a plain goSettings lands on the section list.
+                                const href = "/settings?section=pinned-sites";
+                                router.history.push(href, { phoneSettingsDetail: href } as never);
                               }}
                               pubkey={identityQuery.data?.pubkey}
                             />
