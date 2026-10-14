@@ -77,9 +77,10 @@ export function eligibleFeedNotificationItems(
 
   if (options.needsAction) {
     items.push(
-      ...feed.feed.needsAction.map((item) =>
-        enrichFeedItemChannel(item, channels),
-      ),
+      ...feed.feed.needsAction
+        // Permission-prompt push nudges (useDesktopPermissionPrompts): the desktop already notified from the prompt itself.
+        .filter((item) => !item.tags?.some((t) => t[0] === "buzz-permission-prompt"))
+        .map((item) => enrichFeedItemChannel(item, channels)),
     );
   }
 
