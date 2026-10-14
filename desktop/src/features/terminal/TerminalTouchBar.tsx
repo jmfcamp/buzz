@@ -84,6 +84,7 @@ export function TouchKeyGroup({ label, ariaLabel, items, testId }: { label: stri
               key={it.id}
               type="button"
               role="menuitem"
+              tabIndex={-1}
               className={cn("buzz-terminal-touch-key", it.on && "buzz-terminal-touch-key-on")}
               aria-label={it.ariaLabel ?? it.label}
               aria-pressed={it.on}

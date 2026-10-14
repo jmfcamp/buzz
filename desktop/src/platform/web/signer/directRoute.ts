@@ -27,13 +27,22 @@ export const setDirectSignRoute = (r: DirectSignRoute | null) => setDirectSigner
 export const getDirectSignRoute = (): DirectSignRoute | null => current?.sign ?? null;
 export const getDirectSigner = () => current;
 /** Paired desktop reachable over a live Direct connection: the remote signer may sleep. */
+let lastActiveAt = 0;
+/** A paired desktop that was live this recently still counts (Direct reconnects, iOS resume, the Buzz Term socket swap). */
+const RECENT_ACTIVE_MS = 60_000;
 export const desktopSignerActive = (): boolean => {
   try {
-    return !!current?.active();
+    if (current?.active()) {
+      lastActiveAt = Date.now();
+      return true;
+    }
   } catch {
-    return false;
+    /* fall through */
   }
+  return false;
 };
+/** For health/banner decisions only (never routing): live now, or live within the last minute and still registered. */
+export const desktopSignerCovering = (): boolean => desktopSignerActive() || (!!current && Date.now() - lastActiveAt < RECENT_ACTIVE_MS);
 export const onDirectSignerChange = (fn: () => void) => {
   listeners.add(fn);
   return () => void listeners.delete(fn);

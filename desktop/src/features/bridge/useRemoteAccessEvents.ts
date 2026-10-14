@@ -1,3 +1,5 @@
+import { fetchCommunityBots } from "@/features/community-bots/lib/catalog";
+import { HULA_RESERVED_COMMUNITY_BOT_PUBKEYS } from "@/features/agents/lib/reservedCommunityMentionRouting";
 // Mounted once in AppShell: keeps the remote-access status fresh and shows a local notification when a remote terminal opens.
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { readStoredNotificationSettings } from "@/features/notifications/hooks";
@@ -37,6 +39,17 @@ export function realMgmtDeps(pubkey: string | undefined): MgmtDeps {
 }
 
 /** Desktop as signer for this account's approved web devices (keys never leave the desktop). */
+// Whose observer frames (kind 24200, encrypted to this account) the desktop decrypts for a paired browser without asking:
+// local managed agents, PLUS the community bots in this account's catalog (e.g. OpenClaw agents on a server, which publish
+// frames to BUZZ_ACP_AGENT_OWNER) and Hula's reserved bots. hula.8 only allowed local managed agents, so frames from
+// server-hosted bots fell back to the remote signer (Primal) on web.
+async function ownObserverPeers(): Promise<Set<string>> {
+  const keys = new Set<string>();
+  for (const a of await listManagedAgents().catch(() => [])) keys.add(a.pubkey.toLowerCase());
+  for (const b of await fetchCommunityBots().catch(() => [])) keys.add(String(b.pubkey).toLowerCase());
+  for (const k of Object.values(HULA_RESERVED_COMMUNITY_BOT_PUBKEYS)) keys.add(String(k).toLowerCase());
+  return keys;
+}
 let ownAgentsCache: { at: number; keys: Set<string> } | null = null;
 const directSigner = createDirectSigner({
   store: localSignerStore,
@@ -60,7 +73,7 @@ const directSigner = createDirectSigner({
     isOwnAgent: async (peer) => {
       const now = Date.now();
       if (!ownAgentsCache || now - ownAgentsCache.at > 30_000)
-        ownAgentsCache = { at: now, keys: new Set((await listManagedAgents()).map((a) => a.pubkey.toLowerCase())) };
+        ownAgentsCache = { at: now, keys: await ownObserverPeers() };
       return ownAgentsCache.keys.has(peer.toLowerCase());
     },
   },

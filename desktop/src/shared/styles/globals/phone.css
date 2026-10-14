@@ -60,7 +60,7 @@
   height: var(--phone-tabbar-bar-h);
   padding: 4px;
   gap: 2px;
-  border-radius: 9999px;
+  border-radius: var(--radius-chrome);
   background: rgba(24, 24, 27, 0.72);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   backdrop-filter: blur(20px) saturate(180%);
@@ -165,7 +165,7 @@
   width: 36px;
   height: 32px;
   border: 0;
-  border-radius: 8px;
+  border-radius: calc(var(--radius) - 2px);
   background: transparent;
   color: hsl(var(--sidebar-foreground, var(--foreground)) / 0.75);
   -webkit-tap-highlight-color: transparent;
@@ -440,7 +440,7 @@
   height: 32px;
   min-width: 44px;
   padding: 0 11px 0 9px;
-  border-radius: 9999px;
+  border-radius: var(--radius-chrome);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -488,7 +488,7 @@
   width: min(320px, calc(100vw - 16px));
   max-height: calc(var(--phone-vh, 100dvh) - var(--phone-tab-pill-top) - var(--phone-tabbar-h) - 48px);
   overflow-y: auto;
-  border-radius: 16px;
+  border-radius: var(--radius-chrome);
   background: hsl(var(--popover));
   color: hsl(var(--popover-foreground));
   border: 1px solid hsl(var(--border));
@@ -504,7 +504,7 @@
 [data-phone] .phone-tab-switcher-row {
   display: flex;
   align-items: center;
-  border-radius: 10px;
+  border-radius: calc(var(--radius) - 2px);
 }
 [data-phone] .phone-tab-switcher-row.is-active {
   background: hsl(var(--primary) / 0.14);
@@ -551,7 +551,7 @@
   100% { background-color: transparent; }
 }
 [data-phone] [data-new-reply="true"] {
-  border-radius: 0.75rem;
+  border-radius: var(--radius);
   animation: buzz-new-reply-fade 4s ease-out 1 both;
 }
 /* Settings header: iOS layout, back on the left and the page title centered, so "‹ Settings" never reads as part of the title. */

@@ -1,3 +1,4 @@
+import { beginBusy } from "@/shared/lib/backgroundBusy";
 // Web side of "desktop as signer over Direct". The browser keeps a DEVICE keypair (not the account key) in localStorage;
 // the desktop approves it once, then signs allow-listed kinds for it. Each request is signed by the device key and bound
 // to the current Direct connection (per-connection nonce + increasing seq). Never connects on its own: it is only used
@@ -112,6 +113,14 @@ export class DirectSignerClient {
 
   /** Re-check pairing with the desktop (on load / reconnect) and deliver a queued Forget. Never throws. */
   async refresh(): Promise<void> {
+    const busyDone = beginBusy("pairing-check");
+    try {
+      return await this.refreshInner();
+    } finally {
+      busyDone();
+    }
+  }
+  private async refreshInner(): Promise<void> {
     if (!this.agents.live) return;
     try {
       await this.ensureHello(true);

@@ -1,3 +1,5 @@
+import { useConnectionMessages } from "@/shared/lib/connectionMessages";
+import { setBusy } from "@/shared/lib/backgroundBusy";
 import * as React from "react";
 
 import { useRelayConnection } from "@/shared/api/useRelayConnection";
@@ -239,6 +241,7 @@ export function useSidebarRelayConnectionCard(
   // "Reconnecting to relay…" only after a 1.5s grace, "Connected" for 2s only if that pill showed. The sidebar card and
   // its bottom-left overlay stay hidden on web, so there is exactly one relay popup and nothing to dismiss.
   const relayDown = relayConnectionState !== "idle" && isRelayConnectionActuallyDegraded;
+  const connectionMessages = useConnectionMessages();
   React.useEffect(() => {
     if (!IS_WEB) return;
     trackProgress("relay", relayDown, {
@@ -246,10 +249,12 @@ export function useSidebarRelayConnectionCard(
       description: "Your messages will catch up automatically",
       successTitle: "Connected",
       testId: "relay-status-pill",
-      graceMs: 3_000, // fast reconnects (iOS resume, socket swap) never show it
+      graceMs: 20_000, // transient reconnects only spin the nav Refresh icon (the card is opt-in: long-press Refresh)
+      connectionMessage: true,
       dismissible: true,
     });
-  }, [relayDown, isWaitingOnReconnectHook]);
+    setBusy("relay-reconnect", relayDown);
+  }, [relayDown, isWaitingOnReconnectHook, connectionMessages]);
   React.useEffect(() => {
     if (!IS_WEB) return;
     return () => resetProgress("relay");

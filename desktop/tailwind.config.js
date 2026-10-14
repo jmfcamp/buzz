@@ -68,6 +68,11 @@ export default {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        // Squarer scale (JM): roughly half the stock xl/2xl/3xl (12/16/24px). rounded-full stays for avatars, switches,
+        // unread badges and other functional pills.
+        xl: "calc(var(--radius) + 0px)", // 6px (was 12px)
+        "2xl": "calc(var(--radius) + 2px)", // 8px (was 16px)
+        "3xl": "calc(var(--radius) + 6px)", // 12px (was 24px)
       },
       spacing: {
         4.5: "1.125rem",

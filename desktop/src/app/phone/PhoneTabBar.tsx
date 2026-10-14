@@ -59,7 +59,7 @@ export function PhoneTabBar({
             aria-label={label}
             aria-current={isActive ? "page" : undefined}
             className={cn(
-              "phone-tab flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-full text-[10px] font-medium",
+              "phone-tab flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-md text-[10px] font-medium",
               isActive ? "text-white" : "text-white/60",
             )}
             data-testid={`phone-tab-${id}`}

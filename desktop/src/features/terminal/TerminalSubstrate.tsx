@@ -609,6 +609,19 @@ export function TerminalSubstrate({
       area.focus({ preventScroll: true });
     }
   };
+  /**
+   * After any key-bar key (Tab, Esc, ^C, arrows, modifiers): the keys live in a popup portaled to <body>, outside this
+   * terminal. iOS can leave the hidden textarea mid-composition (predictive text was still "marking" the word being typed,
+   * e.g. `cd Documents/H` before Tab), and then later keystrokes are swallowed as composition updates that never end.
+   * Drop any pending composition / handoff state, clear the textarea and give it focus back (owner = terminal), so typing
+   * continues exactly where it was.
+   */
+  const keyBarRefocus = React.useEffectEvent(() => {
+    handoffRef.current = { ...INITIAL_HANDOFF_STATE };
+    const area = textareaRef.current;
+    if (area && area.value) area.value = "";
+    reclaimTerminalInputFocus({ claimOwner: true });
+  });
   const isTouchPointer = (event: React.PointerEvent) => touchUi && event.pointerType !== "mouse";
   /**
    * Reclaim the hidden textarea so printables keep reaching the PTY.
@@ -1856,15 +1869,27 @@ export function TerminalSubstrate({
           ctrl={mods.ctrl}
           alt={mods.alt}
           meta={!!mods.meta}
-          onToggleCtrl={() => setMods((m) => ({ ...m, ctrl: !m.ctrl }))}
-          onToggleAlt={() => setMods((m) => ({ ...m, alt: !m.alt }))}
-          onToggleMeta={() => setMods((m) => ({ ...m, meta: !m.meta }))}
+          onToggleCtrl={() => {
+            setMods((m) => ({ ...m, ctrl: !m.ctrl }));
+            keyBarRefocus();
+          }}
+          onToggleAlt={() => {
+            setMods((m) => ({ ...m, alt: !m.alt }));
+            keyBarRefocus();
+          }}
+          onToggleMeta={() => {
+            setMods((m) => ({ ...m, meta: !m.meta }));
+            keyBarRefocus();
+          }}
           selectMode={selectMode}
           onToggleSelect={() => {
             setSelectMode((on) => !on);
             setTouchSel(null);
           }}
-          onKey={(seq) => sendInput(seq)}
+          onKey={(seq) => {
+            sendInput(seq);
+            keyBarRefocus();
+          }}
           onPaste={() => void pasteFromClipboard()}
           keyboardOpen={kb.open}
           onToggleKeyboard={toggleKeyboard}

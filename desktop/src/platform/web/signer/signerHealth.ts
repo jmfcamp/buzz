@@ -1,3 +1,4 @@
+import { setBusy } from "@/shared/lib/backgroundBusy";
 // Signer health state machine (pure; no DOM). Fed by NIP-46 request outcomes (nip46.ts), the boot liveness probe, and the
 // "waiting for your signer" escalation. UI lives in signerOverlay.ts.
 //   ok            last request succeeded (or nothing asked yet)
@@ -5,7 +6,7 @@
 //   unresponsive  UNRESPONSIVE_AFTER consecutive timeouts, a revoked/unauthorized answer, a failed probe, or a long wait
 //   no-session    no valid saved session: go straight to sign-in
 //   reconnecting  signer relay sockets are being rebuilt / a probe is running
-import { desktopSignerActive } from "./directRoute";
+import { desktopSignerCovering } from "./directRoute";
 export type SignerHealthState = "ok" | "slow" | "unresponsive" | "no-session" | "reconnecting";
 export type SignerHealthReason = "timeout" | "revoked" | "probe-failed" | "long-wait" | "none";
 
@@ -82,7 +83,7 @@ export const signerHealth = {
    *  wasn't started while hidden, and the signer hasn't answered anything since the request started. Background work
    *  (read markers, decrypts, presence, relay auth, lazy lanes) never escalates. */
   timeout(opts?: { background?: boolean; startedAt?: number }) {
-    if (desktopSignerActive()) return; // the paired desktop signs over Direct: the remote signer's silence doesn't matter
+    if (desktopSignerCovering()) return; // the paired desktop signs over Direct: the remote signer's silence doesn't matter
     if (paused || Date.now() - visibleAt < RETURN_GRACE_MS) return;
     if (opts?.background) {
       if (snap.state === "ok") set({ state: "slow", reason: "timeout" });
@@ -99,12 +100,12 @@ export const signerHealth = {
   },
   /** Long "waiting" alone no longer escalates (pending counts background + abandoned requests). Kept for NIP-07 callers. */
   escalate(reason: SignerHealthReason = "long-wait") {
-    if (activeKind !== "nip07" || desktopSignerActive()) return;
+    if (activeKind !== "nip07" || desktopSignerCovering()) return;
     if (paused || Date.now() - visibleAt < RETURN_GRACE_MS || Date.now() - lastAlive < BANNER_SILENCE_MS) return;
     if (snap.state === "ok" || snap.state === "slow") set({ state: "unresponsive", reason });
   },
   probeFailed(reason: SignerHealthReason = "probe-failed") {
-    if ((paused || desktopSignerActive()) && reason !== "revoked") return;
+    if ((paused || desktopSignerCovering()) && reason !== "revoked") return;
     set({ state: "unresponsive", reason });
   },
   noSession() {
@@ -152,3 +153,9 @@ if (typeof document !== "undefined" && typeof document.addEventListener === "fun
   document.addEventListener("visibilitychange", sync);
   sync();
 }
+
+// Signer reconnecting / slow = background connection work: spin the nav Refresh icon instead of a banner.
+signerHealth.subscribe?.(() => {
+  const st = signerHealth.get().state;
+  setBusy("signer", st === "reconnecting" || st === "slow");
+});
