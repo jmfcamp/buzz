@@ -41,6 +41,10 @@ export class DirectAgents {
   private connecting: Promise<RemoteConnection> | null = null;
   private listeners = new Set<() => void>();
   private info: { desktopId: string; url: string };
+  /** Desktop id + Direct URL this client dials (diagnostics). */
+  get target() {
+    return this.info;
+  }
   private sign: SignJson;
   private makeWs?: WsFactory;
   private now: () => number;
