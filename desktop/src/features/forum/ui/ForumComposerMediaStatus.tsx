@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import type { useMediaUpload } from "@/features/messages/lib/useMediaUpload";
+import { uploadErrorMessage } from "@/shared/lib/uploadErrorMessage";
 import { ComposerAttachments } from "@/features/messages/ui/ComposerAttachments";
 
 type ComposerMedia = Pick<
@@ -46,7 +47,7 @@ export function ForumComposerMediaStatus({
     <>
       {media.uploadState.status === "error" ? (
         <div className="mb-2 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
-          Upload failed: {media.uploadState.message}
+          {uploadErrorMessage(media.uploadState.message)}
           <button
             className="ml-2 underline"
             disabled={disabled}

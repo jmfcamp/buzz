@@ -14,6 +14,17 @@ use crate::error::MediaError;
 /// `video/mp4` and `validate_content()` rejects it here.
 const ALLOWED_MIME_TYPES: &[&str] = &["image/jpeg", "image/png", "image/gif", "image/webp"];
 
+/// Sniffed audio types accepted on the generic file path (voice notes / audio
+/// attachments). MP3 (ID3), FLAC, ISO-BMFF audio (m4a/mp4) and WebM stay
+/// rejected: those containers can carry arbitrary/location metadata and need a sanitizer first.
+const ALLOWED_PLAIN_AUDIO_MIME_TYPES: &[&str] = &[
+    "audio/x-wav",
+    "audio/wav",
+    "audio/ogg",
+    "audio/opus",
+    "audio/aac", // raw ADTS: no metadata container
+];
+
 const MP4_BRANDS: &[[u8; 4]] = &[
     *b"isom", *b"iso2", *b"iso3", *b"iso4", *b"iso5", *b"iso6", *b"iso7", *b"iso8", *b"iso9",
     *b"mp41", *b"mp42", *b"avc1", *b"dash", *b"M4V ",
@@ -199,6 +210,12 @@ pub fn validate_file_content(
             // storage. Images and video use their canonical media validators;
             // audio is rejected until Buzz has an explicit sanitizer and
             // location-metadata validator for its container.
+            // Exception: plain audio streams (voice notes) whose containers carry no
+            // location atoms. They are stored byte-exact and served as downloads.
+            if ALLOWED_PLAIN_AUDIO_MIME_TYPES.contains(&mime.as_str()) {
+                let ext = file_mime_to_ext(&mime).unwrap_or("bin").to_string();
+                return Ok((mime, ext));
+            }
             if mime.starts_with("image/")
                 || mime.starts_with("video/")
                 || mime.starts_with("audio/")
@@ -1605,20 +1622,9 @@ mod tests {
         let fixtures: &[(&str, &[u8])] = &[
             ("mp3", b"ID3\x04\x00\x00\x00\x00\x00\x00"),
             ("flac", b"fLaC\x00\x00\x00\x22"),
-            ("wav", b"RIFF\x24\x00\x00\x00WAVEfmt "),
-            ("ogg", b"OggS\x00\x02\x00\x00\x00\x00\x00\x00"),
             ("m4a", b"\x00\x00\x00\x18ftypM4A \x00\x00\x00\x00M4A "),
-            ("aac", b"\xff\xf1\x50\x80\x00\x1f\xfc"),
         ];
-
         for (name, bytes) in fixtures {
-            let detected = infer::get(bytes)
-                .unwrap_or_else(|| panic!("{name} fixture must be recognized as audio"));
-            assert!(
-                detected.mime_type().starts_with("audio/"),
-                "{name} fixture detected as {}",
-                detected.mime_type()
-            );
             assert!(
                 matches!(
                     validate_file_content(bytes, &config),
@@ -1628,6 +1634,23 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_generic_file_path_accepts_plain_voice_audio() {
+        let config = test_config();
+        let fixtures: &[(&str, &[u8], &str)] = &[
+            ("wav", b"RIFF\x24\x00\x00\x00WAVEfmt ", "wav"),
+            ("ogg", b"OggS\x00\x02\x00\x00\x00\x00\x00\x00", "ogg"),
+            ("aac", b"\xff\xf1\x50\x80\x00\x1f\xfc", "aac"),
+        ];
+        for (name, bytes, want_ext) in fixtures {
+            let (mime, ext) = validate_file_content(bytes, &config)
+                .unwrap_or_else(|e| panic!("{name} rejected: {e}"));
+            assert!(mime.starts_with("audio/"), "{name} -> {mime}");
+            assert_eq!(&ext, want_ext, "{name}");
+        }
+    }
+
 
     #[test]
     fn test_validate_svg_rejected() {

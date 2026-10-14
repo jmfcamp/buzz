@@ -238,7 +238,7 @@ export async function uploadRelayMedia(
     let msg = `Upload failed (${res.status})`;
     try {
       const j = await res.json();
-      if (j?.error) msg = `Upload failed: ${j.error}`;
+      if (j?.error) msg = String(j.error);
     } catch {
       /* not json */
     }
