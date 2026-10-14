@@ -2237,16 +2237,17 @@ mod postgres_tests {
         let personal = surface(
             MIGRATOR
                 .iter()
-                .find(|m| m.version == 56)
+                .find(|m| m.version == 59)
                 .expect("personal read migration")
                 .sql
                 .as_ref(),
         );
-        // 0057 adds personal_read_accounts.started_at after 0056's CREATE TABLE.
+        // 0060 adds personal_read_accounts.started_at after 0059's CREATE TABLE
+        // (upstream 0057/0056, renumbered after Hula's 0056–0058).
         let started_at_column = "started_at timestamptz, ";
         assert!(MIGRATOR
             .iter()
-            .find(|m| m.version == 57)
+            .find(|m| m.version == 60)
             .expect("personal read start migration")
             .sql
             .as_str()

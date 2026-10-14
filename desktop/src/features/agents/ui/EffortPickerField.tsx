@@ -1,6 +1,5 @@
 import type { ManagedAgentBackend } from "@/shared/api/types";
 import { PERSONA_LABEL_OPTIONAL_CLASS } from "./agentConfigOptions";
-import { getProviderEffortConfig } from "./buzzAgentConfig";
 import {
   type EffortOptions,
   effortPickerState,
@@ -32,9 +31,6 @@ export function EffortPickerField({
   value,
   storedEffort,
   onChange,
-  provider,
-  model,
-  selectedRuntime,
 }: {
   backend: ManagedAgentBackend;
   /** Levels from `effortChoices`; `undefined` hides the control. */
@@ -45,12 +41,6 @@ export function EffortPickerField({
   /** The saved effort, kept selectable when the model doesn't list it. */
   storedEffort?: string | null;
   onChange: (level: string | null) => void;
-  /** Effective provider id for capability fallback when session options absent. */
-  provider?: string;
-  /** Effective model id for capability fallback when session options absent. */
-  model?: string;
-  /** Catalog runtime — supplies harness-native effort vocab when present. */
-  selectedRuntime?: AcpRuntimeCatalogEntry | null;
 }) {
   const { visible, options, selectValue, note } = effortPickerState({
     backend,

@@ -538,11 +538,18 @@ export function AgentsView() {
               onOpenChange={(open) => {
                 if (!open) onRequestClose();
               }}
-              onSubmitDefinition={(input, intent, backendIntent, options) =>
+              onSubmitDefinition={(
+                input,
+                intent,
+                backendIntent,
+                effortLevel,
+                options,
+              ) =>
                 personas.handleSubmit(
                   input,
                   intent,
                   backendIntent,
+                  effortLevel,
                   undefined,
                   options,
                 )

@@ -13,11 +13,6 @@ import { resolveModelCapabilities } from "./modelCapabilities";
  */
 export const EFFORT_DEFAULT_DROPDOWN_VALUE = "__effort_default__";
 
-function humanizeEffortValue(value: string): string {
-  if (!value) return value;
-  return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
 /**
  * Pure gating + option compute for the effort write control.
  *
