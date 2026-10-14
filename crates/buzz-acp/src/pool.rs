@@ -3215,7 +3215,7 @@ pub async fn run_prompt_task(
     // failed or cancelled first turn must not make its retry assume that the
     // provider retained any of that thread's context.
     let mut pending_hydrated_thread_roots = HashSet::new();
-    let prompt_sections: Vec<String> = if let Some(text) = prompt_text {
+    let mut prompt_sections: Vec<String> = if let Some(text) = prompt_text {
         // Heartbeats create their session before this point, so a Goose method-not-found
         // probe has already selected the correct framing for this process.
         //
@@ -3358,6 +3358,24 @@ pub async fn run_prompt_task(
         return;
     };
 
+    // Stage channel attachments with Blossom auth so the agent can read them
+    // locally (GET /media/* requires t=get auth; a bare fetch returns 401).
+    let staged_attachments = if let Some(b) = batch.as_ref() {
+        let events: Vec<&nostr::Event> = b
+            .events
+            .iter()
+            .chain(b.cancelled_events.iter())
+            .map(|be| &be.event)
+            .collect();
+        crate::media_fetch::stage_event_attachments(&ctx.rest_client, events).await
+    } else {
+        Vec::new()
+    };
+    if let Some(section) = crate::media_fetch::format_attachments_section(&staged_attachments) {
+        prompt_sections.push(section);
+    }
+    let image_blocks = crate::media_fetch::acp_image_blocks(&staged_attachments);
+
     // 💬 — fire-and-forget so the prompt fires immediately.
     // The guard's cleanup (spawned on drop) removes 💬 after the turn completes.
     // A brief race where 💬 appears slightly after the agent starts is acceptable.
@@ -3424,9 +3442,10 @@ pub async fn run_prompt_task(
             // Heartbeat / non-cancellable path.
             tokio::select! {
                 biased;
-                result = agent.acp.session_prompt_blocks_with_idle_timeout(
+                result = agent.acp.session_prompt_blocks_with_media(
                     &session_id,
                     &prompt_blocks,
+                    &image_blocks,
                     ctx.idle_timeout,
                     ctx.max_turn_duration,
                 ) => result,
@@ -3435,9 +3454,10 @@ pub async fn run_prompt_task(
         Some(rx) => {
             tokio::select! {
                 biased;
-                result = agent.acp.session_prompt_blocks_with_idle_timeout(
+                result = agent.acp.session_prompt_blocks_with_media(
                     &session_id,
                     &prompt_blocks,
+                    &image_blocks,
                     ctx.idle_timeout,
                     ctx.max_turn_duration,
                 ) => result,

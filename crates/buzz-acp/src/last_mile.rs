@@ -303,8 +303,10 @@ fn directory_cache() -> &'static DirectoryCache {
 
 /// Pubkeys to `p`-tag on a harness-published reply.
 ///
-/// Best-effort: any lookup failure or unmatched name logs and returns what
-/// could be resolved. Never blocks the reply.
+/// Resolves `@Name` against current channel members first, then falls back to
+/// unique relay profile matches (NIP-50 kind:0 search) so community agents and
+/// other relay members get tagged even when they are not in the channel.
+/// Best-effort: lookup failures log and return what resolved. Never blocks the reply.
 async fn reply_mentions(rest: &RestClient, channel_id: Uuid, text: &str) -> Vec<String> {
     let stripped = buzz_sdk::mentions::strip_code_regions(text);
     let self_hex = rest.keys.public_key().to_hex();
@@ -323,16 +325,128 @@ async fn reply_mentions(rest: &RestClient, channel_id: Uuid, text: &str) -> Vec<
     } else {
         ChannelDirectory::default()
     };
-    let (mentions, unresolved) =
+    let (mut mentions, unresolved) =
         resolve_reply_mentions(&stripped, &directory, &uri_pubkeys, &self_hex);
     if !unresolved.is_empty() {
-        tracing::warn!(
-            channel = %channel_id,
-            names = ?unresolved,
-            "last-mile: @names did not resolve to a unique channel member; left as text"
-        );
+        let relay_hits = resolve_names_on_relay(rest, &unresolved).await;
+        let still = merge_relay_mention_hits(&mut mentions, &unresolved, &relay_hits, &self_hex);
+        if !still.is_empty() {
+            tracing::warn!(
+                channel = %channel_id,
+                names = ?still,
+                "last-mile: @names did not resolve to a unique channel or relay profile; left as text"
+            );
+        }
     }
     mentions
+}
+
+/// NIP-50 kind:0 search for each unresolved `@Name`. Returns `(lower_name, pubkey)`
+/// only when exactly one profile matches that display name or name.
+async fn resolve_names_on_relay(
+    rest: &RestClient,
+    names: &[String],
+) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for name in names {
+        let filter = serde_json::json!({
+            "kinds": [0],
+            "search": name,
+            "limit": 100,
+        });
+        let json = match tokio::time::timeout(LAST_MILE_TIMEOUT, rest.query_raw(&[filter])).await {
+            Ok(Ok(v)) => v,
+            Ok(Err(e)) => {
+                tracing::warn!(name = %name, "last-mile: relay profile search failed: {e}");
+                continue;
+            }
+            Err(_) => {
+                tracing::warn!(name = %name, "last-mile: relay profile search timed out");
+                continue;
+            }
+        };
+        let matches = match_profiles_by_name(&json, name);
+        match matches.as_slice() {
+            [(pubkey, _)] => out.push((name.to_ascii_lowercase(), pubkey.clone())),
+            [] => {}
+            many => {
+                tracing::warn!(
+                    name = %name,
+                    candidates = many.len(),
+                    "last-mile: relay profile name is ambiguous; left as text"
+                );
+            }
+        }
+    }
+    out
+}
+
+/// Exact case-insensitive match on `display_name` or `name` across kind:0 events.
+fn match_profiles_by_name(json: &serde_json::Value, name: &str) -> Vec<(String, String)> {
+    let lower = name.to_ascii_lowercase();
+    let mut matches: Vec<(String, String)> = Vec::new();
+    let Some(events) = json.as_array() else {
+        return matches;
+    };
+    for e in events {
+        let Some(pubkey) = e.get("pubkey").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let Some(content) = e
+            .get("content")
+            .and_then(|v| v.as_str())
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+        else {
+            continue;
+        };
+        let display_name = content
+            .get("display_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let plain_name = content.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        if display_name.to_ascii_lowercase() == lower || plain_name.to_ascii_lowercase() == lower {
+            let shown = if display_name.is_empty() {
+                plain_name
+            } else {
+                display_name
+            };
+            matches.push((pubkey.to_ascii_lowercase(), shown.to_string()));
+        }
+    }
+    matches.sort();
+    matches.dedup_by(|a, b| a.0 == b.0);
+    matches
+}
+
+/// Merge unique relay profile hits into `mentions`. Returns names that are
+/// still unresolved after the merge. Self is excluded; mention cap is enforced.
+fn merge_relay_mention_hits(
+    mentions: &mut Vec<String>,
+    unresolved: &[String],
+    relay_hits: &[(String, String)],
+    self_hex: &str,
+) -> Vec<String> {
+    let self_hex = self_hex.to_ascii_lowercase();
+    let hit_map: std::collections::HashMap<&str, &str> = relay_hits
+        .iter()
+        .map(|(n, pk)| (n.as_str(), pk.as_str()))
+        .collect();
+    let mut still = Vec::new();
+    for name in unresolved {
+        match hit_map.get(name.as_str()) {
+            Some(pk) if pk.eq_ignore_ascii_case(&self_hex) => {}
+            Some(pk) => {
+                let pk = (*pk).to_string();
+                if !mentions.iter().any(|m| m.eq_ignore_ascii_case(&pk)) {
+                    mentions.push(pk);
+                }
+            }
+            None => still.push(name.clone()),
+        }
+    }
+    mentions.retain(|m| !m.eq_ignore_ascii_case(&self_hex));
+    mentions.truncate(buzz_sdk::mentions::MENTION_CAP);
+    still
 }
 
 async fn channel_directory(
@@ -445,9 +559,11 @@ fn extract_profile_uris(stripped: &str) -> Vec<String> {
     out
 }
 
-/// Resolve reply mentions: explicit URIs plus `@Name`s that match exactly one
-/// channel member's display name. Returns `(pubkeys, unresolved_names)`.
-/// Self is excluded and the list is capped at the SDK mention limit.
+/// Resolve reply mentions against the channel directory: explicit URIs plus
+/// `@Name`s that match exactly one channel member's display name.
+/// Returns `(pubkeys, unresolved_names)`. Self is excluded and the list is
+/// capped at the SDK mention limit. Callers may fall back to relay profiles
+/// for the unresolved names.
 fn resolve_reply_mentions(
     stripped: &str,
     directory: &ChannelDirectory,
@@ -582,8 +698,61 @@ mod tests {
         let me = pk('f');
         let mut d = dir(&[(&me, "Quasar")]);
         d.names.push((pk('e'), "Eve".into()));
-        let (m, _) = resolve_reply_mentions(&strip("@Quasar @Eve"), &d, &[], &me);
+        let (m, unresolved) = resolve_reply_mentions(&strip("@Quasar @Eve"), &d, &[], &me);
+        // Channel-only pass: Eve is in names but not members → unresolved.
         assert!(m.is_empty());
+        assert_eq!(unresolved, vec!["eve".to_string()]);
+    }
+
+    #[test]
+    fn relay_fallback_tags_non_channel_members() {
+        // JM's case: Captain wrote @Quasar @Korg @Mo @Stitch @Wayfinder.
+        // Only Quasar + Stitch are channel members; the other three live on
+        // the relay. After channel resolve + relay merge, all five are tagged.
+        let quasar = pk('q');
+        let stitch = pk('s');
+        let korg = pk('k');
+        let mo = pk('m');
+        let wayfinder = pk('w');
+        let d = dir(&[(&quasar, "Quasar"), (&stitch, "Stitch")]);
+        let text = strip("@Quasar @Korg @Mo @Stitch @Wayfinder — announce yourselves");
+        let (mut mentions, unresolved) =
+            resolve_reply_mentions(&text, &d, &[], &pk('f'));
+        assert_eq!(mentions, vec![quasar.clone(), stitch.clone()]);
+        assert_eq!(
+            unresolved,
+            vec![
+                "korg".to_string(),
+                "mo".to_string(),
+                "wayfinder".to_string()
+            ]
+        );
+        let relay_hits = vec![
+            ("korg".into(), korg.clone()),
+            ("mo".into(), mo.clone()),
+            ("wayfinder".into(), wayfinder.clone()),
+        ];
+        let still = merge_relay_mention_hits(&mut mentions, &unresolved, &relay_hits, &pk('f'));
+        assert!(still.is_empty());
+        assert_eq!(
+            mentions,
+            vec![quasar, stitch, korg, mo, wayfinder]
+        );
+    }
+
+    #[test]
+    fn match_profiles_by_name_exact_case_insensitive() {
+        let a = pk('a');
+        let b = pk('b');
+        let json = serde_json::json!([
+            {"pubkey": a, "content": "{\"display_name\":\"Korg\",\"name\":\"korg\"}"},
+            {"pubkey": b, "content": "{\"display_name\":\"Korgan\",\"name\":\"x\"}"},
+        ]);
+        assert_eq!(
+            match_profiles_by_name(&json, "korg"),
+            vec![(a, "Korg".to_string())]
+        );
+        assert!(match_profiles_by_name(&json, "nobody").is_empty());
     }
 
     #[test]
