@@ -672,16 +672,6 @@
   max-width: 100vw;
 }
 
-/* Web pinned site panel (/pins/<id>): fixed full screen under the nav row so the iframe never collapses to 0 height
-   inside the phone content surface's height chain (the tab bar is hidden on /pins/). */
-[data-phone] .phone-pin-panel {
-  position: fixed;
-  inset: 0;
-  padding-top: calc(var(--phone-safe-top) + var(--phone-nav-row-h));
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-  z-index: 105;
-  background: hsl(var(--background));
-}
 /* Long-press targets on the Me tab: no iOS callout / text selection / magnifier while holding. */
 [data-phone] .phone-long-press {
   -webkit-touch-callout: none;

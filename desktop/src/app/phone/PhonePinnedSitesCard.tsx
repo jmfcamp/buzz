@@ -1,6 +1,6 @@
 // Phone Me tab ([data-phone] only; the phone layout has no sidebar): pinned sites list. Each row opens /pins/<id>
-// full-screen (tab bar hidden, PhoneNavRow Back returns here); "Manage" opens Settings → Pinned sites.
-import { ChevronRight } from "lucide-react";
+// in the default browser (Safari from the installed app); "Manage" opens Settings → Pinned sites.
+import { ExternalLink } from "lucide-react";
 
 import { PhoneTabLongPress } from "./PhoneTabLongPress";
 import { usePinnedSites } from "@/features/pinned-sites/hooks";
@@ -66,7 +66,7 @@ export function PhonePinnedSitesCard({
                         {hostOf(pin.url)}
                       </span>
                     </span>
-                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <ExternalLink aria-label="Opens in browser" className="h-4 w-4 shrink-0 text-muted-foreground" />
                   </button>
                 </PhoneTabLongPress>
               </li>

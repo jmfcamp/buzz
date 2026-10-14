@@ -75,5 +75,5 @@ export function phoneTabForPath(pathname: string, current: PhoneOverlay): PhoneT
 /** Full-screen conversation views hide the tab bar so the composer has room (iOS chat pattern). */
 export function phoneHidesTabBar(pathname: string, current: PhoneOverlay): boolean {
   if (current) return false;
-  return pathname.startsWith("/channels/") || pathname === "/messages/new" || pathname === "/settings" || pathname.startsWith("/pins/");
+  return pathname.startsWith("/channels/") || pathname === "/messages/new" || pathname === "/settings";
 }

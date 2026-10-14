@@ -1,4 +1,6 @@
 import * as React from "react";
+
+import { openWebPinExternally, pinsOpenExternally } from "@/features/pinned-sites/lib/webPinOpen";
 import {
   useCanGoBack,
   useLocation,
@@ -116,6 +118,11 @@ export function useAppNavigation() {
       options?: { openUrl?: string },
     ) => {
       const openUrl = options?.openUrl?.trim() ?? "";
+      // Web: pinned sites open in the default browser, never in-app.
+      if (pinsOpenExternally()) {
+        openWebPinExternally(pinId, openUrl);
+        return Promise.resolve();
+      }
       // Keep module queue aligned with navigation intent before router state
       // lands (Strict Mode remount / already-on-pin subscribe).
       if (openUrl) {
