@@ -12,6 +12,7 @@ mod filter;
 mod isolated_execution;
 mod last_mile;
 mod observer;
+mod openclaw_label;
 mod openclaw_session_store;
 mod pool;
 mod pool_lifecycle;
@@ -4839,13 +4840,10 @@ fn try_native_steer(
     // `<context>` still routes the reply. An edit's
     // block names its original (`Edit of:`) and the original's thread root.
     let event_id_hex = be.event.id.to_hex();
-    let mut body = native_steer_body(channel_id, &be);
+    let body = native_steer_body(channel_id, &be);
     // Every ACP prompt — including native steers — carries the OpenClaw
     // sidebar-label rename instruction when session titles are configured.
-    if let Some(title) = session_title.map(str::trim).filter(|t| !t.is_empty()) {
-        body.push_str("\n\n");
-        body.push_str(&prompt_framing::openclaw_session_label_section(title));
-    }
+    let _ = session_title;
 
     let (ack_tx, ack_rx) = tokio::sync::oneshot::channel::<pool::SteerAck>();
     let request = pool::SteerRequest {
@@ -10673,6 +10671,7 @@ mod build_mcp_servers_tests {
             effort_level: None,
             session_title: None,
             gateway_agent_id: None,
+            openclaw_cli: None,
             permission_mode: config::PermissionMode::BypassPermissions,
             respond_to: config::RespondTo::Anyone,
             respond_to_allowlist: std::collections::HashSet::new(),
@@ -11771,6 +11770,7 @@ mod error_outcome_emission_tests {
             effort_level: None,
             session_title: None,
             gateway_agent_id: None,
+            openclaw_cli: None,
             permission_mode: config::PermissionMode::BypassPermissions,
             respond_to: config::RespondTo::Anyone,
             respond_to_allowlist: HashSet::new(),

@@ -55,6 +55,7 @@ pub(crate) fn normalize_semantic_section(tag: &str, legacy_label: &str, content:
 /// OpenClaw currently ignores `_meta.sessionTitle` on `session/new`, so when
 /// buzz-acp has a computed session title we append this short instruction to
 /// every `session/prompt`. Wording is idempotent so repeated turns do not thrash.
+#[cfg(test)]
 pub(crate) fn openclaw_session_label_section(title: &str) -> String {
     let safe = escape_semantic_text(title);
     let body = format!(

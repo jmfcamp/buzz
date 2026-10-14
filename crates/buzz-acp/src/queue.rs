@@ -2550,9 +2550,7 @@ pub fn format_prompt(batch: &FlushBatch, args: &FormatPromptArgs<'_>) -> Vec<Str
     // 5. OpenClaw session-label workaround — OpenClaw ignores `_meta.sessionTitle`,
     //    so ask the agent to rename its sidebar label to the computed title.
     //    Included on every prompt (idempotent wording) when title mode is on.
-    if let Some(title) = args.session_title.map(str::trim).filter(|t| !t.is_empty()) {
-        sections.push(crate::prompt_framing::openclaw_session_label_section(title));
-    }
+    let _ = args.session_title;
 
     sections
 }
@@ -3193,10 +3191,10 @@ mod tests {
             },
         );
         let prompt = sections.join("\n\n");
-        let expected = crate::prompt_framing::openclaw_session_label_section(title);
-        assert_eq!(sections.last().unwrap(), &expected);
-        assert!(prompt.contains("exactly `buzz #hula:abcdef01`"));
-        assert!(prompt.contains("If it is not already named that, rename it now"));
+        // buzz-acp labels OpenClaw sessions itself; the prompt never asks the
+        // agent to rename (no agent has a tool for it).
+        let _ = title;
+        assert!(!prompt.contains("<openclaw-session-label>"));
     }
 
     #[test]
