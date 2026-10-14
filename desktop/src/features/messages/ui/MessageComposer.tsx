@@ -49,6 +49,7 @@ import { MessageComposerAutocompletes } from "./MessageComposerAutocompletes";
 import { ComposerDockToolbar } from "./ComposerDockToolbar";
 import { ComposerUploadProgressPill } from "./ComposerUploadProgressPill";
 import { NonMemberMentionDialog } from "./NonMemberMentionDialog";
+import { AddMentionedCard } from "./AddMentionedCard";
 import { useComposerVoiceNote } from "./useComposerVoiceNote";
 import { useMentionSendFlow } from "./useMentionSendFlow";
 import { useAgentAddressLockPicker } from "./useAgentAddressLockPicker";
@@ -1045,6 +1046,7 @@ function MessageComposerImpl({
             />
           </form>
         </div>
+        <AddMentionedCard {...mentionSendFlow.addMentionedCardProps} />
       </footer>
       <NonMemberMentionDialog
         {...mentionSendFlow.nonMemberPromptProps}

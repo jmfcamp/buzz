@@ -3358,12 +3358,6 @@ pub async fn run_prompt_task(
         return;
     };
 
-    if let Some(b) = batch.as_ref() {
-        if crate::cross_channel::is_non_member(b.channel_id) {
-            prompt_sections.insert(0, crate::cross_channel::NOT_A_MEMBER_NOTE.to_string());
-        }
-    }
-
     // Stage channel attachments with Blossom auth so the agent can read them
     // locally (GET /media/* requires t=get auth; a bare fetch returns 401).
     let staged_attachments = if let Some(b) = batch.as_ref() {
