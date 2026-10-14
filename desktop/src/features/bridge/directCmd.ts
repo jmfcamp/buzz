@@ -114,6 +114,7 @@ export const CMD_WRITES = [
   "delete_persona",
   "delete_managed_agent",
   "delete_team",
+  "term_herdr_handoff",
 ] as const;
 const PROMPT_MAX = 20_000;
 async function runtimeIdFor(deps: CmdDeps, id: string): Promise<void> {
@@ -490,6 +491,15 @@ export async function handleCmd(name: string, args: unknown, deps: CmdDeps): Pro
       const id = str(i.id, "Persona", 100) ?? bad("Choose an agent definition.");
       const r = await inv(name, { input: { id, ...(await personaFields(i, deps)) } });
       return sanitizePersona(r);
+    }
+    case "term_herdr_handoff": {
+      // Web term-session card Open when this desktop's Buzz Term host is herdr: create one focused herdr workspace and send the
+      // handoff line into its root pane (same as the desktop's own Open). The web then attaches its herdr tab to `sessionName`.
+      const command = typeof a.command === "string" && a.command.trim() && a.command.length <= 64_000 ? a.command : bad("Nothing to run.");
+      const label = str(a.label, "Label", 200);
+      const sessionName = str(a.sessionName, "Session", 100);
+      const r = obj(await inv("term_open_in_herdr", { request: { createWorkspace: true, command, ...(label ? { label } : {}), ...(sessionName ? { sessionName } : {}) } }));
+      return r.ok === true ? { ok: true, sessionName: typeof r.sessionName === "string" ? r.sessionName : (sessionName ?? "") } : { ok: false, reason: String(r.reason ?? "herdr unavailable").slice(0, 200) };
     }
     case "delete_persona":
     case "delete_team": {
