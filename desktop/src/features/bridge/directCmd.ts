@@ -111,6 +111,9 @@ export const CMD_WRITES = [
   "add_team_from_catalog",
   "respond_permission_prompt",
   "refresh_openclaw_workspace_mcp",
+  "delete_persona",
+  "delete_managed_agent",
+  "delete_team",
 ] as const;
 const PROMPT_MAX = 20_000;
 async function runtimeIdFor(deps: CmdDeps, id: string): Promise<void> {
@@ -488,6 +491,16 @@ export async function handleCmd(name: string, args: unknown, deps: CmdDeps): Pro
       const r = await inv(name, { input: { id, ...(await personaFields(i, deps)) } });
       return sanitizePersona(r);
     }
+    case "delete_persona":
+    case "delete_team": {
+      const id = str(a.id, name === "delete_team" ? "Team" : "Agent definition", 100) ?? bad("Choose what to delete.");
+      await inv(name, { id });
+      return null;
+    }
+    case "delete_managed_agent":
+      // Remote deletes never force-delete the agent's relay identity; that stays a desktop-only choice.
+      await inv(name, { pubkey: pubkey(a.pubkey), forceRemoteDelete: false });
+      return null;
     case "stop_managed_agent":
       return sanitizeAgent(await inv(name, { pubkey: pubkey(a.pubkey) }));
     case "create_managed_agent": {

@@ -1,4 +1,5 @@
 import { useDesktopData } from "@/features/bridge/ui/DesktopData";
+import { isCmdStale } from "@/features/bridge/remoteCmd";
 import {
   CopyPlus,
   EllipsisVertical,
@@ -46,6 +47,8 @@ export function PersonaActionsMenu({
   const needsDirect = web && !live;
   const disabled = isActionPending || isPending || needsDirect;
   const canEdit = !persona.sourceTeam;
+  // The connected desktop answered "unknown command" for delete before (older release): say so instead of failing again.
+  const deleteNeedsUpdate = web && isCmdStale("delete_persona");
 
   return (
     <DropdownMenu modal={false}>
@@ -96,14 +99,15 @@ export function PersonaActionsMenu({
         ) : (
           <DropdownMenuItem
             className="text-destructive focus:text-destructive"
-            disabled={disabled}
+            disabled={disabled || deleteNeedsUpdate}
+            title={deleteNeedsUpdate ? "Your desktop needs the next Hula Buzz update to delete from the web." : undefined}
             onClick={() => {
               if (web && !window.confirm(`Delete ${persona.displayName}? This can't be undone.`)) return;
               onDelete(persona);
             }}
           >
             <Trash2 className="h-4 w-4" />
-            Delete
+            {deleteNeedsUpdate ? "Delete (needs desktop update)" : "Delete"}
           </DropdownMenuItem>
         )}
       </DropdownMenuContent>
