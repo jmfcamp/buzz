@@ -553,6 +553,8 @@ export class RelayClient {
   }
 
   private async connect() {
+    // Web: a remote signer (Clave on iOS) must be awake before the socket opens: the relay closes after 5s without AUTH.
+    if (relayPreConnectHook) await relayPreConnectHook().catch(() => undefined);
     if (this.stabilityTimer !== null) {
       window.clearTimeout(this.stabilityTimer);
       this.stabilityTimer = null;
@@ -1218,4 +1220,10 @@ export class RelayClient {
       this.scheduleReconnect();
     }
   }
+}
+
+let relayPreConnectHook: (() => Promise<void>) | null = null;
+/** Web only: awaited before every relay socket opens (signer warm-up). */
+export function setRelayPreConnectHook(fn: (() => Promise<void>) | null) {
+  relayPreConnectHook = fn;
 }

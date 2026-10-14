@@ -1,7 +1,7 @@
 // Web entry: register SW (prod only), unlock via signer (NIP-07), then boot the shared desktop app.
 import "./web.css";
 import { getSession, probeActiveSigner, resumeSession, signOutSigner, signerPubkey } from "./signer";
-import { startBackgroundSignerCheck, startSignerBanner, type SignerActions } from "./signer/signerOverlay";
+import { ensureSignerAwake, startBackgroundSignerCheck, startSignerBanner, type SignerActions } from "./signer/signerOverlay";
 import { startBootWatch } from "./signer/bootWatch";
 import { sendStatus } from "@/shared/lib/sendStatus";
 import { isStaleChunkError, reloadForStaleBuild } from "@/shared/lib/lazyWithReload";
@@ -47,7 +47,11 @@ if (!(await resumeSession())) {
 // would dead-end on every reload/update. The cached session boots straight in (reads need no signer), signing is lazy,
 // the paired desktop signs over Direct first, and a quiet background check raises the non-blocking banner if needed.
 startSignerBanner(signerActions);
-if (getSession()?.kind === "nip46") startBackgroundSignerCheck(signerActions);
+if (getSession()?.kind === "nip46") {
+  startBackgroundSignerCheck(signerActions);
+  const { setRelayPreConnectHook } = await import("@/shared/api/relayClientSession");
+  setRelayPreConnectHook(() => ensureSignerAwake(signerActions));
+}
 void import("./updateCheck").then((m) => m.startUpdateCheck()).catch(() => undefined);
 void import("./permissionPrompts").then((m) => m.startPermissionPrompts()).catch(() => undefined);
 if (import.meta.env.VITE_BUZZ_WEB_PUSH_URL) void import("./push/banner").then((m) => m.startWebPush()).catch(() => undefined);
