@@ -1,4 +1,7 @@
 import { useDesktopPermissionPrompts } from "@/features/agents/permissionPrompts/useDesktopPermissionPrompts";
+import { isTauri as isTauriShell } from "@tauri-apps/api/core";
+import { WebRemoteWatcher } from "@/features/bridge/ui/WebRemoteSettings";
+const webBuild = !isTauriShell();
 import * as React from "react";
 import { ProtectedGlobalOverlay } from "@protected-feature-components";
 import { useQueryClient } from "@tanstack/react-query";
@@ -1016,6 +1019,9 @@ export function AppShell() {
               >
                 <AppProfilePanelProvider>
                   <AppWorkflowEditorOverlayProvider>
+                    {/* Web: binds the shared Direct client app-wide. It used to live in the sidebar, which the phone layout
+                        unmounts off the Channels tab, so agent pages on iPhone never had a Direct client. */}
+                    {webBuild ? <WebRemoteWatcher /> : null}
                     {isPhone && !hideAppChrome ? (
                       <PhoneNavRow
                         canGoBack={canGoBack}

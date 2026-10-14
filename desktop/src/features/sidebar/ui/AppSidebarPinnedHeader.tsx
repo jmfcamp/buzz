@@ -2,7 +2,6 @@ import * as React from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { useNavigate } from "@tanstack/react-router";
 import {
-  WebRemoteWatcher,
   useWebRemoteNav,
 } from "@/features/bridge/ui/WebRemoteSettings";
 import {
@@ -210,7 +209,6 @@ export function AppSidebarPrimaryMenu({
   ));
   return (
     <>
-      {web ? <WebRemoteWatcher /> : null}
       <SidebarHeader
         className="relative z-40 cursor-default select-none px-2 pb-0 pt-0"
         data-tauri-drag-region={dragRegion ? true : undefined}
