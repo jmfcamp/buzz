@@ -1,4 +1,4 @@
-import { useDesktopData } from "@/features/bridge/ui/DesktopData";
+import { DIRECT_CONTROLS_HINT, useDesktopData } from "@/features/bridge/ui/DesktopData";
 import { isCmdStale } from "@/features/bridge/remoteCmd";
 import {
   CopyPlus,
@@ -71,13 +71,14 @@ export function PersonaActionsMenu({
           </p>
         ) : null}
         {canEdit ? (
-          <DropdownMenuItem disabled={disabled} onClick={() => onEdit(persona)}>
+          <DropdownMenuItem disabled={disabled} title={needsDirect ? DIRECT_CONTROLS_HINT : undefined} onClick={() => onEdit(persona)}>
             <Pencil className="h-4 w-4" />
             Edit
           </DropdownMenuItem>
         ) : null}
         <DropdownMenuItem
           disabled={disabled}
+          title={needsDirect ? DIRECT_CONTROLS_HINT : undefined}
           onClick={() => onDuplicate(persona)}
         >
           <CopyPlus className="h-4 w-4" />
@@ -85,6 +86,7 @@ export function PersonaActionsMenu({
         </DropdownMenuItem>
         <DropdownMenuItem
           disabled={disabled}
+          title={needsDirect ? DIRECT_CONTROLS_HINT : undefined}
           onClick={() => onShare(persona, linkedAgent)}
         >
           <Share2 className="h-4 w-4" />
@@ -100,7 +102,7 @@ export function PersonaActionsMenu({
           <DropdownMenuItem
             className="text-destructive focus:text-destructive"
             disabled={disabled || deleteNeedsUpdate}
-            title={deleteNeedsUpdate ? "Your desktop needs the next Hula Buzz update to delete from the web." : undefined}
+            title={deleteNeedsUpdate ? "Your desktop needs the next Hula Buzz update to delete from the web." : needsDirect ? DIRECT_CONTROLS_HINT : undefined}
             onClick={() => {
               if (web && !window.confirm(`Delete ${persona.displayName}? This can't be undone.`)) return;
               onDelete(persona);
