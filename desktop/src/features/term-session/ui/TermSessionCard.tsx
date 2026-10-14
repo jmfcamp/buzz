@@ -4,6 +4,7 @@ import { useLocation } from "@tanstack/react-router";
 import { toast } from "sonner";
 
 import { deriveShellRoute } from "@/app/AppShell.helpers";
+import { useDirectControlsOff } from "@/features/bridge/ui/DesktopData";
 import { useChannelsQuery } from "@/features/channels/hooks";
 import { Button } from "@/shared/ui/button";
 import {
@@ -38,6 +39,7 @@ function conversationFromLocation(
 
 export function TermSessionCard({ card }: { card: TermSessionCardData }) {
   const [busy, setBusy] = React.useState(false);
+  const { off: directOff, hint: directHint } = useDirectControlsOff();
   const location = useLocation();
   const channelsQuery = useChannelsQuery();
   const conversation = React.useMemo(
@@ -99,7 +101,8 @@ export function TermSessionCard({ card }: { card: TermSessionCardData }) {
         <AttachmentActions className="relative z-20 w-full flex-wrap justify-end">
           <Button
             data-testid="term-session-card-open"
-            disabled={busy}
+            disabled={busy || directOff}
+            title={directOff ? directHint : undefined}
             onClick={(event) => {
               event.stopPropagation();
               handleOpen();

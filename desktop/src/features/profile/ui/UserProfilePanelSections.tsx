@@ -54,6 +54,7 @@ import type {
   ProfilePanelTab,
 } from "@/features/profile/ui/UserProfilePanelUtils";
 import { cn } from "@/shared/lib/cn";
+import { useDirectControlsOff } from "@/features/bridge/ui/DesktopData";
 import { observeElementBlockSize } from "@/shared/layout/observeElementBlockSize";
 import { useMeasuredCssVariable } from "@/shared/layout/useMeasuredCssVariable";
 import { Badge } from "@/shared/ui/badge";
@@ -706,6 +707,7 @@ function ProfileHero({
 }) {
   const fromContext = useOpenClawWorkspaceAvatarEnabled(pubkey);
   const showOpenClawBadge = showOpenClawWorkspaceBadge ?? fromContext;
+  const { off: directOff, hint: directHint } = useDirectControlsOff();
   const botIndicator = isBot ? (
     <BotIdenticon
       className="shrink-0 rounded"
@@ -731,8 +733,10 @@ function ProfileHero({
           <h3 className="max-w-full" data-testid="user-profile-name-row">
             <button
               aria-label={`Edit ${displayName}`}
-              className="group relative flex max-w-full items-center justify-center gap-2 rounded-lg px-1 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+              className="group relative flex max-w-full items-center justify-center gap-2 rounded-lg px-1 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
               data-testid="user-profile-edit-agent"
+              disabled={directOff}
+              title={directOff ? directHint : undefined}
               onClick={onEditAgent}
               type="button"
             >

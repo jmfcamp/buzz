@@ -16,6 +16,7 @@ import type {
   useFollowMutation,
   useUnfollowMutation,
 } from "@/features/profile/hooks";
+import { useDirectControlsOff } from "@/features/bridge/ui/DesktopData";
 import { useFeatureEnabled } from "@/shared/features";
 import { cn } from "@/shared/lib/cn";
 import { Spinner } from "@/shared/ui/spinner";
@@ -64,6 +65,10 @@ export function ProfilePrimaryActions({
   wavePending?: boolean;
 }) {
   const showFollowAction = useFeatureEnabled("pulse");
+  const { off: directOff, hint: directHint } = useDirectControlsOff();
+  const agentControlsDisabled =
+    Boolean(agentActionDisabled) || directOff || Boolean(agentStartBlockReason);
+  const agentControlsTitle = agentStartBlockReason || (directOff ? directHint : undefined);
   const followToggleMutation = isFollowing ? unfollowMutation : followMutation;
 
   const handleFollowClick = () => {
@@ -95,9 +100,9 @@ export function ProfilePrimaryActions({
     >
       {onAgentPrimaryAction && agentActionLabel ? (
         <ProfileActionTile
-          active
-          disabled={agentActionDisabled || Boolean(agentStartBlockReason)}
-          title={agentStartBlockReason}
+          active={Boolean(agentActionLive) && !directOff}
+          disabled={agentControlsDisabled}
+          title={agentControlsTitle}
           icon={agentActionLive ? Square : Play}
           label={agentActionLabel}
           onClick={onAgentPrimaryAction}
@@ -106,7 +111,8 @@ export function ProfilePrimaryActions({
       ) : null}
       {onAgentRestart ? (
         <ProfileActionTile
-          disabled={agentActionDisabled}
+          disabled={Boolean(agentActionDisabled) || directOff}
+          title={directOff ? directHint : undefined}
           icon={RefreshCw}
           label="Restart agent"
           onClick={onAgentRestart}
@@ -169,6 +175,7 @@ export function ProfilePersonaPrimaryActions({
   disabled: boolean;
   onStartAgent: () => void;
 }) {
+  const { off: directOff, hint: directHint } = useDirectControlsOff();
   return (
     <ProfileActionGroup
       className={className}
@@ -176,8 +183,9 @@ export function ProfilePersonaPrimaryActions({
       ref={actionGroupRef}
     >
       <ProfileActionTile
-        active
-        disabled={disabled}
+        active={!directOff}
+        disabled={disabled || directOff}
+        title={directOff ? directHint : undefined}
         icon={Play}
         label="Start agent"
         onClick={onStartAgent}
@@ -235,8 +243,8 @@ function ProfileActionTile({
       aria-label={label}
       aria-busy={isLoading || undefined}
       className={cn(
-        "flex min-h-20 w-full flex-col items-center justify-center gap-1.5 rounded-xl bg-muted px-2 py-3 text-center transition-colors hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
-        active && "bg-foreground text-background hover:bg-foreground/90",
+        "flex min-h-20 w-full flex-col items-center justify-center gap-1.5 rounded-xl bg-muted px-2 py-3 text-center transition-colors hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-muted",
+        active && "bg-foreground text-background hover:bg-foreground/90 disabled:hover:bg-foreground",
       )}
       data-testid={testId}
       title={title}

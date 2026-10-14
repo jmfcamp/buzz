@@ -37,6 +37,7 @@ import {
 } from "@/features/profile/ui/UserProfilePanelFields";
 import type { ProfilePanelTab } from "@/features/profile/ui/UserProfilePanelUtils";
 import { cn } from "@/shared/lib/cn";
+import { useDirectControlsOff } from "@/features/bridge/ui/DesktopData";
 import { useNow } from "@/shared/lib/useNow";
 import { Button } from "@/shared/ui/button";
 import {
@@ -58,6 +59,7 @@ export function ProfileIngressRow({
   label,
   onClick,
   testId,
+  title,
   trailing,
 }: {
   disabled?: boolean;
@@ -67,6 +69,7 @@ export function ProfileIngressRow({
   label: string;
   onClick?: () => void;
   testId: string;
+  title?: string;
   trailing?: React.ReactNode;
 }) {
   const trailingTitle = typeof trailing === "string" ? trailing : undefined;
@@ -117,6 +120,7 @@ export function ProfileIngressRow({
         )}
         data-testid={testId}
         disabled={disabled}
+        title={title}
         onClick={onClick}
         type="button"
       >
@@ -247,6 +251,7 @@ export function ProfileInfoTabContent({
   showUsageActivity?: boolean;
   showInstructionBlock: boolean;
 }) {
+  const { off: directOff, hint: directHint } = useDirectControlsOff();
   const infoFields: ProfileField[] = isArchived
     ? [
         ...agentInfoFields,
@@ -321,10 +326,12 @@ export function ProfileInfoTabContent({
           {showInstructionBlock ? (
             <ProfileIngressRow
               grouped
+              disabled={directOff}
               icon={MessageSquare}
               label="Agent instructions"
               onClick={onEditInstructions ?? onEditAgent}
               testId="user-profile-agent-instruction-row"
+              title={directOff ? directHint : undefined}
             />
           ) : null}
           <ProfileFieldRows fields={infoFields} />
@@ -783,7 +790,9 @@ export function ProfileRuntimeTabContent({
   );
   const resolvedStartOnLaunchEnabled =
     startOnLaunchEnabled ?? startOnLaunchField?.displayValue === "Yes";
-  const canToggleStartOnLaunch = onToggleStartOnLaunch !== undefined;
+  const { off: directOff, hint: directHint } = useDirectControlsOff();
+  const canToggleStartOnLaunch =
+    onToggleStartOnLaunch !== undefined && !directOff;
   const handleStartOnLaunchToggle = React.useCallback(() => {
     if (startOnLaunchPending) return;
     onToggleStartOnLaunch?.();
@@ -848,10 +857,12 @@ export function ProfileRuntimeTabContent({
               aria-checked={resolvedStartOnLaunchEnabled}
               aria-disabled={!canToggleStartOnLaunch || startOnLaunchPending}
               aria-label={startOnLaunchField.label}
+              title={directOff ? directHint : undefined}
               className={cn(
                 "flex min-h-16 items-center gap-3 px-4 py-3",
                 canToggleStartOnLaunch &&
                   "cursor-pointer transition-colors hover:bg-muted/40 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                directOff && "cursor-not-allowed opacity-50",
               )}
               data-testid={startOnLaunchField.testId}
               onKeyDown={(event) => {

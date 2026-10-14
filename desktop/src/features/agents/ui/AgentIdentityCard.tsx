@@ -1,6 +1,6 @@
 import { useRef, type ReactNode } from "react";
 
-import { useDesktopData } from "@/features/bridge/ui/DesktopData";
+import { DIRECT_CONTROLS_HINT, useDesktopData } from "@/features/bridge/ui/DesktopData";
 import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
 import { cn } from "@/shared/lib/cn";
 import { IdentityInitialsAvatar } from "./IdentityInitialsAvatar";
@@ -47,7 +47,7 @@ export function AgentIdentityCard({
   const controlsOff = web && !live;
   const gate = (node: ReactNode, testId: string) =>
     controlsOff ? (
-      <span className="pointer-events-auto inline-flex cursor-not-allowed" title="Needs a Direct connection" aria-disabled="true" data-testid={testId}>
+      <span className="pointer-events-auto inline-flex cursor-not-allowed" title={DIRECT_CONTROLS_HINT} aria-disabled="true" data-testid={testId}>
         <span className="pointer-events-none">{node}</span>
       </span>
     ) : (

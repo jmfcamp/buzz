@@ -1,6 +1,7 @@
 import { CircleAlert } from "lucide-react";
 import { useReducedMotion } from "motion/react";
 
+import { useDirectControlsOff } from "@/features/bridge/ui/DesktopData";
 import {
   type AvatarBadgeCurve,
   MaskedAvatarBadgeFrame,
@@ -153,6 +154,7 @@ export function AgentRuntimeAvatarControl({
   onStart,
 }: AgentRuntimeAvatarControlProps) {
   const shouldReduceMotion = useReducedMotion();
+  const { off: directOff, hint: directHint } = useDirectControlsOff();
   const trimmedAvatarUrl = avatarUrl?.trim() || null;
   const isRestartAction = requiresRestart || isRestarting;
   const actionLabel = isRestarting
@@ -212,24 +214,33 @@ export function AgentRuntimeAvatarControl({
               <button
                 aria-label={hasError ? errorActionLabel : actionLabel}
                 className={cn(
-                  "pointer-events-auto flex h-full w-full items-center justify-center rounded-full px-2.5 text-xs font-semibold leading-none transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default disabled:opacity-90",
+                  "pointer-events-auto flex h-full w-full items-center justify-center rounded-full px-2.5 text-xs font-semibold leading-none transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
                   hasError
                     ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    : directOff
+                      ? "bg-muted text-muted-foreground hover:bg-muted"
                     : isRestartAction
                       ? "bg-transparent text-amber-800 hover:bg-amber-500/10 dark:text-amber-400"
                       : "bg-primary text-primary-foreground hover:bg-primary/90",
                 )}
                 data-testid={hasError ? errorTestId : startTestId}
-                disabled={isPending}
+                disabled={isPending || (directOff && !hasError)}
                 onClick={(event) => {
                   event.stopPropagation();
                   if (hasError) {
                     onOpenError?.();
                     return;
                   }
+                  if (directOff) return;
                   onStart();
                 }}
-                title={hasError ? errorLabel || errorActionLabel : actionLabel}
+                title={
+                  hasError
+                    ? errorLabel || errorActionLabel
+                    : directOff
+                      ? directHint
+                      : actionLabel
+                }
                 type="button"
               >
                 {isPending ? (
@@ -256,6 +267,8 @@ export function AgentRuntimeAvatarControl({
               : "bg-muted-foreground/35"
             : hasError
               ? "bg-destructive"
+              : directOff
+                ? "bg-muted"
               : isRestartAction
                 ? "bg-amber-500/15"
                 : "bg-primary",

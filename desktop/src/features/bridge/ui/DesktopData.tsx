@@ -7,6 +7,15 @@ import { directDiag, getProxyDirect, NEEDS_DIRECT, proxyCmd, subscribeProxy } fr
 
 export const isWebBuild = () => !isTauri();
 
+/** Short calm tooltip / title when a desktop-gated control is off because Direct is down. */
+export const DIRECT_CONTROLS_HINT = "Needs a Direct connection";
+
+/** Web without a live Direct connection: desktop-gated controls should look grayed and disabled. Always off=false on the desktop app. */
+export function useDirectControlsOff(): { off: boolean; hint: string } {
+  const { web, live } = useDesktopData();
+  return { off: web && !live, hint: DIRECT_CONTROLS_HINT };
+}
+
 /** { web, live }: `live` = this web app currently has a signed direct connection to the desktop. Always live on the desktop app. */
 export function useDesktopData(): { web: boolean; live: boolean; reason: string } {
   const web = isWebBuild();

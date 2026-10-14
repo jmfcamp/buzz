@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 
 import type { IdentityArchiveActions } from "@/features/identity-archive/hooks";
+import { useDirectControlsOff } from "@/features/bridge/ui/DesktopData";
 import { ArchiveConfirmDialog } from "@/features/profile/ui/ArchiveConfirmDialog";
 import type { ManagedAgent } from "@/shared/api/types";
 import {
@@ -49,6 +50,8 @@ export function UserProfileAgentManagementRows({
   onDuplicateAgent?: () => void;
   onExportAgent?: () => void;
 }) {
+  const { off: directOff, hint: directHint } = useDirectControlsOff();
+  const rowDisabled = isDeletePending || directOff;
   if (
     !onCreateCard &&
     !onDuplicateAgent &&
@@ -64,29 +67,32 @@ export function UserProfileAgentManagementRows({
     <PanelSectionGroup testId="user-profile-agent-management-section">
       {onDuplicateAgent ? (
         <ProfileAgentActionRow
-          disabled={isDeletePending}
+          disabled={rowDisabled}
           icon={CopyPlus}
           label="Duplicate agent"
           onClick={onDuplicateAgent}
           testId="user-profile-duplicate-agent-row"
+          title={directOff ? directHint : undefined}
         />
       ) : null}
       {onExportAgent ? (
         <ProfileAgentActionRow
-          disabled={isDeletePending}
+          disabled={rowDisabled}
           icon={Download}
           label="Export agent"
           onClick={onExportAgent}
           testId="user-profile-export-agent-row"
+          title={directOff ? directHint : undefined}
         />
       ) : null}
       {onCreateCard ? (
         <ProfileAgentActionRow
-          disabled={isDeletePending}
+          disabled={rowDisabled}
           icon={Sparkles}
           label="Create trading card"
           onClick={onCreateCard}
           testId="user-profile-create-card-row"
+          title={directOff ? directHint : undefined}
         />
       ) : null}
       {supplementalAction}
@@ -98,6 +104,8 @@ export function UserProfileAgentManagementRows({
           isPending={isDeletePending}
           managedAgent={managedAgent}
           onDelete={onDeleteAgent}
+          directOff={directOff}
+          directHint={directHint}
         />
       ) : null}
     </PanelSectionGroup>
@@ -112,6 +120,7 @@ export function ProfileAgentActionRow({
   label,
   onClick,
   testId,
+  title,
 }: {
   destructive?: boolean;
   disabled?: boolean;
@@ -120,12 +129,14 @@ export function ProfileAgentActionRow({
   label: string;
   onClick: () => void;
   testId: string;
+  title?: string;
 }) {
   return (
     <button
       className="flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       data-testid={testId}
       disabled={disabled}
+      title={title}
       onClick={onClick}
       type="button"
     >
@@ -157,6 +168,7 @@ function ProfileArchiveAgentRow({
   archiveActions: IdentityArchiveActions;
 }) {
   const [confirmOpen, setConfirmOpen] = React.useState(false);
+  const { off: directOff, hint: directHint } = useDirectControlsOff();
   const isArchived = archiveActions.isArchived === true;
   const Icon = isArchived ? ArchiveRestore : Archive;
   const label = archiveActions.isPending
@@ -170,10 +182,12 @@ function ProfileArchiveAgentRow({
   return (
     <>
       <ProfileAgentActionRow
-        disabled={archiveActions.isPending}
+        disabled={archiveActions.isPending || directOff}
         icon={Icon}
         label={label}
+        title={directOff ? directHint : undefined}
         onClick={() => {
+          if (directOff) return;
           if (isArchived) {
             archiveActions.unarchive();
             return;
@@ -204,10 +218,14 @@ function ProfileDeleteAgentRow({
   isPending,
   managedAgent,
   onDelete,
+  directOff = false,
+  directHint,
 }: {
   isPending: boolean;
   managedAgent?: ManagedAgent;
   onDelete: () => void;
+  directOff?: boolean;
+  directHint?: string;
 }) {
   const [confirmOpen, setConfirmOpen] = React.useState(false);
 
@@ -215,10 +233,12 @@ function ProfileDeleteAgentRow({
     <>
       <ProfileAgentActionRow
         destructive
-        disabled={isPending}
+        disabled={isPending || directOff}
         icon={Trash2}
         label="Delete agent"
+        title={directOff ? directHint : undefined}
         onClick={() => {
+          if (directOff) return;
           if (managedAgent) {
             setConfirmOpen(true);
             return;

@@ -22,6 +22,8 @@ export function getUserProfilePanelHeaderContent({
   logSubtitle,
   onBack,
   onEditAgent,
+  editAgentDisabled = false,
+  editAgentTitle,
   view,
   viewerIsOwner,
 }: {
@@ -32,6 +34,8 @@ export function getUserProfilePanelHeaderContent({
   logSubtitle?: string | null;
   onBack: () => void;
   onEditAgent?: () => void;
+  editAgentDisabled?: boolean;
+  editAgentTitle?: string;
   view: ProfilePanelView;
   viewerIsOwner: boolean;
 }) {
@@ -74,6 +78,8 @@ export function getUserProfilePanelHeaderContent({
           aria-label="Edit agent"
           className="text-sm"
           data-testid="user-profile-header-edit-agent"
+          disabled={editAgentDisabled}
+          title={editAgentTitle}
           onClick={onEditAgent}
           size="sm"
           type="button"

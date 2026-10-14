@@ -3,6 +3,7 @@ import { isRelayRemovedError } from "@/features/agents/managedAgentRelayCleanup"
 import { toast } from "sonner";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
+import { useDirectControlsOff } from "@/features/bridge/ui/DesktopData";
 import { useIsManagedAgent } from "@/features/agent-memory/hooks";
 import {
   type AttachManagedAgentToChannelResult,
@@ -771,6 +772,7 @@ export function UserProfilePanel({
     isDiagnosticsLikeView && managedAgent
       ? `${managedAgent.name} · ${describeLogFile(managedAgent.logPath)}`
       : null;
+  const { off: directOff, hint: directHint } = useDirectControlsOff();
   const { headerActions, headerLeftContent } = getUserProfilePanelHeaderContent(
     {
       agentSettingsMenu,
@@ -780,6 +782,8 @@ export function UserProfilePanel({
       logSubtitle: logHeaderSubtitle,
       onBack: () => setView("summary"),
       onEditAgent: canEditAgent ? handleEditAgent : undefined,
+      editAgentDisabled: directOff,
+      editAgentTitle: directOff ? directHint : undefined,
       view,
       viewerIsOwner,
     },

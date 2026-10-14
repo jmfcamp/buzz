@@ -36,7 +36,7 @@ import {
 } from "@/shared/ui/dropdown-menu";
 import { PageHeader } from "@/shared/ui/PageHeader";
 import { MyAgentsPanel } from "@/features/bridge/ui/MyAgentsPanel";
-import { useDesktopData } from "@/features/bridge/ui/DesktopData";
+import { DIRECT_CONTROLS_HINT, useDesktopData } from "@/features/bridge/ui/DesktopData";
 import type { AgentPersona, ManagedAgent } from "@/shared/api/types";
 import { getInheritedAgentDefaults } from "./bakedEnvHelpers";
 
@@ -190,7 +190,7 @@ export function AgentsView() {
                   {runningAgentCount > 0 ? (
                     <Button
                       disabled={isActionPending || controlsOff}
-                      title={controlsOff ? "Needs a Direct connection" : undefined}
+                      title={controlsOff ? DIRECT_CONTROLS_HINT : undefined}
                       onClick={() => {
                         void agents.handleBulkStopRunning();
                       }}
@@ -232,7 +232,8 @@ export function AgentsView() {
                     )}
                     {runningAgentCount > 0 ? (
                       <DropdownMenuItem
-                        disabled={isActionPending}
+                        disabled={isActionPending || controlsOff}
+                        title={controlsOff ? DIRECT_CONTROLS_HINT : undefined}
                         onSelect={() => {
                           void agents.handleBulkStopRunning();
                         }}

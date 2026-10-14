@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 
 import type { IdentityArchiveActions } from "@/features/identity-archive/hooks";
+import { useDirectControlsOff } from "@/features/bridge/ui/DesktopData";
 import { ArchiveConfirmDialog } from "@/features/profile/ui/ArchiveConfirmDialog";
 import type { ManagedAgent } from "@/shared/api/types";
 import { Button } from "@/shared/ui/button";
@@ -41,6 +42,8 @@ export function UserProfileAgentSettingsMenu({
   personaActionKey?: string;
 }) {
   const [archiveConfirmOpen, setArchiveConfirmOpen] = React.useState(false);
+  const { off: directOff, hint: directHint } = useDirectControlsOff();
+  const menuDisabled = isPending || directOff;
   const actionKey = managedAgent?.pubkey ?? "persona-draft";
   const personaKey = personaActionKey ?? actionKey;
   const canToggleAutoStart =
@@ -81,12 +84,19 @@ export function UserProfileAgentSettingsMenu({
           className="min-w-56"
           onCloseAutoFocus={(event) => event.preventDefault()}
         >
+          {directOff ? (
+            <p className="max-w-56 px-2 py-1.5 text-xs text-muted-foreground" data-testid="user-profile-settings-needs-direct">
+              These actions run on your desktop. Connect over Direct to use them.
+            </p>
+          ) : null}
           {canToggleAutoStart ? (
             <DropdownMenuItem
               className="gap-3 pr-2"
-              disabled={isPending}
+              disabled={menuDisabled}
+              title={directOff ? directHint : undefined}
               onSelect={(event) => {
                 event.preventDefault();
+                if (directOff) return;
                 onToggleAutoStart();
               }}
             >
@@ -98,9 +108,12 @@ export function UserProfileAgentSettingsMenu({
                 aria-label="Auto-start"
                 checked={managedAgent.startOnAppLaunch}
                 data-testid={autoStartSwitchId}
-                disabled={isPending}
+                disabled={menuDisabled}
                 id={autoStartSwitchId}
-                onCheckedChange={onToggleAutoStart}
+                onCheckedChange={() => {
+                  if (directOff) return;
+                  onToggleAutoStart();
+                }}
                 onClick={(event) => event.stopPropagation()}
               />
             </DropdownMenuItem>
@@ -108,7 +121,8 @@ export function UserProfileAgentSettingsMenu({
           {onDuplicatePersona ? (
             <DropdownMenuItem
               data-testid={`user-profile-persona-duplicate-${personaKey}`}
-              disabled={isPending}
+              disabled={menuDisabled}
+              title={directOff ? directHint : undefined}
               onClick={onDuplicatePersona}
             >
               <CopyPlus className="h-4 w-4" />
@@ -118,7 +132,8 @@ export function UserProfileAgentSettingsMenu({
           {onExportPersona ? (
             <DropdownMenuItem
               data-testid={`user-profile-persona-export-${personaKey}`}
-              disabled={isPending}
+              disabled={menuDisabled}
+              title={directOff ? directHint : undefined}
               onClick={onExportPersona}
             >
               <Download className="h-4 w-4" />
@@ -132,7 +147,8 @@ export function UserProfileAgentSettingsMenu({
             archiveActions.isArchived ? (
               <DropdownMenuItem
                 data-testid="user-profile-unarchive-identity"
-                disabled={isPending}
+                disabled={menuDisabled}
+                title={directOff ? directHint : undefined}
                 onClick={archiveActions.unarchive}
               >
                 <ArchiveRestore className="h-4 w-4" />
@@ -141,7 +157,8 @@ export function UserProfileAgentSettingsMenu({
             ) : (
               <DropdownMenuItem
                 data-testid="user-profile-archive-identity"
-                disabled={isPending}
+                disabled={menuDisabled}
+                title={directOff ? directHint : undefined}
                 onSelect={() => setArchiveConfirmOpen(true)}
               >
                 <Archive className="h-4 w-4" />
