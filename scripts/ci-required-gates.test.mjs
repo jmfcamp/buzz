@@ -111,7 +111,7 @@ const desktopJobs = {
   "desktop-windows-build": "FRONTEND_SELECTED",
 };
 function evaluate(expression, event, inputs) {
-  const substituted = expression.replace(
+  const substituted = expression.replace(/github\.repository/g, '"block/buzz"').replace(
     /github\.event_name|inputs\.([\w_]+)/g,
     (key, input) =>
       input === undefined ? JSON.stringify(event) : String(inputs[input] === true),
