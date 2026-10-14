@@ -34,5 +34,15 @@ const forged = { ...mk(A, 24133, [["p", B.pk]], "x"), content: "tampered" };
 wa.send(JSON.stringify(["EVENT", forged]));
 const f = await next(wa, (m) => m[0] === "OK" && m[1] === forged.id);
 console.log("forged accepted:", f[2], "|", f[3]);
-wa.close(); wb.close();
-process.exit(ok[2] && rcv[2].id === ev.id && !r[2] && !f[2] ? 0 : 1);
+// Replay: C subscribes AFTER an event for it was published (its socket was "down") and must still get it.
+const C = key();
+const late = mk(A, 24133, [["p", C.pk]], "missed-while-away");
+wa.send(JSON.stringify(["EVENT", late]));
+await next(wa, (m) => m[0] === "OK" && m[1] === late.id);
+const wc = await open(url);
+const replayed = next(wc, (m) => m[0] === "EVENT" && m[1] === "s2" && m[2].id === late.id);
+wc.send(JSON.stringify(["REQ", "s2", { kinds: [24133], "#p": [C.pk], since: Math.floor(Date.now() / 1000) - 30 }]));
+const rp = await replayed.then(() => true, () => false);
+console.log("replayed to late subscriber:", rp);
+wa.close(); wb.close(); wc.close();
+process.exit(ok[2] && rcv[2].id === ev.id && !r[2] && !f[2] && rp ? 0 : 1);
