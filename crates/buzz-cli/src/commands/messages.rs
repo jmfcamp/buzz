@@ -150,6 +150,35 @@ fn resolve_names_to_pubkeys(
     Ok((resolved, unresolved))
 }
 
+/// True only when kind:39000 metadata marks the channel an open stream
+/// (no `private`/`hidden` tag, `t` not `dm`/`private`). Fails closed.
+async fn channel_is_open(client: &BuzzClient, channel_id: &str) -> bool {
+    let filter = serde_json::json!({"kinds": [39000], "#d": [channel_id], "limit": 1});
+    match client.query(&filter).await {
+        Ok(raw) => metadata_says_open(&serde_json::from_str(&raw).unwrap_or_default()),
+        Err(_) => false,
+    }
+}
+
+fn metadata_says_open(events: &serde_json::Value) -> bool {
+    let Some(tags) = events
+        .as_array()
+        .and_then(|a| a.first())
+        .and_then(|e| e.get("tags"))
+        .and_then(|t| t.as_array())
+    else {
+        return false;
+    };
+    !tags.iter().any(|tag| {
+        let s: Vec<&str> = tag
+            .as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
+            .unwrap_or_default();
+        matches!(s.first(), Some(&"private") | Some(&"hidden"))
+            || (s.first() == Some(&"t") && matches!(s.get(1), Some(&"dm") | Some(&"private")))
+    })
+}
+
 /// NIP-50 kind:0 search for a display name. Returns the unique pubkey when
 /// exactly one profile matches `display_name` or `name` (case-insensitive).
 async fn resolve_name_on_relay(
@@ -162,7 +191,9 @@ async fn resolve_name_on_relay(
         "limit": 100
     });
     let raw = client.query(&filter).await.map_err(|e| {
-        CliError::Other(format!("could not search relay profiles for mention '@{name}': {e}"))
+        CliError::Other(format!(
+            "could not search relay profiles for mention '@{name}': {e}"
+        ))
     })?;
     let events: Vec<serde_json::Value> = serde_json::from_str(&raw).unwrap_or_default();
     let matches = match_profiles_by_name(&events, name);
@@ -259,7 +290,17 @@ async fn resolve_content_mentions(
         resolve_names_to_pubkeys(&names, &name_to_pubkeys, has_explicit_mentions)?;
 
     // Fall back to unique relay profiles so community agents (and other relay
-    // members) get p-tagged even when they are not in this channel.
+    // members) get p-tagged even when they are not in this channel — open
+    // channels only; private channels keep the member-only rule.
+    if !unresolved.is_empty() && !channel_is_open(client, channel_id).await {
+        if has_explicit_mentions {
+            return Ok((member_pubkeys, resolved));
+        }
+        return Err(CliError::Usage(format!(
+            "mention '@{}' does not match a member of this non-open channel; retry with --mention <pubkey>",
+            unresolved[0]
+        )));
+    }
     for name in &unresolved {
         match resolve_name_on_relay(client, name).await? {
             Some(pubkey) => {
@@ -1127,6 +1168,20 @@ pub async fn dispatch(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn cli_metadata_open_only_for_stream_channels() {
+        assert!(super::metadata_says_open(
+            &serde_json::json!([{"tags":[["d","x"]]}])
+        ));
+        assert!(!super::metadata_says_open(
+            &serde_json::json!([{"tags":[["private"]]}])
+        ));
+        assert!(!super::metadata_says_open(
+            &serde_json::json!([{"tags":[["t","dm"]]}])
+        ));
+        assert!(!super::metadata_says_open(&serde_json::json!([])));
+    }
+
     use super::{
         channel_id_from_event, cmd_get_thread, cmd_send_message, event_mention_pubkeys,
         find_root_from_tags, format_events, match_profiles_by_name, merge_message_mentions,
