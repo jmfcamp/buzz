@@ -27,8 +27,11 @@ pub(crate) async fn check_principal<L: RateLimiter>(
         .await
     {
         Ok(result) if result.allowed => Ok(()),
+        // Redis TTL is whole seconds and floors to 0 in the window's last
+        // second; "retry in 0s" made clients retry instantly and spin. Never
+        // advertise less than 1s.
         Ok(result) => Err(AdmissionError::Exceeded {
-            reset_in_secs: result.reset_in_secs,
+            reset_in_secs: result.reset_in_secs.max(1),
         }),
         Err(error) => {
             tracing::warn!(error = %error, "shared rate-limit admission unavailable");

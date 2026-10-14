@@ -533,10 +533,46 @@ type SendVars = {
 const SEND_HARD_TIMEOUT_MS = 35_000;
 const lateSuccess = new WeakMap<object, (message: RelayEvent) => void>();
 
-function withSendTimeout(
-  vars: object,
+// Relay back-pressure on a send (`rate-limited: … retry in Ns`) is transient: the per-pubkey window
+// resets within seconds. Retry quietly (bounded) instead of surfacing a failure; a hint of 0s means
+// "the window is just closing", so wait 1s. Re-running is safe: the signer reuses the signed event.
+const SEND_RATE_LIMIT_RETRIES = 3;
+const SEND_RATE_LIMIT_MAX_WAIT_S = 5;
+
+export function sendRateLimitWaitMs(
+  message: string | undefined,
+): number | null {
+  if (!message || !/rate-limited/i.test(message)) return null;
+  const hint = /retry in (\d+)s/i.exec(message);
+  const secs = hint ? Number.parseInt(hint[1], 10) : 1;
+  if (secs > SEND_RATE_LIMIT_MAX_WAIT_S * 2) return null;
+  return Math.min(Math.max(secs, 1), SEND_RATE_LIMIT_MAX_WAIT_S) * 1_000;
+}
+
+async function retryRateLimited(
   run: () => Promise<RelayEvent>,
 ): Promise<RelayEvent> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await run();
+    } catch (error) {
+      const wait =
+        attempt < SEND_RATE_LIMIT_RETRIES
+          ? sendRateLimitWaitMs(
+              error instanceof Error ? error.message : String(error),
+            )
+          : null;
+      if (wait === null) throw error;
+      await new Promise((r) => window.setTimeout(r, wait + attempt * 500));
+    }
+  }
+}
+
+function withSendTimeout(
+  vars: object,
+  runOnce: () => Promise<RelayEvent>,
+): Promise<RelayEvent> {
+  const run = () => retryRateLimited(runOnce);
   if (!sendStatus.keepFailedRows()) return run();
   const p = run();
   return new Promise<RelayEvent>((resolve, reject) => {
@@ -883,7 +919,9 @@ export function useSendMessageMutation(
         };
         sendStatus.fail(
           id,
-          (error?.message ?? "send failed").slice(0, 140),
+          /rate-limited/i.test(error?.message ?? "")
+            ? "the relay is busy right now. Tap Retry in a moment."
+            : (error?.message ?? "send failed").slice(0, 140),
           retry,
           discard,
         );

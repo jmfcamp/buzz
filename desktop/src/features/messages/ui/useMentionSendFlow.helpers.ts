@@ -157,8 +157,16 @@ export function getErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
+export function isRateLimitedSendError(error: unknown) {
+  return /rate-limited/i.test(getErrorMessage(error, ""));
+}
+
 export function formatMessageSendError(error: unknown) {
-  return `Message failed to send: ${getErrorMessage(error, "Unknown error")}`;
+  const message = getErrorMessage(error, "Unknown error");
+  if (/rate-limited/i.test(message)) {
+    return "The relay is busy right now. Your message is kept — tap Retry in a moment.";
+  }
+  return `Message failed to send: ${message}`;
 }
 
 export function uniqueNormalizedPubkeys(pubkeys: Iterable<string>) {
