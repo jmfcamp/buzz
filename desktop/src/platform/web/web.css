@@ -24,10 +24,22 @@ body {
     font-size: max(16px, 1em);
   }
 }
-/* iPad / desktop web (not the phone shell, which sizes itself in phone.css): the app shell is h-dvh (100dvh) but sits
-   inside #root, which is padded by the safe-area insets above. In an installed iPad PWA (black-translucent status bar)
-   those insets are non-zero, so the shell overflowed #root by top+bottom inset and the sidebar footer / composer
-   status row were clipped. Size the shell to #root's content box instead; with zero insets this is still 100dvh. */
-:root:not([data-phone]) .buzz-huddle-shell {
-  height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+/* Installed iPad (tablet-width standalone PWA, never the phone shell): #root is pinned to the real screen with
+   position:fixed + inset:0 instead of 100dvh (which in standalone iPadOS can be shorter than the screen, so the
+   inset padding was effectively counted twice), keeps its single env(safe-area-inset-*) padding, and the app shell
+   fills #root's content box (height:100% down the ancestor chain) instead of a second full 100dvh. Result: content
+   ends exactly above the home indicator. Desktop browser tabs and iPhone (portrait < 600px or [data-phone]) never
+   match this block, so they keep the pre-#325 layout. */
+@media (min-width: 600px) and (display-mode: standalone) {
+  :root:not([data-phone]) body > #root {
+    position: fixed;
+    inset: 0;
+    height: auto;
+    min-height: 0;
+  }
+  :root:not([data-phone]) #root :has(.buzz-huddle-shell),
+  :root:not([data-phone]) #root .buzz-huddle-shell {
+    height: 100%;
+    min-height: 0;
+  }
 }
