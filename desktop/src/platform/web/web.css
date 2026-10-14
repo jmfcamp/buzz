@@ -49,6 +49,20 @@ body {
     padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
       max(0px, calc(env(safe-area-inset-bottom, 0px) - 8px)) env(safe-area-inset-left, 0px);
   }
+  /* Keyboard up (phoneLayout installTabletKeyboardFrame): pin the frame to the visible area above the keyboard;
+     no home indicator to clear then. Both vars are 0/absent when the keyboard is down, i.e. the initial layout. */
+  :root:not([data-phone]) body > #root {
+    top: var(--tablet-vv-top, 0px);
+    bottom: var(--tablet-kb, 0px);
+  }
+  :root:not([data-phone])[data-tablet-keyboard] body > #root {
+    padding-bottom: 0;
+  }
+  :root:not([data-phone]),
+  :root:not([data-phone]) body {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
   /* Slide-in left panel (Radix sheet, portalled to <body>, so it ignores #root's padding): its background runs to the
      physical edge, but its content is inset like the app content so it lines up and never sits under the notch. */
   :root:not([data-phone]) [data-sidebar="sidebar"][data-mobile="true"] {
