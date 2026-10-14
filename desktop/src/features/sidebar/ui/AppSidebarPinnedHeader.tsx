@@ -187,7 +187,7 @@ export function AppSidebarPrimaryMenu({
   // Agents is NEVER greyed out: it always opens the Agents page (the relay-bridge list + what to enable for management).
   // Buzz term is plain greyed out while unavailable; clicking opens an instructions page.
   const terminalLocked = web && !remoteNav.terminal;
-  const pins = isTauri() ? allPins : []; // web/mobile: pinned sites are desktop-only (docs/pwa-web-differences.md #1)
+  const pins = allPins; // web/mobile: pins open in a sandboxed iframe panel (/pins/$pinId)
   const separateSection = usePinnedSitesSeparateSection();
   const { preferences, counts } = useSidebarMenuCounts();
   const terminalPanel = useTerminalPanel();
