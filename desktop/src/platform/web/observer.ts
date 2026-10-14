@@ -6,6 +6,7 @@ import { observerDecryptFailed, observerDecryptStarted, observerDecryptSucceeded
 // holds a secret key, so crypto goes through the signer's nip44 (cached by the instrumented signer).
 import { verifyEvent } from "nostr-tools";
 import { getSigner } from "./signer";
+import { ensureProxyDirectLive } from "@/features/bridge/remoteCmd";
 import { desktopSignerActive, getDirectSigner } from "./signer/directRoute";
 
 type Args = Record<string, any> | undefined;
@@ -60,9 +61,27 @@ const refusedPeers = new Map<string, number>();
 const isRefusal = (e: unknown) =>
   /own data|not offered|unsupported|not_supported/i.test(`${(e as { code?: string })?.code ?? ""} ${(e as Error)?.message ?? e}`) &&
   !/can't encrypt\/decrypt yet/i.test(String((e as Error)?.message ?? e));
+export const OBSERVER_DESKTOP_OFFLINE = "Live activity shows when your desktop is connected (Direct).";
+const DIRECT_CONNECT_WAIT_MS = 6_000;
+let lastConnectTry = 0;
 async function observerDecrypt(peer: string, ct: string, fallback: () => Promise<string>): Promise<string> {
   const ds = getDirectSigner();
-  if (!ds?.crypt || !desktopSignerActive()) return fallback();
+  // No desktop registered for this browser: the remote signer is the only way to read frames.
+  if (!ds?.crypt) return fallback();
+  if (!desktopSignerActive()) {
+    // The shared Direct client is bound app-wide but only some pages connect it (Agents, Settings, Buzz Term). A DM's
+    // Activity pane used to skip Direct here and ask the sleeping remote signer (Primal), which never answered: the pane
+    // sat on "Waiting for signer" forever. Connect Direct on demand (at most every 15 s) and use it.
+    if (Date.now() - lastConnectTry > 15_000) {
+      lastConnectTry = Date.now();
+      await ensureProxyDirectLive(DIRECT_CONNECT_WAIT_MS).catch(() => false);
+    }
+    if (!desktopSignerActive()) {
+      // Not paired with this desktop: the remote signer is the only signer this browser has.
+      if (!isPairedHint(ds)) return fallback();
+      throw new Error(OBSERVER_DESKTOP_OFFLINE);
+    }
+  }
   const refusedAt = refusedPeers.get(peer);
   if (refusedAt && Date.now() - refusedAt < REFUSED_TTL_MS) throw new Error(OBSERVER_NEEDS_DESKTOP_UPDATE);
   try {
@@ -75,7 +94,17 @@ async function observerDecrypt(peer: string, ct: string, fallback: () => Promise
       refusedPeers.set(peer, Date.now());
       throw new Error(OBSERVER_NEEDS_DESKTOP_UPDATE);
     }
-    return fallback();
+    if (/not paired/i.test(String((e as Error)?.message ?? e))) return fallback();
+    // A paired desktop that is slow/briefly unreachable: say so; never wake Primal for agent frames.
+    throw new Error(OBSERVER_DESKTOP_OFFLINE);
+  }
+}
+/** Paired with the registered desktop? (`active()` also needs a live link; pairing alone is enough to prefer Direct.) */
+function isPairedHint(ds: { isPaired?: () => boolean }): boolean {
+  try {
+    return ds.isPaired ? ds.isPaired() : true;
+  } catch {
+    return true;
   }
 }
 
@@ -101,7 +130,8 @@ export async function decryptObserverEvent(a: Args): Promise<unknown> {
     plaintext = await observerDecryptLane(() => observerDecrypt(agent, ev.content, () => n.decrypt(ev.pubkey, ev.content)), agent);
     observerDecryptSucceeded(agent);
   } catch (e) {
-    if (String((e as Error)?.message ?? e) !== OBSERVER_NEEDS_DESKTOP_UPDATE) observerDecryptFailed(agent);
+    const msg = String((e as Error)?.message ?? e);
+    if (msg !== OBSERVER_NEEDS_DESKTOP_UPDATE && msg !== OBSERVER_DESKTOP_OFFLINE) observerDecryptFailed(agent);
     throw e;
   } finally {
     done();

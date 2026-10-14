@@ -81,3 +81,13 @@ test("keyboard inset: the on-screen keyboard shows up as a much shorter visual v
   assert.deepEqual([k.open, k.height], [true, 470]);
   assert.equal(keyboardInset(null, 800).open, false);
 });
+
+test("pendingTouchInput: composed text survives, sentinel padding is dropped, repeatable for a second Tab", async () => {
+  const { pendingTouchInput } = await import("./touchTerminal.ts");
+  const S = "\u200b";
+  const seed = S.repeat(64);
+  assert.equal(pendingTouchInput(seed + "H", S), "H");
+  assert.equal(pendingTouchInput(seed, S), "");
+  // second round after the reset: same behaviour (no one-shot state)
+  assert.equal(pendingTouchInput(seed + "Hu", S), "Hu");
+});

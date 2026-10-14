@@ -42,7 +42,9 @@ export function observerDecryptSucceeded(agent?: string | null): void {
 export function observerWaitingForSigner(agent?: string | null): boolean {
   const s = byAgent.get(norm(agent));
   if (!s) return false;
-  return s.pending > 0 || (s.lastFailureAt > s.lastSuccessAt && Date.now() - s.lastFailureAt < RECENT_FAILURE_MS);
+  // Only while frames are actually being unlocked. Failures are explained by the pane's own note (desktop offline, needs
+  // update, signer slow), never by blaming the signer when there's simply nothing to show.
+  return s.pending > 0;
 }
 export function useObserverWaitingForSigner(agent?: string | null): boolean {
   return React.useSyncExternalStore(

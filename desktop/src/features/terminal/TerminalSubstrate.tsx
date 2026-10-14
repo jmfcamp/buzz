@@ -42,6 +42,7 @@ import {
   keyboardInset,
   setTouchFontSize,
   subscribeTouchFontSize,
+  pendingTouchInput,
 } from "./touchTerminal";
 
 export type TerminalViewportSize = {
@@ -616,6 +617,33 @@ export function TerminalSubstrate({
    * Drop any pending composition / handoff state, clear the textarea and give it focus back (owner = terminal), so typing
    * continues exactly where it was.
    */
+  /**
+   * Before a key-bar key (touch): send any text iOS was still composing, then end that composition for real. iOS keeps its
+   * own composition session until the input blurs; resetting only our flags/value (the old fix) worked once, but the next
+   * word started a composition whose compositionend never came, so every later keystroke was swallowed ("second Tab
+   * freezes"). A blur + focus inside the same tap ends it; the keyboard-open guard keeps the toggle from reading it as
+   * "keyboard dismissed".
+   */
+  const keyBarFlush = React.useEffectEvent(() => {
+    const area = textareaRef.current;
+    if (!touchUi || !area) return;
+    const pending = pendingTouchInput(area.value, TOUCH_SENTINEL);
+    const composing = handoffRef.current.composing;
+    area.value = TOUCH_SEED;
+    area.setSelectionRange(TOUCH_SEED.length, TOUCH_SEED.length);
+    handoffRef.current = { ...INITIAL_HANDOFF_STATE };
+    if (pending) {
+      printableKeyHandledRef.current = pending; // a late input/compositionend for the same text must not resend it
+      sendInput(pending);
+    }
+    if (composing || pending) {
+      kbOpenGuardRef.current = performance.now() + 600;
+      if (document.activeElement === area) area.blur();
+      area.focus({ preventScroll: true });
+      area.value = TOUCH_SEED;
+      area.setSelectionRange(TOUCH_SEED.length, TOUCH_SEED.length);
+    }
+  });
   const keyBarRefocus = React.useEffectEvent(() => {
     handoffRef.current = { ...INITIAL_HANDOFF_STATE };
     const area = textareaRef.current;
@@ -1905,6 +1933,7 @@ export function TerminalSubstrate({
             setTouchSel(null);
           }}
           onKey={(seq) => {
+            keyBarFlush();
             sendInput(seq);
             keyBarRefocus();
           }}

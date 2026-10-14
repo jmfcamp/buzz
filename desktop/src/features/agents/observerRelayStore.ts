@@ -605,7 +605,7 @@ async function handleRelayObserverEvent(
     if (activeGeneration !== generation) {
       return;
     }
-    if (String((error as Error)?.message ?? error).includes("next desktop update")) {
+    if (/next desktop update|desktop is connected/.test(String((error as Error)?.message ?? error))) {
       setNotice(String((error as Error).message), agentPubkey);
       return;
     }

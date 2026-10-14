@@ -212,7 +212,7 @@ export function AgentSessionTranscriptList({
           ) : (
             <>
               <Radio className="mx-auto h-4 w-4 text-muted-foreground" />
-              <p className="mt-3 text-sm font-medium">{waitingForSigner ? "Waiting for signer…" : "No ACP activity yet"}</p>
+              <p className="mt-3 text-sm font-medium">{waitingForSigner ? "Unlocking activity…" : "No activity yet"}</p>
               <p className="mt-1 text-sm text-muted-foreground">
                 {emptyDescription}
               </p>
