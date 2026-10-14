@@ -210,6 +210,7 @@ export class TerminalGrid {
     const first = Math.max(0, r1);
     const last = Math.min(this.#rows.length - 1, r2);
     let out = "";
+    let urlJoin = false;
     for (let line = first; line <= last; line++) {
       const cells = this.#cellsOf(line);
       const lo = pane ? Math.max(0, pane.start) : 0;
@@ -217,13 +218,93 @@ export class TerminalGrid {
       const from = line === r1 ? Math.max(lo, c1) : lo;
       const to = line === r2 ? Math.min(hi, c2) : hi;
       let text = from <= to ? cells.slice(from, to + 1).join("") : "";
+      // A continuation row of a URL the app hard-wrapped: drop its indent.
+      if (line > first && urlJoin) text = text.trimStart();
       // Soft-wrap only joins full-width rows; a pane-clipped row always ends its line.
       const wrapped = pane ? false : (this.#rows[line]?.wrapped ?? false);
+      // Apps like Claude Code print long URLs with hard newlines at the width: join those too.
+      urlJoin = !wrapped && line < last && this.#urlContinues(line, lo, hi);
       if (!wrapped || line === last) text = text.trimEnd();
       out += text;
-      if (line < last && !wrapped) out += "\n";
+      if (line < last && !wrapped && !urlJoin) out += "\n";
     }
     return out;
+  }
+
+  /** The row's text inside [lo, hi], trailing blanks kept off. */
+  #rowText(line: number, lo: number, hi: number): string {
+    return this.#cellsOf(line).slice(lo, hi + 1).join("");
+  }
+
+  /**
+   * Whether row `line` ends inside a URL that carries on at the start of the next row: the row's last token is (or
+   * continues) an http(s) URL, the row is filled to (nearly) the right edge, and the next row starts with URL characters.
+   * Covers apps that hard-wrap at the width (Claude Code's OAuth link) where the terminal's soft-wrap flag is unset.
+   */
+  #urlContinues(line: number, lo: number, hi: number): boolean {
+    if (line + 1 >= this.#rows.length) return false;
+    const raw = this.#rowText(line, lo, hi);
+    const trimmed = raw.trimEnd();
+    if (!trimmed || trimmed.length < raw.length - 2) return false; // not filled to the edge
+    const tail = trimmed.split(/\s+/).pop() ?? "";
+    if (!URL_CHARS.test(tail)) return false;
+    let inUrl = /https?:\/\//i.test(tail);
+    // A middle row of a long URL is one token with no scheme: walk back to the row that started it.
+    for (let prev = line - 1; !inUrl && prev >= 0 && trimmed.trimStart() === tail; prev--) {
+      const p = this.#rowText(prev, lo, hi);
+      const pt = p.trimEnd();
+      if (!pt || pt.length < p.length - 2) break;
+      const ptail = pt.split(/\s+/).pop() ?? "";
+      if (!URL_CHARS.test(ptail)) break;
+      if (/https?:\/\//i.test(ptail)) inUrl = true;
+      else if (pt.trimStart() !== ptail) break;
+    }
+    if (!inUrl) return false;
+    const next = this.#rowText(line + 1, lo, hi).trim();
+    const head = next.split(/\s+/)[0] ?? "";
+    return head.length > 0 && URL_CHARS.test(head) && !/^https?:\/\//i.test(head);
+  }
+
+  /**
+   * The full http(s) URL under a cell, following soft-wrapped and app-hard-wrapped rows; null when the cell is not on a
+   * URL. Returns the URL and the rows it spans (for highlighting).
+   */
+  linkAt(
+    row: number,
+    col: number,
+    pane?: { start: number; end: number },
+  ): { url: string; firstRow: number; lastRow: number } | null {
+    if (row < 0 || row >= this.#rows.length) return null;
+    const lo = pane ? Math.max(0, pane.start) : 0;
+    const hi = pane ? Math.min(this.#viewport.columns - 1, pane.end) : this.#viewport.columns - 1;
+    const joins = (line: number) =>
+      (!pane && (this.#rows[line]?.wrapped ?? false)) || this.#urlContinues(line, lo, hi);
+    let first = row;
+    while (first > 0 && joins(first - 1)) first--;
+    let last = row;
+    while (last < this.#rows.length - 1 && joins(last)) last++;
+    let text = "";
+    let at = -1;
+    for (let line = first; line <= last; line++) {
+      let piece = this.#rowText(line, lo, hi);
+      let indent = 0;
+      if (line > first && !( !pane && this.#rows[line - 1]?.wrapped)) {
+        const t = piece.trimStart();
+        indent = piece.length - t.length;
+        piece = t;
+      }
+      if (line === row) at = text.length + Math.max(0, Math.min(piece.length, col - lo - indent));
+      text += line < last && !(!pane && this.#rows[line]?.wrapped) ? piece.trimEnd() : piece;
+    }
+    for (const m of text.matchAll(/https?:\/\/[^\s<>"'`]+/gi)) {
+      const start = m.index ?? 0;
+      let url = m[0].replace(/[.,;:!?'"\]}>]+$/, "");
+      while (url.endsWith(")") && (url.match(/\(/g) ?? []).length < (url.match(/\)/g) ?? []).length) {
+        url = url.slice(0, -1).replace(/[.,;:!?'"\]}>]+$/, "");
+      }
+      if (at >= start && at < start + url.length) return { url, firstRow: first, lastRow: last };
+    }
+    return null;
   }
 
   /**
@@ -300,12 +381,16 @@ export class TerminalGrid {
       return "";
     }
     let selected = "";
+    let joined = false;
     for (let index = startRow; index <= endRow; index++) {
       const row = rows[index];
       const from = index === startRow ? startOffset : 0;
       const to = index === endRow ? endOffset : row.text.length;
-      selected += row.text.slice(from, to);
-      if (index < endRow && !row.wrapped) selected += "\n";
+      let piece = row.text.slice(from, to);
+      if (index > startRow && joined) piece = piece.trimStart();
+      selected += piece;
+      joined = !row.wrapped && index < endRow && this.#urlContinues(index, 0, this.#viewport.columns - 1);
+      if (index < endRow && !row.wrapped && !joined) selected += "\n";
     }
     return selected;
   }
@@ -428,4 +513,5 @@ export class TerminalGrid {
 }
 
 /** Vertical box-drawing glyphs TUIs use as pane borders. */
+const URL_CHARS = /^[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]+$/;
 const PANE_BORDER = new Set(["│", "┃", "║", "╎", "╏", "┆", "┇", "┊", "┋", "▏", "▕", "├", "┤", "┼", "┣", "┫", "╋", "╟", "╢", "╠", "╣", "╬"]);

@@ -440,13 +440,21 @@
   [data-phone] body:has(.buzz-terminal-substrate[data-terminal-mode="maximized"][data-terminal-visible="true"]) [data-testid="focus-thread-drawer-overlay"]:not(:has(.buzz-terminal-substrate)) {
     visibility: hidden;
   }
-  [data-phone] body:has(.buzz-terminal-substrate[data-terminal-mode="maximized"][data-terminal-visible="true"])::before {
+  /* The opaque band lives on the nav row itself (::before, behind its buttons, up through the safe area). It used to be
+     a body::before at z-index 124 in the root stacking context, but the nav row and the Term's tab strip sit inside
+     app-sidebar-layer (relative z-10), so that band painted OVER them: a blank strip where the buttons still took taps. */
+  [data-phone] body:has(.buzz-terminal-substrate[data-terminal-mode="maximized"][data-terminal-visible="true"]) .phone-nav-row {
+    right: 0;
+  }
+  [data-phone] body:has(.buzz-terminal-substrate[data-terminal-mode="maximized"][data-terminal-visible="true"]) .phone-nav-row::before {
     content: "";
-    position: fixed;
-    inset: 0 0 auto 0;
-    height: calc(var(--phone-safe-top, env(safe-area-inset-top, 0px)) + var(--phone-nav-row-h, 40px));
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: calc(-1 * var(--phone-safe-top, env(safe-area-inset-top, 0px)));
     background: hsl(var(--background));
-    z-index: 124; /* just under the nav row (125) and tab pill (130) */
+    z-index: -1;
     pointer-events: none;
   }
   /* the Term itself above any page overlay (thread drawer z-110, full-screen lists z-110), below the nav band */
@@ -634,4 +642,45 @@
 }
 [data-phone] body:has(.buzz-terminal-substrate[data-terminal-mode="maximized"][data-terminal-visible="true"]) [data-testid="chat-header"] {
   visibility: hidden;
+}
+
+/* Tap on a link in Buzz Term (touch): a calm themed card with the full URL and Open / Copy / Close. */
+.buzz-terminal-link-card {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  z-index: 6;
+  padding: 8px;
+  border-radius: var(--radius);
+  background: hsl(var(--popover, 0 0% 100%));
+  color: hsl(var(--popover-foreground, var(--foreground)));
+  border: 1px solid hsl(var(--border, 0 0% 80%));
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+.buzz-terminal-link-url {
+  font: 12px/1.35 "JetBrains Mono", ui-monospace, monospace;
+  color: hsl(var(--muted-foreground, var(--foreground)));
+  max-height: 3.9em;
+  overflow: hidden;
+  word-break: break-all;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.buzz-terminal-link-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+.buzz-terminal-link-actions button {
+  flex: 1 1 0;
+  min-height: 36px;
+  border: 0;
+  border-radius: var(--radius-key);
+  background: hsl(var(--muted, 0 0% 92%));
+  color: inherit;
+  font: 600 14px system-ui, sans-serif;
+}
+.buzz-terminal-link-actions button:first-child {
+  background: hsl(var(--primary) / 0.12);
+  color: hsl(var(--primary));
 }

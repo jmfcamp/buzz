@@ -338,3 +338,42 @@ test("touch selection clips to the pane beside a vertical border (Herder: worksp
   const plain = gridWith(6, [{ clusters: word("abc", 0) }, { clusters: word("def", 0) }, { clusters: word("ghi", 0) }]);
   assert.deepEqual(plain.paneAt(2), { start: 0, end: 5 });
 });
+
+function urlGrid(lines, columns) {
+  const grid = new TerminalGrid({ generation: 1, columns, screenLines: lines.length });
+  const style = { fg: 0, bg: 0, flags: 0 };
+  grid.apply({
+    viewport: { generation: 1, columns, screenLines: lines.length },
+    full: true,
+    cursor: { line: 0, column: 0, visible: false },
+    rows: lines.map((t, line) => ({
+      line,
+      wrapped: false,
+      spans: [{ style, clusters: [...t].map((text, column) => ({ column, text, width: 1 })) }],
+    })),
+  });
+  return grid;
+}
+
+test("copy joins a URL the app hard-wrapped at the width", () => {
+  const grid = urlGrid(["see https://claude.ai/oau", "  th/authorize?code=abc12", "  3&state=x", "done"], 25);
+  assert.equal(grid.textBetweenCells(0, 4, 2, 24), "https://claude.ai/oauth/authorize?code=abc123&state=x");
+  assert.equal(grid.textBetweenCells(0, 0, 3, 3), "see https://claude.ai/oauth/authorize?code=abc123&state=x\ndone");
+  assert.equal(grid.selectionText(0, 4, 2, 13), "https://claude.ai/oauth/authorize?code=abc123&state=x");
+});
+
+test("short lines and prose keep their newlines", () => {
+  const grid = urlGrid(["https://a.io", "next line", "hello world foo bar baz!!", "xyz"], 25);
+  assert.equal(grid.textBetweenCells(0, 0, 1, 8), "https://a.io\nnext line");
+  assert.equal(grid.textBetweenCells(2, 0, 3, 2), "hello world foo bar baz!!\nxyz");
+});
+
+test("linkAt returns the whole wrapped URL from any of its rows", () => {
+  const grid = urlGrid(["see https://claude.ai/oau", "  th/authorize?code=abc12", "  3&state=x).", "done"], 25);
+  const want = "https://claude.ai/oauth/authorize?code=abc123&state=x";
+  assert.equal(grid.linkAt(0, 10)?.url, want);
+  assert.equal(grid.linkAt(1, 5)?.url, want);
+  assert.equal(grid.linkAt(2, 3)?.url, want);
+  assert.equal(grid.linkAt(0, 1), null);
+  assert.equal(grid.linkAt(3, 1), null);
+});
