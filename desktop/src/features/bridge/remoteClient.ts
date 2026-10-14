@@ -1,5 +1,8 @@
 // Web side of slice B: direct WebSocket to a desktop's loopback listener (published on the user's tailnet).
+// A browser paired via "Sign with your desktop" opens the connection with its device key when the desktop offers it
+// (challenge.deviceAuth), so Direct never waits on the remote signer; older desktops get the account signature as before.
 // Identity per connection and per terminal launch is a one-time challenge signed by the member key via the remote signer.
+import { deviceConnectAuth, forgetPairing } from "./directSignerClient";
 export type SignJson = (e: { kind: number; content: string; createdAt: number; tags: string[][] }) => Promise<string>;
 export type WsLike = {
   send(d: string): void;
@@ -125,6 +128,11 @@ export class RemoteConnection {
   termSignedUntil = 0;
   termSessionTtlS = 0;
   onClose: (() => void) | null = null;
+  /** True while connect() waits on the remote signer (Primal) for the account signature. */
+  awaitingSigner = false;
+  onAwaitingSigner: ((v: boolean) => void) | null = null;
+  /** This connection was opened with the paired device key (no remote signer). */
+  deviceAuthed = false;
   /** Last time any frame arrived (ms). iOS can freeze a socket without closing it; silence is how we notice. */
   private lastRx = 0;
   private probeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -289,9 +297,37 @@ export class RemoteConnection {
       }
       throw new RemoteError("wrong_desktop");
     }
-    const event = await this.signChallenge(challenge, "connect");
-    ws.send(JSON.stringify({ t: "auth", event }));
-    const ready = await this.waitFor((f) => f.t === "ready");
+    let device: { device: string; sig: string } | null = null;
+    if (challenge.deviceAuth === true) {
+      try {
+        device = deviceConnectAuth(this.info.desktopId, String(challenge.nonce), String(challenge.connId));
+      } catch {
+        device = null;
+      }
+    }
+    if (device) {
+      ws.send(JSON.stringify({ t: "auth", device: device.device, sig: device.sig, nonce: String(challenge.nonce) }));
+    } else {
+      this.awaitingSigner = true;
+      this.onAwaitingSigner?.(true);
+      let event: string;
+      try {
+        event = await this.signChallenge(challenge, "connect");
+      } finally {
+        this.awaitingSigner = false;
+        this.onAwaitingSigner?.(false);
+      }
+      ws.send(JSON.stringify({ t: "auth", event }));
+    }
+    let ready: Frame;
+    try {
+      ready = await this.waitFor((f) => f.t === "ready");
+    } catch (e) {
+      // The desktop no longer approves this browser: drop the local pairing so the next attempt uses the account signer.
+      if (device && e instanceof RemoteError && (e.code === "not_paired" || e.code === "revoked")) forgetPairing(this.info.desktopId);
+      throw e;
+    }
+    this.deviceAuthed = !!device;
     this.ready = true;
     this.terminals = ready.terminals === true;
     this.agents = ready.agents === true;

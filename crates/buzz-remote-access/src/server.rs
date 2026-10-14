@@ -383,6 +383,10 @@ fn challenge_frame(sh: &Shared, conn_id: &str, purpose: Option<&str>) -> Message
     if let Some(p) = purpose {
         v["purpose"] = p.into();
     }
+    // Advertise device-key auth for the connect challenge (older desktops omit it; the web then uses the account signer).
+    if purpose == Some("connect") && sh.cfg.mgmt.is_some() {
+        v["deviceAuth"] = true.into();
+    }
     Message::text(v.to_string())
 }
 
@@ -425,6 +429,22 @@ async fn handle(sock: TcpStream, sh: Arc<Shared>) {
             let Ok(v) = serde_json::from_str::<Value>(&t) else { return Err("bad_frame") };
             if v["t"] != "auth" {
                 return Err("auth_required");
+            }
+            // A browser paired via "Sign with your desktop" answers with its device key instead of the account key, so
+            // opening Direct never needs the remote signer. The app checks the device signature and that it's approved.
+            if let Some(device) = v["device"].as_str() {
+                let Some(backend) = sh.cfg.mgmt.clone() else { return Err("device_auth_unsupported") };
+                let nonce = v["nonce"].as_str().unwrap_or("").to_string();
+                let sig = v["sig"].as_str().unwrap_or("").to_string();
+                if let Err(e) = sh.book.lock().unwrap_or_else(|p| p.into_inner()).take(&nonce, &conn_id, now_secs()) {
+                    return Err(e.code());
+                }
+                let params = json!({"device": device, "sig": sig, "nonce": nonce, "desktop": sh.cfg.desktop_id, "_conn": conn_id});
+                return match backend.call("signer.authConnect".into(), params).await {
+                    Ok(r) if r["approved"] == true => Ok(()),
+                    Ok(_) => Err("not_paired"),
+                    Err(e) => Err(if e.starts_with("revoked") { "revoked" } else if e.starts_with("bad_signature") { "bad_signature" } else { "not_paired" }),
+                };
             }
             let ev = v["event"].as_str().unwrap_or("");
             return match sh.book.lock().unwrap_or_else(|p| p.into_inner()).verify(ev, &conn_id, now_secs()) {

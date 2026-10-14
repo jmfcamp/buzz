@@ -245,7 +245,8 @@ export class NativeOnlyError extends Error {
     public policy: string,
   ) {
     super(
-      `"${command}" is not available in the web app (${group}); ${policy === "proxy" ? "needs a paired desktop/server" : "available in the desktop app"}`,
+      // Calm copy for people; the command name stays on .command for logs.
+      policy === "proxy" ? "This needs your desktop connected (Direct)." : "This isn't available in the web app yet. You can do it in the desktop app.",
     );
     this.name = "NativeOnlyError";
   }

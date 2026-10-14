@@ -6,10 +6,13 @@ import { CMD_NAMES } from "./directCmd";
 import { type DirectAgents, directErrorCopy } from "./directAgents";
 
 export const NEEDS_DIRECT = "Needs a Direct connection over your tailnet: turn on Allow remote agent management on your desktop and connect this device to Tailscale.";
+export const NEEDS_SIGNER_APPROVAL = "Approve the sign-in request in your signer to connect to your desktop, then try again.";
+/** How long to keep waiting while the remote signer is asked to approve the connect signature (older desktops only). */
+const SIGNER_WAIT_MS = 90_000;
 export class NeedsDirectError extends Error {
   code = "needs_direct";
-  constructor() {
-    super(NEEDS_DIRECT);
+  constructor(message: string = NEEDS_DIRECT) {
+    super(message);
     this.name = "NeedsDirectError";
   }
 }
@@ -22,6 +25,35 @@ export function setProxyDirect(d: DirectAgents | null) {
   for (const l of listeners) l();
 }
 export const getProxyDirect = () => current;
+/** Why there is (or isn't) a shared Direct client, set by the left-nav watcher (diagnostics shown in the banner). */
+let discovery = "watcher not mounted";
+export function setDirectDiscoveryNote(s: string) {
+  discovery = s;
+}
+/** One-line diagnostic for the "needs Direct" banner: no secrets, only state, error code, host and short ids. */
+export function directDiag(): string {
+  const d = current;
+  if (!d) return `no Direct client (${discovery})`;
+  const info = d.target;
+  let host = "?";
+  try {
+    const u = new URL(info?.url ?? "");
+    host = `${u.host}`;
+  } catch {
+    /* bad url */
+  }
+  const e = d.lastError;
+  return [
+    `state ${d.state}${d.live ? " (live)" : ""}`,
+    e ? `error ${e.code}${e.detail ? `: ${e.detail.slice(0, 80)}` : ""}` : "no error",
+    d.awaitingSigner ? "waiting on signer" : "",
+    d.reconnecting ? "auto-retrying" : "",
+    `host ${host}`,
+    `desktop ${String(info?.desktopId ?? "?").slice(0, 8)}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 // Several places (left nav, Settings) bind the same shared client; it stays bound until the last of them goes away.
 const holds = new Map<DirectAgents, number>();
 /** Binds `d` as the proxy's direct connection; returns a release function. Safe to call from any number of components. */
@@ -52,7 +84,9 @@ export async function ensureProxyDirectLive(timeoutMs = 8000): Promise<boolean> 
   if (!d) return false;
   if (d.live) return true;
   if (d.state !== "connecting") void d.connect().catch(() => undefined);
-  while (Date.now() < deadline) {
+  // A connect that is waiting on the remote signer gets up to SIGNER_WAIT_MS (the user is approving it in Primal).
+  const signerDeadline = Date.now() + SIGNER_WAIT_MS;
+  while (Date.now() < deadline || (current?.state === "connecting" && current.awaitingSigner && Date.now() < signerDeadline)) {
     if (current?.live) return true;
     await new Promise((r) => setTimeout(r, 150));
   }
@@ -87,7 +121,14 @@ export async function proxyCmd<T = unknown>(name: string, args?: Record<string, 
   // instead of failing straight away.
   if (!current?.live) await ensureProxyDirectLive();
   const d = current;
-  if (!d || !d.live) throw new NeedsDirectError();
+  if (!d || !d.live) {
+    // Say what's actually in the way: a signer approval or a refusal from the desktop, not "connect to Tailscale".
+    if (d?.awaitingSigner) throw new NeedsDirectError(NEEDS_SIGNER_APPROVAL);
+    const code = d?.lastError?.code;
+    if (code && !["unreachable", "timeout", "closed", "bad_url", "idle_timeout"].includes(code)) throw new NeedsDirectError(directErrorCopy(d!.lastError));
+    const err = new NeedsDirectError(`${NEEDS_DIRECT} [${directDiag()}]`);
+    throw err;
+  }
   try {
     const v = (await slot(() => d.call("cmd", { name, args: args ?? {} }))) as T;
     staleCmds.delete(name);

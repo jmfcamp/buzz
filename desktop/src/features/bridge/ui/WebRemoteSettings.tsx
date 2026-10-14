@@ -24,7 +24,7 @@ import {
 } from "../remoteHosts";
 import { useQueryClient } from "@tanstack/react-query";
 import { directAgentsFor } from "../directAgents";
-import { acquireProxyDirect, getProxyDirect } from "../remoteCmd";
+import { acquireProxyDirect, getProxyDirect, setDirectDiscoveryNote } from "../remoteCmd";
 import { DirectSignerClient } from "../directSignerClient";
 import { useDirectSignerBanner } from "./useDirectSignerBanner";
 import { setDirectSigner } from "@/platform/web/signer/directRoute";
@@ -292,6 +292,18 @@ export function WebRemoteWatcher() {
     [host?.id, host?.url, host?.hasDirect, rh.b.available], // eslint-disable-line react-hooks/exhaustive-deps
   );
   React.useEffect(() => acquireProxyDirect(direct), [direct]);
+  React.useEffect(() => {
+    setDirectDiscoveryNote(
+      !rh.b.available
+        ? "bridge not available"
+        : !host
+          ? `no desktop with agents in heartbeat (${rh.hosts.length} host(s))`
+          : !host.hasDirect
+            ? `desktop ${host.id.slice(0, 8)} advertises no Direct URL${host.stale ? ", heartbeat stale" : ""}`
+            : `desktop ${host.id.slice(0, 8)}${direct ? "" : ", client not created"}`,
+    );
+    return () => setDirectDiscoveryNote("watcher unmounted");
+  }, [rh.b.available, host, rh.hosts.length, direct]);
   // Desktop as signer: while Direct is live and this browser is paired, signing goes to the desktop (Primal is the fallback).
   React.useEffect(() => {
     if (!direct || !host?.id) return;

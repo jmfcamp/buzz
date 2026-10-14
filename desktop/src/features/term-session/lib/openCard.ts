@@ -47,7 +47,7 @@ export async function openTermSessionCard(
       error instanceof Error ? error.message : String(error ?? "Launch failed");
     const code = (error as { code?: string } | null)?.code;
     toast.error(
-      web && (code === "needs_direct" || /Direct connection|not available in the web app/i.test(raw))
+      web && (code === "needs_direct" || /Direct connection|not available in the web app|desktop connected \(Direct\)/i.test(raw))
         ? "Opening a Buzz Term session from the web needs a Direct connection to your desktop. Open the Agents page or Settings to connect, then try again."
         : raw,
     );

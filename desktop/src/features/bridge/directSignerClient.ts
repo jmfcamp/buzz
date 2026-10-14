@@ -10,6 +10,7 @@ import type { DirectAgents } from "./directAgents";
 import {
   isAutoSignKind,
   SIGNER_CAP_SIGN_ANY,
+  connectDigest,
   cryptDigest,
   type CryptOp,
   devicePubkeyOf,
@@ -55,6 +56,13 @@ const save = (s: Stored) => {
   }
 };
 
+/** Device-key answer to a Direct connect challenge (desktops that advertise deviceAuth); null when not paired with it. */
+export function deviceConnectAuth(desktopId: string, nonce: string, connId: string): { device: string; sig: string } | null {
+  const s = load();
+  if (!s.pairedWith.includes(desktopId)) return null;
+  const device = devicePubkeyOf(s.secret);
+  return { device, sig: signWithDevice(connectDigest(nonce, desktopId, connId, device), s.secret) };
+}
 export const isPairedWith = (desktopId: string) => load().pairedWith.includes(desktopId);
 /** Local only (e.g. the desktop said "revoked"): no message back. */
 export function forgetPairing(desktopId: string) {

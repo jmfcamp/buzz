@@ -35,10 +35,16 @@ export class DirectAgents {
   /** Bumped on every change (for useSyncExternalStore). */
   version = 0;
   lastError: RemoteError | null = null;
+  /** The connect in progress is waiting on the remote signer to approve the account signature (older desktops only). */
+  awaitingSigner = false;
   private conn: RemoteConnection | null = null;
   private connecting: Promise<RemoteConnection> | null = null;
   private listeners = new Set<() => void>();
   private info: { desktopId: string; url: string };
+  /** Desktop id + Direct URL this client dials (diagnostics). */
+  get target() {
+    return this.info;
+  }
   private sign: SignJson;
   private makeWs?: WsFactory;
   private now: () => number;
@@ -106,6 +112,11 @@ export class DirectAgents {
     this.connecting ??= (async () => {
       this.set("connecting");
       const c = new RemoteConnection(this.info, this.sign, this.makeWs);
+      c.onAwaitingSigner = (v) => {
+        this.awaitingSigner = v;
+        this.version++;
+        for (const l of this.listeners) l();
+      };
       c.onClose = () => {
         if (this.conn === c) {
           this.conn = null;
@@ -229,6 +240,9 @@ export function directErrorCopy(e: unknown): string {
     case "timeout":
     case "closed":
       return "Couldn't reach your desktop directly. Connect to your tailnet to use create, rename and edit.";
+    case "not_paired":
+    case "revoked":
+      return "This browser isn't approved on your desktop any more. Pair it again in Settings → Desktop signing.";
     case "session_expired":
       return "The signed connection expired. Connect again to continue.";
     case "busy":
@@ -236,7 +250,7 @@ export function directErrorCopy(e: unknown): string {
     case "wrong_desktop":
       return "A different HulaBuzz on your Mac is answering this device's connection. Open the HulaBuzz you use there (or quit the other one) and this reconnects on its own.";
     case "unknown_op":
-      return "Reload your desktop to see this (it's running an older version of the app).";
+      return "Your desktop needs the next Hula Buzz update to do this from the web. You can do it in the desktop app now.";
     default:
       return e.detail || `The desktop refused the request (${e.code}).`;
   }
