@@ -1,48 +1,49 @@
-import type {
-  AcpRuntimeCatalogEntry,
-  ManagedAgent,
-  RuntimeConfigSurface,
-} from "@/shared/api/types";
+import type { ManagedAgentBackend } from "@/shared/api/types";
 import { PERSONA_LABEL_OPTIONAL_CLASS } from "./agentConfigOptions";
 import { getProviderEffortConfig } from "./buzzAgentConfig";
 import {
+  type EffortOptions,
   effortPickerState,
   effortSelectionToPersistedValue,
 } from "./effortPicker";
 import { PersonaDropdownField } from "./PersonaDropdownField";
 
 /**
- * Thinking-effort write control for the edit dialog.
+ * Thinking-effort write control for the agent edit and create dialogs.
  *
  * Local-only by construction: the Rust backend rejects effort writes for
- * non-local backends (remote effort is set at deploy time via `policy_env`).
- *
- * Options prefer the running session's advertised `thought_level` values when
- * present; otherwise fall back to runtime `effortCanonicalValues` and the
- * static model-capabilities projection so the control does not disappear for
- * the same model between sessions / while config surface is loading.
+ * non-local backends (remote effort is set at deploy time via `policy_env`). So the
+ * control renders only for a local backend AND when `effortChoices` knows the
+ * levels for the model that will run (Claude model data for Claude, the running
+ * session's list otherwise) or a level is stored. The read-only
+ * configured-vs-running two-facts display lives in `AgentConfigPanel`; this is
+ * the write control.
  *
  * Save-gated, not direct-write: the control is fully controlled by the parent
  * dialog (`value`/`onChange`) and owns no mutation. The dialog persists the
- * selection by embedding `effortLevel` in the locked `update_managed_agent`
- * call (PR #4625), so the effort write is atomic with any access-policy change
+ * selection in its save payload (in Edit, the locked `update_managed_agent`
+ * call, PR #4625), so the effort write is atomic with any access-policy change
  * and can never race or survive a Cancel/failed Save.
  */
 export function EffortPickerField({
-  agent,
-  config,
+  backend,
+  choices,
   disabled,
   value,
+  storedEffort,
   onChange,
   provider,
   model,
   selectedRuntime,
 }: {
-  agent: ManagedAgent;
-  config: RuntimeConfigSurface | undefined;
+  backend: ManagedAgentBackend;
+  /** Levels from `effortChoices`; `undefined` hides the control. */
+  choices: EffortOptions;
   disabled: boolean;
   /** The pending persisted effort form (`null` = adapter default). */
   value: string | null;
+  /** The saved effort, kept selectable when the model doesn't list it. */
+  storedEffort?: string | null;
   onChange: (level: string | null) => void;
   /** Effective provider id for capability fallback when session options absent. */
   provider?: string;
@@ -51,20 +52,11 @@ export function EffortPickerField({
   /** Catalog runtime — supplies harness-native effort vocab when present. */
   selectedRuntime?: AcpRuntimeCatalogEntry | null;
 }) {
-  const capabilityFallback = getProviderEffortConfig(
-    provider ?? agent.provider ?? "",
-    model ?? agent.model ?? "",
-  ).validValues;
-  const runtimeFallback = selectedRuntime?.effortCanonicalValues ?? [];
-  const fallbackEffortValues =
-    runtimeFallback.length > 0 ? runtimeFallback : [...capabilityFallback];
-
-  const { visible, options, selectValue } = effortPickerState({
-    backend: agent.backend,
-    effortConfigId: config?.effortConfigId,
-    effortOptions: config?.effortOptions,
+  const { visible, options, selectValue, note } = effortPickerState({
+    backend,
+    effortOptions: choices,
     currentEffort: value,
-    fallbackEffortValues,
+    storedEffort,
   });
 
   if (!visible) {
@@ -91,6 +83,11 @@ export function EffortPickerField({
         value={selectValue}
       />
       <p className="text-xs text-muted-foreground">
+        {note === "unknownModel"
+          ? `Support for ${selectValue} isn't known yet. `
+          : note === "unlisted"
+            ? `This model may not support ${selectValue}. `
+            : null}
         Applied at the next session start.
       </p>
     </div>

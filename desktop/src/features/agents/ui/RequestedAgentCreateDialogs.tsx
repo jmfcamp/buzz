@@ -50,11 +50,18 @@ export function RequestedAgentCreateDialogs() {
               setTargetChannel(null);
             }
           }}
-          onSubmitDefinition={(input, intent, backendIntent, options) =>
+          onSubmitDefinition={(
+            input,
+            intent,
+            backendIntent,
+            effortLevel,
+            options,
+          ) =>
             personas.handleSubmit(
               input,
               intent,
               backendIntent,
+              effortLevel,
               targetChannel,
               options,
             )

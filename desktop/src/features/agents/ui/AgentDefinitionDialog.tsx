@@ -69,6 +69,7 @@ import {
   MODEL_DISCOVERY_LOADING_VALUE,
   usePersonaModelDiscovery,
 } from "./usePersonaModelDiscovery";
+import { type EffortOptions, effortChoices } from "./effortPicker";
 import {
   useAcpCommandsQuery,
   useBakedBuildEnvKeysQuery,
@@ -117,7 +118,8 @@ type AgentDefinitionDialogProps = {
   ) => Promise<unknown>;
   /** Publishes saved changes when the edited agent is shared in the catalog. */
   publishCatalogUpdatesOnSave?: boolean;
-  createRunSection?: React.ReactNode;
+  /** Receives the effort levels allowed by the model the form will create. */
+  createRunSection?: (effortOptions: EffortOptions) => React.ReactNode;
   /** Extra create-mode submit gate (e.g. incomplete provider config). */
   createSubmitBlocked?: boolean;
   /** Seed for OpenClaw workspace opt-in (definition-edit with linked instances). */
@@ -127,6 +129,8 @@ export type AgentDefinitionSubmitOptions = {
   publishCatalogUpdates: boolean;
   /** Opt managed instance(s) into OpenClaw workspace MCP (create + definition-edit). */
   useOpenClawWorkspace?: boolean;
+  /** Create mode: the effort levels shown to `createRunSection`. */
+  effortOptions?: EffortOptions;
 };
 export function AgentDefinitionDialog({
   open,
@@ -393,6 +397,7 @@ export function AgentDefinitionDialog({
     await onSubmit(baseInput, {
       publishCatalogUpdates: false,
       useOpenClawWorkspace,
+      effortOptions,
     });
   }
 
@@ -527,6 +532,7 @@ export function AgentDefinitionDialog({
     discoveredModelOptions,
     modelDiscoveryLoading,
     modelDiscoveryStatus,
+    agentDefaultModel,
   } = usePersonaModelDiscovery({
     envVars: envVarsForDiscovery,
     isCustomProviderEditing,
@@ -629,6 +635,17 @@ export function AgentDefinitionDialog({
       {runtimeWarningText} Visit Settings &gt; Agents to set it up.
     </p>
   ) : null;
+  const effortOptions = effortChoices({
+    runtimeId: runtime,
+    models: [
+      model,
+      globalConfig.model, // build/provider fallbacks never reach Claude
+      agentDefaultModel,
+    ],
+    sessionApplies: false,
+  });
+  const createRunSectionNode =
+    isCreateMode && createRunSection?.(effortOptions);
   const advancedFieldsTransition = shouldReduceMotion
     ? { duration: 0 }
     : ADVANCED_FIELDS_MOTION_TRANSITION;
@@ -1012,7 +1029,7 @@ export function AgentDefinitionDialog({
                 transition={advancedFieldsTransition}
               >
                 <PersonaAdvancedFields
-                  afterRespondTo={isCreateMode ? createRunSection : undefined}
+                  afterRespondTo={createRunSectionNode}
                   behaviorDraft={behaviorDraft}
                   disabled={isPending}
                   envVars={envVars}

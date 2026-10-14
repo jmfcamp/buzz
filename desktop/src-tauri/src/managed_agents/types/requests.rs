@@ -213,6 +213,9 @@ pub struct CreateManagedAgentRequest {
         alias = "useOpenClawWorkspace"
     )]
     pub use_openclaw_workspace: bool,
+    /// Local-only thinking effort saved before the first spawn.
+    #[serde(default)]
+    pub effort_level: Option<String>,
 }
 
 /// Patch request for updating a managed agent's mutable fields.

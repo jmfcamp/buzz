@@ -33,6 +33,7 @@ import {
   setManagedAgentAutoRestart,
   setManagedAgentUseOpenClawWorkspace,
 } from "@/shared/api/tauriManagedAgents";
+import { effortChoices, isSavableEffort, ownEffortLevel } from "./effortPicker";
 import { EffortPickerField } from "./EffortPickerField";
 import { EditAgentAdvancedFields } from "./EditAgentAdvancedFields";
 import { EditAgentAvatarColumn } from "./EditAgentAvatarColumn";
@@ -177,13 +178,10 @@ export function AgentInstanceEditDialog({
   const [useOpenClawWorkspace, setUseOpenClawWorkspace] = React.useState(
     agent.useOpenClawWorkspace === true,
   );
-  // Effort picker is Save-gated: hold the pending selection in dialog state and
-  // embed it in the locked update payload on Save alone (see
-  // resolveEffortSubmission / handleSubmit — PR #4625), never on selection.
-  // `effortTouched` distinguishes "user picked a value" from "showing the
-  // config-surface effective value", so an untouched Save writes nothing.
-  const [effortLevel, setEffortLevel] = React.useState<string | null>(null);
-  const effortTouched = React.useRef(false);
+  // Save-gated effort (PR #4625); untouched Saves write nothing.
+  // `undefined` means untouched; `null` means cleared to the adapter default.
+  const [effortLevel, setEffortLevel] = React.useState<string | null>();
+  const effortTouched = effortLevel !== undefined;
   const personasQuery = usePersonasQuery();
   const linkedPersona = React.useMemo(
     () =>
@@ -230,6 +228,15 @@ export function AgentInstanceEditDialog({
 
   // Tracks whether the user has made an in-dialog runtime selection.
   const runtimeTouched = React.useRef(false);
+
+  const savedRuntime = React.useMemo(
+    () =>
+      runtimes.find((r) => r.command?.trim() === agent.agentCommand.trim()) ??
+      runtimes.find((r) => r.id === agent.agentCommand.trim()),
+    [runtimes, agent.agentCommand],
+  );
+  const savedRuntimeId = savedRuntime?.id ?? "custom";
+
   // Reset form state only when the dialog opens or when switching to a different agent.
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional — including agent fields would re-fire on every 5s poll and wipe edits
   React.useEffect(() => {
@@ -257,8 +264,7 @@ export function AgentInstanceEditDialog({
       setEnvVars(agent.envVars);
       setAutoRestartOnConfigChange(agent.autoRestartOnConfigChange);
       setUseOpenClawWorkspace(agent.useOpenClawWorkspace === true);
-      setEffortLevel(null);
-      effortTouched.current = false;
+      setEffortLevel(undefined);
       setSetterError(null);
       setRespondTo(agent.respondTo);
       setRespondToAllowlist(agent.respondToAllowlist);
@@ -267,10 +273,7 @@ export function AgentInstanceEditDialog({
       setIsAvatarUploadPending(false);
       setIsAddHarnessOpen(false);
       runtimeTouched.current = false;
-      const matched =
-        runtimes.find((r) => r.command?.trim() === agent.agentCommand.trim()) ??
-        runtimes.find((r) => r.id === agent.agentCommand.trim());
-      setSelectedRuntimeId(matched ? matched.id : "custom");
+      setSelectedRuntimeId(savedRuntimeId);
       updateMutation.reset();
     }
   }, [open, agent.pubkey]);
@@ -280,13 +283,10 @@ export function AgentInstanceEditDialog({
     if (!open || runtimeTouched.current || runtimes.length === 0) {
       return;
     }
-    const matched =
-      runtimes.find((r) => r.command?.trim() === agent.agentCommand.trim()) ??
-      runtimes.find((r) => r.id === agent.agentCommand.trim());
-    if (matched) {
-      setSelectedRuntimeId(matched.id);
+    if (savedRuntime) {
+      setSelectedRuntimeId(savedRuntime.id);
     }
-  }, [open, runtimes, agent.agentCommand]);
+  }, [open, runtimes, savedRuntime]);
 
   // Build the sorted runtime catalog for the dropdown.
   const sortedRuntimes = React.useMemo(
@@ -482,6 +482,7 @@ export function AgentInstanceEditDialog({
     discoveredModelOptions,
     modelDiscoveryLoading,
     modelDiscoveryStatus,
+    agentDefaultModel,
   } = usePersonaModelDiscovery({
     envVars: envVarsForDiscovery,
     isCustomProviderEditing,
@@ -574,8 +575,7 @@ export function AgentInstanceEditDialog({
     runtimeTouched.current = true;
     const resolvedRuntimeId = nextRuntimeId || "custom";
     setSelectedRuntimeId(resolvedRuntimeId);
-    effortTouched.current = false;
-    setEffortLevel(null);
+    setEffortLevel(undefined);
     const isCustomCommand = resolvedRuntimeId === "custom";
 
     // Only pin the harness when the selection can actually supply a command:
@@ -685,6 +685,16 @@ export function AgentInstanceEditDialog({
     !isSaving &&
     !isAvatarUploadPending;
 
+  // Harness pin resolution — see resolveAgentCommandUpdate for the full
+  // sentinel/pin/no-op contract. "" is the pin→inherit transition.
+  const agentCommandUpdate = resolveAgentCommandUpdate({
+    inheritHarness,
+    agentCommand,
+    originalAgentCommand: agent.agentCommand,
+    agentCommandOverride: agent.agentCommandOverride ?? null,
+  });
+  const inheritTransition = agentCommandUpdate === "";
+
   async function handleSubmit() {
     setIsSaving(true);
     setSetterError(null);
@@ -698,16 +708,6 @@ export function AgentInstanceEditDialog({
       // provider-backed inherit-transition carries the persona model (readiness
       // requires one) and a deliberate local model still wins.
       const normalizedModel = inheritedSubmission.model;
-
-      // Harness pin resolution — see resolveAgentCommandUpdate for the full
-      // sentinel/pin/no-op contract, including the inherit→pin transition where
-      // the prefilled command equals the original but must still be pinned.
-      const agentCommandUpdate = resolveAgentCommandUpdate({
-        inheritHarness,
-        agentCommand,
-        originalAgentCommand: agent.agentCommand,
-        agentCommandOverride: agent.agentCommandOverride ?? null,
-      });
 
       // Classify the effective post-submit runtime's provider capability as a
       // tri-state: "capable" persists the provider, "locked" clears it (only
@@ -820,17 +820,14 @@ export function AgentInstanceEditDialog({
             : undefined,
       };
 
-      // Resolve effort before the update so access-change restarts can
-      // snapshot and launch the NEW effort value atomically.
+      // Effort rides the locked update so restarts launch the new value.
       const effortSubmission = resolveEffortSubmission({
-        effortLevel,
-        originalEffortLevel:
-          configSurfaceQuery.data?.normalized.thinkingEffort?.value ?? null,
-        inheritTransition: agentCommandUpdate === "",
+        effortLevel: effortLevel ?? null,
+        originalEffortLevel: storedEffort,
+        inheritTransition,
+        choices: effortOptions,
       });
-      // Include effort in the locked update when touched (tri-state: absent =
-      // don't touch; null = clear; string = set). Only when effortSubmission.persist.
-      if (effortTouched.current && effortSubmission.persist) {
+      if (effortTouched && effortSubmission.persist) {
         input.effortLevel = effortSubmission.level;
       }
 
@@ -855,11 +852,7 @@ export function AgentInstanceEditDialog({
             useOpenClawWorkspace,
           );
         }
-        // Effort disk write happened inside the locked update. Only need to
-        // invalidate the cache here (when effortTouched && effortSubmission.persist).
-        // If effort was not included (!effortSubmission.persist), nothing to do.
-        if (effortTouched.current && effortSubmission.persist) {
-          // Disk write already done; invalidate so the panel tier reflects it.
+        if (effortTouched && effortSubmission.persist) {
           await queryClient.invalidateQueries({
             queryKey: agentConfigSurfaceQueryKey(agent.pubkey),
           });
@@ -937,6 +930,20 @@ export function AgentInstanceEditDialog({
     loadingValue: MODEL_DISCOVERY_LOADING_VALUE,
     options: effectiveModelOptions,
   });
+  const storedEffort = ownEffortLevel(normalizedConfig?.thinkingEffort);
+  const effortOptions = effortChoices({
+    runtimeId: selectedRuntime?.id,
+    models: [
+      linkedPersona ? linkedPersona.model : inheritedSubmission.model, // Save never sends a linked model
+      globalConfig.model, // build/provider fallbacks never reach Claude
+      agentDefaultModel,
+    ],
+    sessionApplies: !runtimeTouched.current,
+    session: configSurfaceQuery.data,
+  });
+  // Show a pick only while Save would keep it.
+  const effortPickKept =
+    effortTouched && isSavableEffort(effortLevel, effortOptions);
   const modelStatusMessage = resolveModelFieldStatusMessage({
     discoveredModelOptions,
     loading: modelDiscoveryLoading,
@@ -1192,24 +1199,14 @@ export function AgentInstanceEditDialog({
             />
 
             <EffortPickerField
-              agent={agent}
-              config={
-                runtimeTouched.current ? undefined : configSurfaceQuery.data
-              }
+              backend={agent.backend}
+              // The inherit transition clears effort, so nothing to pick.
+              choices={inheritTransition ? undefined : effortOptions}
               disabled={isSaving}
-              model={model}
-              provider={effectiveProvider}
-              selectedRuntime={prospectiveRuntime}
-              value={
-                effortTouched.current
-                  ? effortLevel
-                  : (configSurfaceQuery.data?.normalized.thinkingEffort
-                      ?.value ?? null)
-              }
-              onChange={(level) => {
-                effortTouched.current = true;
-                setEffortLevel(level);
-              }}
+              // A stored level survives a runtime switch; keep it clearable.
+              storedEffort={inheritTransition ? null : storedEffort}
+              value={effortPickKept ? effortLevel : storedEffort}
+              onChange={setEffortLevel}
             />
 
             <AgentAiDefaultsNotice
