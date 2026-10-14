@@ -1222,7 +1222,7 @@ export function AppShell() {
                               onSettings={handleOpenSettings}
                               onWorkflows={() => void goWorkflows()}
                               onOpenPinnedSite={(pinId) => {
-                                setPhoneOverlay(null);
+                                // Web: opens in the default browser; stay on Me.
                                 void goPinnedSite(pinId);
                               }}
                               onManagePinnedSites={() => {

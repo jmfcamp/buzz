@@ -27,7 +27,7 @@ export const CAPABILITY_GROUPS: CapabilityGroup[] = [
     label:
       "Native webviews (pinned sites, Stage, Drive, playground, HTML preview, browser agent)",
     policy: "placeholder",
-    note: "WKWebView surfaces; iframes blocked by X-Frame-Options on most sites. Web pinned sites use a sandboxed iframe panel instead (WebPinnedSiteFrame, docs/pwa-web-differences.md #1).",
+    note: "WKWebView surfaces; iframes blocked by X-Frame-Options on most sites. Web pinned sites open in the default browser instead (webPinOpen, docs/pwa-web-differences.md #1).",
     match:
       /^(pin_webview_.*|playground_.*|browser_(agent_.*|drive|observe_poll)|register_html_preview|revoke_html_preview|reload_webview|focus_popout_window)$/,
   },

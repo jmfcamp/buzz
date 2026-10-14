@@ -1,7 +1,7 @@
 // Phone-only tab switcher: a compact pill that always floats top-right (under the safe area) with the open-tab count, which
 // fans out one list of all surface tabs (channels, DMs, threads, pages) and Buzz Term tabs. Uses the existing
 // SurfaceTabsProvider and TerminalBootstrap handlers; no separate tab state.
-import { Hash, Layers, MessageCircle, MessagesSquare, PanelTop, SquareTerminal, X } from "lucide-react";
+import { ExternalLink, Hash, Layers, MessageCircle, MessagesSquare, PanelTop, SquareTerminal, X } from "lucide-react";
 import * as React from "react";
 
 import { setPhoneOverlay } from "@/app/phone/phoneTabs";
@@ -14,13 +14,13 @@ import { cn } from "@/shared/lib/cn";
 type Row = {
   key: string;
   label: string;
-  type: "Channel" | "DM" | "Thread" | "Terminal" | "Page";
+  type: "Channel" | "DM" | "Thread" | "Terminal" | "Page" | "Site";
   active: boolean;
   open: () => void;
   close: () => void;
 };
 
-const ICONS = { Channel: Hash, DM: MessageCircle, Thread: MessagesSquare, Terminal: SquareTerminal, Page: PanelTop };
+const ICONS = { Channel: Hash, DM: MessageCircle, Thread: MessagesSquare, Terminal: SquareTerminal, Page: PanelTop, Site: ExternalLink };
 
 export function PhoneTabSwitcher({
   channels,
@@ -45,6 +45,7 @@ export function PhoneTabSwitcher({
       const id = tab.target.channelId;
       return channels.find((c) => c.id === id)?.channelType === "dm" ? "DM" : "Channel";
     }
+    if (tab.target.kind === "pin") return "Site"; // web: opens in the browser
     return "Page";
   };
   const rows: Row[] = [
@@ -54,6 +55,10 @@ export function PhoneTabSwitcher({
       type: typeOf(tab),
       active: !terminalActive && surface?.activeId === tab.id,
       open: () => {
+        if (tab.target.kind === "pin") {
+          surface?.selectTab(tab.id); // opens externally on web; keep the current screen
+          return;
+        }
         setPhoneOverlay(null); // leave the Channels/Me/Search list screens for the tab's surface
         surface?.selectTab(tab.id);
       },

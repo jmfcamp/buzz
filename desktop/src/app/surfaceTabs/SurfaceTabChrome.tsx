@@ -1,5 +1,7 @@
-import { Home, X } from "lucide-react";
+import { ExternalLink, Home, X } from "lucide-react";
 import * as React from "react";
+
+import { pinsOpenExternally } from "@/features/pinned-sites/lib/webPinOpen";
 
 import { useAppShell } from "@/app/AppShellContext";
 import {
@@ -173,6 +175,9 @@ export function SurfaceTabStrip({ className }: { className?: string }) {
               type="button"
             >
               <span className="min-w-0 truncate">{visible}</span>
+              {tab.target.kind === "pin" && pinsOpenExternally() ? (
+                <ExternalLink aria-hidden className="h-3 w-3 shrink-0 opacity-60" data-testid="surface-tab-external" />
+              ) : null}
               {working ? (
                 <ChannelWorkingBadge
                   channelName={visible}

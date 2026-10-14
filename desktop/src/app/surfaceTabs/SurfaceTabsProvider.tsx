@@ -1,5 +1,7 @@
 import * as React from "react";
 
+import { openWebPinExternally, pinsOpenExternally } from "@/features/pinned-sites/lib/webPinOpen";
+
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import {
   type SurfaceTab,
@@ -249,6 +251,11 @@ export function SurfaceTabsProvider({
   }, []);
 
   const activate = React.useCallback((id: string, target: SurfaceTabTarget) => {
+    // Web: a pinned-site tab is a launcher; it opens the site externally and never becomes the active surface.
+    if (target.kind === "pin" && pinsOpenExternally()) {
+      openWebPinExternally(target.pinId);
+      return;
+    }
     if (activeIdRef.current === null) {
       savedOpenRef.current = openRef.current;
     }
@@ -271,7 +278,9 @@ export function SurfaceTabsProvider({
         surfaceTabKey(input.target),
       );
       commitTabs(result.tabs);
-      if (result.id && options?.activate !== false)
+      // Web: adding a pinned-site tab never opens the site; the tab is a launcher.
+      const webPin = input.target.kind === "pin" && pinsOpenExternally();
+      if (result.id && options?.activate !== false && !webPin)
         activate(result.id, input.target);
     },
     [activate, commitTabs],

@@ -22,6 +22,7 @@ import {
   setSiteRunbook,
 } from "@/features/site-runbook/lib/store";
 import { mergePinnedSites } from "./lib/mergePins";
+import { rememberWebPinUrls } from "./lib/webPinOpen";
 import { closePinWebview } from "./lib/pinWebview";
 import {
   loadPersonalPinnedSites,
@@ -194,6 +195,7 @@ export function usePinnedSites() {
       ),
     [communityQuery.data, personalQuery.data?.pins],
   );
+  rememberWebPinUrls(pins);
 
   const persistPersonal = React.useCallback(
     (blob: PersonalPinnedSitesBlob) => {
