@@ -1,5 +1,6 @@
 import * as React from "react";
 import { claimDraftSend } from "@/features/messages/lib/useDrafts";
+import { uploadErrorMessage } from "@/shared/lib/uploadErrorMessage";
 import { toast } from "sonner";
 import {
   type CreateChannelManagedAgentInput,
@@ -648,7 +649,7 @@ export function useMentionSendFlow({
             onError: (error) => {
               restoreComposerAfterFailure();
               toast.error(
-                `Upload failed: ${getErrorMessage(error, "Unknown error")}`,
+                uploadErrorMessage(getErrorMessage(error, "Unknown error")),
               );
               settleUpload();
             },

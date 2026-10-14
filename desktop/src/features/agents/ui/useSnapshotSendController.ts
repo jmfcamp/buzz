@@ -13,6 +13,7 @@
  */
 
 import * as React from "react";
+import { uploadErrorMessage } from "@/shared/lib/uploadErrorMessage";
 import type { QueryClient } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -257,7 +258,7 @@ export async function runSendPipeline(deps: {
       phase: "error",
       error:
         err instanceof Error
-          ? `Upload failed: ${err.message}`
+          ? uploadErrorMessage(err.message)
           : "Upload failed.",
     });
     return false;

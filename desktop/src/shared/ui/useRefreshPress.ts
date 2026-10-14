@@ -1,7 +1,10 @@
 import * as React from "react";
 
 import { toggleConnectionMessages } from "@/shared/lib/connectionMessages";
-import { showStatus } from "@/shared/ui/statusPills";
+import { clearStatus, showStatus } from "@/shared/ui/statusPills";
+
+const MODE_NOTE_MS = 2_500;
+let modeNoteTimer: ReturnType<typeof setTimeout> | null = null;
 
 const LONG_PRESS_MS = 500;
 
@@ -30,7 +33,11 @@ export function useRefreshPress(onReload: () => void) {
       title: nowOn ? "Connection messages on" : "Connection messages hidden",
       description: nowOn ? "Signer and connection status will show here. Long-press Refresh again to hide." : "The Refresh icon spins while the app reconnects.",
       testId: "connection-messages-mode",
+      onDismiss: () => clearStatus("connection-messages-mode"),
     });
+    // A confirmation, not a status: it goes away on its own (or sooner via ×).
+    if (modeNoteTimer) clearTimeout(modeNoteTimer);
+    modeNoteTimer = setTimeout(() => clearStatus("connection-messages-mode"), MODE_NOTE_MS);
   };
   return {
     "data-pressing": pressing ? "true" : undefined,
