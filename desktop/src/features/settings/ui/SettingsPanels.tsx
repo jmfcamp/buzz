@@ -1,4 +1,6 @@
 import { DesktopDirectSignerCard, WebDirectSignerCard } from "@/features/bridge/ui/DirectSignerSettings";
+import { DesktopBunkerPairCard } from "@/features/bridge/ui/DesktopBunkerSettings";
+import { WebDesktopBunkerCard } from "@/platform/web/DesktopBunkerWebSettings";
 import { isTauri } from "@tauri-apps/api/core";
 import { useMemo, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
@@ -908,7 +910,17 @@ export function renderSettingsSection(
     case "agents":
       return <AgentsSettingsPanel />;
     case "desktop-signing":
-      return isTauri() ? <DesktopDirectSignerCard empty /> : <WebDirectSignerCard />;
+      return isTauri() ? (
+        <>
+          <DesktopBunkerPairCard />
+          <DesktopDirectSignerCard empty />
+        </>
+      ) : (
+        <>
+          <WebDesktopBunkerCard />
+          <WebDirectSignerCard />
+        </>
+      );
     case "channel-templates":
       return <ChannelTemplatesSettingsCard />;
     case "compute":

@@ -198,6 +198,9 @@ export class Nip46Client {
   private since = Math.floor(Date.now() / 1000) - 30;
   /** true while a nostrconnect:// handshake is pending: sockets are force-reopened on every foreground. */
   handshake = false;
+  /** Desktop-bunker channel (desktopBunker.ts): never parks for the desktop signer (it IS the desktop signer) and doesn't
+   *  drive the remote-signer health banner / pending toasts (that client reports its own status). */
+  quiet = false;
   /** Used by nostrconnect:// to receive the unsolicited connect response. */
   onUnsolicited?: (ev: { pubkey: string; content: string; id: string }) => void;
   private hiddenAt = 0;
@@ -241,7 +244,7 @@ export class Nip46Client {
   private resendOnNextOpen = false;
   /** Paired desktop signs over Direct and nothing is waiting on us: no sockets, keepalive or probes (lazy wake-up). */
   private dormant(): boolean {
-    return !this.handshake && this.pending.size === 0 && desktopSignerActive();
+    return !this.quiet && !this.handshake && this.pending.size === 0 && desktopSignerActive();
   }
   /** Close every socket without scheduling a retry; request() reopens them on demand (onopen publishes pending). */
   private park() {
@@ -432,7 +435,7 @@ export class Nip46Client {
       for (const w of p.waiters) w.reject(new Nip46Error("unreachable", "Signer connection closed."));
       this.pending.delete(id);
     }
-    signerStatus.set({ pending: 0, authUrl: null });
+    if (!this.quiet) signerStatus.set({ pending: 0, authUrl: null });
   }
 
   /** iOS/Android suspend background sockets; on foreground drop dead ones, reopen, resubscribe with `since`. */
@@ -606,15 +609,15 @@ export class Nip46Client {
     // connected; finish()'s get_public_key round trip proves we're actually authorized.
     if (body.error && p.method === "connect" && p.resends > 0 && /secret|already/i.test(body.error)) {
       nlog(`connect re-send answered "${body.error}": treating as connected, verifying via get_public_key`);
-      signerHealth.success();
+      if (!this.quiet) signerHealth.success();
       for (const w of p.waiters) w.resolve("ack");
       return;
     }
     if (body.error) {
-      signerHealth.error(body.error);
+      if (!this.quiet) signerHealth.error(body.error);
       for (const w of p.waiters) w.reject(new Nip46Error("rejected", body.error));
     } else {
-      signerHealth.success();
+      if (!this.quiet) signerHealth.success();
       for (const w of p.waiters) w.resolve(body.result ?? "");
     }
   }
@@ -628,7 +631,7 @@ export class Nip46Client {
   private fail(p: Pending, code: "timeout") {
     this.pending.delete(p.id);
     // Nobody waiting any more (every caller aborted): the wrapper already reported its own timeout; don't double-count.
-    if (p.waiters.size) signerHealth.timeout({ background: /crypt/.test(p.method) });
+    if (p.waiters.size && !this.quiet) signerHealth.timeout({ background: /crypt/.test(p.method) });
     this.updateStatus();
     const err = new Nip46Error(
       code,
@@ -637,6 +640,7 @@ export class Nip46Client {
     for (const w of p.waiters) w.reject(err);
   }
   private updateStatus() {
+    if (this.quiet) return;
     signerStatus.set({
       pending: this.pending.size,
       authUrl: this.pending.size ? signerStatus.get().authUrl : null,

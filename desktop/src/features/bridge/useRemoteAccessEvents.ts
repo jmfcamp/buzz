@@ -15,7 +15,8 @@ import { managedAgentsQueryKey } from "@/features/agents/hooks";
 import { listPersonas } from "@/shared/api/tauriPersonas";
 import { CMD_WRITES } from "./directCmd";
 import { handleMgmt, mgmtErrorString, type MgmtDeps } from "./directMgmt";
-import { createDirectSigner, localSignerStore } from "./directSigner";
+import { createDirectSigner, localSignerStore, type SignerDeps } from "./directSigner";
+import { initDesktopBunker } from "./desktopBunkerRuntime";
 import { nip44DecryptFromPeer, nip44DecryptFromSelf, nip44EncryptToPeer, nip44EncryptToSelf, signRelayEvent } from "@/shared/api/tauri";
 import { getIdentity } from "@/shared/api/tauriIdentity";
 import { isAgentManagementAllowed, refreshRemoteAccess, subscribeRemoteAccess } from "./remoteAccessStore";
@@ -51,7 +52,7 @@ async function ownObserverPeers(): Promise<Set<string>> {
   return keys;
 }
 let ownAgentsCache: { at: number; keys: Set<string> } | null = null;
-const directSigner = createDirectSigner({
+const desktopSignerDeps: SignerDeps = {
   store: localSignerStore,
   confirm: async (title, message) =>
     ["Ok", "Yes", "Allow"].includes(
@@ -77,7 +78,8 @@ const directSigner = createDirectSigner({
       return ownAgentsCache.keys.has(peer.toLowerCase());
     },
   },
-});
+};
+const directSigner = createDirectSigner(desktopSignerDeps);
 
 /** Ops that change agent state: the desktop's own agent lists (and the bridge snapshot) must refresh after them. */
 const MUTATING_OPS = new Set(["agent.start", "agent.stop", "agent.create", "agent.rename", "agent.update"]);
@@ -93,6 +95,8 @@ export function useRemoteAccessEvents(pubkey?: string): void {
   pubkeyRef.current = pubkey;
   React.useEffect(() => {
     if (!isTauri()) return;
+    // Desktop as NIP-46 bunker for web sign-in (socket only open while a code shows or a browser is paired through it).
+    initDesktopBunker({ ...desktopSignerDeps, userPubkey: async () => (await getIdentity()).pubkey });
     const unsubStore = subscribeRemoteAccess(() => {});
     const unlistens: Array<() => void> = [];
     let cancelled = false;
