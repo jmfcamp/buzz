@@ -2183,10 +2183,17 @@ async fn handle_ws_message(
 ) -> bool {
     match msg {
         Message::Text(text) => {
+            // `["HULA", capability]` is the relay's Hula-desktop-only capability push (OpenClaw workspace MCP
+            // credentials). The bridge doesn't use it; never log it (it carries bearer tokens).
+            if frame_type(&text).as_deref() == Some("HULA") {
+                tracing::debug!("ignored HULA frame (desktop-only capability push)");
+                return true;
+            }
             let relay_msg = match parse_relay_message(&text) {
                 Ok(m) => m,
                 Err(e) => {
-                    warn!("failed to parse relay message: {e} — raw: {text}");
+                    // Never log frames verbatim: they can carry credentials.
+                    warn!("failed to parse relay message: {e} — {}", frame_summary(&text));
                     return true;
                 }
             };
@@ -3718,19 +3725,19 @@ pub(crate) fn parse_relay_message(text: &str) -> Result<RelayMessage, RelayError
     let msg_type = arr
         .first()
         .and_then(|v| v.as_str())
-        .ok_or_else(|| RelayError::UnexpectedMessage(text.to_string()))?;
+        .ok_or_else(|| RelayError::UnexpectedMessage(frame_summary(text)))?;
 
     match msg_type {
         "EVENT" => {
             let sub_id = arr
                 .get(1)
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| RelayError::UnexpectedMessage(text.to_string()))?
+                .ok_or_else(|| RelayError::UnexpectedMessage(frame_summary(text)))?
                 .to_string();
             let event: Event = serde_json::from_value(
                 arr.get(2)
                     .cloned()
-                    .ok_or_else(|| RelayError::UnexpectedMessage(text.to_string()))?,
+                    .ok_or_else(|| RelayError::UnexpectedMessage(frame_summary(text)))?,
             )?;
             Ok(RelayMessage::Event {
                 subscription_id: sub_id,
@@ -3741,7 +3748,7 @@ pub(crate) fn parse_relay_message(text: &str) -> Result<RelayMessage, RelayError
             let event_id = arr
                 .get(1)
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| RelayError::UnexpectedMessage(text.to_string()))?
+                .ok_or_else(|| RelayError::UnexpectedMessage(frame_summary(text)))?
                 .to_string();
             let accepted = arr.get(2).and_then(|v| v.as_bool()).unwrap_or(false);
             let message = arr
@@ -3759,7 +3766,7 @@ pub(crate) fn parse_relay_message(text: &str) -> Result<RelayMessage, RelayError
             let sub_id = arr
                 .get(1)
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| RelayError::UnexpectedMessage(text.to_string()))?
+                .ok_or_else(|| RelayError::UnexpectedMessage(frame_summary(text)))?
                 .to_string();
             Ok(RelayMessage::Eose {
                 subscription_id: sub_id,
@@ -3769,7 +3776,7 @@ pub(crate) fn parse_relay_message(text: &str) -> Result<RelayMessage, RelayError
             let sub_id = arr
                 .get(1)
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| RelayError::UnexpectedMessage(text.to_string()))?
+                .ok_or_else(|| RelayError::UnexpectedMessage(frame_summary(text)))?
                 .to_string();
             let message = arr
                 .get(2)
@@ -3793,7 +3800,7 @@ pub(crate) fn parse_relay_message(text: &str) -> Result<RelayMessage, RelayError
             let challenge = arr
                 .get(1)
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| RelayError::UnexpectedMessage(text.to_string()))?
+                .ok_or_else(|| RelayError::UnexpectedMessage(frame_summary(text)))?
                 .to_string();
             Ok(RelayMessage::Auth { challenge })
         }
@@ -6973,5 +6980,42 @@ mod tests {
             !state.channel_dropped_since.contains_key(&channel_id),
             "channel_dropped_since must be cleared on successful drain"
         );
+    }
+}
+
+
+/// The first element of a relay frame (`"EVENT"`, `"HULA"`, …), if it is a JSON array starting with a string.
+pub(crate) fn frame_type(text: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(text).ok()?;
+    v.as_array()?.first()?.as_str().map(|s| s.chars().take(32).collect())
+}
+
+/// Log-safe description of a relay frame: its type and size only, never its contents.
+pub(crate) fn frame_summary(text: &str) -> String {
+    match frame_type(text) {
+        Some(t) => format!("frame type {t:?}, {} bytes", text.len()),
+        None => format!("unparseable frame, {} bytes", text.len()),
+    }
+}
+
+#[cfg(test)]
+mod frame_redaction_tests {
+    use super::*;
+
+    #[test]
+    fn summary_never_contains_frame_contents() {
+        let f = r#"["HULA",{"mcp":{"headers":{"Authorization":"Bearer SECRET123","CF-Access-Client-Secret":"cfsecret"}}}]"#;
+        assert_eq!(frame_type(f).as_deref(), Some("HULA"));
+        let s = frame_summary(f);
+        assert!(!s.contains("SECRET123") && !s.contains("cfsecret") && s.contains("HULA"));
+        assert!(!frame_summary("not json Bearer X").contains("Bearer"));
+    }
+
+    #[test]
+    fn unknown_type_error_has_no_raw_text() {
+        let err = parse_relay_message(r#"["WAT",{"token":"SECRET"}]"#).unwrap_err().to_string();
+        assert!(!err.contains("SECRET"));
+        let err = parse_relay_message(r#"["OK",{"token":"SECRET"}]"#).unwrap_err().to_string();
+        assert!(!err.contains("SECRET"));
     }
 }
