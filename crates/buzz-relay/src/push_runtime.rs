@@ -1184,3 +1184,69 @@ mod tests {
         assert_eq!(bodies[1]["request_id"], request_id.to_string());
     }
 }
+
+/// How far back a "mentioned, then added" push may reach.
+pub const ADDED_MEMBER_MENTION_LOOKBACK_SECS: i64 = 30 * 60;
+
+/// Hula: after `actor` adds `target` to `channel`, push `target` the most
+/// recent kind:9 (last 30 min) by `actor` in that channel that p-tags them.
+/// Runs the normal matcher restricted to the target's own leases, so their
+/// subscriptions, prefs and mutes apply; the outbox's one-wake-per-event-per-
+/// device key keeps it idempotent. Best effort: errors are logged only.
+pub async fn push_mention_to_added_member(
+    state: &AppState,
+    community: buzz_core::CommunityId,
+    channel: uuid::Uuid,
+    actor: &[u8],
+    target: &[u8],
+) {
+    if actor == target {
+        return;
+    }
+    let now = Utc::now();
+    let query = buzz_db::event::EventQuery {
+        channel_id: Some(channel),
+        kinds: Some(vec![9]),
+        pubkey: Some(actor.to_vec()),
+        since: Some(now - TimeDelta::seconds(ADDED_MEMBER_MENTION_LOOKBACK_SECS)),
+        until: Some(now),
+        p_tag_hex: Some(hex::encode(target)),
+        limit: Some(1),
+        ..buzz_db::event::EventQuery::for_community(community)
+    };
+    let event = match state.db.query_events(&query).await {
+        Ok(mut events) if !events.is_empty() => events.remove(0),
+        Ok(_) => return,
+        Err(e) => {
+            warn!(%channel, "added-member mention lookup failed: {e}");
+            return;
+        }
+    };
+    let batch = buzz_db::push::ClaimedMatchBatch {
+        community,
+        claim_id: uuid::Uuid::new_v4(),
+        jobs: vec![buzz_db::push::BatchedMatch { event, attempt: 1 }],
+    };
+    let mut context = match load_match_context(state, &batch).await {
+        Ok(c) => c,
+        Err(e) => {
+            warn!(%channel, "added-member push context failed: {e}");
+            return;
+        }
+    };
+    context.leases.retain(|l| l.author == target);
+    if context.leases.is_empty() {
+        return;
+    }
+    context.memberships.insert((channel, target.to_vec()));
+    match match_job(&batch.jobs[0], &context) {
+        Ok(wakes) if !wakes.is_empty() => {
+            match state.db.enqueue_push_wakes(community, &wakes).await {
+                Ok(_) => tracing::info!(%channel, n = wakes.len(), "added-member mention push enqueued"),
+                Err(e) => warn!(%channel, "added-member push enqueue failed: {e}"),
+            }
+        }
+        Ok(_) => {}
+        Err(e) => warn!(%channel, "added-member push match failed: {e}"),
+    }
+}

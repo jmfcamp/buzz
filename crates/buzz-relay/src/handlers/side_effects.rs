@@ -1497,6 +1497,18 @@ async fn handle_put_user(
         warn!(channel = %channel_id, error = %e, "membership notification emission failed");
     }
 
+    {
+        let state = Arc::clone(state);
+        let community = tenant.community();
+        let (actor, target) = (actor_bytes.clone(), target_pubkey.clone());
+        tokio::spawn(async move {
+            crate::push_runtime::push_mention_to_added_member(
+                &state, community, channel_id, &actor, &target,
+            )
+            .await;
+        });
+    }
+
     info!(channel = %channel_id, target = %target_hex, "NIP-29 PUT_USER processed");
     Ok(())
 }
