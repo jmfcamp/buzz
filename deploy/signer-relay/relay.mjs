@@ -1,5 +1,8 @@
 // Buzz signer relay: a tiny Nostr relay for NIP-46 (kind 24133) only.
-// - No storage: events are fanned out live to matching subscriptions, then forgotten (REQ gets EOSE immediately).
+// - Short replay buffer: events are fanned out live AND kept for REPLAY_MS (60s), so a client whose socket was down
+//   (iOS background, Wi-Fi switch, desktop reconnect) gets the reply it missed when it re-subscribes with `since`.
+//   Only filters with a "#p" tag are replayed (a client asks for messages addressed to its own key); nothing is persisted.
+// - One JSON log line per connection close (duration, counts, rate-limit hits) and per rate-limit rejection (sampled).
 // - No auth. Events must carry a valid id + schnorr sig (so per-pubkey limits can't be spoofed).
 // - Rate limits per IP (connections, events, REQs) and per pubkey (events). Size limits on frames/subs/filters.
 // - Keepalive: WebSocket ping every 30s; a connection that misses a pong is terminated.
@@ -15,6 +18,22 @@ const MAX_FRAME = 128 * 1024;
 const MAX_SUBS = 20;
 const MAX_FILTERS = 10;
 const MAX_CONNS_PER_IP = 40;
+const REPLAY_MS = Number(process.env.REPLAY_MS || 60_000);
+const REPLAY_MAX = 5_000; // events kept at most (oldest dropped first)
+const replay = []; // [{ev, at}] oldest first
+function remember(ev) {
+  replay.push({ ev, at: Date.now() });
+  pruneReplay();
+}
+function pruneReplay() {
+  const cutoff = Date.now() - REPLAY_MS;
+  let n = 0;
+  while (n < replay.length && (replay[n].at < cutoff || replay.length - n > REPLAY_MAX)) n++;
+  if (n) replay.splice(0, n);
+}
+setInterval(pruneReplay, 10_000).unref();
+const log = (o) => console.log(JSON.stringify({ t: new Date().toISOString(), ...o }));
+const ipTag = (ip) => bytesToHex(sha256(utf8ToBytes(`buzz-signer:${ip}`))).slice(0, 10); // no raw IPs in logs
 const PING_MS = 30_000;
 const LIMITS = {
   ipEvents: { rate: 3, burst: 60 }, // per second refill, bucket size
@@ -89,10 +108,10 @@ const server = http.createServer((req, res) => {
   res.end(
     JSON.stringify({
       name: "Buzz signer relay",
-      description: "NIP-46 (kind 24133) only. No storage, no auth, rate limited.",
+      description: "NIP-46 (kind 24133) only. 60s replay buffer, no persistence, no auth, rate limited.",
       supported_nips: [1, 11, 46],
       software: "buzz-signer-relay",
-      version: "1.0.0",
+      version: "1.1.0",
       limitation: { max_message_length: MAX_FRAME, max_subscriptions: MAX_SUBS, max_filters: MAX_FILTERS, auth_required: false, restricted_writes: true },
     }),
   );
@@ -110,9 +129,20 @@ wss.on("connection", (ws, req) => {
   ws.ip = ip;
   ws.subs = new Map();
   ws.alive = true;
+  ws.openedAt = Date.now();
+  ws.stats = { events: 0, reqs: 0, replayed: 0, limited: 0 };
   conns.add(ws);
   ws.on("pong", () => (ws.alive = true));
-  ws.on("close", () => {
+  ws.on("close", (code, reason) => {
+    log({
+      msg: "close",
+      ip: ipTag(ip),
+      code,
+      reason: String(reason || "").slice(0, 60),
+      by: ws.terminatedBy || "peer",
+      secs: Math.round((Date.now() - ws.openedAt) / 1000),
+      ...ws.stats,
+    });
     conns.delete(ws);
     const m = (perIp.get(ip) || 1) - 1;
     if (m <= 0) perIp.delete(ip);
@@ -130,25 +160,53 @@ wss.on("connection", (ws, req) => {
     }
     if (!Array.isArray(msg)) return send(ws, ["NOTICE", "invalid: not an array"]);
     const [type] = msg;
+    const limited = (what) => {
+      ws.stats.limited++;
+      if (ws.stats.limited <= 3 || ws.stats.limited % 50 === 0) log({ msg: "rate-limited", ip: ipTag(ip), what, n: ws.stats.limited });
+    };
     if (type === "EVENT") {
+      ws.stats.events++;
       const ev = msg[1];
       const id = ev && typeof ev.id === "string" ? ev.id : "";
-      if (!take(`ip:${ip}`, LIMITS.ipEvents)) return send(ws, ["OK", id, false, "rate-limited: slow down"]);
+      if (!take(`ip:${ip}`, LIMITS.ipEvents)) {
+        limited("ip-events");
+        return send(ws, ["OK", id, false, "rate-limited: slow down"]);
+      }
       const err = validEvent(ev);
       if (err) return send(ws, ["OK", id, false, err]);
-      if (!take(`pk:${ev.pubkey}`, LIMITS.pkEvents)) return send(ws, ["OK", id, false, "rate-limited: slow down"]);
+      if (!take(`pk:${ev.pubkey}`, LIMITS.pkEvents)) {
+        limited("pubkey-events");
+        return send(ws, ["OK", id, false, "rate-limited: slow down"]);
+      }
+      remember(ev);
       for (const c of conns) for (const [sid, filters] of c.subs) if (filters.some((f) => matches(f, ev))) send(c, ["EVENT", sid, ev]);
       return send(ws, ["OK", id, true, ""]);
     }
     if (type === "REQ") {
       const sid = msg[1];
       if (typeof sid !== "string" || sid.length === 0 || sid.length > 64) return send(ws, ["NOTICE", "invalid: bad subscription id"]);
-      if (!take(`req:${ip}`, LIMITS.ipReqs)) return send(ws, ["CLOSED", sid, "rate-limited: slow down"]);
+      ws.stats.reqs++;
+      if (!take(`req:${ip}`, LIMITS.ipReqs)) {
+        limited("reqs");
+        return send(ws, ["CLOSED", sid, "rate-limited: slow down"]);
+      }
       const filters = msg.slice(2).filter((f) => f && typeof f === "object" && !Array.isArray(f));
       if (filters.length === 0 || filters.length > MAX_FILTERS) return send(ws, ["CLOSED", sid, "invalid: bad filters"]);
       if (!ws.subs.has(sid) && ws.subs.size >= MAX_SUBS) return send(ws, ["CLOSED", sid, "blocked: too many subscriptions"]);
       ws.subs.set(sid, filters);
-      return send(ws, ["EOSE", sid]); // nothing stored
+      // Replay what this client missed in the last REPLAY_MS (only "#p"-addressed filters; at most 200 events).
+      const cutoff = Date.now() - REPLAY_MS;
+      let sent = 0;
+      for (const { ev, at } of replay) {
+        if (sent >= 200) break;
+        if (at < cutoff) continue;
+        if (filters.some((f) => f["#p"] && matches(f, ev))) {
+          send(ws, ["EVENT", sid, ev]);
+          sent++;
+        }
+      }
+      ws.stats.replayed += sent;
+      return send(ws, ["EOSE", sid]);
     }
     if (type === "CLOSE") {
       ws.subs.delete(msg[1]);
@@ -162,6 +220,7 @@ wss.on("connection", (ws, req) => {
 setInterval(() => {
   for (const ws of conns) {
     if (!ws.alive) {
+      ws.terminatedBy = "missed-pong";
       ws.terminate();
       continue;
     }
