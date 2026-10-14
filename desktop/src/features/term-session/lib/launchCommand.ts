@@ -38,7 +38,8 @@ export function buildTermSessionLaunchCommand(
   const toolBin = input.tool === "claude" ? "claude" : "codex";
   const mcp =
     input.tool === "claude" && input.mcpConfigPath?.trim()
-      ? ` --mcp-config ${shellSingleQuote(input.mcpConfigPath.trim())}`
+      ? // `--mcp-config` is variadic: the `=` form plus `--` stop it from swallowing the prompt as a second config path.
+        ` --mcp-config=${shellSingleQuote(input.mcpConfigPath.trim())} --`
       : "";
   const launch = `${toolBin}${mcp} ${readPrompt}`;
 
@@ -61,10 +62,12 @@ export function buildTermSessionLaunchCommand(
  * load the same per-session MCP servers with `--mcp-config '<sid dir>/.claude.json'`. Other lines pass through unchanged.
  */
 export function keepUserClaudeLogin(launchCommand: string): string {
-  const m = /(?:^|&& )export CLAUDE_CONFIG_DIR=('(?:[^']|'"'"')*') && /.exec(launchCommand);
-  if (!m) return launchCommand;
+  // Lines from build mv7o3fpu used the space form, which let the variadic flag swallow the prompt; normalise those too.
+  const fixed = launchCommand.replace(/(^|&& )claude --mcp-config ('(?:[^']|'"'"')*') "/, '$1claude --mcp-config=$2 -- "');
+  const m = /(?:^|&& )export CLAUDE_CONFIG_DIR=('(?:[^']|'"'"')*') && /.exec(fixed);
+  if (!m) return fixed;
   const dir = m[1].slice(1, -1).replace(/'"'"'/g, "'").replace(/\/+$/, "");
-  const stripped = launchCommand.replace(m[0], m[0].startsWith("&& ") ? "&& " : "");
-  if (/(^|&& )claude --mcp-config /.test(stripped)) return stripped;
-  return stripped.replace(/(^|&& )claude "/, `$1claude --mcp-config ${shellSingleQuote(`${dir}/.claude.json`)} "`);
+  const stripped = fixed.replace(m[0], m[0].startsWith("&& ") ? "&& " : "");
+  if (/(^|&& )claude --mcp-config=/.test(stripped)) return stripped;
+  return stripped.replace(/(^|&& )claude "/, `$1claude --mcp-config=${shellSingleQuote(`${dir}/.claude.json`)} -- "`);
 }
