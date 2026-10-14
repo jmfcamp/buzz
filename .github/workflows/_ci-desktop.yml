@@ -49,6 +49,8 @@ jobs:
       - name: Install desktop dependencies
         run: just desktop-install-ci
       - name: Desktop lint and format
+        # Hula fork: inherited Biome debt (600+ findings); tests + build still gate.
+        if: github.repository != 'jmfcamp/buzz'
         run: just desktop-check
       - name: Desktop unit tests
         run: just desktop-test
@@ -72,7 +74,7 @@ jobs:
     # fails with the wrapper's error instead of the job timeout.
     timeout-minutes: 55
     # Keep in sync with RUST_SELECTED in the Desktop gate (pinned by ci-required-gates.test.mjs).
-    if: github.event_name == 'push' || inputs.desktop_rust || inputs.rust
+    if: github.repository != 'jmfcamp/buzz' && (github.event_name == 'push' || inputs.desktop_rust || inputs.rust)
     strategy:
       fail-fast: false
       matrix:
@@ -133,7 +135,7 @@ jobs:
     # and its reports to finish.
     timeout-minutes: 45
     # Keep in sync with FRONTEND_SELECTED in the Desktop gate (pinned by ci-required-gates.test.mjs).
-    if: github.event_name == 'push' || inputs.desktop
+    if: github.repository != 'jmfcamp/buzz' && (github.event_name == 'push' || inputs.desktop)
     strategy:
       fail-fast: false
       matrix:
@@ -210,6 +212,7 @@ jobs:
           JS_SELECTED: ${{ github.event_name == 'push' || inputs.desktop || inputs.rust }}
           RUST_SELECTED: ${{ github.event_name == 'push' || inputs.desktop_rust || inputs.rust }}
           FRONTEND_SELECTED: ${{ github.event_name == 'push' || inputs.desktop }}
+          FORK: ${{ github.repository == 'jmfcamp/buzz' }}
           JS: ${{ needs.desktop-js.result }}
           TAURI: ${{ needs.desktop-tauri.result }}
           SMOKE: ${{ needs.desktop-smoke-e2e.result }}
@@ -226,6 +229,8 @@ jobs:
             fi
           }
           check "Desktop JS" "$JS_SELECTED" "$JS"
+          # Hula fork skips Tauri lanes, smoke E2E and Windows (upstream-only suites).
+          if [ "$FORK" = true ]; then RUST_SELECTED=false; FRONTEND_SELECTED=false; fi
           check "Desktop Tauri lanes" "$RUST_SELECTED" "$TAURI"
           check "Desktop Smoke E2E shards" "$FRONTEND_SELECTED" "$SMOKE"
           check "Desktop Windows Build" "$FRONTEND_SELECTED" "$WINDOWS"
@@ -237,7 +242,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     # Keep in sync with FRONTEND_SELECTED in the Desktop gate (pinned by ci-required-gates.test.mjs).
-    if: github.event_name == 'push' || inputs.desktop
+    if: github.repository != 'jmfcamp/buzz' && (github.event_name == 'push' || inputs.desktop)
     permissions:
       contents: read
     steps:

@@ -149,6 +149,7 @@ import { AppProfilePanelProvider } from "@/app/AppProfilePanelProvider";
 import { AppWorkflowEditorOverlayProvider } from "@/app/AppWorkflowEditorOverlayProvider";
 import { LazySettingsScreen } from "@/app/LazySettingsScreen";
 import { useInboxPushPairing, useIsNotifiedForThread } from "@/app/useInboxPushPairing";
+import { ownsDesktopNotificationsFor, useDmChannelIds } from "@/app/appShellWindowRole";
 const EMPTY_CHANNELS: Channel[] = [];
 export function AppShell() {
   useWebviewZoomShortcuts();
@@ -177,9 +178,7 @@ export function AppShell() {
   useUserSignerDraftListener(true);
   const popout = usePopoutBootstrap();
   const hideAppChrome = isHuddleRoom || popout != null;
-  // Every popout/companion window boots the full AppShell. Only the main
-  // window may own OS notifications, or each open window fires its own copy.
-  const ownsDesktopNotifications = !isHuddleRoom && popout == null;
+  const ownsDesktopNotifications = ownsDesktopNotificationsFor(isHuddleRoom, popout);
   const hasCommunityRail = communitiesHook.communities.length > 1;
   const addCommunityDialog = useAddCommunityDialogState();
   const [isChannelManagementOpen, setIsChannelManagementOpen] =
@@ -452,13 +451,7 @@ export function AppShell() {
     (id) => channels.find((c) => c.id === id)?.name,
     channelsQuery.data,
   );
-  const dmChannelIds = React.useMemo(() => {
-    const ids = new Set<string>();
-    for (const channel of channelsQuery.data ?? []) {
-      if (channel.channelType === "dm") ids.add(channel.id);
-    }
-    return ids;
-  }, [channelsQuery.data]);
+  const dmChannelIds = useDmChannelIds(channelsQuery.data);
   useReminderNotifications(
     ownsDesktopNotifications ? identityQuery.data?.pubkey : undefined,
     notificationSettings.settings,
