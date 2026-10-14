@@ -1218,6 +1218,14 @@ export function AppShell() {
                               onProjects={() => void goProjects()}
                               onSettings={handleOpenSettings}
                               onWorkflows={() => void goWorkflows()}
+                              onOpenPinnedSite={(pinId) => {
+                                setPhoneOverlay(null);
+                                void goPinnedSite(pinId);
+                              }}
+                              onManagePinnedSites={() => {
+                                setPhoneOverlay(null);
+                                handleOpenSettings("pinned-sites");
+                              }}
                               pubkey={identityQuery.data?.pubkey}
                             />
                           </div>

@@ -11,6 +11,8 @@ import {
 import { useSidebarMenuCounts } from "@/features/sidebar/lib/useSidebarMenuCounts";
 import { FeatureGate } from "@/shared/features";
 
+import { PhonePinnedSitesCard } from "./PhonePinnedSitesCard";
+
 type Row = {
   id: string;
   label: string;
@@ -31,6 +33,8 @@ export function PhoneMeScreen({
   onBrowsers,
   onProjects,
   onWorkflows,
+  onOpenPinnedSite,
+  onManagePinnedSites,
 }: {
   displayName: string;
   avatarUrl?: string | null;
@@ -41,6 +45,8 @@ export function PhoneMeScreen({
   onBrowsers: () => void;
   onProjects: () => void;
   onWorkflows: () => void;
+  onOpenPinnedSite: (pinId: string) => void;
+  onManagePinnedSites: () => void;
 }) {
   const { preferences, counts } = useSidebarMenuCounts();
   // Same order as the desktop left-nav primary menu (Projects, Agents, Bots, Browsers, Workflows); Settings last,
@@ -118,6 +124,7 @@ export function PhoneMeScreen({
           );
         })}
       </ul>
+      <PhonePinnedSitesCard onManage={onManagePinnedSites} onOpen={onOpenPinnedSite} />
       <p className="flex items-center gap-1.5 px-5 pt-4 text-xs text-muted-foreground">
         <Blocks className="h-3.5 w-3.5" /> Desktop-owned settings are read-only on the web.
       </p>
