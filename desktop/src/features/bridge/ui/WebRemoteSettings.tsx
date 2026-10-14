@@ -300,9 +300,10 @@ export function WebRemoteWatcher() {
           ? `no desktop with agents in heartbeat (${rh.hosts.length} host(s))`
           : !host.hasDirect
             ? `desktop ${host.id.slice(0, 8)} advertises no Direct URL${host.stale ? ", heartbeat stale" : ""}`
-            : `desktop ${host.id.slice(0, 8)}`,
+            : `desktop ${host.id.slice(0, 8)}${direct ? "" : ", client not created"}`,
     );
-  }, [rh.b.available, host, rh.hosts.length]);
+    return () => setDirectDiscoveryNote("watcher unmounted");
+  }, [rh.b.available, host, rh.hosts.length, direct]);
   // Desktop as signer: while Direct is live and this browser is paired, signing goes to the desktop (Primal is the fallback).
   React.useEffect(() => {
     if (!direct || !host?.id) return;
