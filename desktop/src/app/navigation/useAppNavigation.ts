@@ -119,7 +119,7 @@ export function useAppNavigation() {
     ) => {
       const openUrl = options?.openUrl?.trim() ?? "";
       // Web: pinned sites open in the default browser, never in-app.
-      if (pinsOpenExternally()) {
+      if (pinsOpenExternally(pinId)) {
         openWebPinExternally(pinId, openUrl);
         return Promise.resolve();
       }

@@ -5,6 +5,7 @@ import { ExternalLink, Hash, Layers, MessageCircle, MessagesSquare, PanelTop, Sq
 import * as React from "react";
 
 import { setPhoneOverlay } from "@/app/phone/phoneTabs";
+import { pinsOpenExternally } from "@/features/pinned-sites/lib/webPinOpen";
 import { useOptionalSurfaceTabs } from "@/app/surfaceTabs/SurfaceTabsProvider";
 import type { SurfaceTab } from "@/app/surfaceTabs/surfaceTabModel";
 import { useTerminalTabs } from "@/features/terminal/terminalTabsBridge";
@@ -45,7 +46,7 @@ export function PhoneTabSwitcher({
       const id = tab.target.channelId;
       return channels.find((c) => c.id === id)?.channelType === "dm" ? "DM" : "Channel";
     }
-    if (tab.target.kind === "pin") return "Site"; // web: opens in the browser
+    if (tab.target.kind === "pin" && pinsOpenExternally(tab.target.pinId)) return "Site"; // opens in the browser
     return "Page";
   };
   const rows: Row[] = [
@@ -55,7 +56,7 @@ export function PhoneTabSwitcher({
       type: typeOf(tab),
       active: !terminalActive && surface?.activeId === tab.id,
       open: () => {
-        if (tab.target.kind === "pin") {
+        if (tab.target.kind === "pin" && pinsOpenExternally(tab.target.pinId)) {
           surface?.selectTab(tab.id); // opens externally on web; keep the current screen
           return;
         }

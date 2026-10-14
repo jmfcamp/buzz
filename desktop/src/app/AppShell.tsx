@@ -16,6 +16,8 @@ import { AppShellProvider } from "@/app/AppShellContext";
 import { AppShellOverlays, TerminalBootstrap } from "@/app/AppShellOverlays";
 import { AppShellChannelSurface } from "@/app/AppShellChannelSurface";
 import { AppHuddleShell } from "@/app/AppHuddleShell";
+import { WebPinFrameHost } from "@/features/pinned-sites/ui/WebPinFrameHost";
+import { isWebPinOpenInBuzz } from "@/features/pinned-sites/lib/webPinOpen";
 import { AppTopChrome } from "@/app/AppTopChrome";
 import { SurfaceTabsProvider } from "@/app/surfaceTabs/SurfaceTabsProvider";
 import { usePopoutBootstrap } from "@/app/usePopoutBootstrap";
@@ -1222,7 +1224,8 @@ export function AppShell() {
                               onSettings={handleOpenSettings}
                               onWorkflows={() => void goWorkflows()}
                               onOpenPinnedSite={(pinId) => {
-                                // Web: opens in the default browser; stay on Me.
+                                // Web: default opens in the browser (stay on Me); "Open with Buzz" pins show in-app.
+                                if (isWebPinOpenInBuzz(pinId)) setPhoneOverlay(null);
                                 void goPinnedSite(pinId);
                               }}
                               onManagePinnedSites={() => {
@@ -1313,6 +1316,7 @@ export function AppShell() {
                           >
                             <Outlet />
                           </AppShellChannelSurface>
+                          {webBuild ? <WebPinFrameHost /> : null}
                         </TerminalContextOverrideProvider>
                         {!hideAppChrome ? (
                           <RelayConnectionOverlay

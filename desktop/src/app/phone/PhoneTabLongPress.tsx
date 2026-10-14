@@ -6,6 +6,7 @@ import type * as React from "react";
 import { toast } from "sonner";
 
 import { useOptionalSurfaceTabs } from "@/app/surfaceTabs/SurfaceTabsProvider";
+import { OpenWithBuzzMenuItem } from "@/features/pinned-sites/ui/OpenWithBuzzMenuItem";
 import {
   surfaceTabKey,
   type SurfaceTabTarget,
@@ -57,7 +58,9 @@ export function PhoneTabLongPress({
             Add as tab
           </ContextMenuItem>
         )}
+        {target.kind === "pin" ? <OpenWithBuzzMenuItem pinId={target.pinId} /> : null}
       </ContextMenuContent>
     </ContextMenu>
   );
 }
+
