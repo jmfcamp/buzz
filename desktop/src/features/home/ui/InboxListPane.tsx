@@ -51,6 +51,8 @@ import { Switch } from "@/shared/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
 import { VirtualizedList } from "@/shared/ui/VirtualizedList";
+import { isPhoneLayout } from "@/shared/lib/phoneLayout";
+import { useScrollRestore } from "@/shared/lib/useScrollRestore";
 
 const INBOX_EMPTY_STATE_TITLES: Record<InboxFilter, string> = {
   all: "No activity yet",
@@ -277,6 +279,7 @@ export function InboxListPane({
   const isDrafts = filter === "drafts";
   const isMixedInboxView = filter === "all";
   const scrollRef = React.useRef<HTMLDivElement>(null);
+  useScrollRestore(isPhoneLayout() ? `phone-inbox:${filter}` : null, scrollRef);
   const inboxRows = React.useMemo(
     () =>
       buildInboxListRows({

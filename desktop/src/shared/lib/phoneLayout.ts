@@ -83,7 +83,9 @@ function installPhoneViewportHeight(mql: MediaQueryList): void {
       }
     }
   };
-  document.addEventListener("focusout", () => window.setTimeout(resetDocumentScroll, 50), true);
+  // Re-sync too: closing a popover (e.g. the reaction picker) drops the keyboard, and the shell must regrow so the
+  // composer is back at the bottom of the screen.
+  document.addEventListener("focusout", () => { for (const ms of [50, 300]) window.setTimeout(sync, ms); }, true);
   // iOS reveals a focused field by scrolling/panning after focus; re-sync as it settles.
   document.addEventListener("focusin", () => { for (const ms of [0, 100, 300, 600]) window.setTimeout(sync, ms); }, true);
   window.addEventListener("hashchange", () => window.setTimeout(resetDocumentScroll, 0));

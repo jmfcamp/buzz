@@ -658,3 +658,12 @@
 [data-phone] .buzz-sheet:not([data-sheet-side="top"]) {
   border-bottom: env(safe-area-inset-bottom, 0px) solid transparent;
 }
+
+/* Emoji picker on phone: never wider than the screen (a wider popover widened the page and let iOS pan sideways). */
+[data-phone] em-emoji-picker {
+  max-width: calc(100vw - 16px);
+  width: min(352px, calc(100vw - 16px));
+}
+[data-phone] [data-radix-popper-content-wrapper] {
+  max-width: 100vw;
+}
