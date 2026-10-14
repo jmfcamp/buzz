@@ -1,4 +1,5 @@
 import * as React from "react";
+import { proxyCmd } from "@/features/bridge/remoteCmd";
 import { publishTerminalTabs } from "./terminalTabsBridge";
 import { getWebTermInfo } from "@/features/bridge/webTermHub";
 import { isTauri } from "@tauri-apps/api/core";
@@ -712,6 +713,36 @@ export function TerminalBootstrap({
           }
           toast.message("herdr unavailable — using Buzz Term", {
             description: result.reason,
+          });
+        }
+
+        // Web + the desktop's Buzz Term host is herdr: the desktop creates the herdr workspace and runs the handoff there
+        // (over Direct), then this device attaches a herdr tab. Older desktops / herdr missing: a plain tab with a calm note.
+        if (remote && request.launchCommand.trim() && getWebTermInfo()?.termHost === "herdr") {
+          const sessionName = getWebTermInfo()?.termSession ?? "";
+          const res = await proxyCmd<{ ok: boolean; sessionName?: string; reason?: string }>("term_herdr_handoff", {
+            command: request.launchCommand,
+            label: herdrWorkspaceLabel(request.channelName, request.threadId),
+            sessionName,
+          }).catch((e: { code?: string }) => ({ ok: false, reason: e?.code === "unknown_op" ? "update" : "error" }));
+          if (res.ok) {
+            skipAutoCreateRef.current = true;
+            openTerminalPanel(effectiveOpenMode(), "all");
+            // no launch line + no forced shell: the desktop attaches this tab to its herdr session (now focused on the new workspace)
+            createInAppSession({
+              termSessionSid: request.sid,
+              contextOverride: { channelId: request.channelId, channelName: request.channelName, threadId: request.threadId },
+            });
+            window.setTimeout(() => {
+              skipAutoCreateRef.current = false;
+            }, 0);
+            return;
+          }
+          toast.message("Opened in a Buzz Term tab", {
+            description:
+              res.reason === "update"
+                ? "Opening sessions in Herdr from the web needs the next Hula Buzz desktop update."
+                : "Herdr isn't available on your desktop right now.",
           });
         }
 
