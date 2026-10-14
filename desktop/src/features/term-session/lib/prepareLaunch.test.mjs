@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { buildLaunchFromPrepare } from "./prepareLaunch.ts";
 
-test("buildLaunchFromPrepare injects CLAUDE_CONFIG_DIR and BUZZ_USER_SIGNER_DIR", () => {
+test("buildLaunchFromPrepare keeps the user Claude login: --mcp-config, no CLAUDE_CONFIG_DIR", () => {
   const { extraEnv, launchCommand } = buildLaunchFromPrepare(
     {
       hula: "term-session",
@@ -21,9 +21,10 @@ test("buildLaunchFromPrepare injects CLAUDE_CONFIG_DIR and BUZZ_USER_SIGNER_DIR"
       buzzDevMcpWired: true,
     },
   );
-  assert.equal(extraEnv.CLAUDE_CONFIG_DIR, "/tmp/claude-sid");
+  assert.equal(extraEnv.CLAUDE_CONFIG_DIR, undefined);
   assert.equal(extraEnv.BUZZ_USER_SIGNER_DIR, "/tmp/user-signer");
-  assert.match(launchCommand, /CLAUDE_CONFIG_DIR/);
+  assert.doesNotMatch(launchCommand, /CLAUDE_CONFIG_DIR/);
+  assert.match(launchCommand, /claude --mcp-config '\/tmp\/claude-sid\/\.claude\.json' /);
 });
 
 test("buildLaunchFromPrepare omits signer env when not wired", () => {
@@ -46,4 +47,12 @@ test("buildLaunchFromPrepare omits signer env when not wired", () => {
   );
   assert.equal(extraEnv.BUZZ_USER_SIGNER_DIR, undefined);
   assert.equal(extraEnv.CLAUDE_CONFIG_DIR, undefined);
+});
+
+test("buildLaunchFromPrepare prefers mcpConfigPath", () => {
+  const { launchCommand } = buildLaunchFromPrepare(
+    { hula: "term-session", v: 1, name: "t", tool: "claude", sid: "s", prompt: "hi" },
+    { promptPath: "/p", claudeConfigDir: null, mcpConfigPath: "/s/mcp.json", openclawWired: false },
+  );
+  assert.equal(launchCommand, `claude --mcp-config '/s/mcp.json' "$(cat '/p')"`);
 });

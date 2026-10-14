@@ -1,3 +1,4 @@
+import { keepUserClaudeLogin } from "./launchCommand.ts";
 import type { TermSessionTool } from "./types.ts";
 
 export type TermSessionOpenRequest = {
@@ -11,7 +12,7 @@ export type TermSessionOpenRequest = {
   promptPath: string;
   /** Shell command to type into the PTY after attach. */
   launchCommand: string;
-  /** Optional env injected at PTY spawn (e.g. CLAUDE_CONFIG_DIR). */
+  /** Optional env injected at PTY spawn (e.g. BUZZ_USER_SIGNER_DIR). */
   extraEnv?: Record<string, string>;
   /** Generation bumps so identical sid re-opens still notify listeners. */
   generation: number;
@@ -29,7 +30,14 @@ export function requestTermSessionOpen(
   request: Omit<TermSessionOpenRequest, "generation">,
 ) {
   generation += 1;
-  pending = { ...request, generation };
+  // Never let a handoff override the user's Claude config dir (forces a fresh login); MCP rides on --mcp-config.
+  const { CLAUDE_CONFIG_DIR: _dropped, ...extraEnv } = request.extraEnv ?? {};
+  pending = {
+    ...request,
+    launchCommand: keepUserClaudeLogin(request.launchCommand),
+    ...(request.extraEnv ? { extraEnv } : {}),
+    generation,
+  };
   publish();
 }
 

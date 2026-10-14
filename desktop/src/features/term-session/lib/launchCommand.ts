@@ -16,6 +16,11 @@ export type BuildTermSessionLaunchCommandInput = {
    * Claude picks up the per-sid OpenClaw MCP config.
    */
   claudeConfigDir?: string | null;
+  /**
+   * Per-sid MCP JSON for Claude (`--mcp-config`). Preferred over
+   * claudeConfigDir: keeps the user's normal Claude login (~/.claude + keychain).
+   */
+  mcpConfigPath?: string | null;
 };
 
 /**
@@ -31,7 +36,11 @@ export function buildTermSessionLaunchCommand(
   const promptPath = shellSingleQuote(input.promptPath);
   const readPrompt = `"$(cat ${promptPath})"`;
   const toolBin = input.tool === "claude" ? "claude" : "codex";
-  const launch = `${toolBin} ${readPrompt}`;
+  const mcp =
+    input.tool === "claude" && input.mcpConfigPath?.trim()
+      ? ` --mcp-config ${shellSingleQuote(input.mcpConfigPath.trim())}`
+      : "";
+  const launch = `${toolBin}${mcp} ${readPrompt}`;
 
   const parts: string[] = [];
   if (input.tool === "claude" && input.claudeConfigDir?.trim()) {
@@ -44,4 +53,18 @@ export function buildTermSessionLaunchCommand(
   }
   parts.push(launch);
   return parts.join(" && ");
+}
+
+/**
+ * Older desktops (≤ hula.8) hand back `export CLAUDE_CONFIG_DIR='<sid dir>' && … claude "…"`. That per-session config dir
+ * hides the user's Claude login (~/.claude + keychain) and forces a fresh sign-in. Rewrite it to keep the normal login and
+ * load the same per-session MCP servers with `--mcp-config '<sid dir>/.claude.json'`. Other lines pass through unchanged.
+ */
+export function keepUserClaudeLogin(launchCommand: string): string {
+  const m = /(?:^|&& )export CLAUDE_CONFIG_DIR=('(?:[^']|'"'"')*') && /.exec(launchCommand);
+  if (!m) return launchCommand;
+  const dir = m[1].slice(1, -1).replace(/'"'"'/g, "'").replace(/\/+$/, "");
+  const stripped = launchCommand.replace(m[0], m[0].startsWith("&& ") ? "&& " : "");
+  if (/(^|&& )claude --mcp-config /.test(stripped)) return stripped;
+  return stripped.replace(/(^|&& )claude "/, `$1claude --mcp-config ${shellSingleQuote(`${dir}/.claude.json`)} "`);
 }
