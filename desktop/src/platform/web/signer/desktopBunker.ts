@@ -22,6 +22,7 @@ import {
   type DesktopBunkerSession,
 } from "./nip46Store";
 import type { SignedEvent } from "./types";
+import { kbNote } from "../kbDebug/kbDebug";
 
 export type BunkerStatus =
   | "none"
@@ -30,7 +31,9 @@ export type BunkerStatus =
   | "offline"
   | "revoked";
 const CHECK_EVERY_MS = 30_000;
-const CHECK_TIMEOUT_MS = 6_000;
+const CHECK_TIMEOUT_MS = 8_000;
+/** Consecutive failed checks before the desktop counts as offline (one miss = iOS froze a socket, a relay hiccup…). */
+const MISSES_BEFORE_OFFLINE = 2;
 const PAIR_TIMEOUT_MS = 120_000; // the person has to click Allow on the desktop
 const SIGN_TIMEOUT_MS = 90_000; // instrument.ts applies the real (shorter) limit per kind
 
@@ -39,10 +42,14 @@ let session: DesktopBunkerSession | null = null;
 let status: BunkerStatus = "none";
 let timer: ReturnType<typeof setInterval> | undefined;
 let checking: Promise<boolean> | null = null;
+let misses = 0;
 const listeners = new Set<() => void>();
 
 const setStatus = (s: BunkerStatus) => {
   if (s === status) return;
+  kbNote(
+    `desktop signer ${status} → ${s}${misses ? ` (misses ${misses})` : ""}`,
+  );
   status = s;
   notifyDirectSignerChange();
   for (const l of listeners) l();
@@ -94,6 +101,7 @@ function register(c: Nip46Client) {
           [JSON.stringify(ev)],
           SIGN_TIMEOUT_MS,
         );
+        misses = 0;
         setStatus("online");
         return JSON.parse(res) as SignedEvent; // instrument.ts verifies id, sig and pubkey
       } catch (e) {
@@ -104,6 +112,7 @@ function register(c: Nip46Client) {
     crypt: async (op, peer, text) => {
       try {
         const out = await c.request(op, [peer, text], SIGN_TIMEOUT_MS);
+        misses = 0;
         setStatus("online");
         return out;
       } catch (e) {
@@ -123,26 +132,37 @@ function onFailure(e: unknown) {
     void dropSession("revoked");
     return;
   }
-  if (e instanceof Nip46Error && e.code === "timeout") setStatus("offline");
+  // A single timeout isn't "offline": the next check decides (see check()).
 }
 
-/** One liveness check: true when the desktop answered with the expected account. */
+/**
+ * One liveness check: true when the desktop answered with the expected account. A miss first rebuilds the signer-relay
+ * sockets and asks again; only MISSES_BEFORE_OFFLINE failed checks in a row mark the desktop offline (fast fallback).
+ */
 export function check(timeoutMs = CHECK_TIMEOUT_MS): Promise<boolean> {
   const c = client;
   const s = session;
   if (!c || !s) return Promise.resolve(false);
   checking ??= (async () => {
     try {
-      const pk = await c.request("get_public_key", [], timeoutMs);
-      if (pk !== s.userPubkey) {
-        await dropSession("revoked");
-        return false;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (attempt === 1) c.reconnectAll(true);
+        try {
+          const pk = await c.request("get_public_key", [], timeoutMs);
+          if (pk !== s.userPubkey) {
+            await dropSession("revoked");
+            return false;
+          }
+          misses = 0;
+          setStatus("online");
+          return true;
+        } catch (e) {
+          onFailure(e);
+          if (!session) return false; // revoked
+        }
       }
-      setStatus("online");
-      return true;
-    } catch (e) {
-      onFailure(e);
-      if (session) setStatus("offline");
+      misses++;
+      if (misses >= MISSES_BEFORE_OFFLINE) setStatus("offline");
       return false;
     } finally {
       checking = null;
@@ -152,7 +172,10 @@ export function check(timeoutMs = CHECK_TIMEOUT_MS): Promise<boolean> {
 }
 
 const onWake = () => {
-  if (document.visibilityState === "visible") void check();
+  if (document.visibilityState !== "visible" || !client) return;
+  // iOS froze the signer-relay socket in the background: replace it first, then check.
+  client.reconnectAll(true);
+  void check();
 };
 function startLoop() {
   clearInterval(timer);
@@ -178,6 +201,7 @@ function begin(s: DesktopBunkerSession) {
   c.start();
   client = c;
   register(c);
+  misses = 0;
   setStatus("unknown");
   startLoop();
 }
@@ -203,7 +227,7 @@ export async function resumeDesktopBunker(
 /** Wait (up to `timeoutMs`) until the desktop answered, e.g. before the relay AUTH on cold start. */
 export async function warmDesktopBunker(timeoutMs = 5000): Promise<boolean> {
   if (!session) return false;
-  if (status === "online") return true;
+  if (status === "online" && misses === 0) return true;
   return check(timeoutMs);
 }
 

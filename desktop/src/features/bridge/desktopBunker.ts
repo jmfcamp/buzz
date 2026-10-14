@@ -112,10 +112,11 @@ export function createBunkerPolicy(deps: BunkerPolicyDeps) {
           throw new BunkerError("invalid or expired pairing code");
         }
         code = null; // one browser per code, whatever the answer
-        // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control characters from the label is the point
+        const raw = typeof params[3] === "string" ? params[3] : "Web browser";
         const label =
-          (typeof params[3] === "string" ? params[3] : "Web browser")
-            .replace(/[\u0000-\u001f\u007f]/g, "")
+          [...raw]
+            .filter((ch) => ch.charCodeAt(0) > 31 && ch.charCodeAt(0) !== 127)
+            .join("")
             .slice(0, 80) || "Web browser";
         const allow = await deps.confirm(
           "Sign in a browser with this computer?",
@@ -272,6 +273,11 @@ export function createBunkerService(opts: {
   const sk = opts.secretKey;
   const pubkey = getPublicKey(sk);
   const seen = new Set<string>();
+  /** request event id -> reply frame: the browser re-publishes the same event after a reconnect (the signer relay stores
+   *  nothing), so a repeat gets the same answer again instead of silence. */
+  const replies = new Map<string, { frame: string; at: number }>();
+  const lastRx = new Map<string, number>();
+  let keepalive: ReturnType<typeof setInterval> | undefined;
   const sockets = new Map<string, WebSocket>();
   const retry = new Map<string, number>();
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -288,6 +294,7 @@ export function createBunkerService(opts: {
     sockets.set(url, ws);
     ws.onopen = () => {
       retry.set(url, 0);
+      lastRx.set(url, Date.now());
       ws.send(
         JSON.stringify([
           "REQ",
@@ -301,7 +308,10 @@ export function createBunkerService(opts: {
       );
       opts.onStatus?.({ connected: true });
     };
-    ws.onmessage = (m) => void onMsg(ws, String(m.data));
+    ws.onmessage = (m) => {
+      lastRx.set(url, Date.now());
+      void onMsg(ws, String(m.data));
+    };
     ws.onclose = () => {
       if (sockets.get(url) === ws) sockets.delete(url);
       opts.onStatus?.({
@@ -348,7 +358,12 @@ export function createBunkerService(opts: {
       created_at: number;
       sig: string;
     };
-    if (!ev || ev.kind !== KIND || seen.has(ev.id)) return;
+    if (!ev || ev.kind !== KIND) return;
+    if (seen.has(ev.id)) {
+      const r = replies.get(ev.id);
+      if (r && ws.readyState === 1) ws.send(r.frame);
+      return;
+    }
     if (seen.size > 2000) seen.clear();
     seen.add(ev.id);
     if (
@@ -398,9 +413,64 @@ export function createBunkerService(opts: {
       sk,
     );
     const frame = JSON.stringify(["EVENT", out]);
+    replies.set(ev.id, { frame, at: Date.now() });
+    if (replies.size > 500) {
+      const cutoff = Date.now() - 120_000;
+      for (const [k, v] of replies)
+        if (v.at < cutoff || replies.size > 500) replies.delete(k);
+    }
     // Reply on every open socket (the browser listens on the same relay set).
     for (const s of sockets.values()) if (s.readyState === 1) s.send(frame);
     if (ws.readyState === 1 && !sockets.has(ws.url)) ws.send(frame);
+  };
+
+  /** Reconnect one relay now (dead/half-open socket, network change, wake from sleep). */
+  const reopen = (url: string) => {
+    const old = sockets.get(url);
+    sockets.delete(url);
+    if (old) {
+      old.onclose = null;
+      try {
+        old.close();
+      } catch {}
+    }
+    const t = timers.get(url);
+    if (t) clearTimeout(t);
+    timers.delete(url);
+    retry.set(url, 0);
+    open(url);
+  };
+  // App-level keepalive: a no-match REQ every 20s must bring back EOSE. A socket silent for 45s is half-open (Mac
+  // sleep/wake, Wi-Fi change, proxy idle) and gets replaced, so the desktop never sits deaf on a dead socket.
+  const tick = () => {
+    if (!running) return;
+    const now = Date.now();
+    for (const url of relays) {
+      const ws = sockets.get(url);
+      if (!ws) continue;
+      if (ws.readyState === 1 && now - (lastRx.get(url) ?? now) > 45_000) {
+        reopen(url);
+        continue;
+      }
+      if (ws.readyState === 1)
+        try {
+          ws.send(
+            JSON.stringify([
+              "REQ",
+              "ka",
+              { kinds: [KIND], "#p": ["0".repeat(64)], limit: 0 },
+            ]),
+          );
+        } catch {}
+    }
+  };
+  const wake = () => {
+    if (!running) return;
+    for (const url of relays) {
+      const ws = sockets.get(url);
+      if (ws?.readyState !== 1) reopen(url);
+      else tick();
+    }
   };
 
   return {
@@ -410,9 +480,21 @@ export function createBunkerService(opts: {
       if (running) return;
       running = true;
       for (const r of relays) open(r);
+      keepalive = setInterval(tick, 20_000);
+      if (typeof window !== "undefined") {
+        window.addEventListener("online", wake);
+        window.addEventListener("focus", wake);
+        document.addEventListener("visibilitychange", wake);
+      }
     },
     stop() {
       running = false;
+      clearInterval(keepalive);
+      if (typeof window !== "undefined") {
+        window.removeEventListener("online", wake);
+        window.removeEventListener("focus", wake);
+        document.removeEventListener("visibilitychange", wake);
+      }
       for (const t of timers.values()) clearTimeout(t);
       timers.clear();
       for (const s of sockets.values())
