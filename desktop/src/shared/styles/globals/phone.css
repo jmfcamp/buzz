@@ -165,7 +165,7 @@
   width: 36px;
   height: 32px;
   border: 0;
-  border-radius: calc(var(--radius) - 2px);
+  border-radius: var(--radius-key);
   background: transparent;
   color: hsl(var(--sidebar-foreground, var(--foreground)) / 0.75);
   -webkit-tap-highlight-color: transparent;
@@ -504,7 +504,7 @@
 [data-phone] .phone-tab-switcher-row {
   display: flex;
   align-items: center;
-  border-radius: calc(var(--radius) - 2px);
+  border-radius: var(--radius-key);
 }
 [data-phone] .phone-tab-switcher-row.is-active {
   background: hsl(var(--primary) / 0.14);
