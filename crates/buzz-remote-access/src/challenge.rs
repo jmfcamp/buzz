@@ -151,6 +151,22 @@ impl ChallengeBook {
         Purpose::parse(tag_value(&ev, "purpose").unwrap_or("")).ok_or(ChallengeError::WrongPurpose)
     }
 
+    /// Consumes an open `connect` challenge for `conn_id` without a member signature: the caller authenticates the
+    /// request another way (a paired browser device key, verified by the app). Single use, like [`Self::verify`].
+    pub fn take(&mut self, nonce: &str, conn_id: &str, now: u64) -> Result<(), ChallengeError> {
+        let ch = self.open.remove(nonce).ok_or(ChallengeError::UnknownChallenge)?;
+        if now > ch.exp {
+            return Err(ChallengeError::Expired);
+        }
+        if ch.conn_id != conn_id {
+            return Err(ChallengeError::WrongConnection);
+        }
+        if ch.desktop_id != self.desktop_id {
+            return Err(ChallengeError::WrongDesktop);
+        }
+        Ok(())
+    }
+
     pub fn drop_connection(&mut self, conn_id: &str) {
         self.open.retain(|_, c| c.conn_id != conn_id);
     }

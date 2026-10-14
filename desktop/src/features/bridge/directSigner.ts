@@ -5,6 +5,8 @@
 //  - signer.sign  {device, seq, event, sig}
 //      sig = device schnorr over signDigest(nonce of THIS connection, seq, event); seq strictly increasing per connection.
 //      AUTO_SIGN_KINDS are signed straight away; any other kind needs a desktop approval prompt.
+//  - signer.authConnect {device, sig, nonce, desktop}  (sent by the listener itself, before the connection is open)
+//      sig = device schnorr over connectDigest(challenge nonce, desktop id, connection id, device); approved devices only.
 //  - signer.unpair {device, sig}       -> the browser forgot this desktop: revoke it here too (logged)
 //  - a revoked device gets an explicit "revoked" error (not "not_paired") so the browser clears its pairing at once
 //  - signer.crypt {device, seq, op, peer, text, sig}   (advertised as caps ["nip44"] in hello)
@@ -15,6 +17,7 @@
 import {
   AUTO_SIGN_KINDS_V2,
   SIGNER_CAP_SIGN_ANY,
+  connectDigest,
   cryptDigest,
   type CryptOp,
   pairDigest,
@@ -123,6 +126,14 @@ export function createDirectSigner(deps: SignerDeps) {
           const nonce = deps.randomHex(16);
           conns.set(connId, { nonce, device, seq: 0, at: deps.now() });
           return { nonce, approved: !!approved(device), revoked: revoked(device), caps: deps.crypt ? [SIGNER_CAP_SIGN_ANY, SIGNER_CAP_NIP44] : [SIGNER_CAP_SIGN_ANY] };
+        }
+        case "signer.authConnect": {
+          const nonce = typeof p.nonce === "string" && /^[0-9a-f]{16,128}$/.test(p.nonce) ? p.nonce : bad("bad nonce");
+          const desktop = typeof p.desktop === "string" && p.desktop.length <= 128 ? p.desktop : bad("bad desktop");
+          if (!verifyDevice(connectDigest(nonce, desktop, connId, device), sigOf(p), device))
+            throw new MgmtError("bad_signature", "Device signature didn't verify.");
+          if (!approved(device)) notApproved(device);
+          return { approved: true };
         }
         case "signer.pair": {
           const c = connOf(p, device);

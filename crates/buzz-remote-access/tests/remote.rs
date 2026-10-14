@@ -368,6 +368,7 @@ impl buzz_remote_access::ManagementBackend for FakeMgmt {
         Box::pin(async move {
             match op.as_str() {
                 "agents.list" => Ok(json!({"agents":[{"name":"a"}]})),
+                "signer.authConnect" => Ok(json!({"approved": params["device"] == "good"})),
                 "agent.slow" => {
                     tokio::time::sleep(Duration::from_millis(300)).await;
                     Ok(json!({}))
@@ -603,5 +604,34 @@ async fn terminals_survive_a_dropped_connection_then_attach_replays_and_grace_re
     // a different member can't authenticate at all, so can't list/attach (auth is member-only)
     let mut c = connect(srv.addr, Some(ORIGIN)).await.unwrap();
     assert_eq!(auth(&mut c, &Keys::generate()).await["code"], "wrong_member");
+    srv.shutdown();
+}
+
+#[tokio::test]
+async fn paired_device_opens_the_connection_without_the_account_signer() {
+    let (srv, _keys, calls) = setup_mgmt(Duration::from_secs(3600)).await;
+    // approved device: the app is asked once, with the challenge bound to this connection
+    let mut ws = connect(srv.addr, Some(ORIGIN)).await.unwrap();
+    let ch = recv(&mut ws).await;
+    assert_eq!(ch["deviceAuth"], true);
+    let nonce = ch["nonce"].as_str().unwrap().to_string();
+    send(&mut ws, json!({"t":"auth","device":"good","sig":"s","nonce":nonce})).await;
+    let ready = recv(&mut ws).await;
+    assert_eq!(ready["t"], "ready");
+    {
+        let c = calls.lock().unwrap();
+        assert_eq!(c[0].0, "signer.authConnect");
+        assert_eq!((c[0].1["nonce"].as_str(), c[0].1["desktop"].as_str(), c[0].1["_conn"].as_str()), (Some(nonce.as_str()), Some("dsk1"), ch["connId"].as_str()));
+    }
+    // unapproved device is refused
+    let mut ws2 = connect(srv.addr, Some(ORIGIN)).await.unwrap();
+    let ch2 = recv(&mut ws2).await;
+    send(&mut ws2, json!({"t":"auth","device":"bad","sig":"s","nonce":ch2["nonce"]})).await;
+    assert_eq!(recv(&mut ws2).await["code"], "not_paired");
+    // another connection's challenge can't be reused
+    let mut ws3 = connect(srv.addr, Some(ORIGIN)).await.unwrap();
+    recv(&mut ws3).await;
+    send(&mut ws3, json!({"t":"auth","device":"good","sig":"s","nonce":nonce})).await;
+    assert_eq!(recv(&mut ws3).await["code"], "unknown_challenge");
     srv.shutdown();
 }

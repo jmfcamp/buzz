@@ -50,6 +50,11 @@ export function unpairDigest(sessionNonce: string, devicePubkey: string): Uint8A
   return sha256(utf8ToBytes(`buzz-direct-unpair\n${sessionNonce}\n${devicePubkey}`));
 }
 
+/** Device signature that opens a Direct connection (instead of an account-key kind-22242 via the remote signer). */
+export function connectDigest(challengeNonce: string, desktopId: string, connId: string, devicePubkey: string): Uint8Array {
+  return sha256(utf8ToBytes(`buzz-direct-connect\n${challengeNonce}\n${desktopId}\n${connId}\n${devicePubkey}`));
+}
+
 export function pairDigest(sessionNonce: string, devicePubkey: string): Uint8Array {
   return sha256(utf8ToBytes(`buzz-direct-pair\n${sessionNonce}\n${devicePubkey}`));
 }
