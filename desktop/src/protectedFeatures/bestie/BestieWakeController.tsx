@@ -100,6 +100,7 @@ import {
   BESTIE_THREAD_SUMMARIZE_ABANDONED_OUTPUT,
 } from "./bestieThreadSummarizeLive";
 import { useBestie } from "./useBestie";
+import { registerBestieDirectBackend } from "./bestieDirectBackend";
 import { claimReminderFires } from "@/features/assistantLists/listsStore";
 
 /** Top-level DM marker for due-reminder notifications (never threaded). */
@@ -847,6 +848,12 @@ export function BestieWakeController() {
     );
     if (!stillOpen) clearBestieNudge();
   }, [listState]);
+
+  // Web over Direct: expose jobs / coffee / scratch / threads (read + fixed actions; secrets redacted in directCmd).
+  React.useEffect(() => {
+    if (!listScope) return;
+    return registerBestieDirectBackend(listScope);
+  }, [listScope]);
 
   // Threads: Summarize button → top-level Bestie DM turn with summarize prompt.
   React.useEffect(() => {

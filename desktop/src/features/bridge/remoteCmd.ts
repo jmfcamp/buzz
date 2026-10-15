@@ -5,8 +5,10 @@
 import { CMD_NAMES } from "./directCmd";
 import { type DirectAgents, directErrorCopy } from "./directAgents";
 
-export const NEEDS_DIRECT = "Needs a Direct connection over your tailnet: turn on Allow remote agent management on your desktop and connect this device to Tailscale.";
-export const NEEDS_SIGNER_APPROVAL = "Approve the sign-in request in your signer to connect to your desktop, then try again.";
+export const NEEDS_DIRECT =
+  "Needs a Direct connection over your tailnet: turn on Allow remote agent management on your desktop and connect this device to Tailscale.";
+export const NEEDS_SIGNER_APPROVAL =
+  "Approve the sign-in request in your signer to connect to your desktop, then try again.";
 /** How long to keep waiting while the remote signer is asked to approve the connect signature (older desktops only). */
 const SIGNER_WAIT_MS = 90_000;
 export class NeedsDirectError extends Error {
@@ -45,7 +47,9 @@ export function directDiag(): string {
   const e = d.lastError;
   return [
     `state ${d.state}${d.live ? " (live)" : ""}`,
-    e ? `error ${e.code}${e.detail ? `: ${e.detail.slice(0, 80)}` : ""}` : "no error",
+    e
+      ? `error ${e.code}${e.detail ? `: ${e.detail.slice(0, 80)}` : ""}`
+      : "no error",
     d.awaitingSigner ? "waiting on signer" : "",
     d.reconnecting ? "auto-retrying" : "",
     `host ${host}`,
@@ -77,16 +81,24 @@ export const proxyDirectLive = () => !!current?.live;
  * Direct client app-wide but only the Agents/Settings pages connect it. Connect it now (or wait for a connect in progress) so the
  * command doesn't fail with NeedsDirectError while the desktop is reachable. Resolves true once live, false after `timeoutMs`.
  */
-export async function ensureProxyDirectLive(timeoutMs = 8000): Promise<boolean> {
+export async function ensureProxyDirectLive(
+  timeoutMs = 8000,
+): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
-  while (!current && Date.now() < deadline) await new Promise((r) => setTimeout(r, 200));
+  while (!current && Date.now() < deadline)
+    await new Promise((r) => setTimeout(r, 200));
   const d = current;
   if (!d) return false;
   if (d.live) return true;
   if (d.state !== "connecting") void d.connect().catch(() => undefined);
   // A connect that is waiting on the remote signer gets up to SIGNER_WAIT_MS (the user is approving it in Primal).
   const signerDeadline = Date.now() + SIGNER_WAIT_MS;
-  while (Date.now() < deadline || (current?.state === "connecting" && current.awaitingSigner && Date.now() < signerDeadline)) {
+  while (
+    Date.now() < deadline ||
+    (current?.state === "connecting" &&
+      current.awaitingSigner &&
+      Date.now() < signerDeadline)
+  ) {
     if (current?.live) return true;
     await new Promise((r) => setTimeout(r, 150));
   }
@@ -116,7 +128,10 @@ async function slot<T>(f: () => Promise<T>): Promise<T> {
 const staleCmds = new Set<string>();
 export const isCmdStale = (name: string) => staleCmds.has(name);
 
-export async function proxyCmd<T = unknown>(name: string, args?: Record<string, unknown>): Promise<T> {
+export async function proxyCmd<T = unknown>(
+  name: string,
+  args?: Record<string, unknown>,
+): Promise<T> {
   // Any screen may call before the shared Direct client is connected (e.g. an agent's profile Runtime tab): connect on demand
   // instead of failing straight away.
   if (!current?.live) await ensureProxyDirectLive();
@@ -125,12 +140,20 @@ export async function proxyCmd<T = unknown>(name: string, args?: Record<string, 
     // Say what's actually in the way: a signer approval or a refusal from the desktop, not "connect to Tailscale".
     if (d?.awaitingSigner) throw new NeedsDirectError(NEEDS_SIGNER_APPROVAL);
     const code = d?.lastError?.code;
-    if (code && !["unreachable", "timeout", "closed", "bad_url", "idle_timeout"].includes(code)) throw new NeedsDirectError(directErrorCopy(d!.lastError));
+    if (
+      code &&
+      !["unreachable", "timeout", "closed", "bad_url", "idle_timeout"].includes(
+        code,
+      )
+    )
+      throw new NeedsDirectError(directErrorCopy(d!.lastError));
     const err = new NeedsDirectError(`${NEEDS_DIRECT} [${directDiag()}]`);
     throw err;
   }
   try {
-    const v = (await slot(() => d.call("cmd", { name, args: args ?? {} }))) as T;
+    const v = (await slot(() =>
+      d.call("cmd", { name, args: args ?? {} }),
+    )) as T;
     staleCmds.delete(name);
     return v;
   } catch (e) {
@@ -149,12 +172,18 @@ export const PROXIED_READS: Record<string, () => unknown> = {
   list_teams: () => [],
   discover_acp_providers: () => [],
   agent_access_owner_only: () => false,
-  get_global_agent_config: () => ({ env_vars: {}, provider: null, model: null, preferred_runtime: null }),
+  get_global_agent_config: () => ({
+    env_vars: {},
+    provider: null,
+    model: null,
+    preferred_runtime: null,
+  }),
   // Project pages: quiet defaults while the desktop isn't reachable (the repo card explains why).
   gh_pr_list: () => "[]",
   get_git_identity: () => ({ name: null, email: null }),
   // Web Assistant: the desktop's assignment, when Direct is live; otherwise "none known" (the synced pick still applies).
   get_bestie_assignment: () => null,
+  assistant_data_get: () => null,
 };
 
 /** Commands the web can answer itself: prefer the desktop's answer when Direct is live, else (or if that call fails) the web's own. */
@@ -162,7 +191,8 @@ const PREFER_DESKTOP = new Set(["get_presence"]);
 
 const CACHE_PREFIX = "buzz-desktop-cache:";
 const memCache = new Map<string, unknown>();
-const cacheKey = (name: string, a: unknown) => `${name}:${JSON.stringify(a ?? {})}`;
+const cacheKey = (name: string, a: unknown) =>
+  `${name}:${JSON.stringify(a ?? {})}`;
 function readCache(key: string): unknown {
   if (memCache.has(key)) return memCache.get(key);
   try {
@@ -187,7 +217,9 @@ function writeCache(key: string, v: unknown) {
  * Last agent list the desktop published over the relay (the bridge snapshot, saved on every snapshot), shaped like the desktop's
  * own list so the desktop-style Agents page can draw before any Direct connection. Read-only fields only.
  */
-function latestRelaySnapshot(): { ts: number; agents: Record<string, unknown>[] } | undefined {
+function latestRelaySnapshot():
+  | { ts: number; agents: Record<string, unknown>[] }
+  | undefined {
   let best: { ts: number; agents: Record<string, unknown>[] } | undefined;
   try {
     for (let i = 0; i < localStorage.length; i++) {
@@ -196,7 +228,8 @@ function latestRelaySnapshot(): { ts: number; agents: Record<string, unknown>[] 
       const v = JSON.parse(localStorage.getItem(k) || "null");
       const agents = v?.snapshot?.agents;
       const ts = Number(v?.ts ?? 0);
-      if (Array.isArray(agents) && (!best || ts > best.ts)) best = { ts, agents };
+      if (Array.isArray(agents) && (!best || ts > best.ts))
+        best = { ts, agents };
     }
   } catch {
     /* storage denied */
@@ -211,10 +244,20 @@ function latestRelaySnapshot(): { ts: number; agents: Record<string, unknown>[] 
 function overlaySnapshot(list: unknown): unknown {
   const snap = latestRelaySnapshot();
   if (!Array.isArray(list) || !snap) return list;
-  const by = new Map(snap.agents.map((a) => [String(a.pubkey).toLowerCase(), a]));
+  const by = new Map(
+    snap.agents.map((a) => [String(a.pubkey).toLowerCase(), a]),
+  );
   return list.map((row: Record<string, unknown>) => {
     const a = by.get(String(row.pubkey).toLowerCase());
-    return a ? { ...row, name: a.name ?? row.name, status: a.status ?? row.status, pid: a.pid ?? row.pid, last_error: a.lastError ?? null } : row;
+    return a
+      ? {
+          ...row,
+          name: a.name ?? row.name,
+          status: a.status ?? row.status,
+          pid: a.pid ?? row.pid,
+          last_error: a.lastError ?? null,
+        }
+      : row;
   });
 }
 
@@ -227,12 +270,40 @@ export function relaySnapshotAgents(): unknown[] | undefined {
       const agents = v0.agents;
       const t = new Date((v.ts ?? 0) * 1000).toISOString();
       return agents.map((a: Record<string, unknown>) => ({
-        pubkey: a.pubkey, name: a.name, persona_id: a.personaId ?? null, runtime: a.runtime ?? null, team_id: null, relay_url: "",
-        acp_command: "", agent_command: "", agent_args: [], mcp_command: "", turn_timeout_seconds: 0, idle_timeout_seconds: null,
-        max_turn_duration_seconds: null, parallelism: 1, system_prompt: null, avatar_url: null, model: a.model ?? null, provider: null,
-        persona_out_of_date: false, persona_orphaned: false, needs_restart: false, env_vars: {}, status: a.status, pid: a.pid ?? null,
-        created_at: t, updated_at: t, last_started_at: a.lastStartedAt ?? null, last_stopped_at: null, last_exit_code: null,
-        last_error: a.lastError ?? null, last_error_code: null, log_path: "", start_on_app_launch: false, backend: { type: "local" },
+        pubkey: a.pubkey,
+        name: a.name,
+        persona_id: a.personaId ?? null,
+        runtime: a.runtime ?? null,
+        team_id: null,
+        relay_url: "",
+        acp_command: "",
+        agent_command: "",
+        agent_args: [],
+        mcp_command: "",
+        turn_timeout_seconds: 0,
+        idle_timeout_seconds: null,
+        max_turn_duration_seconds: null,
+        parallelism: 1,
+        system_prompt: null,
+        avatar_url: null,
+        model: a.model ?? null,
+        provider: null,
+        persona_out_of_date: false,
+        persona_orphaned: false,
+        needs_restart: false,
+        env_vars: {},
+        status: a.status,
+        pid: a.pid ?? null,
+        created_at: t,
+        updated_at: t,
+        last_started_at: a.lastStartedAt ?? null,
+        last_stopped_at: null,
+        last_exit_code: null,
+        last_error: a.lastError ?? null,
+        last_error_code: null,
+        log_path: "",
+        start_on_app_launch: false,
+        backend: { type: "local" },
         backend_agent_id: null,
       }));
     }
@@ -248,7 +319,9 @@ export function hasCachedDesktopAgents(): boolean {
   return Array.isArray(v) || !!relaySnapshotAgents()?.length;
 }
 
-export function installProxyHandlers(handlers: Record<string, (a?: any) => unknown>) {
+export function installProxyHandlers(
+  handlers: Record<string, (a?: any) => unknown>,
+) {
   for (const name of CMD_NAMES) {
     if (PREFER_DESKTOP.has(name)) {
       const own = handlers[name];
@@ -275,7 +348,12 @@ export function installProxyHandlers(handlers: Record<string, (a?: any) => unkno
       const key = cacheKey(name, a);
       if (!proxyDirectLive()) {
         const cached = readCache(key);
-        if (name === "list_managed_agents") return (cached !== undefined ? overlaySnapshot(cached) : relaySnapshotAgents()) ?? empty();
+        if (name === "list_managed_agents")
+          return (
+            (cached !== undefined
+              ? overlaySnapshot(cached)
+              : relaySnapshotAgents()) ?? empty()
+          );
         return cached ?? empty();
       }
       const v = await proxyCmd(name, a);

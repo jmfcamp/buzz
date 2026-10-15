@@ -5,44 +5,27 @@
 // Starting a stopped desktop agent needs Direct and is greyed out without it.
 import { isTauri } from "@tauri-apps/api/core";
 import { decode } from "nostr-tools/nip19";
-import {
-  Bot,
-  Loader2,
-  MessageSquare,
-  Monitor,
-  Play,
-  Send,
-  Sparkles,
-} from "lucide-react";
+import { Bot, Loader2, Monitor, Sparkles, X } from "lucide-react";
 import * as React from "react";
 
-import { AssistantListsPanel } from "@/features/assistantLists/ui/AssistantListsPanel";
+import { AssistantPopoverBody } from "@/features/assistantData/ui/AssistantChat";
+import { Button } from "@/shared/ui/button";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useManagedAgentsQuery } from "@/features/agents/hooks";
-import { useOpenDmMutation } from "@/features/channels/hooks";
 import { useCommunities } from "@/features/communities/useCommunities";
 import {
   setSyncedAssistant,
   useSyncedAssistant,
 } from "@/features/inbox/assistantPick";
-import { usePresenceQuery } from "@/features/presence/hooks";
 import { useUserProfileQuery } from "@/features/profile/hooks";
 import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import { invokeTauri } from "@/shared/api/tauri";
-import { startManagedAgent } from "@/shared/api/tauriManagedAgents";
 import {
   setAssistantPubkey,
   useAssistantPubkey,
 } from "@/shared/lib/assistantIdentity";
 import { cn } from "@/shared/lib/cn";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/shared/ui/sheet";
 import { proxyDirectLive, subscribeProxy } from "@/features/bridge/remoteCmd";
 
 const OPEN_EVENT = "buzz-web-assistant-open";
@@ -116,253 +99,91 @@ export function WebAssistantBinding() {
 const ROW =
   "flex w-full items-center gap-3 rounded-xl border border-border/60 bg-card px-4 py-3 text-left text-sm transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-50";
 
+/**
+ * The web Assistant popup: same layout as the desktop popover. Phone: full-screen overlay layer; iPad/desktop: a
+ * popup anchored at the bottom-left (by the sidebar Assist button), like desktop. It is an overlay, not a route:
+ * nothing behind it navigates, unmounts or loses scroll/drafts. Collapse hides it and keeps its chat/scroll state
+ * for the next open; close (X) discards it. No history entries are pushed.
+ */
 export function WebAssistantSheet() {
-  const [open, setOpen] = React.useState(false);
+  // closed = not mounted; minimized = mounted but hidden (state kept); open = visible.
+  const [mode, setMode] = React.useState<"closed" | "minimized" | "open">(
+    "closed",
+  );
   const [picking, setPicking] = React.useState(false);
+  const [instance, setInstance] = React.useState(0);
   React.useEffect(() => {
-    const onOpen = () => setOpen(true);
+    const onOpen = () => setMode("open");
     window.addEventListener(OPEN_EVENT, onOpen);
     return () => window.removeEventListener(OPEN_EVENT, onOpen);
   }, []);
+  React.useEffect(() => {
+    if (mode !== "open") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMode("minimized");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mode]);
   const me = useIdentityQuery().data?.pubkey;
   const picked = useSyncedAssistant(me);
-  React.useEffect(() => {
-    if (!open) setPicking(false);
-  }, [open]);
+  const { goChannel } = useAppNavigation();
+  const close = () => {
+    setMode("closed");
+    setPicking(false);
+    setInstance((n) => n + 1);
+  };
+  if (mode === "closed") return null;
   const showPicker = picking || !picked;
   return (
-    <Sheet onOpenChange={setOpen} open={open}>
-      <SheetContent
-        className="z-[130] max-h-[85dvh] overflow-y-auto rounded-t-2xl pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:mx-auto sm:max-w-lg"
-        data-testid="web-assistant-sheet"
-        side="bottom"
-      >
-        {showPicker ? (
+    <div
+      aria-label="Assistant"
+      aria-modal={mode === "open" ? true : undefined}
+      className={cn(
+        "fixed z-[300] flex flex-col overflow-hidden bg-popover p-4 text-popover-foreground",
+        // Phone: full-screen layer over the app (the app stays mounted underneath).
+        "inset-0 pt-[calc(env(safe-area-inset-top)+1rem)] pb-[calc(env(safe-area-inset-bottom)+1rem)]",
+        // iPad / desktop: popover anchored bottom-left like the desktop Assistant popover.
+        "sm:inset-auto sm:bottom-16 sm:left-3 sm:h-[min(720px,calc(100dvh-6rem))] sm:w-[min(448px,calc(100vw-2rem))] sm:rounded-md sm:border sm:pt-4 sm:pb-4 sm:shadow-md",
+        mode === "minimized" && "hidden",
+      )}
+      data-testid="web-assistant-popup"
+      role="dialog"
+    >
+      {showPicker ? (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mb-2 flex justify-end gap-1">
+            <Button
+              aria-label="Close Assistant"
+              onClick={close}
+              size="icon-xs"
+              type="button"
+              variant="ghost"
+            >
+              <X />
+            </Button>
+          </div>
           <AssistantPicker
             current={picked}
             me={me}
             onCancel={picked ? () => setPicking(false) : undefined}
             onPicked={() => setPicking(false)}
           />
-        ) : picked ? (
-          <AssistantHome
-            agentPubkey={picked}
-            onChange={() => setPicking(true)}
-            onClose={() => setOpen(false)}
-          />
-        ) : null}
-      </SheetContent>
-    </Sheet>
-  );
-}
-
-function AssistantHome({
-  agentPubkey,
-  onChange,
-  onClose,
-}: {
-  agentPubkey: string;
-  onChange: () => void;
-  onClose: () => void;
-}) {
-  const profile = useUserProfileQuery(agentPubkey).data;
-  const presence =
-    usePresenceQuery([agentPubkey]).data?.[agentPubkey] ?? "offline";
-  const agents = useManagedAgentsQuery().data ?? [];
-  const managed = agents.find((a) => a.pubkey.toLowerCase() === agentPubkey);
-  const directLive = useDirectLive();
-  const { activeCommunity } = useCommunities();
-  const me = useIdentityQuery().data?.pubkey;
-  const openDm = useOpenDmMutation();
-  const { goChannel } = useAppNavigation();
-  const [text, setText] = React.useState("");
-  const [busy, setBusy] = React.useState<null | "send" | "open" | "start">(
-    null,
-  );
-  const [error, setError] = React.useState<string | null>(null);
-  const name = profile?.displayName || managed?.name || "Assistant";
-
-  const go = async (draft?: string) => {
-    setError(null);
-    setBusy(draft ? "send" : "open");
-    try {
-      const channel = await openDm.mutateAsync({
-        pubkeys: [agentPubkey],
-        ...(activeCommunity?.relayUrl
-          ? { expectedRelayUrl: activeCommunity.relayUrl }
-          : {}),
-        ...(me ? { expectedSignerPubkey: me } : {}),
-      });
-      onClose();
-      setText("");
-      await goChannel(channel.id, draft ? { autoSend: draft } : undefined);
-    } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "Couldn't open the conversation.",
-      );
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const start = async () => {
-    setError(null);
-    setBusy("start");
-    try {
-      await startManagedAgent(agentPubkey, {
-        ...(activeCommunity?.relayUrl
-          ? { expectedRelayUrl: activeCommunity.relayUrl }
-          : {}),
-        ...(me ? { expectedSignerPubkey: me } : {}),
-      });
-    } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "Couldn't start the assistant.",
-      );
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const canStart = Boolean(managed) && presence === "offline";
-  return (
-    <>
-      <SheetHeader>
-        <div className="flex items-center gap-3">
-          <ProfileAvatar
-            avatarUrl={profile?.avatarUrl ?? managed?.avatarUrl ?? null}
-            className="h-10 w-10"
-            label={name}
-            pubkey={agentPubkey}
-          />
-          <div className="min-w-0 flex-1 text-left">
-            <SheetTitle className="truncate">{name}</SheetTitle>
-            <SheetDescription className="flex items-center gap-1.5">
-              <span
-                className={cn(
-                  "inline-block h-2 w-2 rounded-full",
-                  presence === "online"
-                    ? "bg-emerald-500"
-                    : presence === "away"
-                      ? "bg-amber-500"
-                      : "bg-muted-foreground/50",
-                )}
-              />
-              Your assistant ·{" "}
-              {presence === "online"
-                ? "Online"
-                : presence === "away"
-                  ? "Away"
-                  : "Offline"}
-            </SheetDescription>
-          </div>
-          <button
-            className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
-            data-testid="web-assistant-change"
-            onClick={onChange}
-            type="button"
-          >
-            Change
-          </button>
         </div>
-      </SheetHeader>
-      <div className="flex flex-col gap-3 px-4 pb-2">
-        <form
-          className="flex items-end gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const t = text.trim();
-            if (t && !busy) void go(t);
+      ) : picked ? (
+        <AssistantPopoverBody
+          agentPubkey={picked}
+          key={`${picked}:${instance}`}
+          onChange={() => setPicking(true)}
+          onClose={close}
+          onMinimize={() => setMode("minimized")}
+          onOpenConversation={(channel) => {
+            setMode("minimized");
+            if (channel) void goChannel(channel.id);
           }}
-        >
-          <textarea
-            aria-label={`Ask ${name}`}
-            className="min-h-[44px] flex-1 resize-none rounded-xl border border-border bg-background px-3 py-2.5 text-[15px] outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-            data-testid="web-assistant-input"
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (
-                e.key === "Enter" &&
-                !e.shiftKey &&
-                !e.nativeEvent.isComposing
-              ) {
-                e.preventDefault();
-                e.currentTarget.form?.requestSubmit();
-              }
-            }}
-            placeholder={`Ask ${name}…`}
-            rows={2}
-            value={text}
-          />
-          <button
-            aria-label="Send"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-50"
-            data-testid="web-assistant-send"
-            disabled={!text.trim() || busy !== null}
-            type="submit"
-          >
-            {busy === "send" ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
-            ) : (
-              <Send className="h-5 w-5" />
-            )}
-          </button>
-        </form>
-        <button
-          className={ROW}
-          data-testid="web-assistant-open"
-          disabled={busy !== null}
-          onClick={() => void go()}
-          type="button"
-        >
-          {busy === "open" ? (
-            <Loader2 className="h-5 w-5 animate-spin" />
-          ) : (
-            <MessageSquare className="h-5 w-5 text-muted-foreground" />
-          )}
-          <span className="flex-1">Open conversation</span>
-        </button>
-        {canStart ? (
-          <button
-            className={ROW}
-            data-testid="web-assistant-start"
-            disabled={!directLive || busy !== null}
-            onClick={() => void start()}
-            title={
-              directLive ? undefined : "Needs your desktop connected (Direct)"
-            }
-            type="button"
-          >
-            {busy === "start" ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
-            ) : (
-              <Play className="h-5 w-5 text-muted-foreground" />
-            )}
-            <span className="flex flex-1 flex-col">
-              <span>Start assistant on your desktop</span>
-              {!directLive ? (
-                <span className="text-xs text-muted-foreground">
-                  Needs your desktop connected (Direct)
-                </span>
-              ) : null}
-            </span>
-          </button>
-        ) : null}
-        {error ? (
-          <p className="text-xs text-destructive" role="alert">
-            {error}
-          </p>
-        ) : null}
-        <AssistantListsPanel
-          className="border-t border-border/60 pt-3"
-          me={me}
         />
-        <p className="text-xs text-muted-foreground">
-          Replies land in Inbox → Assistant. Lists sync with your desktop; jobs,
-          coffee chats and the quick popover are in the desktop app.
-        </p>
-      </div>
-    </>
+      ) : null}
+    </div>
   );
 }
 
@@ -413,14 +234,14 @@ function AssistantPicker({
   const manualPk = parseAgentPubkey(manual);
   return (
     <>
-      <SheetHeader>
-        <SheetTitle>
+      <div className="mb-3 space-y-1">
+        <h2 className="text-sm font-semibold">
           {current ? "Change assistant" : "Choose your assistant"}
-        </SheetTitle>
-        <SheetDescription>
+        </h2>
+        <p className="text-xs text-muted-foreground">
           Your pick syncs to your other devices.
-        </SheetDescription>
-      </SheetHeader>
+        </p>
+      </div>
       <div
         className="flex flex-col gap-2 px-4 pb-2"
         data-testid="web-assistant-picker"

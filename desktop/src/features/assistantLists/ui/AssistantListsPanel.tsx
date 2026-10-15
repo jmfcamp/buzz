@@ -51,7 +51,7 @@ export function AssistantListsPanel({
   className,
 }: {
   me: string | undefined;
-  mode?: "all" | "reminders";
+  mode?: "all" | "reminders" | "todos";
   className?: string;
 }) {
   const doc = useAssistantListsDoc(me);
@@ -164,7 +164,11 @@ export function AssistantListsPanel({
 
       {reminders.length + todos.length === 0 ? (
         <p className="py-2 text-center text-xs text-muted-foreground">
-          {mode === "reminders" ? "No reminders." : "Nothing on your lists."}
+          {mode === "reminders"
+            ? "No reminders."
+            : mode === "todos"
+              ? "No to-dos."
+              : "Nothing on your lists."}
         </p>
       ) : null}
       {reminders.length > 0 ? <Section title="Reminders" /> : null}
