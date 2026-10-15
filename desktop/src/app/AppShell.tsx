@@ -682,7 +682,7 @@ export function AppShell() {
     return new Set([...mutedChannelIds, ...channelNotifySets.muted]);
   }, [channelNotifySets.muted, mutedChannelIds]);
   const pairedInboxFeedItems = useInboxPushPairing({ pubkey: identityQuery.data?.pubkey, channels, mentions: homeFeedQuery.data?.feed.mentions, liveItems: threadActivityFeedItems,
-    settings: notificationSettings.settings, followedRootIds, starredRootIds: starredThreadIds, mutedChannelIds: inboxMutedChannelIds, mutedRootIds, enabled: !isHuddleRoom });
+    settings: notificationSettings.settings, followedRootIds, starredRootIds: starredThreadIds, mutedChannelIds: inboxMutedChannelIds, mutedRootIds, enabled: !isHuddleRoom, allChannelIds: channelNotifySets.all });
   const channelSubscriptionFeedItems = useChannelSubscriptionFeedItems({
     pubkey: identityQuery.data?.pubkey,
     channels,

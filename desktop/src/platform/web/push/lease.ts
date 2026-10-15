@@ -2,6 +2,7 @@
 // The relay decides who gets woken (and enforces channel access); the lease only says which
 // events this member wants pushed and to which gateway grant.
 import type { PushPrefs } from "./env";
+import type { PushInterest } from "./interest";
 
 export const KIND_PUSH_LEASE = 30350;
 export const WEB_APP_PROFILE = "buzz-web";
@@ -69,7 +70,11 @@ type Sub = {
  * DMs and thread replies are matched relay-side (DM channel membership /
  * thread participation), so new DMs and threads need no re-registration.
  */
-export function leaseSubscriptions(me: string, prefs: PushPrefs): Sub[] {
+export function leaseSubscriptions(
+  me: string,
+  prefs: PushPrefs,
+  interest?: PushInterest,
+): Sub[] {
   const subs: Sub[] = [];
   if (prefs.mention)
     subs.push({
@@ -96,6 +101,22 @@ export function leaseSubscriptions(me: string, prefs: PushPrefs): Sub[] {
       class: "thread_reply",
       ignore: [],
       scope: "thread",
+    });
+  // Explicitly followed threads you never posted in (relay "thread" scope only
+  // covers participation).
+  if (prefs.thread_reply && interest?.roots.length)
+    subs.push({
+      filter: { kinds: [9, 40002], "#e": interest.roots },
+      class: "thread_reply",
+      ignore: [{ kinds: MESSAGE_KINDS, authors: [me] }],
+    });
+  // Channels set to "All messages". Muted channels are silenced relay-side
+  // via push prefs `muted_channels`.
+  if (interest?.channels.length)
+    subs.push({
+      filter: { kinds: [9, 40002], "#h": interest.channels },
+      class: "channel",
+      ignore: [{ kinds: MESSAGE_KINDS, authors: [me] }],
     });
   return subs;
 }

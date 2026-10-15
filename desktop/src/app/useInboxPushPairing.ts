@@ -10,6 +10,7 @@ import {
   type SyncedSlot,
 } from "@/features/notifications/lib/syncedPrefs";
 import type { Channel, FeedItem } from "@/shared/api/types";
+import { setPushInterest } from "@/platform/web/push/interest";
 
 const PUSHED_KEY = "buzz-push-prefs-published.v1";
 
@@ -77,7 +78,16 @@ export function useInboxPushPairing(args: {
   mutedChannelIds: ReadonlySet<string>;
   mutedRootIds: ReadonlySet<string>;
   enabled: boolean;
+  /** Channels set to "All messages" (web push lease). */
+  allChannelIds?: ReadonlySet<string>;
 }): FeedItem[] {
+  // Web push lease interest: All-messages channels + explicitly followed threads.
+  React.useEffect(() => {
+    setPushInterest({
+      channels: args.allChannelIds ?? [],
+      roots: [...args.followedRootIds].filter((id) => !args.mutedRootIds.has(id)),
+    });
+  }, [args.allChannelIds, args.followedRootIds, args.mutedRootIds]);
   useSyncedPushPrefs(
     args.pubkey,
     args.settings,
