@@ -1,3 +1,4 @@
+import { isTouchWeb } from "@/shared/lib/touchFocus";
 import Picker from "@emoji-mart/react";
 import * as React from "react";
 
@@ -97,6 +98,8 @@ export const EmojiPicker = React.memo(function EmojiPicker({
   onSelect,
   perLine = 8,
 }: EmojiPickerProps) {
+  // Touch web: no autofocus, or opening the picker pops the keyboard; it appears only when the search is tapped.
+  const focusSearch = autoFocus && !isTouchWeb();
   const customEmoji = useDisplayCustomEmoji(useCustomEmoji());
   const custom = React.useMemo(
     () => buildCustomEmojiCategory(customEmoji),
@@ -106,13 +109,13 @@ export const EmojiPicker = React.memo(function EmojiPicker({
 
   React.useEffect(() => {
     if (!hostRef.current) return;
-    return disableSearchInputCorrections(hostRef.current, autoFocus);
-  }, [autoFocus]);
+    return disableSearchInputCorrections(hostRef.current, focusSearch);
+  }, [focusSearch]);
 
   return (
     <div ref={hostRef}>
       <Picker
-        autoFocus={autoFocus}
+        autoFocus={focusSearch}
         custom={custom}
         data={emojiMartData}
         maxFrequentRows={2}
