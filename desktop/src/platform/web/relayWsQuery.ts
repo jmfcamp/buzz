@@ -206,6 +206,7 @@ function sharedQuery(filters: Filter[]): Promise<NostrEvent[]> | null {
       sh.off(id);
       offDead();
       sharedInflight--;
+      sharedWaiters.shift()?.();
     };
     const timer = setTimeout(() => {
       done();
@@ -280,7 +281,39 @@ export function wsPublish(event: NostrEvent): Promise<WsPublishResult> | null {
 
 let socket: QuerySocket | null = null;
 let socketUrl = "";
+/** Identical reads in flight share one REQ (several mounted views ask for the same profile/channel list after reconnect). */
+const inflightByKey = new Map<string, Promise<NostrEvent[]>>();
+/** Shared-socket reads wait for a slot instead of spilling onto a second socket (extra AUTH + its own REQ burst). */
+const sharedWaiters: (() => void)[] = [];
+const RATE_LIMITED = /rate-limited|quota exceeded/i;
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
 export function wsQuery(filters: Filter[]): Promise<NostrEvent[]> {
+  const key = JSON.stringify(filters);
+  const existing = inflightByKey.get(key);
+  if (existing) return existing;
+  const p = runQuery(filters).finally(() => inflightByKey.delete(key));
+  inflightByKey.set(key, p);
+  return p;
+}
+
+async function runQuery(filters: Filter[]): Promise<NostrEvent[]> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await routeQuery(filters);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      // Respect relay admission: wait out the hint and retry once on the socket instead of hammering it (or HTTP).
+      if (attempt >= 1 || !RATE_LIMITED.test(msg)) throw e;
+      const hint = /retry in (\d+)s/i.exec(msg);
+      await sleep(Math.min(30, hint ? Number(hint[1]) : 5) * 1000 + Math.random() * 1000);
+    }
+  }
+}
+
+async function routeQuery(filters: Filter[]): Promise<NostrEvent[]> {
+  while (sharedInflight >= MAX_INFLIGHT && sharedAuthedSocket(relayWsUrl()))
+    await new Promise<void>((r) => sharedWaiters.push(r));
   const shared = sharedQuery(filters);
   if (shared) return shared;
   const url = relayWsUrl();
