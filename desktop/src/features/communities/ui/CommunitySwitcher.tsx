@@ -68,7 +68,9 @@ const CONNECTION_STATE_LABEL: Record<ConnectionState, string> = {
 type CommunitySwitcherProps = {
   activeCommunity: Community | null;
   communities: Community[];
-  variant?: "sidebar" | "profile" | "profile-menu";
+  variant?: "sidebar" | "profile" | "profile-menu" | "tile";
+  /** "tile" variant: trigger class (phone Me screen action tile). */
+  tileClassName?: string;
   canInvite?: boolean;
   onInvite?: () => void;
   onSwitchCommunity: (id: string) => void;
@@ -114,6 +116,7 @@ export function CommunitySwitcher({
   activeCommunity,
   communities,
   variant = "sidebar",
+  tileClassName,
   canInvite = false,
   onInvite,
   onSwitchCommunity,
@@ -411,7 +414,21 @@ export function CommunitySwitcher({
       onOpenChange={setDropdownOpen}
     >
       <DropdownMenuTrigger asChild>
-        {variant === "profile" ? (
+        {variant === "tile" ? (
+          <button
+            aria-label={`Community: ${activeCommunity?.name ?? "none"}${degraded ? ` — ${connectionLabel}` : ""}`}
+            className={tileClassName}
+            data-testid="phone-me-community"
+            type="button"
+          >
+            <span aria-hidden className="text-lg leading-none">🐝</span>
+            <span className="text-[13px] font-medium">Community</span>
+            <span className="max-w-full truncate text-xs text-muted-foreground">
+              {activeCommunity?.name ?? "None"}
+              {degraded ? ` · ${connectionLabel}` : ""}
+            </span>
+          </button>
+        ) : variant === "profile" ? (
           <button
             aria-label={
               degraded
@@ -486,7 +503,7 @@ export function CommunitySwitcher({
 
   return (
     <>
-      {variant === "profile" ? (
+      {variant === "profile" || variant === "tile" ? (
         switcherDropdown
       ) : variant === "profile-menu" ? (
         profileMenuPopover
