@@ -641,8 +641,13 @@ export function InboxListPane({
         showRightDivider && INBOX_PANE_RIGHT_DIVIDER_CLASS,
       )}
     >
-      <TopChromeInsetHeader flush transparent>
-        <div className="px-5 py-2">
+      <TopChromeInsetHeader
+        className="sticky top-0 border-b border-border bg-muted/70 backdrop-blur-sm"
+        data-testid="inbox-header-bar"
+        flush
+        transparent
+      >
+        <div className="pl-2 pr-5 sm:pl-3">
           <div className="flex min-h-9 w-full min-w-0 items-center justify-between gap-3">
             <div className="order-2 ml-auto flex shrink-0 items-center justify-end gap-0.5">
               {tab === "inbox" || tab === "agents" ? (
@@ -758,7 +763,6 @@ export function InboxListPane({
         <div
           className={cn(
             "min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain",
-            "-mt-13 pt-13",
           )}
           data-testid="home-inbox-list"
           ref={scrollRef}
