@@ -7,6 +7,7 @@ import { createPortal } from "react-dom";
 import { isTauri } from "@tauri-apps/api/core";
 import { decode } from "nostr-tools/nip19";
 import { Bot, ChevronDown, Star } from "lucide-react";
+import { useRouter } from "@tanstack/react-router";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -46,6 +47,7 @@ import { cn } from "@/shared/lib/cn";
 import { proxyDirectLive, subscribeProxy } from "@/features/bridge/remoteCmd";
 
 const OPEN_EVENT = "buzz-web-assistant-open";
+const ASSIST_SENTINEL = "__buzzAssistPopup";
 const HEX64 = /^[0-9a-f]{64}$/;
 
 /** Open the Assistant sheet from anywhere (phone + button, Inbox Assistant tab). */
@@ -147,7 +149,6 @@ export function WebAssistantSheet() {
     // Phone: slide down (~250ms) before hiding; skip for reduced motion / wider screens.
     const animate =
       typeof window !== "undefined" &&
-      window.matchMedia?.("(max-width: 639px)").matches &&
       !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     if (!animate) return setModeRaw("minimized");
     setModeRaw("closing");
@@ -157,6 +158,45 @@ export function WebAssistantSheet() {
     );
   }, []);
   const [instance, setInstance] = React.useState(0);
+  // Back gesture (touch): opening pushes a sentinel history entry for the SAME location; Back pops it and only
+  // collapses the popup, so the page behind never navigates. Closing from the UI consumes the sentinel itself.
+  const router = useRouter();
+  const sentinelRef = React.useRef(false);
+  React.useEffect(() => {
+    const visible = mode === "open";
+    if (visible && !sentinelRef.current && touchLayout()) {
+      sentinelRef.current = true;
+      const loc = router.history.location;
+      router.history.push(`${loc.pathname}${loc.search}${loc.hash}`, {
+        ...(loc.state as unknown as Record<string, unknown>),
+        [ASSIST_SENTINEL]: true,
+      } as never);
+    } else if (!visible && mode !== "closing" && sentinelRef.current) {
+      sentinelRef.current = false;
+      if (
+        (router.history.location.state as unknown as Record<string, unknown>)?.[
+          ASSIST_SENTINEL
+        ]
+      ) {
+        router.history.back();
+      }
+    }
+  }, [mode, router]);
+  React.useEffect(
+    () =>
+      router.history.subscribe(() => {
+        const st = router.history.location.state as unknown as Record<
+          string,
+          unknown
+        >;
+        if (sentinelRef.current && !st?.[ASSIST_SENTINEL]) {
+          // Back popped our sentinel: collapse (keep chat state), don't navigate further.
+          sentinelRef.current = false;
+          setMode("minimized");
+        }
+      }),
+    [router, setMode],
+  );
   React.useEffect(() => {
     const onOpen = () => setModeRaw("open");
     window.addEventListener(OPEN_EVENT, onOpen);
@@ -255,6 +295,8 @@ export function WebAssistantSheet() {
             key={`${picked}:${instance}`}
             onMinimize={() => setMode("minimized")}
             onOpenConversation={(channel) => {
+              // Navigating on: leave the sentinel entry in place (popping it would race the navigation).
+              sentinelRef.current = false;
               setMode("minimized");
               if (channel) void goChannel(channel.id);
             }}
@@ -263,6 +305,7 @@ export function WebAssistantSheet() {
           <AssistantEmptyState
             onClose={close}
             onGoAgents={() => {
+              sentinelRef.current = false;
               setMode("minimized");
               void goAgents();
             }}
@@ -550,4 +593,10 @@ function usePopupSize() {
         }
       : undefined;
   return { resizable: desktopWidth, startDrag, style };
+}
+
+function touchLayout(): boolean {
+  return Boolean(
+    window.matchMedia?.("(max-width: 1023px), (pointer: coarse)").matches,
+  );
 }

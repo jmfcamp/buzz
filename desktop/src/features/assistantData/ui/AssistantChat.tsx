@@ -46,6 +46,7 @@ import { useAssistantShowActivity } from "@/features/assistant/activityPreferenc
 import { AgentSessionTranscriptList } from "@/features/agents/ui/AgentSessionTranscriptList";
 import { isMeaningfulItem } from "@/features/agents/ui/agentSessionTranscriptPresentation";
 import { useAgentTranscript } from "@/features/agents/ui/useObserverEvents";
+import { ComposerActivityAccessory } from "@/features/messages/ui/ComposerActivityAccessory";
 import { TypingIndicatorRow } from "@/features/messages/ui/TypingIndicatorRow";
 import { useChannelTyping } from "@/features/messages/useChannelTyping";
 import { useThreadRepliesForRoots } from "@/features/messages/useThreadReplies";
@@ -465,17 +466,6 @@ export function AssistantPopoverBody({
                   />
                 </div>
               ) : null}
-              {typingPubkeys.length > 0 ? (
-                <div data-testid="web-assistant-typing">
-                  <TypingIndicatorRow
-                    channel={channel}
-                    className="shrink-0 px-0 py-0"
-                    currentPubkey={me}
-                    profiles={profiles}
-                    typingPubkeys={typingPubkeys}
-                  />
-                </div>
-              ) : null}
               <div aria-hidden="true" ref={bottomRef} />
             </div>
           </div>
@@ -528,6 +518,22 @@ export function AssistantPopoverBody({
             <ArrowUp />
           </Button>
         </div>
+        {/* Same place and component as channel views: the activity accessory row under the composer. */}
+        <ComposerActivityAccessory
+          className="-mt-2 shrink-0 px-1"
+          testId="web-assistant-typing"
+          visible={typingPubkeys.length > 0 && Boolean(channel)}
+        >
+          <div className="flex w-full items-center gap-2 pl-2">
+            <TypingIndicatorRow
+              channel={channel}
+              currentPubkey={me}
+              profiles={profiles}
+              className="min-w-0 flex-1 py-0"
+              typingPubkeys={typingPubkeys}
+            />
+          </div>
+        </ComposerActivityAccessory>
         {error ? (
           <p className="shrink-0 text-xs text-destructive" role="alert">
             {error}
