@@ -127,7 +127,11 @@ export function useReminderNotifications(
 
       const watermark = readWatermark(pubkey);
       const now = Math.floor(Date.now() / 1_000);
-      const due = dueSince(remindersRef.current, watermark, now);
+      // Assist-list dual-writes are toasted by BestieWake (desktop) or
+      // useAssistReminderNotifications (web) to avoid double OS toasts.
+      const due = dueSince(remindersRef.current, watermark, now).filter(
+        (r) => r.content.source !== "assist-list",
+      );
       fire(due);
       // Advance unconditionally, even when fire() suppressed the toast
       // (notifications off or needs_action slot muted). Re-enabling later must

@@ -90,7 +90,18 @@ export function parseReminderContent(
     return null;
   }
 
-  return { status: obj.status, target, note: obj.note as string | undefined };
+  const source = obj.source === "assist-list" ? "assist-list" : undefined;
+  const assistItemId =
+    typeof obj.assistItemId === "string" && obj.assistItemId
+      ? obj.assistItemId
+      : undefined;
+  return {
+    status: obj.status,
+    target,
+    note: obj.note as string | undefined,
+    source,
+    assistItemId,
+  };
 }
 
 function parseTarget(value: unknown): ReminderTarget | null {
@@ -162,6 +173,42 @@ export async function createReminder(
     target,
     note,
     status: "pending",
+  };
+
+  const ciphertext = await nip44EncryptToSelf(JSON.stringify(content));
+  const tags: string[][] = [
+    ["d", dTag],
+    ["not_before", String(notBefore)],
+  ];
+
+  const event = await signRelayEvent({
+    kind: KIND_EVENT_REMINDER,
+    content: ciphertext,
+    tags,
+  });
+
+  return relayClient.publishEvent(
+    event,
+    "Timed out creating reminder.",
+    "Failed to create reminder.",
+  );
+}
+
+export async function createNoteReminder(
+  note: string,
+  notBefore: number,
+  meta?: { assistItemId?: string },
+): Promise<RelayEvent> {
+  const trimmed = note.trim();
+  if (!trimmed) {
+    throw new Error("Note-only reminder requires non-empty note.");
+  }
+  const dTag = randomDTag();
+  const content: ReminderContent = {
+    note: trimmed,
+    status: "pending",
+    source: "assist-list",
+    assistItemId: meta?.assistItemId,
   };
 
   const ciphertext = await nip44EncryptToSelf(JSON.stringify(content));

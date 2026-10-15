@@ -102,6 +102,16 @@ import {
 import { useBestie } from "./useBestie";
 import { registerBestieDirectBackend } from "./bestieDirectBackend";
 import { claimReminderFires } from "@/features/assistantLists/listsStore";
+import { completeAssistNipErForItems } from "@/features/assistantLists/nipErBridge";
+import { readStoredNotificationSettings } from "@/features/notifications/hooks";
+import {
+  requestDockBounce,
+  sendDesktopNotification,
+} from "@/features/notifications/lib/desktop";
+import {
+  playNotificationSound,
+  resolveSlotSound,
+} from "@/features/notifications/lib/sound";
 
 /** Top-level DM marker for due-reminder notifications (never threaded). */
 export const BESTIE_REMINDER_NOTIFY_MARKER = "[Bestie reminder]";
@@ -628,6 +638,25 @@ export function BestieWakeController() {
         const fresh = claimReminderFires(listScope.ownerPubkey, nudge.itemIds);
         if (fresh && fresh.length === 0) return;
         postedReminderNudgeIdsRef.current.add(nudge.id);
+        // OS toast (classic Remind-me-later path). Push to phone is via NIP-ER dual-write.
+        const settings = readStoredNotificationSettings(listScope.ownerPubkey);
+        if (
+          settings.desktopEnabled &&
+          settings.slotAlertsEnabled.needs_action
+        ) {
+          void sendDesktopNotification({
+            title: nudge.title,
+            body: nudge.body,
+          }).then((didSend) => {
+            if (!didSend) return;
+            playNotificationSound(resolveSlotSound(settings, "needs_action"));
+            void requestDockBounce();
+          });
+        }
+        void completeAssistNipErForItems(
+          listScope.ownerPubkey,
+          fresh ?? nudge.itemIds,
+        );
         void (async () => {
           try {
             await ensureAgentRunningRef.current();

@@ -88,6 +88,14 @@ export function leaseSubscriptions(
       class: "needs_action",
       ignore: [],
     });
+  // Assist / classic NIP-ER reminders. Relay enqueues the match when due
+  // (kind 30300 is not matched at insert time).
+  if (prefs.needs_action)
+    subs.push({
+      filter: { kinds: [30300], authors: [me] },
+      class: "reminder",
+      ignore: [],
+    });
   if (prefs.dm)
     subs.push({
       filter: { kinds: [9, 40002] },

@@ -110,3 +110,18 @@ export function editItem(
 export function removeItem(doc: ListsDoc, id: string, now: number): ListsDoc {
   return edit(doc, id, now, () => null);
 }
+
+/** Attach or clear the dual-written NIP-ER d-tag on an Assist reminder. */
+export function setNipErD(
+  doc: ListsDoc,
+  id: string,
+  nipErD: string | undefined,
+  now: number,
+): ListsDoc {
+  return edit(doc, id, now, (i) => {
+    if (i.kind !== "reminder") return i;
+    if (nipErD) return { ...i, nipErD };
+    const { nipErD: _drop, ...rest } = i;
+    return rest;
+  });
+}

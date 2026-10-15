@@ -33,6 +33,8 @@ export type ListItem = {
   status: "open" | "done";
   text: string;
   updatedAt: number;
+  /** d-tag of the dual-written NIP-ER kind 30300 reminder, when present. */
+  nipErD?: string;
 };
 
 export type ListEntry = {
@@ -93,6 +95,7 @@ export function parseListItem(v: unknown): ListItem | null {
     status: r.status === "done" ? "done" : "open",
     text: r.text.slice(0, 4000),
     updatedAt: toSeconds(r.updatedAt),
+    ...(typeof r.nipErD === "string" && r.nipErD ? { nipErD: r.nipErD } : {}),
   };
 }
 

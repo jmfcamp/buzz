@@ -43,12 +43,14 @@ test("subscriptions follow prefs; DMs and threads are relay-scoped", () => {
   });
   assert.deepEqual(
     subs.map((s) => s.class),
-    ["mention", "needs_action", "dm", "thread_reply"],
+    ["mention", "needs_action", "reminder", "dm", "thread_reply"],
   );
   assert.deepEqual(subs[0].filter["#p"], [me]);
-  assert.equal(subs[2].scope, "dm");
-  assert.equal(subs[3].scope, "thread");
-  for (const s of subs.slice(2))
+  const reminder = subs.find((s) => s.class === "reminder");
+  assert.deepEqual(reminder.filter, { kinds: [30300], authors: [me] });
+  assert.equal(subs.find((s) => s.class === "dm").scope, "dm");
+  assert.equal(subs.find((s) => s.class === "thread_reply").scope, "thread");
+  for (const s of subs.filter((s) => s.scope))
     assert.deepEqual(Object.keys(s.filter), ["kinds"]);
   assert.deepEqual(
     leaseSubscriptions(me, {

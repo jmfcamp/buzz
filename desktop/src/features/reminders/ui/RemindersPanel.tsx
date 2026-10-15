@@ -281,7 +281,14 @@ export function RemindersPanel({
   selectedReminderId?: string | null;
 }) {
   const remindersQuery = useRemindersQuery(pubkey);
-  const reminders = remindersQuery.data;
+  // Assist lists own their UI; hide the dual-written NIP-ER copies here.
+  const reminders = React.useMemo(
+    () =>
+      (remindersQuery.data ?? []).filter(
+        (r) => r.content.source !== "assist-list",
+      ),
+    [remindersQuery.data],
+  );
   const { goChannel } = useAppNavigation();
   const sources = useReminderSources(reminders ?? []);
 
