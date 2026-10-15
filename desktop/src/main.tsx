@@ -11,12 +11,14 @@ import "@/shared/styles/globals.css";
 import { installPhoneLayoutAttribute } from "@/shared/lib/phoneLayout";
 import { installExternalLinkGuard } from "@/shared/lib/externalLinks";
 import { installKbDebug } from "@/platform/web/kbDebug/kbDebug";
+import { installMenuKeyboardExclusion } from "@/platform/web/menuKeyboard/menuKeyboard";
 
 installPhoneLayoutAttribute();
 // Web/PWA only: external links open in the system browser (the desktop app routes links natively).
 if (!("__TAURI_INTERNALS__" in window)) {
   installExternalLinkGuard();
   installKbDebug();
+  installMenuKeyboardExclusion();
 }
 import { UpdaterProvider } from "@/features/settings/hooks/UpdaterProvider";
 import { migrateLegacyCommunityStorageBeforeRender } from "@/features/communities/legacyCommunityStorage";
