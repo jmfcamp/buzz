@@ -7,6 +7,8 @@
 //   two fingers pinch        → font size
 //   key bar     Esc Tab ←↑↓→ plus sticky Ctrl / Alt that apply to the next typed key
 
+import { keyboardInset as sharedKeyboardInset } from "../../shared/lib/phoneKeyboard.ts";
+
 export type TouchAction =
   | { type: "tap"; x: number; y: number }
   | { type: "scroll"; dy: number }

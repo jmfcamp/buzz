@@ -30,7 +30,7 @@ body {
    fills #root's content box (height:100% down the ancestor chain) instead of a second full 100dvh. Result: content
    ends exactly above the home indicator. Desktop browser tabs and iPhone (portrait < 600px or [data-phone]) never
    match this block, so they keep the pre-#325 layout. */
-@media (min-width: 600px) and (display-mode: standalone) {
+@media (min-width: 600px) and (display-mode: standalone) and (pointer: coarse) {
   /* Edge to edge: whatever shows around the padded content (notch side, home-indicator strip) is the app's own
      sidebar colour, never the boot-black canvas, so landscape has no black letterbox bars. */
   :root:not([data-phone]),
