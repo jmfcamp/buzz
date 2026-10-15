@@ -19,6 +19,7 @@ import type { SettingsSection } from "@/features/settings/ui/SettingsPanels";
 import type { PresenceStatus, Profile, UserStatus } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 import { ProtectedBestieProfileTrigger } from "@protected-feature-components";
+import { WebAssistSidebarButton } from "@/features/assistant/ui/WebAssistant";
 
 type SidebarProfileCardProps = {
   activeCommunity: Community | null;
@@ -247,6 +248,7 @@ export function SidebarProfileCard({
         </div>
 
         <ProtectedBestieProfileTrigger />
+        <WebAssistSidebarButton />
       </div>
     </div>
   );
