@@ -961,28 +961,42 @@ export function renderSettingsSection(
   }
 }
 
-/** Desktop: "Mobile & web signing" = Hula Buzz web app (top) + Buzz for iOS pairing (below). Old "mobile" links land here. */
+/** Desktop: "Mobile & web signing" = two tabs: Hula Buzz web app (default) and Buzz for iOS pairing. Old "mobile" links land here. */
 function MobileAndWebSigningPage(props: { currentPubkey?: string }) {
+  const [tab, setTab] = useState<"web" | "ios">("web");
+  const tabs = [
+    { id: "web" as const, label: "Hula Buzz", sub: "Web app at hulabuzz.huladesk.com, in a browser or installed on your phone. This computer signs for it." },
+    { id: "ios" as const, label: "Buzz for iOS (App Store)", sub: "The native Buzz mobile app. Pair it with this relay by scanning a QR code." },
+  ];
+  const cur = tabs.find((t) => t.id === tab) ?? tabs[0];
   return (
-    <div className="flex min-w-0 flex-col gap-8" data-testid="settings-mobile-web-signing">
-      <div className="flex min-w-0 flex-col gap-4" id="hula-buzz-web" data-testid="settings-part-hula-web">
-        <div>
-          <h2 className="text-lg font-semibold">Hula Buzz (web app)</h2>
-          <p className="text-sm text-muted-foreground">
-            hulabuzz.huladesk.com in a browser or installed on your phone. This computer signs for it: sign-in code, Direct,
-            and the browsers it trusts.
-          </p>
-        </div>
-        <DesktopBunkerPairCard />
-        <DesktopDirectSignerCard empty />
+    <div className="flex min-w-0 flex-col gap-4" data-testid="settings-mobile-web-signing">
+      <div className="flex gap-1 border-b border-border/60" role="tablist">
+        {tabs.map((t) => (
+          <button
+            aria-selected={tab === t.id}
+            className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium ${tab === t.id ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+            data-testid={`signing-tab-${t.id}`}
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            role="tab"
+            type="button"
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
-      <div className="flex min-w-0 flex-col gap-4 border-t border-border/60 pt-6" id="buzz-ios" data-testid="settings-part-buzz-ios">
-        <div>
-          <h2 className="text-lg font-semibold">Buzz for iOS (App Store)</h2>
-          <p className="text-sm text-muted-foreground">The native Buzz mobile app. Pair it with this relay by scanning a QR code.</p>
+      <p className="text-sm text-muted-foreground">{cur.sub}</p>
+      {tab === "web" ? (
+        <div className="flex min-w-0 flex-col gap-6" data-testid="settings-part-hula-web" role="tabpanel">
+          <DesktopBunkerPairCard />
+          <DesktopDirectSignerCard empty />
         </div>
-        <MobilePairingCard currentPubkey={props.currentPubkey} />
-      </div>
+      ) : (
+        <div className="min-w-0" data-testid="settings-part-buzz-ios" role="tabpanel">
+          <MobilePairingCard currentPubkey={props.currentPubkey} hideHeader />
+        </div>
+      )}
     </div>
   );
 }
