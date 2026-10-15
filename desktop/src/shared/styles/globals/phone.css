@@ -696,21 +696,3 @@
   gap: 8px;
   justify-content: flex-start;
 }
-/* Emoji pickers on phone: a bottom sheet instead of a popover anchored to its trigger (which could land above the
-   status bar / Dynamic Island when the trigger sat high in a dialog). Overrides the Radix popper position. */
-[data-phone] [data-radix-popper-content-wrapper]:has(em-emoji-picker) {
-  transform: none !important;
-  top: auto !important;
-  left: 0 !important;
-  right: 0 !important;
-  bottom: calc(var(--phone-safe-bottom) + 8px) !important;
-  min-width: 0 !important;
-  display: flex !important;
-  justify-content: center;
-  z-index: 200 !important;
-}
-[data-phone] [data-radix-popper-content-wrapper]:has(em-emoji-picker) > * {
-  max-height: calc(var(--phone-vh, 100dvh) - var(--phone-safe-top) - var(--phone-safe-bottom) - 24px) !important;
-  max-width: calc(100vw - 16px) !important;
-  overflow-y: auto;
-}
