@@ -36,12 +36,6 @@ import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { Textarea } from "@/shared/ui/textarea";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/shared/ui/dropdown-menu";
 
 import { useDirectLive } from "../dataStore";
 import { applyWebUserIntents } from "../webIntents";
@@ -79,14 +73,12 @@ export function AssistantPopoverBody({
   agentPubkey,
   fallbackName,
   fallbackAvatarUrl,
-  onChange,
   onMinimize,
   onOpenConversation,
 }: {
   agentPubkey: string;
   fallbackName?: string;
   fallbackAvatarUrl?: string | null;
-  onChange: () => void;
   onClose?: () => void;
   onMinimize: () => void;
   onOpenConversation: (channel: Channel | null) => void;
@@ -255,51 +247,25 @@ export function AssistantPopoverBody({
       data-testid="web-assistant-popover"
     >
       <div className="flex shrink-0 items-center gap-2">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              aria-label="Assistant options"
-              className="flex min-w-0 items-center gap-2.5 rounded-md text-left outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-              data-testid="web-assistant-identity"
-              type="button"
-            >
-              <div aria-hidden="true" className="relative shrink-0">
-                <UserAvatar
-                  avatarUrl={avatarUrl}
-                  className="h-8 w-8"
-                  displayName={name}
-                  fallbackDelayMs={0}
-                  size="sm"
-                />
-                <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-popover">
-                  <PresenceDot className="h-2 w-2" status={presence} />
-                </span>
-              </div>
-              <span className="min-w-0 truncate text-sm font-medium">
-                {name}
-              </span>
-              <span className="sr-only">{presence}</span>
-              <ChevronDown
-                aria-hidden="true"
-                className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-              />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="z-[310]">
-            <DropdownMenuItem
-              data-testid="web-assistant-change"
-              onSelect={onChange}
-            >
-              Change assistant…
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              data-testid="web-assistant-remove"
-              onSelect={onChange}
-            >
-              Remove assistant…
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <div
+          className="flex min-w-0 items-center gap-2.5"
+          data-testid="web-assistant-identity"
+        >
+          <div aria-hidden="true" className="relative shrink-0">
+            <UserAvatar
+              avatarUrl={avatarUrl}
+              className="h-8 w-8"
+              displayName={name}
+              fallbackDelayMs={0}
+              size="sm"
+            />
+            <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-popover">
+              <PresenceDot className="h-2 w-2" status={presence} />
+            </span>
+          </div>
+          <span className="min-w-0 truncate text-sm font-medium">{name}</span>
+          <span className="sr-only">{presence}</span>
+        </div>
         {tabbed ? (
           <div
             className="flex shrink-0 gap-0.5 rounded-full bg-muted/45 p-0.5"
@@ -430,6 +396,15 @@ export function AssistantPopoverBody({
             className="min-h-24 resize-none rounded-2xl pb-11"
             data-testid="web-assistant-input"
             onChange={(event) => setDraft(event.target.value)}
+            onFocus={() => {
+              // iOS keyboard: once the popup has resized to the visual viewport, keep the latest message in view.
+              for (const ms of [50, 350]) {
+                window.setTimeout(() => {
+                  const el = transcriptRef.current;
+                  if (el) el.scrollTop = el.scrollHeight;
+                }, ms);
+              }
+            }}
             onKeyDown={(event) => {
               if (
                 event.key !== "Enter" ||
