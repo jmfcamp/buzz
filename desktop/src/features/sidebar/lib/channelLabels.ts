@@ -6,8 +6,8 @@ import {
 } from "@/features/profile/lib/identity";
 import type { Channel } from "@/shared/api/types";
 
-function isGenericDmChannelName(name: string) {
-  const normalized = name.trim().toLowerCase();
+function isGenericDmChannelName(name: string | null | undefined) {
+  const normalized = (name ?? "").trim().toLowerCase();
   return (
     normalized.length === 0 ||
     normalized === "dm" ||
@@ -23,12 +23,15 @@ export function resolveChannelDisplayLabel(
   profiles: UserProfileLookup | undefined,
   communityBots?: ReadonlyArray<CommunityBot>,
 ) {
-  if (channel.channelType !== "dm" || !isGenericDmChannelName(channel.name)) {
-    return channel.name;
+  // Channel references from the warm directory / reminders can be partial
+  // (missing name or participant arrays); never throw while labeling.
+  const channelName = channel.name ?? "";
+  if (channel.channelType !== "dm" || !isGenericDmChannelName(channelName)) {
+    return channelName;
   }
 
-  const participants = channel.participantPubkeys.map((pubkey, index) => ({
-    fallbackName: channel.participants[index] ?? null,
+  const participants = (channel.participantPubkeys ?? []).map((pubkey, index) => ({
+    fallbackName: channel.participants?.[index] ?? null,
     pubkey,
   }));
   const otherParticipants = currentPubkey
@@ -54,5 +57,5 @@ export function resolveChannelDisplayLabel(
     ? formatDmParticipantDisplayName(
         uniqueLabels.map((displayName) => ({ displayName })),
       )
-    : channel.name;
+    : channelName;
 }
