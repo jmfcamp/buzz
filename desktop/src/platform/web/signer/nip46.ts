@@ -516,6 +516,12 @@ export class Nip46Client {
       c.ws = null;
       return;
     }
+    // iOS kills every socket a backgrounded PWA opens (0s, code 1006), so retrying while hidden is a reconnect storm into
+    // the signer relay's per-IP limits. Wait: onVis/resumeFromBackground reopens on return.
+    if (typeof document !== "undefined" && document.visibilityState === "hidden" && !this.pending.size) {
+      c.ws = null;
+      return;
+    }
     c.retry++;
     c.timer = setTimeout(
       () => this.open(c),
