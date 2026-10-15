@@ -82,3 +82,16 @@ test("assistant DM messages go to Reminders & Assistant and count there", () => 
     [1, 0, 1, 1, 2, 3],
   );
 });
+
+test("agent-notify kinds stay in Agents; failed/needs_input count, finished/pr do not", () => {
+  const owned = new Set([AGENT]);
+  const mk = (id, kind) => item({ id, categories: ["activity"], pubkey: AGENT, tags: [["agent-notify", kind]] });
+  const c = computeInboxTabCounts({
+    items: [mk("a", "needs_input"), mk("b", "failed"), mk("c", "task_finished"), mk("d", "pr_opened")],
+    doneSet: new Set(),
+    ownedAgentPubkeys: owned,
+    dueReminderCount: 0,
+  });
+  assert.equal(c.agents, 2);
+  assert.equal(tabForFilter("agent_failed", "inbox"), "agents");
+});

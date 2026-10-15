@@ -33,6 +33,9 @@ export type InboxFilter =
   | "thread"
   | "needs_action"
   | "agent_activity"
+  | "agent_needs_input"
+  | "agent_failed"
+  | "agent_done"
   | "reminders"
   | "assistant"
   | "drafts";
@@ -271,8 +274,24 @@ function resolveGroupChannel(
   return resolveItemChannel(primaryItem, channelById);
 }
 
+const AGENT_NOTIFY_LABELS: Record<string, string> = {
+  needs_input: "Needs your input",
+  failed: "Agent failed",
+  task_finished: "Task finished",
+  pr_opened: "PR opened",
+};
+
 export function getInboxTypeLabel(item: InboxItem): InboxTypeLabel {
   const channelName = item.channelLabel;
+
+  const notifyKind = item.item.tags?.find((t) => t[0] === "agent-notify")?.[1];
+  const notifyLabel = notifyKind ? AGENT_NOTIFY_LABELS[notifyKind] : undefined;
+  if (notifyLabel) {
+    return {
+      text: channelName && item.item.channelType !== "dm" ? `${notifyLabel} in` : notifyLabel,
+      channelLabel: item.item.channelType !== "dm" ? channelName : null,
+    };
+  }
 
   if (item.groupItems.some(isProjectInboxItem)) {
     const root = projectRootItem(item.item, item.groupItems);

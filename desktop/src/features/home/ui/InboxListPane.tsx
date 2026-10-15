@@ -74,6 +74,9 @@ const INBOX_EMPTY_STATE_TITLES: Record<InboxFilter, string> = {
   thread: "No threads found",
   needs_action: "No approvals waiting",
   agent_activity: "No agent updates found",
+  agent_needs_input: "No agents waiting on you",
+  agent_failed: "No failed agent tasks",
+  agent_done: "No finished tasks or PRs",
   reminders: "No reminders",
   drafts: "No drafts",
 };
@@ -88,6 +91,9 @@ const INBOX_UNREAD_EMPTY_STATE_TITLES: Record<InboxFilter, string> = {
   thread: "No unread threads",
   needs_action: "No unread items needing action",
   agent_activity: "No unread agent updates",
+  agent_needs_input: "No agents waiting on you",
+  agent_failed: "No unread failed agent tasks",
+  agent_done: "No unread finished tasks or PRs",
   reminders: "No unread reminders",
   drafts: "No unread drafts",
 };

@@ -5809,6 +5809,11 @@ pub(crate) fn build_failure_notice_event(
             return None;
         }
     };
+    // Owner's Inbox → Agents tab: a dead-lettered turn is "failed".
+    let builder = match nostr::Tag::parse(["agent-notify", "failed"]) {
+        Ok(tag) => builder.tag(tag),
+        Err(_) => builder,
+    };
     match builder.sign_with_keys(keys) {
         Ok(e) => Some(e),
         Err(e) => {
