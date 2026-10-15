@@ -497,13 +497,7 @@ export function AssistantPopoverBody({
 
         {/* In-flow under the input (channel views reserve a composer-dock rail; Assist has no overlay dock,
             so absolute ComposerActivityAccessory was painting over / above the box). */}
-        <div
-          className={
-            typingPubkeys.length > 0 && channel
-              ? "composer-dock composer-dock--with-activity relative shrink-0"
-              : "relative shrink-0"
-          }
-        >
+        <div className="relative shrink-0">
           <div className="relative">
             <Textarea
               aria-label={`Message ${name}`}
@@ -549,20 +543,23 @@ export function AssistantPopoverBody({
               <ArrowUp />
             </Button>
           </div>
-          {typingPubkeys.length > 0 && channel ? (
-            <div
-              className="flex w-full items-center gap-2 px-1 pb-1 pl-2 pt-1"
-              data-testid="web-assistant-typing"
-            >
-              <TypingIndicatorRow
-                channel={channel}
-                className="min-w-0 flex-1 py-0"
-                currentPubkey={me}
-                profiles={profiles}
-                typingPubkeys={typingPubkeys}
-              />
-            </div>
-          ) : null}
+          {/* Fixed-height slot, always present: the typing line fades in/out without shifting the composer or chat. */}
+          <div
+            className="flex h-6 w-full items-center pl-2 pr-1"
+            data-testid="web-assistant-typing-slot"
+          >
+            {typingPubkeys.length > 0 && channel ? (
+              <div className="flex min-w-0 flex-1" data-testid="web-assistant-typing">
+                <TypingIndicatorRow
+                  channel={channel}
+                  className="min-w-0 flex-1 py-0"
+                  currentPubkey={me}
+                  profiles={profiles}
+                  typingPubkeys={typingPubkeys}
+                />
+              </div>
+            ) : null}
+          </div>
         </div>
         {error ? (
           <p className="shrink-0 text-xs text-destructive" role="alert">

@@ -87,18 +87,21 @@ export function isAgentsTabItem(
   return Boolean(rep && ownedAgentPubkeys.has(normalizePubkey(rep.pubkey)));
 }
 
-/** A message from your Assistant agent in its DM (or a DM thread). */
+/**
+ * A message from your current Assistant agent (as:<pubkey> in inbox-state): its DM, thread replies to your Assist
+ * messages, mentions — any feed item it authored. These go to the Assistant tab, never Agents. (Thread replies and
+ * mention items do not always carry channelType "dm", so the author alone decides.)
+ */
 export function isAssistantItem(
   item: TabItem,
   assistantPubkey: string | null | undefined,
 ): boolean {
   if (!assistantPubkey) return false;
+  const want = normalizePubkey(assistantPubkey);
   const rep = representative(item);
-  return Boolean(
-    rep &&
-      rep.channelType === "dm" &&
-      normalizePubkey(rep.pubkey) === normalizePubkey(assistantPubkey),
-  );
+  if (rep && normalizePubkey(rep.pubkey) === want) return true;
+  const group = item.groupItems ?? [];
+  return group.length > 0 && group.every((g) => normalizePubkey(g.pubkey) === want);
 }
 
 export function inboxTabOf(

@@ -69,6 +69,10 @@ export function useWebAssistantOpen(): boolean {
 export function toggleWebAssistant() {
   window.dispatchEvent(new Event(TOGGLE_EVENT));
 }
+/** Close the popup if it is showing (phone: tapping another bottom-nav tab). */
+export function closeWebAssistant() {
+  if (assistantVisible) window.dispatchEvent(new Event(TOGGLE_EVENT));
+}
 export function openWebAssistant() {
   window.dispatchEvent(new Event(OPEN_EVENT));
 }

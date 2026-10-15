@@ -5,6 +5,7 @@ import { useUserProfileQuery } from "@/features/profile/hooks";
 import { useAssistantPubkey } from "@/shared/lib/assistantIdentity";
 
 import {
+  closeWebAssistant,
   toggleWebAssistant,
   useWebAssistantOpen,
 } from "@/features/assistant/ui/WebAssistant";
@@ -126,7 +127,11 @@ export function PhoneTabBar({
             )}
             data-testid={`phone-tab-${id}`}
             key={id}
-            onClick={() => onSelect(id)}
+            onClick={() => {
+              // Assist popup open: another tab closes it and goes to that tab.
+              if (assistantOpen) closeWebAssistant();
+              onSelect(id);
+            }}
             type="button"
           >
             {Icon ? (
