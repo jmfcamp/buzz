@@ -2,6 +2,12 @@
 // Sets `data-phone` on <html> so phone styles can be scoped with [data-phone]; usePhoneLayout() for components.
 import * as React from "react";
 
+import {
+  blurStaleKeyboardFocus,
+  isKeyboardCapableFocused,
+  phoneKeyboardOpen,
+} from "@/shared/lib/phoneKeyboard";
+
 export const PHONE_MAX_WIDTH_PX = 599;
 const query = () => `(max-width: ${PHONE_MAX_WIDTH_PX}px)`;
 
@@ -80,10 +86,13 @@ function installTabletKeyboardFrame(phoneMql: MediaQueryList): void {
       maxH = 0;
     }
     maxH = Math.max(maxH, window.innerHeight, vv.height);
-    const ae = document.activeElement;
-    const fieldFocused =
-      ae instanceof HTMLElement && (ae.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName));
-    const keyboard = fieldFocused && vv.height < maxH - 150;
+    const fieldFocused = isKeyboardCapableFocused();
+    const keyboard = phoneKeyboardOpen({
+      vv,
+      innerHeight: window.innerHeight,
+      maxH,
+      focused: fieldFocused,
+    });
     if (!keyboard) {
       clear();
       resetScroll();
@@ -116,8 +125,7 @@ function installTabletKeyboardFrame(phoneMql: MediaQueryList): void {
   };
   const settleClosed = () => {
     if (!active()) return;
-    const ae = document.activeElement;
-    if (ae instanceof HTMLElement && (ae.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName))) return;
+    if (isKeyboardCapableFocused()) return;
     // No field focused: the keyboard is down, whatever the viewport heights say.
     clear();
     resetScroll();
@@ -154,6 +162,7 @@ function installPhoneViewportHeight(mql: MediaQueryList): void {
   const vv = window.visualViewport;
   const root = document.documentElement;
   let maxH = 0;
+  let lastW = window.innerWidth;
   const sync = () => {
     if (!mql.matches) {
       root.style.removeProperty("--phone-vh");
@@ -161,33 +170,33 @@ function installPhoneViewportHeight(mql: MediaQueryList): void {
       root.removeAttribute("data-phone-keyboard");
       return;
     }
+    if (window.innerWidth !== lastW) {
+      lastW = window.innerWidth;
+      maxH = 0;
+    }
     let h = vv ? vv.height : window.innerHeight;
     const standalone = isStandaloneDisplay();
     if (standalone) root.setAttribute("data-phone-standalone", "");
     else root.removeAttribute("data-phone-standalone");
-    // The soft keyboard is up when the visual viewport is much shorter than the layout viewport (or than the
-    // largest height seen, for engines that resize both).
     maxH = Math.max(maxH, window.innerHeight, h);
-    // Only a focused text field can have the keyboard up. After the app is backgrounded and resumed, iOS can report a
-    // stale short visual viewport with nothing focused; treating that as "keyboard open" left the shell shrunk to the
-    // top half with a dark band below.
-    const keyboard = isEditableFocused() && h < maxH - 150;
+    // Capable focus + short VV. inputmode=none (Buzz Term seed textarea) does not count, so switching
+    // into Term with a stale short VV no longer leaves the shell half-height.
+    const keyboard = phoneKeyboardOpen({
+      vv,
+      innerHeight: window.innerHeight,
+      maxH,
+      focused: isKeyboardCapableFocused(),
+    });
+    // When the visual viewport is back to (nearly) full height, never keep keyboard-open chrome even if
+    // something odd still holds focus — clear the stale inset.
     if (!keyboard) h = Math.max(h, window.innerHeight);
     if (keyboard) root.setAttribute("data-phone-keyboard", "");
     else root.removeAttribute("data-phone-keyboard");
-    // Installed iOS PWA: the visual/inner height can come up short of the full screen (status-bar and home
-    // indicator insets subtracted), leaving a dead band under the tab bar. Without the keyboard, use the full height.
     if (standalone && !keyboard) h = Math.max(h, window.innerHeight, maxH);
     root.style.setProperty("--phone-vh", `${Math.round(h)}px`);
     resetDocumentScroll();
-    // Safari tab: focusing the composer pans the visual viewport down inside the layout viewport (offsetTop > 0) and
-    // scrollTo(0,0) can't undo it. The shell is position:fixed, so pin its top to the visual viewport instead; the
-    // composer then sits right above the keyboard with the list filling the space above.
     const top = vv && keyboard ? Math.max(0, Math.round(vv.offsetTop)) : 0;
     root.style.setProperty("--phone-vv-top", `${top}px`);
-    // Installed iOS app: with the keyboard up iOS can also scroll the page, and fixed elements then render offset
-    // from where top/offsetTop says (the frame showed a band above the header). Measure where the frame really is
-    // and correct by the difference, so its top lands on the visible area's top.
     if (keyboard && vv) {
       window.requestAnimationFrame(() => {
         const el = document.getElementById("root");
@@ -200,8 +209,6 @@ function installPhoneViewportHeight(mql: MediaQueryList): void {
       });
     }
   };
-  // iOS scrolls the document (and sometimes #root) to reveal a focused field; the shell is fixed-height, so any
-  // leftover offset after the keyboard closes or a route change shows a blank screen. Pin everything back to 0.
   const resetDocumentScroll = () => {
     if (!mql.matches) return;
     if (window.scrollY !== 0 || window.scrollX !== 0 || (vv && vv.offsetTop !== 0)) window.scrollTo(0, 0);
@@ -212,29 +219,63 @@ function installPhoneViewportHeight(mql: MediaQueryList): void {
       }
     }
   };
-  // Coming back to the app: the keyboard is gone even if a field still holds focus. Blur that stale focus and
-  // re-measure a few times while iOS settles the viewport.
+  const later = (...ms: number[]) => {
+    for (const m of ms) window.setTimeout(sync, m);
+  };
+  // Resume / pageshow: keyboard is gone; blur stale capable focus and remeasure while iOS settles.
   const resume = () => {
-    if (document.visibilityState !== "visible") return;
-    const el = document.activeElement;
-    if (el instanceof HTMLElement && isEditableElement(el)) el.blur();
-    for (const ms of [0, 100, 400, 1000]) window.setTimeout(sync, ms);
+    if (document.visibilityState === "hidden") return;
+    blurStaleKeyboardFocus();
+    later(0, 100, 400, 1000);
+  };
+  // In-app view / route changes: same class of bug as resume — VV can stay short with leftover focus.
+  const onViewChange = () => {
+    const h = vv ? vv.height : window.innerHeight;
+    const nearlyFull = maxH > 0 ? h >= maxH - 80 : visualNearlyFull(vv, window.innerHeight);
+    if (nearlyFull || !isKeyboardCapableFocused()) {
+      if (nearlyFull) blurStaleKeyboardFocus();
+      later(0, 50, 300);
+      return;
+    }
+    later(0, 100, 400);
   };
   document.addEventListener("visibilitychange", resume);
   window.addEventListener("pageshow", resume);
-  window.addEventListener("focus", () => { for (const ms of [0, 300]) window.setTimeout(sync, ms); });
-  // Re-sync too: closing a popover (e.g. the reaction picker) drops the keyboard, and the shell must regrow so the
-  // composer is back at the bottom of the screen.
-  document.addEventListener("focusout", () => { for (const ms of [50, 300]) window.setTimeout(sync, ms); }, true);
-  // iOS reveals a focused field by scrolling/panning after focus; re-sync as it settles.
-  document.addEventListener("focusin", () => { for (const ms of [0, 100, 300, 600]) window.setTimeout(sync, ms); }, true);
-  window.addEventListener("hashchange", () => window.setTimeout(resetDocumentScroll, 0));
+  window.addEventListener("focus", () => later(0, 300));
+  window.addEventListener("popstate", onViewChange);
+  window.addEventListener("hashchange", onViewChange);
+  // Phone / surface tab taps navigate without popstate; clear stale keyboard chrome the same way.
+  document.addEventListener(
+    "click",
+    (event) => {
+      const t = event.target as Element | null;
+      if (
+        t?.closest?.(
+          '[data-testid^="phone-tab"],[data-testid="phone-tab-switcher"],[data-testid^="phone-tab-row"],[data-surface-tab-strip],a[href]',
+        )
+      ) {
+        onViewChange();
+      }
+    },
+    true,
+  );
+  window.addEventListener("buzz:phone-keyboard-resync", onViewChange);
+  document.addEventListener("focusout", () => later(50, 300), true);
+  document.addEventListener("focusin", () => later(0, 100, 300, 600), true);
   window.addEventListener("scroll", resetDocumentScroll, { passive: true });
   sync();
   vv?.addEventListener("resize", sync);
   vv?.addEventListener("scroll", sync);
   window.addEventListener("resize", sync);
   mql.addEventListener("change", sync);
+}
+
+function visualNearlyFull(
+  vv: { height: number; offsetTop: number } | null | undefined,
+  innerHeight: number,
+): boolean {
+  if (!vv) return true;
+  return innerHeight - vv.height - vv.offsetTop < 80;
 }
 
 /** Installed web app (iOS "Add to Home Screen" or display-mode: standalone). */
@@ -367,15 +408,9 @@ export function usePhoneLayout(): boolean {
 }
 
 function isEditableElement(el: Element): boolean {
-  if (el instanceof HTMLTextAreaElement) return !el.readOnly && !el.disabled;
-  if (el instanceof HTMLInputElement) {
-    const t = el.type;
-    return !el.readOnly && !el.disabled && !["button", "checkbox", "radio", "range", "submit", "reset", "file", "color", "image", "hidden"].includes(t);
-  }
-  return el instanceof HTMLElement && el.isContentEditable;
-}
-
-function isEditableFocused(): boolean {
-  const el = document.activeElement;
-  return Boolean(el && el !== document.body && isEditableElement(el));
+  // Message-list dismiss still blurs any editable (including inputmode=none seed fields).
+  return (
+    el instanceof HTMLElement &&
+    (el.isContentEditable || /^(INPUT|TEXTAREA)$/.test(el.tagName))
+  );
 }

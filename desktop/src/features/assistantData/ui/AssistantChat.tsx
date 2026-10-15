@@ -46,12 +46,12 @@ import { useAssistantShowActivity } from "@/features/assistant/activityPreferenc
 import { AgentSessionTranscriptList } from "@/features/agents/ui/AgentSessionTranscriptList";
 import { isMeaningfulItem } from "@/features/agents/ui/agentSessionTranscriptPresentation";
 import { useAgentTranscript } from "@/features/agents/ui/useObserverEvents";
-import { ComposerActivityAccessory } from "@/features/messages/ui/ComposerActivityAccessory";
 import { TypingIndicatorRow } from "@/features/messages/ui/TypingIndicatorRow";
 import { useChannelTyping } from "@/features/messages/useChannelTyping";
 import { useThreadRepliesForRoots } from "@/features/messages/useThreadReplies";
 
 import { useDirectLive } from "../dataStore";
+import { applyAssistantListFencesFromMessage } from "@/features/assistantLists/listFences";
 import { applyWebUserIntents } from "../webIntents";
 import { AssistantListsCard, useSuiteSummary } from "./AssistantSuite";
 
@@ -271,6 +271,28 @@ export function AssistantPopoverBody({
     () => messages.map((message) => ({ message, summary: null })),
     [messages],
   );
+
+  // Apply agent list fences from raw event content (displayText strips them from the transcript).
+  const appliedFenceIds = React.useRef(new Set<string>());
+  React.useEffect(() => {
+    if (!me || !agentPubkey) return;
+    for (const ev of merged) {
+      if (!ev?.id || appliedFenceIds.current.has(ev.id)) continue;
+      if ((ev.pubkey ?? "").toLowerCase() !== agentPubkey.toLowerCase()) continue;
+      const body = typeof ev.content === "string" ? ev.content : "";
+      if (
+        !body ||
+        (!/```(?:bestie|assistant)-list\b/i.test(body) &&
+          !/(?:Added|Adding)\s+["'][^"']+["']\s+to your Assistant List/i.test(
+            body,
+          ))
+      ) {
+        continue;
+      }
+      appliedFenceIds.current.add(ev.id);
+      applyAssistantListFencesFromMessage(me, ev.id, body);
+    }
+  }, [merged, me, agentPubkey]);
   const tailKey = messages.at(-1)?.id ?? "";
   React.useLayoutEffect(() => {
     void tailKey;
@@ -473,67 +495,75 @@ export function AssistantPopoverBody({
           <div aria-hidden="true" className="min-h-16 flex-1" />
         )}
 
-        <div className="relative shrink-0">
-          <Textarea
-            aria-label={`Message ${name}`}
-            className="min-h-24 resize-none rounded-2xl pb-11"
-            data-testid="web-assistant-input"
-            ref={inputRef}
-            onChange={(event) => setDraft(event.target.value)}
-            onFocus={() => {
-              // iOS keyboard: once the popup has resized to the visual viewport, keep the latest message in view.
-              for (const ms of [50, 350]) {
-                window.setTimeout(() => {
-                  const el = transcriptRef.current;
-                  if (el) el.scrollTop = el.scrollHeight;
-                }, ms);
-              }
-            }}
-            onKeyDown={(event) => {
-              if (
-                event.key !== "Enter" ||
-                event.shiftKey ||
-                event.altKey ||
-                event.ctrlKey ||
-                event.metaKey ||
-                event.nativeEvent.isComposing
-              ) {
-                return;
-              }
-              event.preventDefault();
-              void sendMessage();
-            }}
-            placeholder={`Message ${name}`}
-            value={draft}
-          />
-          <Button
-            aria-label="Send in Assistant conversation"
-            className="absolute bottom-2 right-2 rounded-full"
-            data-testid="web-assistant-send"
-            disabled={!draft.trim() || busy}
-            onClick={() => void sendMessage()}
-            size="icon"
-            type="button"
-          >
-            <ArrowUp />
-          </Button>
-        </div>
-        {/* Same place and component as channel views: the activity accessory row under the composer. */}
-        <ComposerActivityAccessory
-          className="-mt-2 shrink-0 px-1"
-          testId="web-assistant-typing"
-          visible={typingPubkeys.length > 0 && Boolean(channel)}
+        {/* In-flow under the input (channel views reserve a composer-dock rail; Assist has no overlay dock,
+            so absolute ComposerActivityAccessory was painting over / above the box). */}
+        <div
+          className={
+            typingPubkeys.length > 0 && channel
+              ? "composer-dock composer-dock--with-activity relative shrink-0"
+              : "relative shrink-0"
+          }
         >
-          <div className="flex w-full items-center gap-2 pl-2">
-            <TypingIndicatorRow
-              channel={channel}
-              currentPubkey={me}
-              profiles={profiles}
-              className="min-w-0 flex-1 py-0"
-              typingPubkeys={typingPubkeys}
+          <div className="relative">
+            <Textarea
+              aria-label={`Message ${name}`}
+              className="min-h-24 resize-none rounded-2xl pb-11"
+              data-testid="web-assistant-input"
+              ref={inputRef}
+              onChange={(event) => setDraft(event.target.value)}
+              onFocus={() => {
+                // iOS keyboard: once the popup has resized to the visual viewport, keep the latest message in view.
+                for (const ms of [50, 350]) {
+                  window.setTimeout(() => {
+                    const el = transcriptRef.current;
+                    if (el) el.scrollTop = el.scrollHeight;
+                  }, ms);
+                }
+              }}
+              onKeyDown={(event) => {
+                if (
+                  event.key !== "Enter" ||
+                  event.shiftKey ||
+                  event.altKey ||
+                  event.ctrlKey ||
+                  event.metaKey ||
+                  event.nativeEvent.isComposing
+                ) {
+                  return;
+                }
+                event.preventDefault();
+                void sendMessage();
+              }}
+              placeholder={`Message ${name}`}
+              value={draft}
             />
+            <Button
+              aria-label="Send in Assistant conversation"
+              className="absolute bottom-2 right-2 rounded-full"
+              data-testid="web-assistant-send"
+              disabled={!draft.trim() || busy}
+              onClick={() => void sendMessage()}
+              size="icon"
+              type="button"
+            >
+              <ArrowUp />
+            </Button>
           </div>
-        </ComposerActivityAccessory>
+          {typingPubkeys.length > 0 && channel ? (
+            <div
+              className="flex w-full items-center gap-2 px-1 pb-1 pl-2 pt-1"
+              data-testid="web-assistant-typing"
+            >
+              <TypingIndicatorRow
+                channel={channel}
+                className="min-w-0 flex-1 py-0"
+                currentPubkey={me}
+                profiles={profiles}
+                typingPubkeys={typingPubkeys}
+              />
+            </div>
+          ) : null}
+        </div>
         {error ? (
           <p className="shrink-0 text-xs text-destructive" role="alert">
             {error}

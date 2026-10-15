@@ -1034,34 +1034,56 @@ export function TerminalSubstrate({
   };
 
   // iOS keeps the layout viewport full-height when the keyboard opens; follow the visual viewport so the terminal and key bar
-  // stay above it.
+  // stay above it. Only when the user asked for the keyboard (kbWanted): a focused seed textarea with inputmode=none must
+  // not pin the substrate to a stale short visualViewport after a view switch or resume.
   React.useEffect(() => {
     if (!touchUi) return;
     const vv = window.visualViewport;
     if (!vv) return;
-    // One layout pass per frame while the keyboard animates (no thrash); the canvas refits from the new box and keeps the cursor row.
     let raf = 0;
     const apply = () => {
       raf = 0;
-      const next = keyboardInset(vv, window.innerHeight);
+      const next = keyboardInset(vv, window.innerHeight, 120, kbWantedRef.current);
       setKb((c) => (c.open === next.open && c.top === next.top && c.height === next.height ? c : next));
       if (next.open && (window.scrollY || document.documentElement.scrollTop)) window.scrollTo(0, 0);
     };
     const update = () => {
       if (!raf) raf = window.requestAnimationFrame(apply);
     };
+    const onResume = () => {
+      // Leave/return or OS keyboard dismiss: drop wanted if VV is full again.
+      if (!kbWantedRef.current) {
+        update();
+        return;
+      }
+      const covered = window.innerHeight - vv.height - vv.offsetTop;
+      if (covered < 80) {
+        setKbWanted(false);
+        if (textareaRef.current) textareaRef.current.inputMode = "none";
+      }
+      update();
+    };
     apply();
     vv.addEventListener("resize", update);
     vv.addEventListener("scroll", update);
+    document.addEventListener("visibilitychange", onResume);
+    window.addEventListener("pageshow", onResume);
     return () => {
       window.cancelAnimationFrame(raf);
       vv.removeEventListener("resize", update);
       vv.removeEventListener("scroll", update);
+      document.removeEventListener("visibilitychange", onResume);
+      window.removeEventListener("pageshow", onResume);
     };
-  }, [touchUi]);
+  }, [touchUi, kbWanted]);
   React.useEffect(() => {
     if (touchUi) setTouchSel(null);
   }, [touchUi, activeSessionId]);
+
+  React.useEffect(() => {
+    if (!touchUi || !visible) return;
+    window.dispatchEvent(new Event("buzz:phone-keyboard-resync"));
+  }, [touchUi, visible, mode]);
 
   // Touch: iOS auto-repeats a held backspace only as beforeinput delete events (no keydown repeat) and only while the input has
   // something to delete; after a while it accelerates to word deletes. Each event goes to the PTY at once: one DEL per char
@@ -1100,7 +1122,10 @@ export function TerminalSubstrate({
     const surface = substrateRef.current?.closest("[data-buzz-content-surface]") as HTMLElement | null;
     const vv = window.visualViewport;
     const update = () => {
-      const vh = vv ? vv.height + vv.offsetTop : window.innerHeight;
+      // Without an intentional keyboard, never shrink to a stale short visualViewport (view switch / resume bug).
+      const rawVh = vv ? vv.height + vv.offsetTop : window.innerHeight;
+      const useKeyboardBox = kbWantedRef.current && vv && window.innerHeight - vv.height > 120;
+      const vh = useKeyboardBox ? rawVh : Math.max(rawVh, window.innerHeight);
       const r = surface?.getBoundingClientRect();
       const next = r
         ? { top: Math.round(r.top), left: Math.round(r.left), width: Math.round(r.width), bottom: Math.max(0, Math.round(window.innerHeight - vh)), vh: Math.round(vh) }
@@ -1119,7 +1144,7 @@ export function TerminalSubstrate({
       window.removeEventListener("resize", update);
       window.removeEventListener("orientationchange", update);
     };
-  }, [touchUi, mode]);
+  }, [touchUi, mode, kbWanted]);
 
   // Native non-passive wheel: React's delegated onWheel is passive in the
   // browsers we ship, so preventDefault there cannot stop the outer UI from

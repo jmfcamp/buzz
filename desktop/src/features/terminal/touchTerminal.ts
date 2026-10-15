@@ -225,16 +225,14 @@ export function detectTouchUi(w: { matchMedia?: (q: string) => { matches: boolea
   }
 }
 
-/** Keyboard-aware rectangle from visualViewport: when the on-screen keyboard is up the layout viewport doesn't shrink on iOS. */
+/** Keyboard-aware rectangle from visualViewport. Pass wanted=false when the OS keyboard was not requested (Buzz Term seed focus). */
 export function keyboardInset(
   vv: { height: number; offsetTop: number; width: number } | null | undefined,
   innerHeight: number,
   minKeyboardPx = 120,
+  wanted = true,
 ): { open: boolean; top: number; height: number; width: number } {
-  if (!vv) return { open: false, top: 0, height: innerHeight, width: 0 };
-  const covered = innerHeight - vv.height - vv.offsetTop;
-  const open = covered > minKeyboardPx || innerHeight - vv.height > minKeyboardPx;
-  return { open, top: vv.offsetTop, height: vv.height, width: vv.width };
+  return sharedKeyboardInset(vv, innerHeight, minKeyboardPx, wanted);
 }
 
 /**
