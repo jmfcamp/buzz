@@ -6,8 +6,21 @@ import { createPortal } from "react-dom";
 // Starting a stopped desktop agent needs Direct and is greyed out without it.
 import { isTauri } from "@tauri-apps/api/core";
 import { decode } from "nostr-tools/nip19";
-import { Bot, ChevronDown, Loader2, Monitor, Sparkles } from "lucide-react";
+import { Bot, ChevronDown, Star } from "lucide-react";
 import * as React from "react";
+import { toast } from "sonner";
+
+import { ProfileAgentActionRow } from "@/features/profile/ui/UserProfileAgentManagementRows";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/shared/ui/alert-dialog";
 
 import { AssistantPopoverBody } from "@/features/assistantData/ui/AssistantChat";
 import { Button } from "@/shared/ui/button";
@@ -19,7 +32,6 @@ import {
   useSyncedAssistant,
 } from "@/features/inbox/assistantPick";
 import { useUserProfileQuery } from "@/features/profile/hooks";
-import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import { invokeTauri } from "@/shared/api/tauri";
 import {
@@ -115,9 +127,6 @@ export function WebAssistantBinding() {
   return null;
 }
 
-const ROW =
-  "flex w-full items-center gap-3 rounded-xl border border-border/60 bg-card px-4 py-3 text-left text-sm transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-50";
-
 /**
  * The web Assistant popup: same layout as the desktop popover. Phone: full-screen overlay layer; iPad/desktop: a
  * popup anchored at the bottom-left (by the sidebar Assist button), like desktop. It is an overlay, not a route:
@@ -143,7 +152,6 @@ export function WebAssistantSheet() {
       250,
     );
   }, []);
-  const [picking, setPicking] = React.useState(false);
   const [instance, setInstance] = React.useState(0);
   React.useEffect(() => {
     const onOpen = () => setModeRaw("open");
@@ -182,14 +190,12 @@ export function WebAssistantSheet() {
   }, [mode, setMode]);
   const me = useIdentityQuery().data?.pubkey;
   const picked = useSyncedAssistant(me);
-  const { goChannel } = useAppNavigation();
+  const { goAgents, goChannel } = useAppNavigation();
   const close = () => {
     setMode("closed");
-    setPicking(false);
     setInstance((n) => n + 1);
   };
   if (mode === "closed") return null;
-  const showPicker = picking || !picked;
   // Portalled to <body>: inside the app shell an ancestor established a containing block for `fixed`, so the
   // popup was laid out relative to that box (off-screen on iPhone, clipped left on iPad) instead of the viewport.
   return createPortal(
@@ -221,205 +227,137 @@ export function WebAssistantSheet() {
         data-testid="web-assistant-popup"
         role="dialog"
       >
-        {showPicker ? (
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <div className="mb-2 flex justify-end gap-1">
-              <Button
-                aria-label="Close Assistant"
-                className="h-9 w-9 rounded-full bg-muted/70 text-foreground hover:bg-muted [&_svg]:size-5 max-sm:h-11 max-sm:w-11 max-sm:[&_svg]:size-6"
-                onClick={() => (picked ? setMode("minimized") : close())}
-                size="icon-xs"
-                type="button"
-                variant="ghost"
-              >
-                <ChevronDown />
-              </Button>
-            </div>
-            <AssistantPicker
-              current={picked}
-              me={me}
-              onCancel={picked ? () => setPicking(false) : undefined}
-              onPicked={() => setPicking(false)}
-            />
-          </div>
-        ) : picked ? (
+        {picked ? (
           <AssistantPopoverBody
             agentPubkey={picked}
             key={`${picked}:${instance}`}
-            onChange={() => setPicking(true)}
-            onClose={close}
             onMinimize={() => setMode("minimized")}
             onOpenConversation={(channel) => {
               setMode("minimized");
               if (channel) void goChannel(channel.id);
             }}
           />
-        ) : null}
+        ) : (
+          <AssistantEmptyState
+            onClose={close}
+            onGoAgents={() => {
+              setMode("minimized");
+              void goAgents();
+            }}
+          />
+        )}
       </div>
     </div>,
     document.body,
   );
 }
 
-function AssistantPicker({
-  current,
-  me,
-  onCancel,
-  onPicked,
+// No Assistant set: like desktop, you choose one from an agent's profile (Make Assistant), not inside the popup.
+function AssistantEmptyState({
+  onClose,
+  onGoAgents,
 }: {
-  current: string | null;
-  me: string | undefined;
-  onCancel?: () => void;
-  onPicked: () => void;
+  onClose: () => void;
+  onGoAgents: () => void;
 }) {
-  const agents = useManagedAgentsQuery().data ?? [];
-  const directLive = useDirectLive();
-  const { activeCommunity } = useCommunities();
-  const [manual, setManual] = React.useState("");
-  const [note, setNote] = React.useState<string | null>(null);
-  const [importing, setImporting] = React.useState(false);
-
-  const pick = (pk: string) => {
-    if (setSyncedAssistant(me, pk)) onPicked();
-    else setNote("Still syncing your inbox settings. Try again in a moment.");
-  };
-
-  const importDesktop = async () => {
-    if (!me || !activeCommunity?.relayUrl) return;
-    setImporting(true);
-    setNote(null);
-    try {
-      const r = await invokeTauri<{ agent_pubkey?: string } | null>(
-        "get_bestie_assignment",
-        {
-          expectedRelayUrl: activeCommunity.relayUrl,
-          expectedSignerPubkey: me,
-        },
-      );
-      if (r?.agent_pubkey) pick(r.agent_pubkey);
-      else setNote("Your desktop has no assistant set for this community.");
-    } catch (e) {
-      setNote(e instanceof Error ? e.message : "Couldn't reach your desktop.");
-    } finally {
-      setImporting(false);
-    }
-  };
-
-  const manualPk = parseAgentPubkey(manual);
   return (
-    <>
-      <div className="mb-3 space-y-1">
-        <h2 className="text-sm font-semibold">
-          {current ? "Change assistant" : "Choose your assistant"}
-        </h2>
-        <p className="text-xs text-muted-foreground">
-          Your pick syncs to your other devices.
-        </p>
+    <div
+      className="flex h-full min-h-0 flex-col gap-3"
+      data-testid="web-assistant-empty"
+    >
+      <div className="flex shrink-0 items-center gap-2">
+        <h2 className="min-w-0 flex-1 text-sm font-semibold">Assistant</h2>
+        <Button
+          aria-label="Close Assistant"
+          className="h-9 w-9 rounded-full bg-muted/70 text-foreground hover:bg-muted [&_svg]:size-5 max-sm:h-11 max-sm:w-11 max-sm:[&_svg]:size-6"
+          onClick={onClose}
+          size="icon-xs"
+          type="button"
+          variant="ghost"
+        >
+          <ChevronDown />
+        </Button>
       </div>
-      <div
-        className="flex flex-col gap-2 px-4 pb-2"
-        data-testid="web-assistant-picker"
-      >
-        <button
-          className={ROW}
-          data-testid="web-assistant-use-desktop"
-          disabled={!directLive || importing}
-          onClick={() => void importDesktop()}
+      <div className="flex min-h-16 flex-1 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border/70 bg-muted/20 p-6 text-center">
+        <Bot className="h-8 w-8 text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">
+          No Assistant yet. Open one of your agents and choose{" "}
+          <span className="font-medium text-foreground">Make Assistant</span>.
+        </p>
+        <Button
+          data-testid="web-assistant-go-agents"
+          onClick={onGoAgents}
+          size="sm"
           type="button"
         >
-          {importing ? (
-            <Loader2 className="h-5 w-5 animate-spin" />
-          ) : (
-            <Monitor className="h-5 w-5 text-muted-foreground" />
-          )}
-          <span className="flex flex-1 flex-col">
-            <span>Use my desktop's assistant</span>
-            {!directLive ? (
-              <span className="text-xs text-muted-foreground">
-                Needs your desktop connected (Direct)
-              </span>
-            ) : null}
-          </span>
-        </button>
-        {agents.length > 0 ? (
-          <div className="pt-1 text-xs font-medium text-muted-foreground">
-            Your agents
-          </div>
-        ) : null}
-        {agents.map((agent) => {
-          const pk = agent.pubkey.toLowerCase();
-          return (
-            <button
-              className={cn(
-                ROW,
-                pk === current && "border-primary/50 bg-primary/10",
-              )}
-              data-testid={`web-assistant-pick-${pk.slice(0, 8)}`}
-              key={pk}
-              onClick={() => pick(pk)}
-              type="button"
-            >
-              <ProfileAvatar
-                avatarUrl={agent.avatarUrl ?? null}
-                className="h-8 w-8"
-                label={agent.name}
-                pubkey={pk}
-              />
-              <span className="flex-1 truncate">{agent.name}</span>
-              {pk === current ? (
-                <Sparkles className="h-4 w-4 text-primary" />
-              ) : (
-                <Bot className="h-4 w-4 text-muted-foreground" />
-              )}
-            </button>
-          );
-        })}
-        <form
-          className="flex items-center gap-2 pt-1"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (manualPk) pick(manualPk);
-          }}
-        >
-          <input
-            aria-label="Agent npub or pubkey"
-            className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-background px-3 text-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-            onChange={(e) => setManual(e.target.value)}
-            placeholder="Or paste an agent's npub"
-            value={manual}
-          />
-          <button
-            className="h-10 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground disabled:opacity-50"
-            disabled={!manualPk}
-            type="submit"
-          >
-            Use
-          </button>
-        </form>
-        {note ? <p className="text-xs text-muted-foreground">{note}</p> : null}
-        {current ? (
-          <div className="flex justify-between pt-1">
-            <button
-              className="text-xs text-muted-foreground hover:text-destructive"
-              onClick={() => {
-                if (setSyncedAssistant(me, null)) onPicked();
-              }}
-              type="button"
-            >
-              Remove assistant
-            </button>
-            {onCancel ? (
-              <button
-                className="text-xs text-muted-foreground hover:text-foreground"
-                onClick={onCancel}
-                type="button"
-              >
-                Cancel
-              </button>
-            ) : null}
-          </div>
-        ) : null}
+          Go to Agents
+        </Button>
       </div>
+    </div>
+  );
+}
+
+/** Web agent profile row (same as desktop's Make/Remove Assistant): writes the synced Assistant pick. */
+export function WebAssistantProfileAction({
+  agentPubkey,
+}: {
+  agentPubkey: string;
+}) {
+  const me = useIdentityQuery().data?.pubkey;
+  const picked = useSyncedAssistant(me);
+  const agents = useManagedAgentsQuery().data ?? [];
+  const profile = useUserProfileQuery(agentPubkey).data as
+    | { displayName?: string | null; botType?: unknown; isAgent?: boolean }
+    | undefined;
+  const [confirmOpen, setConfirmOpen] = React.useState(false);
+  const name = profile?.displayName ?? "this agent";
+  const pk = agentPubkey.toLowerCase();
+  const isAgent =
+    Boolean(profile?.isAgent) ||
+    agents.some((a) => a.pubkey.toLowerCase() === pk);
+  if (!isWebAssistantAvailable() || !isAgent) return null;
+  const isAssistant = picked?.toLowerCase() === pk;
+  const save = (value: string | null) => {
+    if (!setSyncedAssistant(me, value)) {
+      toast.error("Still syncing your settings. Try again in a moment.");
+      return false;
+    }
+    return true;
+  };
+  return (
+    <>
+      <ProfileAgentActionRow
+        icon={Star}
+        iconClassName={
+          isAssistant
+            ? "h-4 w-4 shrink-0 fill-current text-foreground"
+            : undefined
+        }
+        label={isAssistant ? "Remove Assistant" : "Make Assistant"}
+        onClick={() => (isAssistant ? save(null) : setConfirmOpen(true))}
+        testId="user-profile-web-assistant-action"
+      />
+      <AlertDialog onOpenChange={setConfirmOpen} open={confirmOpen}>
+        <AlertDialogContent data-testid="web-assistant-confirm-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Make {name} your Assistant?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {name} will open from the Assist button. Your pick syncs to your
+              other devices.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                if (!save(pk)) event.preventDefault();
+              }}
+            >
+              Make Assistant
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

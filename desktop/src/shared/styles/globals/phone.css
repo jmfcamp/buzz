@@ -696,3 +696,24 @@
   gap: 8px;
   justify-content: flex-start;
 }
+
+/* Web Assistant popup (portalled to <body>, outside the #root frame): follow the visual viewport like the shell does,
+   so the composer stays above the iOS keyboard. No keyboard: between the nav row and the tab bar. Keyboard up: the
+   popup covers the tab bar and its bottom edge sits right on top of the keyboard / accessory bar. */
+[data-phone] [data-testid="web-assistant-layer"] {
+  top: calc(var(--phone-vv-top, 0px) + var(--phone-safe-top) + var(--phone-nav-row-h, 40px)) !important;
+  bottom: auto !important;
+  height: calc(var(--phone-vh, 100dvh) - var(--phone-safe-top) - var(--phone-nav-row-h, 40px) - var(--phone-tabbar-h)) !important;
+}
+[data-phone][data-phone-keyboard] [data-testid="web-assistant-layer"] {
+  z-index: 130 !important;
+  height: calc(var(--phone-vh, 100dvh) - var(--phone-safe-top) - var(--phone-nav-row-h, 40px)) !important;
+}
+[data-phone][data-phone-keyboard] [data-testid="web-assistant-popup"] {
+  padding-bottom: 0.5rem !important;
+}
+/* iPad web: keep the anchored popup above the keyboard too. */
+[data-tablet-keyboard] [data-testid="web-assistant-layer"] {
+  bottom: calc(var(--tablet-kb, 0px) + 8px) !important;
+  height: min(720px, calc(var(--tablet-vv-h, 100dvh) - 16px)) !important;
+}
