@@ -20,6 +20,15 @@ import { hasRenderedVideoAttachment } from "@/features/messages/lib/videoReviewC
 import { getThreadReference } from "@/features/messages/lib/threading";
 import { InboxFilterMenu } from "@/features/home/ui/InboxFilterMenu";
 import {
+  InboxReminderChips,
+  InboxTabBar,
+} from "@/features/home/ui/InboxTabBar";
+import {
+  INBOX_TAB_FILTERS,
+  type InboxTab,
+  type InboxTabCounts,
+} from "@/features/home/lib/inboxTabs";
+import {
   DraftsPanel,
   type DraftViewItem,
 } from "@/features/messages/ui/DraftsPanel";
@@ -224,6 +233,9 @@ type InboxListPaneProps = {
   filter: InboxFilter;
   items: InboxItem[];
   onFilterChange: (filter: InboxFilter) => void;
+  tab: InboxTab;
+  tabCounts: InboxTabCounts | undefined;
+  onTabChange: (tab: InboxTab) => void;
   onDeleteDraft: (draftKey: string) => void;
   onMarkRead: (itemId: string) => void;
   onMarkUnread: (itemId: string) => void;
@@ -249,12 +261,14 @@ export function InboxListPane({
   paging,
   activeReminderEventIds,
   agentPubkeys,
-  activeDraftCount,
   draftItems,
   doneSet,
   filter,
   items,
   onFilterChange,
+  tab,
+  tabCounts,
+  onTabChange,
   onDeleteDraft,
   onMarkRead,
   onMarkUnread,
@@ -277,7 +291,8 @@ export function InboxListPane({
 }: InboxListPaneProps) {
   const isReminders = filter === "reminders";
   const isDrafts = filter === "drafts";
-  const isMixedInboxView = filter === "all";
+  // Reminders live in their own tab now; never mix them into Inbox/Agents.
+  const isMixedInboxView = false;
   const scrollRef = React.useRef<HTMLDivElement>(null);
   useScrollRestore(isPhoneLayout() ? `phone-inbox:${filter}` : null, scrollRef);
   const inboxRows = React.useMemo(
@@ -618,7 +633,14 @@ export function InboxListPane({
       <TopChromeInsetHeader flush transparent>
         <div className="px-5 py-2">
           <div className="flex min-h-9 w-full min-w-0 items-center justify-between gap-3">
-            <div className="order-2 ml-auto flex shrink-0 items-center justify-end">
+            <div className="order-2 ml-auto flex shrink-0 items-center justify-end gap-0.5">
+              {tab !== "reminders" ? (
+                <InboxFilterMenu
+                  filter={filter}
+                  onFilterChange={onFilterChange}
+                  options={INBOX_TAB_FILTERS[tab]}
+                />
+              ) : null}
               <Popover>
                 <PopoverTrigger asChild>
                   <button
@@ -669,22 +691,29 @@ export function InboxListPane({
                 </PopoverContent>
               </Popover>
             </div>
-            <div className="order-1 flex shrink-0 items-center justify-start">
-              <InboxFilterMenu
-                activeDraftCount={activeDraftCount}
-                dueReminderCount={dueReminderCount}
-                filter={filter}
-                onFilterChange={onFilterChange}
-                reminderCount={reminders.length}
+            <div className="order-1 flex min-w-0 flex-1 items-center justify-start gap-1">
+              <InboxTabBar
+                counts={tabCounts}
+                onTabChange={onTabChange}
+                tab={tab}
               />
             </div>
           </div>
+          {tab === "reminders" ? (
+            <div className="flex items-center pb-1 pt-1.5">
+              <InboxReminderChips
+                dueReminderCount={dueReminderCount}
+                filter={filter}
+                onFilterChange={onFilterChange}
+              />
+            </div>
+          ) : null}
         </div>
       </TopChromeInsetHeader>
 
       {isReminders ? (
         <div
-          className="-mt-13 flex min-h-0 flex-1 flex-col overflow-hidden pt-13"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
           data-testid="home-inbox-reminders"
         >
           {reminderPubkey ? (
@@ -698,7 +727,7 @@ export function InboxListPane({
         </div>
       ) : isDrafts ? (
         <div
-          className="-mt-13 flex min-h-0 flex-1 flex-col overflow-hidden pt-13"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
           data-testid="home-inbox-drafts"
         >
           <DraftsPanel

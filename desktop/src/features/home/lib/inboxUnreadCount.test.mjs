@@ -3,7 +3,6 @@ import test from "node:test";
 
 import {
   countUnreadInboxItems,
-  deriveSidebarInboxUnreadCount,
   projectInboxEffectiveDoneSet,
 } from "./inboxUnreadCount.ts";
 
@@ -58,31 +57,4 @@ test("projectInboxEffectiveDoneSet marks channel rows at-or-below readAt", () =>
   });
   assert.equal(done.has("old"), true);
   assert.equal(done.has("new"), false);
-});
-
-test("deriveSidebarInboxUnreadCount uses all-filter and done set", () => {
-  const items = [
-    item({
-      id: "dm",
-      channelType: "dm",
-      categories: ["activity"],
-      latestActivityAt: 200,
-    }),
-    item({
-      id: "plain",
-      channelType: "group",
-      categories: ["activity"],
-      latestActivityAt: 200,
-      tags: [],
-    }),
-  ];
-  const done = new Set();
-  // DM matches all-view; plain group activity without thread/mention does not
-  // when ownedAgentPubkeys is empty.
-  const count = deriveSidebarInboxUnreadCount({
-    items,
-    doneSet: done,
-    ownedAgentPubkeys: new Set(),
-  });
-  assert.equal(count, 1);
 });

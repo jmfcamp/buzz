@@ -4,7 +4,6 @@ import {
   getInboxThreadRootId,
   resolveInboxItemReadAt,
 } from "@/features/home/useHomeInboxReadState";
-import { matchesInboxFilter } from "@/features/home/lib/inboxViewHelpers";
 
 /**
  * Same projection as `useHomeInboxReadState`'s `effectiveDoneSet`: NIP-RS
@@ -65,19 +64,4 @@ export function countUnreadInboxItems(
     if (!doneSet.has(item.id)) count += 1;
   }
   return count;
-}
-
-/**
- * Sidebar Inbox badge source: Inbox "all" filter rows that are still unread
- * under the same done-set projection as InboxListPane (Unread default view).
- */
-export function deriveSidebarInboxUnreadCount(input: {
-  items: readonly InboxItem[];
-  doneSet: ReadonlySet<string>;
-  ownedAgentPubkeys: ReadonlySet<string>;
-}): number {
-  const visible = input.items.filter((item) =>
-    matchesInboxFilter(item, "all", input.ownedAgentPubkeys),
-  );
-  return countUnreadInboxItems(visible, input.doneSet);
 }

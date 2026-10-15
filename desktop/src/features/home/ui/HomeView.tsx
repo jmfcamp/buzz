@@ -54,6 +54,13 @@ import { getHomeMessageCapabilities } from "@/features/home/lib/homeMessageCapab
 import { HomeLoadingState } from "@/features/home/ui/HomeLoadingState";
 import { InboxDetailPane } from "@/features/home/ui/InboxDetailPane";
 import { InboxListPane } from "@/features/home/ui/InboxListPane";
+import {
+  defaultFilterForTab,
+  inboxTabOf,
+  type InboxTab,
+  tabForFilter,
+} from "@/features/home/lib/inboxTabs";
+import { useInboxTabCounts } from "@/features/sidebar/lib/useSidebarInboxUnreadCount";
 import { HomePersonalInboxDetail } from "@/features/home/ui/HomePersonalInboxDetail";
 import {
   useChannelMessagesQuery,
@@ -130,6 +137,8 @@ export function HomeView({
     homeInboxWidthPx > 0 &&
     homeInboxWidthPx < INBOX_SINGLE_COLUMN_BREAKPOINT_PX;
   const [filter, setFilter] = React.useState<InboxFilter>("all");
+  const [inboxTab, setInboxTab] = React.useState<InboxTab>("inbox");
+  const inboxTabCounts = useInboxTabCounts();
   // Default Unread (show unread only). Persist explicit off as "false".
   const [unreadOnly, setUnreadOnly] = React.useState(
     () => getStorageItem(INBOX_UNREAD_ONLY_STORAGE_KEY) !== "false",
@@ -149,7 +158,7 @@ export function HomeView({
   const isReminders = filter === "reminders";
   const isDrafts = filter === "drafts";
   const isMessagesMode = !isReminders && !isDrafts;
-  const allowMixedPersonalSelection = filter === "all";
+  const allowMixedPersonalSelection = false;
   const {
     drafts: {
       activeCount: activeDraftCount,
@@ -458,9 +467,16 @@ export function HomeView({
   const selectedConversationId =
     selectedItemFromAll?.conversationId ?? latchedConversationId;
 
+  const tabInboxItems = React.useMemo(
+    () =>
+      inboxItems.filter(
+        (item) => inboxTabOf(item, ownedAgentPubkeys) === inboxTab,
+      ),
+    [inboxItems, inboxTab, ownedAgentPubkeys],
+  );
   const filteredItems = React.useMemo(
     () =>
-      selectVisibleInboxItems(inboxItems, {
+      selectVisibleInboxItems(tabInboxItems, {
         doneIds: effectiveDoneSet,
         filter,
         ownedAgentPubkeys,
@@ -470,7 +486,7 @@ export function HomeView({
     [
       effectiveDoneSet,
       filter,
-      inboxItems,
+      tabInboxItems,
       ownedAgentPubkeys,
       selectedConversationId,
       unreadOnly,
@@ -575,8 +591,16 @@ export function HomeView({
   }, [selectedConversationId]);
 
   const handleFilterChange = React.useCallback(
-    (nextFilter: InboxFilter) => {
-      const nextItems = selectVisibleInboxItems(inboxItems, {
+    (nextFilter: InboxFilter, explicitTab?: InboxTab) => {
+      const nextTab = explicitTab ?? tabForFilter(nextFilter, inboxTab);
+      if (nextTab !== inboxTab) setInboxTab(nextTab);
+      const nextTabItems =
+        nextTab === inboxTab
+          ? tabInboxItems
+          : inboxItems.filter(
+              (item) => inboxTabOf(item, ownedAgentPubkeys) === nextTab,
+            );
+      const nextItems = selectVisibleInboxItems(nextTabItems, {
         doneIds: effectiveDoneSet,
         filter: nextFilter,
         ownedAgentPubkeys,
@@ -613,6 +637,8 @@ export function HomeView({
       applyInboxSearchPatch,
       effectiveDoneSet,
       inboxItems,
+      inboxTab,
+      tabInboxItems,
       isNarrowHomeViewport,
       ownedAgentPubkeys,
       selectedConversationId,
@@ -621,6 +647,11 @@ export function HomeView({
       unreadOnly,
     ],
   );
+
+  const handleInboxTabChange = (nextTab: InboxTab) => {
+    if (nextTab === inboxTab) return;
+    handleFilterChange(defaultFilterForTab(nextTab), nextTab);
+  };
 
   if (isLoading && !feed) {
     return <HomeLoadingState />;
@@ -744,6 +775,9 @@ export function HomeView({
               items={filteredItems}
               onDeleteDraft={handleDeleteDraft}
               onFilterChange={handleFilterChange}
+              onTabChange={handleInboxTabChange}
+              tab={inboxTab}
+              tabCounts={inboxTabCounts}
               onMarkRead={markItemRead}
               onMarkUnread={markItemUnread}
               onOpenDirect={handleOpenDirect}
