@@ -32,8 +32,9 @@ export function WebDirectSignerCard() {
       <SettingsOptionGroup data-testid="web-direct-signer" title="Sign with your desktop">
         <SettingsOptionRow>
           <p className="text-sm font-normal text-muted-foreground/70" data-settings-subcopy>
-            Your desktop can sign for this browser over Direct (tailnet). Open Hula Buzz on your desktop, turn on Direct, and
-            make sure this device is on the same tailnet; pairing will show up here.
+            Direct requires Tailscale: this device and your desktop must both be on the same tailnet. Open Hula Buzz on your
+            desktop and turn on Direct; pairing will show up here. Not on Tailscale? Use "Sign in with your desktop" (sign-in
+            code), which works on any network.
           </p>
         </SettingsOptionRow>
       </SettingsOptionGroup>
@@ -67,7 +68,7 @@ export function WebDirectSignerCard() {
             </StatusChip>
           </p>
           <p className="text-sm font-normal text-muted-foreground/70" data-settings-subcopy>
-            Tap Pair, then click Allow on your desktop to approve this browser. While Direct is connected, your desktop signs messages, reactions, read markers and synced settings for this
+            Requires Tailscale (this device and your desktop on the same tailnet). Tap Pair, then click Allow on your desktop to approve this browser. While Direct is connected, your desktop signs messages, reactions, read markers and synced settings for this
             browser, so you wait less on your phone signer. Your desktop approves this browser once, and you can revoke it
             there. When the desktop isn't reachable, your usual signer is used.
           </p>
@@ -205,18 +206,21 @@ export function DesktopDirectSignerCard(props: { empty?: boolean } = {}) {
       </SettingsOptionRow>
     );
   };
-  const heading = (text: string, n: number) => (
+  const heading = (text: string, n: number, sub?: string) => (
     <SettingsOptionRow>
-      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        {text} ({n})
-      </p>
+      <div className="min-w-0">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          {text} ({n})
+        </p>
+        {sub && <p className="text-xs font-normal text-muted-foreground/70">{sub}</p>}
+      </div>
     </SettingsOptionRow>
   );
   return (
     <SettingsOptionGroup data-testid="desktop-direct-signer" title="Browsers that sign with this computer">
-      {code.length > 0 && heading("Sign-in code (any network)", code.length)}
+      {code.length > 0 && heading("Sign-in code (any network)", code.length, "Works from any network, no Tailscale needed.")}
       {code.map(row)}
-      {direct.length > 0 && heading("Direct", direct.length)}
+      {direct.length > 0 && heading("Direct (Tailscale)", direct.length, "Requires Tailscale: the browser or phone and this computer must be on the same tailnet. Use a sign-in code on any other network.")}
       {direct.map(row)}
       {revoked.length > 0 && (
         <SettingsOptionRow>
