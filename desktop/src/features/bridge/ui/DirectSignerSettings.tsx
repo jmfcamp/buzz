@@ -4,7 +4,8 @@ import * as React from "react";
 import { SettingsOptionGroup, SettingsOptionRow } from "@/features/settings/ui/SettingsOptionGroup";
 import { Button } from "@/shared/ui/button";
 import { getProxyDirect } from "../remoteCmd";
-import { revokeSignerDevice, localSignerStore, signerLog, subscribeSignerStore } from "../directSigner";
+import { revokeSignerDevice, localSignerStore, signerLog, subscribeSignerStore, type SignerDevice } from "../directSigner";
+import { describeDevice } from "../deviceMeta";
 import { describePairingError, DirectSignerClient, forgetAndRevoke, isPairedWith, PairingError, PAIRING_EVENT } from "../directSignerClient";
 import { useDirectState } from "./DirectAgentsPanel";
 import { StatusChip } from "./DesktopData";
@@ -128,12 +129,14 @@ function pairingDetails(e: PairingError, url: string, desktopId: string): string
 const kindName = (k: number) =>
   k < 0 ? "" : ({ 7: "reaction", 9: "message", 40002: "message", 40003: "edit", 40008: "edit", 45001: "post", 45003: "comment", 30078: "app data", 22242: "relay auth", 27235: "HTTP auth" } as Record<number, string>)[k] ?? `kind ${k}`;
 
-/** Desktop: browsers allowed to sign with this computer, their log, revoke. */
+/** Desktop: browsers allowed to sign with this computer, their log, revoke. Grouped by how they connect; revoked last. */
 export function DesktopDirectSignerCard(props: { empty?: boolean } = {}) {
   const v = React.useSyncExternalStore(subscribeSignerStore, () => localStorage.getItem("buzz-direct-signer-log") ?? "");
   const devices = React.useMemo(() => localSignerStore.devices(), [v]); // eslint-disable-line react-hooks/exhaustive-deps
   const log = React.useMemo(() => signerLog(), [v]); // eslint-disable-line react-hooks/exhaustive-deps
   const [open, setOpen] = React.useState<string | null>(null);
+  const [showRevoked, setShowRevoked] = React.useState(false);
+  const [copied, setCopied] = React.useState<string | null>(null);
   if (devices.length === 0)
     return props.empty ? (
       <SettingsOptionGroup data-testid="desktop-direct-signer" title="Browsers that sign with this computer">
@@ -144,43 +147,85 @@ export function DesktopDirectSignerCard(props: { empty?: boolean } = {}) {
         </SettingsOptionRow>
       </SettingsOptionGroup>
     ) : null;
+  const byNewest = (a: SignerDevice, b: SignerDevice) => b.approvedAt - a.approvedAt;
+  const active = devices.filter((d) => !d.revokedAt);
+  const code = active.filter((d) => d.via === "bunker").sort(byNewest);
+  const direct = active.filter((d) => d.via !== "bunker").sort(byNewest);
+  const revoked = devices.filter((d) => d.revokedAt).sort((a, b) => (b.revokedAt ?? 0) - (a.revokedAt ?? 0));
+  const row = (d: SignerDevice) => {
+    const entries = log.filter((e) => e.device === d.pubkey).slice(0, 50);
+    const lastUsed = entries.reduce((m, e) => Math.max(m, e.at), 0);
+    const sigs = entries.filter((e) => e.kind >= 0 && e.ok).length;
+    const info = describeDevice(d.meta, d.label);
+    const title = [info.browser, info.os && `on ${info.os}`].filter(Boolean).join(" ");
+    return (
+      <SettingsOptionRow key={d.pubkey}>
+        <div className="min-w-0 flex-1" data-testid="desktop-direct-signer-device">
+          <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
+            <span className="break-words">{title || d.label}</span>
+            <StatusChip tone={d.revokedAt ? "grey" : "green"}>{d.revokedAt ? "Revoked" : "Allowed"}</StatusChip>
+          </p>
+          <p className="text-sm font-normal text-muted-foreground/70 break-words" data-settings-subcopy>
+            {[info.mode, d.label !== title ? d.label : "", d.meta?.screen].filter(Boolean).join(" · ") || "No device details (paired before they were collected; pair again to fill them in)"}
+          </p>
+          <p className="text-sm font-normal text-muted-foreground/70 break-words" data-settings-subcopy>
+            Approved {new Date(d.approvedAt).toLocaleString()}
+            {d.revokedAt ? ` · revoked ${new Date(d.revokedAt).toLocaleString()}` : ""} · last used {lastUsed ? new Date(lastUsed).toLocaleString() : "never"} · {sigs} recent signatures
+          </p>
+          <p className="flex flex-wrap items-center gap-2 text-xs font-normal text-muted-foreground/70">
+            <span className="break-all font-mono">device {d.pubkey}</span>
+            <button
+              className="underline"
+              onClick={() => void navigator.clipboard?.writeText(d.pubkey).then(() => setCopied(d.pubkey), () => setCopied(null))}
+              type="button"
+            >
+              {copied === d.pubkey ? "Copied" : "Copy"}
+            </button>
+          </p>
+          <button className="text-sm text-muted-foreground underline" onClick={() => setOpen(open === d.pubkey ? null : d.pubkey)} type="button">
+            {open === d.pubkey ? "Hide log" : "Show log"}
+          </button>
+          {open === d.pubkey && (
+            <ul className="mt-1 max-h-48 overflow-auto text-xs text-muted-foreground" data-testid="desktop-direct-signer-log">
+              {entries.map((e, i) => (
+                <li key={`${e.at}-${i}`}>
+                  {new Date(e.at).toLocaleTimeString()} · {e.note ?? kindName(e.kind)}
+                  {e.note && e.kind >= 0 ? ` (${kindName(e.kind)})` : ""}
+                  {!e.ok && !e.note ? " · not signed" : ""}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        {!d.revokedAt && (
+          <Button data-testid="desktop-direct-signer-revoke" onClick={() => revokeSignerDevice(d.pubkey)} size="sm" variant="outline">
+            Revoke
+          </Button>
+        )}
+      </SettingsOptionRow>
+    );
+  };
+  const heading = (text: string, n: number) => (
+    <SettingsOptionRow>
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {text} ({n})
+      </p>
+    </SettingsOptionRow>
+  );
   return (
     <SettingsOptionGroup data-testid="desktop-direct-signer" title="Browsers that sign with this computer">
-      {devices.map((d) => {
-        const entries = log.filter((e) => e.device === d.pubkey).slice(0, 50);
-        return (
-          <SettingsOptionRow key={d.pubkey}>
-            <div className="min-w-0">
-              <p className="flex items-center gap-2 text-sm font-medium">
-                {d.label}
-                <StatusChip tone={d.revokedAt ? "grey" : "green"}>{d.revokedAt ? "Revoked" : "Allowed"}</StatusChip>
-              </p>
-              <p className="text-sm font-normal text-muted-foreground/70" data-settings-subcopy>
-                {d.via === "bunker" ? "Sign-in code (any network)" : "Direct"} · device {d.pubkey.slice(0, 12)}… · approved {new Date(d.approvedAt).toLocaleString()} · {entries.filter((e) => e.kind >= 0 && e.ok).length} recent signatures
-              </p>
-              <button className="text-sm text-muted-foreground underline" onClick={() => setOpen(open === d.pubkey ? null : d.pubkey)} type="button">
-                {open === d.pubkey ? "Hide log" : "Show log"}
-              </button>
-              {open === d.pubkey && (
-                <ul className="mt-1 max-h-48 overflow-auto text-xs text-muted-foreground" data-testid="desktop-direct-signer-log">
-                  {entries.map((e, i) => (
-                    <li key={`${e.at}-${i}`}>
-                      {new Date(e.at).toLocaleTimeString()} · {e.note ?? kindName(e.kind)}
-                      {e.note && e.kind >= 0 ? ` (${kindName(e.kind)})` : ""}
-                      {!e.ok && !e.note ? " · not signed" : ""}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            {!d.revokedAt && (
-              <Button data-testid="desktop-direct-signer-revoke" onClick={() => revokeSignerDevice(d.pubkey)} size="sm" variant="outline">
-                Revoke
-              </Button>
-            )}
-          </SettingsOptionRow>
-        );
-      })}
+      {code.length > 0 && heading("Sign-in code (any network)", code.length)}
+      {code.map(row)}
+      {direct.length > 0 && heading("Direct", direct.length)}
+      {direct.map(row)}
+      {revoked.length > 0 && (
+        <SettingsOptionRow>
+          <button className="text-sm text-muted-foreground underline" data-testid="desktop-direct-signer-revoked-toggle" onClick={() => setShowRevoked(!showRevoked)} type="button">
+            {showRevoked ? "Hide" : "Show"} revoked ({revoked.length})
+          </button>
+        </SettingsOptionRow>
+      )}
+      {showRevoked && revoked.map(row)}
     </SettingsOptionGroup>
   );
 }

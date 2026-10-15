@@ -14,6 +14,7 @@
 //      to anyone else needs a desktop prompt; decrypting from one of the user's OWN agents/bots (observer activity frames) runs
 //      without asking; decrypting from anyone else is not offered (the browser uses its remote signer).
 // Every signature is logged per device; Settings can revoke a device. The account key is never returned or exported.
+import { sanitizeDeviceMeta, type DeviceMeta } from "./deviceMeta";
 import { bunkerAutoKind } from "./bunkerProto";
 import {
   SIGNER_CAP_SIGN_ANY,
@@ -30,7 +31,7 @@ import {
 import { MgmtError } from "./mgmtError";
 
 /** via: how the browser reaches this desktop ("direct" = Direct/tailnet pairing, "bunker" = NIP-46 over the signer relay). */
-export type SignerDevice = { pubkey: string; label: string; approvedAt: number; revokedAt?: number; via?: "direct" | "bunker" };
+export type SignerDevice = { pubkey: string; label: string; approvedAt: number; revokedAt?: number; via?: "direct" | "bunker"; meta?: DeviceMeta };
 /** kind: event kind for signatures, -1 for pairing/revoke, -2 for encrypt/decrypt (note says which). */
 export type SignerLogEntry = { at: number; device: string; kind: number; ok: boolean; note?: string };
 
@@ -148,7 +149,7 @@ export function createDirectSigner(deps: SignerDeps) {
           deps.store.log({ at: deps.now(), device, kind: -1, ok, note: ok ? "paired" : "pairing declined" });
           if (!ok) throw new MgmtError("declined", "Declined on the desktop.");
           const others = deps.store.devices().filter((d) => d.pubkey !== device);
-          deps.store.saveDevices([...others, { pubkey: device, label, approvedAt: deps.now() }]);
+          deps.store.saveDevices([...others, { pubkey: device, label, approvedAt: deps.now(), via: "direct", meta: sanitizeDeviceMeta(p.meta) }]);
           return { approved: true };
         }
         case "signer.unpair": {
