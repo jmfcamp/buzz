@@ -18,6 +18,7 @@ import type {
 } from "@/shared/api/types";
 import { KIND_REMINDER } from "@/shared/constants/kinds";
 import { normalizePubkey } from "@/shared/lib/pubkey";
+import { isChannelSubscriptionFeedItem } from "./channelSubscriptionInbox";
 import { resolveMentionProps } from "@/shared/lib/resolveMentionNames";
 
 function hasThreadReplyTags(tags: string[][]) {
@@ -111,6 +112,15 @@ export function matchesInboxFilter(
     );
   }
 
+  // Assistant rows are pre-scoped to the Reminders & Assistant tab.
+  if (filter === "assistant") return true;
+
+  if (filter === "channel") {
+    return [item.item, ...(item.groupItems ?? [])].some((groupItem) =>
+      isChannelSubscriptionFeedItem(groupItem),
+    );
+  }
+
   if (filter === "project") {
     return [item.item, ...(item.groupItems ?? [])].some(
       (groupItem) => groupItem && isProjectInboxItem(groupItem),
@@ -146,6 +156,9 @@ export function matchesInboxAllView(
       (groupItem) => groupItem && isProjectInboxItem(groupItem),
     ) ||
     item.categories.includes("needs_action") ||
+    [item.item, ...(item.groupItems ?? [])].some((groupItem) =>
+      isChannelSubscriptionFeedItem(groupItem),
+    ) ||
     Boolean(
       representative &&
         ownedAgentPubkeys.has(normalizePubkey(representative.pubkey)),

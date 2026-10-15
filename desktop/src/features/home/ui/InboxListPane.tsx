@@ -27,6 +27,7 @@ import {
   INBOX_TAB_FILTERS,
   type InboxTab,
   type InboxTabCounts,
+  useCountAgentInfoItems,
 } from "@/features/home/lib/inboxTabs";
 import {
   DraftsPanel,
@@ -66,6 +67,8 @@ import { useScrollRestore } from "@/shared/lib/useScrollRestore";
 const INBOX_EMPTY_STATE_TITLES: Record<InboxFilter, string> = {
   all: "No activity yet",
   project: "No project work found",
+  channel: "No new posts in channels you get all messages from",
+  assistant: "No Assistant messages",
   mention: "No mentions found",
   dm: "No direct messages",
   thread: "No threads found",
@@ -78,6 +81,8 @@ const INBOX_EMPTY_STATE_TITLES: Record<InboxFilter, string> = {
 const INBOX_UNREAD_EMPTY_STATE_TITLES: Record<InboxFilter, string> = {
   all: "No unread activity",
   project: "No unread project work",
+  channel: "No unread channel posts",
+  assistant: "No unread Assistant messages",
   mention: "No unread mentions",
   dm: "No unread direct messages",
   thread: "No unread threads",
@@ -283,12 +288,13 @@ export function InboxListPane({
   selectedConversationId,
   selectedDraftKey,
   showRightDivider = false,
-  dueReminderCount,
   reminderPubkey,
   reminders,
   selectedReminderId,
   unreadOnly,
 }: InboxListPaneProps) {
+  const [countAgentInfoItems, setCountAgentInfoItems] =
+    useCountAgentInfoItems();
   const isReminders = filter === "reminders";
   const isDrafts = filter === "drafts";
   // Reminders live in their own tab now; never mix them into Inbox/Agents.
@@ -634,7 +640,7 @@ export function InboxListPane({
         <div className="px-5 py-2">
           <div className="flex min-h-9 w-full min-w-0 items-center justify-between gap-3">
             <div className="order-2 ml-auto flex shrink-0 items-center justify-end gap-0.5">
-              {tab !== "reminders" ? (
+              {tab === "inbox" || tab === "agents" ? (
                 <InboxFilterMenu
                   filter={filter}
                   onFilterChange={onFilterChange}
@@ -674,6 +680,21 @@ export function InboxListPane({
                       onCheckedChange={onUnreadOnlyChange}
                     />
                   </div>
+                  <div className="flex min-h-9 items-center justify-between gap-3 rounded-lg px-2 py-1.5">
+                    <label
+                      className="text-sm font-medium text-foreground"
+                      htmlFor="inbox-count-agent-info-switch"
+                    >
+                      Count agent “finished” and “PR opened” in badges
+                    </label>
+                    <Switch
+                      checked={countAgentInfoItems}
+                      className="shadow-none [&>span]:shadow-none"
+                      data-testid="inbox-count-agent-info-toggle"
+                      id="inbox-count-agent-info-switch"
+                      onCheckedChange={setCountAgentInfoItems}
+                    />
+                  </div>
                   <Separator className="my-1 bg-muted" />
                   <button
                     className="flex min-h-9 w-full items-center rounded-lg px-2 py-2 text-left text-sm transition-colors hover:bg-muted/50 disabled:pointer-events-none disabled:opacity-50"
@@ -702,7 +723,7 @@ export function InboxListPane({
           {tab === "reminders" ? (
             <div className="flex items-center pb-1 pt-1.5">
               <InboxReminderChips
-                dueReminderCount={dueReminderCount}
+                counts={tabCounts}
                 filter={filter}
                 onFilterChange={onFilterChange}
               />
@@ -739,7 +760,10 @@ export function InboxListPane({
         </div>
       ) : (
         <div
-          className="-mt-13 min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain pt-13"
+          className={cn(
+            "min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain",
+            tab === "reminders" ? null : "-mt-13 pt-13",
+          )}
           data-testid="home-inbox-list"
           ref={scrollRef}
         >

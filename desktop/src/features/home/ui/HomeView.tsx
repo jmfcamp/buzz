@@ -60,6 +60,7 @@ import {
   type InboxTab,
   tabForFilter,
 } from "@/features/home/lib/inboxTabs";
+import { useAssistantPubkey } from "@/shared/lib/assistantIdentity";
 import { useInboxTabCounts } from "@/features/sidebar/lib/useSidebarInboxUnreadCount";
 import { HomePersonalInboxDetail } from "@/features/home/ui/HomePersonalInboxDetail";
 import {
@@ -139,6 +140,7 @@ export function HomeView({
   const [filter, setFilter] = React.useState<InboxFilter>("all");
   const [inboxTab, setInboxTab] = React.useState<InboxTab>("inbox");
   const inboxTabCounts = useInboxTabCounts();
+  const assistantPubkey = useAssistantPubkey();
   // Default Unread (show unread only). Persist explicit off as "false".
   const [unreadOnly, setUnreadOnly] = React.useState(
     () => getStorageItem(INBOX_UNREAD_ONLY_STORAGE_KEY) !== "false",
@@ -470,9 +472,10 @@ export function HomeView({
   const tabInboxItems = React.useMemo(
     () =>
       inboxItems.filter(
-        (item) => inboxTabOf(item, ownedAgentPubkeys) === inboxTab,
+        (item) =>
+          inboxTabOf(item, ownedAgentPubkeys, assistantPubkey) === inboxTab,
       ),
-    [inboxItems, inboxTab, ownedAgentPubkeys],
+    [assistantPubkey, inboxItems, inboxTab, ownedAgentPubkeys],
   );
   const filteredItems = React.useMemo(
     () =>
@@ -598,7 +601,9 @@ export function HomeView({
         nextTab === inboxTab
           ? tabInboxItems
           : inboxItems.filter(
-              (item) => inboxTabOf(item, ownedAgentPubkeys) === nextTab,
+              (item) =>
+                inboxTabOf(item, ownedAgentPubkeys, assistantPubkey) ===
+                nextTab,
             );
       const nextItems = selectVisibleInboxItems(nextTabItems, {
         doneIds: effectiveDoneSet,
@@ -638,6 +643,7 @@ export function HomeView({
       effectiveDoneSet,
       inboxItems,
       inboxTab,
+      assistantPubkey,
       tabInboxItems,
       isNarrowHomeViewport,
       ownedAgentPubkeys,

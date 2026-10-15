@@ -13,6 +13,8 @@ import {
 } from "@/app/AppShell.helpers";
 import { useTerminalContext } from "@/app/useTerminalContext";
 import { AppShellProvider } from "@/app/AppShellContext";
+import { useChannelSubscriptionFeedItems } from "@/app/useChannelSubscriptionFeedItems";
+import { useChannelNotifySets } from "@/features/inbox/channelNotify";
 import { InboxBadgeSync } from "@/features/sidebar/lib/inboxBadgeStore";
 import { AppShellOverlays, TerminalBootstrap } from "@/app/AppShellOverlays";
 import { AppShellChannelSurface } from "@/app/AppShellChannelSurface";
@@ -673,8 +675,29 @@ export function AppShell() {
     mutedRootIds,
   });
   // Inbox one-to-one with notifications (fetched DMs/thread replies) + relay push prefs.
-  const inboxActivityFeedItems = useInboxPushPairing({ pubkey: identityQuery.data?.pubkey, channels, mentions: homeFeedQuery.data?.feed.mentions, liveItems: threadActivityFeedItems,
-    settings: notificationSettings.settings, followedRootIds, starredRootIds: starredThreadIds, mutedChannelIds, mutedRootIds, enabled: !isHuddleRoom });
+  // Channel notification levels (All messages / Mentions only / Mute) from the synced inbox-state doc.
+  const channelNotifySets = useChannelNotifySets(identityQuery.data?.pubkey);
+  const inboxMutedChannelIds = React.useMemo(() => {
+    if (channelNotifySets.muted.size === 0) return mutedChannelIds;
+    return new Set([...mutedChannelIds, ...channelNotifySets.muted]);
+  }, [channelNotifySets.muted, mutedChannelIds]);
+  const pairedInboxFeedItems = useInboxPushPairing({ pubkey: identityQuery.data?.pubkey, channels, mentions: homeFeedQuery.data?.feed.mentions, liveItems: threadActivityFeedItems,
+    settings: notificationSettings.settings, followedRootIds, starredRootIds: starredThreadIds, mutedChannelIds: inboxMutedChannelIds, mutedRootIds, enabled: !isHuddleRoom });
+  const channelSubscriptionFeedItems = useChannelSubscriptionFeedItems({
+    pubkey: identityQuery.data?.pubkey,
+    channels,
+    allChannelIds: channelNotifySets.all,
+    mutedChannelIds: inboxMutedChannelIds,
+    enabled: !isHuddleRoom,
+  });
+  const inboxActivityFeedItems = React.useMemo(() => {
+    if (channelSubscriptionFeedItems.length === 0) return pairedInboxFeedItems;
+    const seen = new Set(pairedInboxFeedItems.map((item) => item.id));
+    return [
+      ...pairedInboxFeedItems,
+      ...channelSubscriptionFeedItems.filter((item) => !seen.has(item.id)),
+    ];
+  }, [channelSubscriptionFeedItems, pairedInboxFeedItems]);
   const markAllChannelsRead = React.useCallback(() => {
     markAllReadSources({
       activeChannelId: activeChannel?.id ?? null,
@@ -965,6 +988,9 @@ export function AppShell() {
             isReadStateReady,
             setContextParentResolver,
             followThread: handleFollowThread,
+            mutedChannelIds,
+            muteChannel,
+            unmuteChannel,
             unfollowThread: handleUnfollowThread,
             isFollowingThread,
             isNotifiedForThread,

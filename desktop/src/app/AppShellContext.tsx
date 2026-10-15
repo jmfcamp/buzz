@@ -56,6 +56,9 @@ type AppShellContextValue = {
   // (NIP-RS hierarchical frontier). Set by the active channel surface.
   setContextParentResolver: (resolver: ContextParentResolver | null) => void;
   followThread: (rootId: string) => void;
+  mutedChannelIds: ReadonlySet<string>;
+  muteChannel: (channelId: string) => void;
+  unmuteChannel: (channelId: string) => void;
   unfollowThread: (rootId: string) => void;
   isFollowingThread: (rootId: string) => boolean;
   isNotifiedForThread: (rootId: string) => boolean;
@@ -108,6 +111,9 @@ const AppShellContext = React.createContext<AppShellContextValue>({
   isReadStateReady: false,
   setContextParentResolver: () => {},
   followThread: () => {},
+  mutedChannelIds: new Set<string>(),
+  muteChannel: () => {},
+  unmuteChannel: () => {},
   unfollowThread: () => {},
   isFollowingThread: () => false,
   isNotifiedForThread: () => false,

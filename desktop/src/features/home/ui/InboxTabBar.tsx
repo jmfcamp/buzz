@@ -74,19 +74,19 @@ export function InboxTabBar({
   );
 }
 
-/** Reminders / Drafts chips for the third tab. Drafts never carry a badge. */
+/** Reminders / Assistant chips for the "Reminders & Assistant" tab. */
 export function InboxReminderChips({
-  dueReminderCount,
+  counts,
   filter,
   onFilterChange,
 }: {
-  dueReminderCount: number;
+  counts: InboxTabCounts | undefined;
   filter: InboxFilter;
   onFilterChange: (filter: InboxFilter) => void;
 }) {
-  const chips: Array<{ value: InboxFilter; label: string }> = [
-    { value: "reminders", label: "Reminders" },
-    { value: "drafts", label: "Drafts" },
+  const chips: Array<{ value: InboxFilter; label: string; count: number }> = [
+    { value: "reminders", label: "Reminders", count: counts?.dueReminders ?? 0 },
+    { value: "assistant", label: "Assistant", count: counts?.assistant ?? 0 },
   ];
   return (
     <div className="flex items-center gap-1" data-testid="inbox-reminder-chips">
@@ -107,8 +107,8 @@ export function InboxReminderChips({
             type="button"
           >
             {chip.label}
-            {chip.value === "reminders" && dueReminderCount > 0 ? (
-              <span className={BADGE_CLASS}>{formatBadge(dueReminderCount)}</span>
+            {chip.count > 0 ? (
+              <span className={BADGE_CLASS}>{formatBadge(chip.count)}</span>
             ) : null}
           </button>
         );
