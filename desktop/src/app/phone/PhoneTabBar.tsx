@@ -4,7 +4,10 @@ import * as ReactRuntime from "react";
 import { useUserProfileQuery } from "@/features/profile/hooks";
 import { useAssistantPubkey } from "@/shared/lib/assistantIdentity";
 
-import { openWebAssistant } from "@/features/assistant/ui/WebAssistant";
+import {
+  toggleWebAssistant,
+  useWebAssistantOpen,
+} from "@/features/assistant/ui/WebAssistant";
 
 import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
 import { useSidebarMenuCounts } from "@/features/sidebar/lib/useSidebarMenuCounts";
@@ -15,7 +18,11 @@ import type { PhoneTab } from "./phoneTabs";
 
 // Me (avatar) first, then Inbox, Channels, Buzz Term. Search moved to the top nav row (PhoneNavRow); the bottom-right
 // slot is the "Assist" tab.
-const TABS: { id: PhoneTab; label: string; Icon?: React.ComponentType<{ className?: string }> }[] = [
+const TABS: {
+  id: PhoneTab;
+  label: string;
+  Icon?: React.ComponentType<{ className?: string }>;
+}[] = [
   { id: "me", label: "Me" },
   { id: "inbox", label: "Inbox", Icon: Inbox },
   { id: "channels", label: "Channels", Icon: MessagesSquare },
@@ -27,16 +34,23 @@ const TABS: { id: PhoneTab; label: string; Icon?: React.ComponentType<{ classNam
 function PhoneAssistTab() {
   const assistantPubkey = useAssistantPubkey();
   const profile = useUserProfileQuery(assistantPubkey ?? undefined).data;
-  const avatarUrl = assistantPubkey ? profile?.avatarUrl ?? null : null;
+  const avatarUrl = assistantPubkey ? (profile?.avatarUrl ?? null) : null;
   const [failed, setFailed] = ReactRuntime.useState<string | null>(null);
   const showAvatar = Boolean(avatarUrl) && failed !== avatarUrl;
+  const open = useWebAssistantOpen();
   return (
     <button
+      aria-current={open ? "page" : undefined}
       aria-label="Assist"
-      className="phone-tab flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-md text-[10px] font-medium text-white/60"
+      className={cn(
+        "phone-tab flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-md text-[10px] font-medium",
+        open ? "text-white" : "text-white/60",
+      )}
       data-testid="phone-tab-assistant"
-      onClick={() => openWebAssistant()}
-      title={profile?.displayName ? `Assist — ${profile.displayName}` : "Assist"}
+      onClick={() => toggleWebAssistant()}
+      title={
+        profile?.displayName ? `Assist — ${profile.displayName}` : "Assist"
+      }
       type="button"
     >
       <span className="relative flex items-center justify-center">
@@ -50,7 +64,10 @@ function PhoneAssistTab() {
             src={avatarUrl}
           />
         ) : (
-          <Bot className="h-[22px] w-[22px]" data-testid="phone-tab-assistant-robot" />
+          <Bot
+            className="h-[22px] w-[22px]"
+            data-testid="phone-tab-assistant-robot"
+          />
         )}
       </span>
       <span className="truncate">Assist</span>
