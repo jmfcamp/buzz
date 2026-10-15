@@ -298,6 +298,7 @@ export function WebAssistantSheet() {
             agentPubkey={picked}
             key={`${picked}:${instance}`}
             onMinimize={() => setMode("minimized")}
+            visible={mode === "open"}
             onOpenConversation={(channel) => {
               // Navigating on: leave the sentinel entry in place (popping it would race the navigation).
               sentinelRef.current = false;

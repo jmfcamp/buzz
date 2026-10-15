@@ -3,16 +3,42 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 
-import { proxyDirectLive, subscribeProxy } from "@/features/bridge/remoteCmd";
+import {
+  getProxyDirect,
+  proxyDirectLive,
+  subscribeProxy,
+} from "@/features/bridge/remoteCmd";
 import { useCommunities } from "@/features/communities/useCommunities";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import { invokeTauri } from "@/shared/api/tauri";
 
 import type { AssistantDataKind } from "./directBackend";
 
+/**
+ * Notifies on both a swap of the shared Direct client and a change of that client's own state (connect/drop).
+ * Subscribing to the swap alone missed the connect itself, so these sections stayed "Needs Direct" after Direct came up.
+ */
+export function subscribeDirectLive(fn: () => void): () => void {
+  let bound = getProxyDirect();
+  let inner = bound?.subscribe(fn);
+  const off = subscribeProxy(() => {
+    const next = getProxyDirect();
+    if (next !== bound) {
+      inner?.();
+      bound = next;
+      inner = next?.subscribe(fn);
+    }
+    fn();
+  });
+  return () => {
+    off();
+    inner?.();
+  };
+}
+
 export function useDirectLive(): boolean {
   return React.useSyncExternalStore(
-    subscribeProxy,
+    subscribeDirectLive,
     proxyDirectLive,
     () => false,
   );
