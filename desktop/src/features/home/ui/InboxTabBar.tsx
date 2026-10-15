@@ -13,7 +13,7 @@ function formatBadge(n: number) {
   return n > 99 ? "99+" : String(n);
 }
 
-/** People / Agents / For you / Drafts tabs, each with its own unread badge. */
+/** People / Agents / Personal / Drafts tabs, each with its own unread badge. */
 export function InboxTabBar({
   counts,
   onTabChange,
@@ -67,7 +67,7 @@ export function InboxTabBar({
   );
 }
 
-/** Reminders / Assistant chips for the "For you" tab. */
+/** Reminders / Assistant chips for the "Personal" tab. */
 export function InboxReminderChips({
   counts,
   filter,

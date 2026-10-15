@@ -1,5 +1,5 @@
 import * as React from "react";
-// Inbox tabs: People / Agents / For you (reminders + assistant) / Drafts.
+// Inbox tabs: People / Agents / Personal (reminders + assistant) / Drafts.
 // One shared source for tab membership, per-tab filters and badge counts so
 // the Inbox tabs, sidebar/phone tab bar and the app icon badge never disagree.
 import type { FeedItem } from "@/shared/api/types";
@@ -12,7 +12,7 @@ export type InboxTab = "inbox" | "agents" | "reminders" | "drafts";
 export const INBOX_TABS: ReadonlyArray<{ value: InboxTab; label: string }> = [
   { value: "inbox", label: "People" },
   { value: "agents", label: "Agents" },
-  { value: "reminders", label: "For you" },
+  { value: "reminders", label: "Personal" },
   { value: "drafts", label: "Drafts" },
 ];
 
