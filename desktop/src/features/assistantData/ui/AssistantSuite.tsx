@@ -42,6 +42,9 @@ import type {
 import type { BestieJob, BestieJobSchedule } from "../core/bestieJobTypes";
 import type { BestieScratchNote } from "../core/bestieScratchTypes";
 import type { BestieTrackedThread } from "../core/bestieThreadTypes";
+import { getProxyDirect, subscribeProxy } from "@/features/bridge/remoteCmd";
+import { useDesktopData } from "@/features/bridge/ui/DesktopData";
+
 import { useAssistantData, useDirectLive } from "../dataStore";
 
 export type SuiteCategory =
@@ -257,8 +260,11 @@ function Syncing() {
   );
 }
 
-/** Shown instead of a desktop-run section when Direct is down. */
+/** Shown instead of a desktop-run section when Direct is down: says why (no secrets) and offers a Retry. */
 function NeedsDirect({ what }: { what: string }) {
+  const { reason } = useDesktopData();
+  const direct = React.useSyncExternalStore(subscribeProxy, getProxyDirect);
+  const connecting = direct?.state === "connecting";
   return (
     <div
       className="rounded-md border border-dashed border-border px-3 py-4 text-center text-sm text-muted-foreground opacity-70"
@@ -269,6 +275,20 @@ function NeedsDirect({ what }: { what: string }) {
         {what} run on your desktop app. Connect it with Direct to see and manage
         them here.
       </div>
+      <div className="mt-1 break-words text-2xs" data-testid="assistant-needs-direct-reason">
+        {reason}
+      </div>
+      {direct ? (
+        <button
+          className="mt-2 text-xs underline"
+          data-testid="assistant-needs-direct-retry"
+          disabled={connecting}
+          onClick={() => void direct.connect().catch(() => {})}
+          type="button"
+        >
+          {connecting ? "Waiting for your signer…" : "Retry"}
+        </button>
+      ) : null}
     </div>
   );
 }

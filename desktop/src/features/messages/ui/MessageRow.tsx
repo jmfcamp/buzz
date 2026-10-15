@@ -459,10 +459,10 @@ export const MessageRow = React.memo(
           {message.pending ? (
             sendEntry?.phase === "failed" ? (
               <p
-                className="flex flex-wrap items-baseline gap-2 rounded-md border border-border/70 bg-muted/60 px-2 py-1 font-normal text-muted-foreground"
+                className="flex min-w-0 max-w-full basis-full flex-wrap items-baseline gap-x-2 gap-y-0.5 whitespace-normal rounded-md border border-border/70 bg-muted/60 px-2 py-1 font-normal text-muted-foreground"
                 data-testid="message-send-failed"
               >
-                <span>Failed — {sendEntry.reason}</span>
+                <span className="min-w-0 break-words">Failed — {sendEntry.reason}</span>
                 {sendEntry.retry ? (
                   <button
                     className="font-medium underline"

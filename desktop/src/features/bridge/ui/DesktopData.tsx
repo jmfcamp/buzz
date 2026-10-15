@@ -35,6 +35,26 @@ export function useAutoDirectOnOpen() {
   }, [direct]);
 }
 
+/**
+ * The Assist popup's desktop-run sections (Jobs, Coffee, Threads, Scratch): connect once when it opens, and bring a
+ * dropped connection back when the page is visible again. Never retries after the user declined the signer request.
+ */
+export function useAutoDirectWhileOpen(open = true) {
+  const direct = React.useSyncExternalStore(subscribeProxy, getProxyDirect);
+  React.useEffect(() => {
+    if (!open || !isWebBuild() || !direct) return;
+    void direct.autoConnect();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void direct.autoReconnect();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      direct.resetAuto();
+    };
+  }, [direct, open]);
+}
+
 /** Shown on web when the desktop's data isn't available: says why and offers a Retry. */
 export function DesktopDataNotice(props: { what?: string }) {
   const { web, live, reason } = useDesktopData();

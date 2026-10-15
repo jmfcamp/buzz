@@ -50,7 +50,15 @@ import { TypingIndicatorRow } from "@/features/messages/ui/TypingIndicatorRow";
 import { useChannelTyping } from "@/features/messages/useChannelTyping";
 import { useThreadRepliesForRoots } from "@/features/messages/useThreadReplies";
 
+import { useAppShell } from "@/app/AppShellContext";
+import { useAutoDirectWhileOpen } from "@/features/bridge/ui/DesktopData";
+
 import { useDirectLive } from "../dataStore";
+import { planAssistantSeenReads } from "../seenReads";
+import {
+  readConversationStart,
+  writeConversationStart,
+} from "../conversationStart";
 import { applyAssistantListFencesFromMessage } from "@/features/assistantLists/listFences";
 import { applyWebUserIntents } from "../webIntents";
 import { AssistantListsCard, useSuiteSummary } from "./AssistantSuite";
@@ -59,6 +67,8 @@ import { AssistantListsCard, useSuiteSummary } from "./AssistantSuite";
 // desktop transcript; their changes show up in Lists.
 const ACTION_FENCE =
   /```[a-z]+-(?:list|lists|job|jobs|scratch|coffee|thread|threads)\b[\s\S]*?```/gi;
+
+const CLOSE_THREAD_CONFIRM_MS = 4000;
 
 export function displayText(content: string) {
   return stripAssistantListHint(content)
@@ -89,6 +99,7 @@ export function AssistantPopoverBody({
   fallbackAvatarUrl,
   onMinimize,
   onOpenConversation,
+  visible = true,
 }: {
   agentPubkey: string;
   fallbackName?: string;
@@ -96,6 +107,8 @@ export function AssistantPopoverBody({
   onClose?: () => void;
   onMinimize: () => void;
   onOpenConversation: (channel: Channel | null) => void;
+  /** False while the popup is minimized (still mounted, hidden): nothing counts as seen then. */
+  visible?: boolean;
 }) {
   const identity = useIdentityQuery().data;
   const me = identity?.pubkey?.toLowerCase();
@@ -124,6 +137,10 @@ export function AssistantPopoverBody({
     (a) => a.pubkey.toLowerCase() === agentPubkey,
   );
   const directLive = useDirectLive();
+  // Jobs / Coffee / Threads / Scratch are read from the desktop over Direct: connect when the popup opens instead of
+  // waiting for the Agents or Settings page to do it (they were the only callers, so these sections never loaded).
+  useAutoDirectWhileOpen(visible);
+  const { markChannelRead, markMessageRead, markThreadRead } = useAppShell();
   const [starting, setStarting] = React.useState(false);
   const start = async () => {
     setStarting(true);
@@ -250,10 +267,19 @@ export function AssistantPopoverBody({
       ? threadReplies.events.reduce(mergeMessages, base)
       : base;
   }, [events, threadReplies.events]);
+  // "Close Thread" (desktop parity): later opens start blank; earlier messages stay in the full conversation view.
+  const [conversationStart, setConversationStart] = React.useState(() =>
+    readConversationStart(me, agentPubkey),
+  );
+  React.useEffect(() => {
+    setConversationStart(readConversationStart(me, agentPubkey));
+  }, [me, agentPubkey]);
   const messages = React.useMemo<TimelineMessage[]>(() => {
     if (!channel) return [];
     return formatTimelineMessages(
-      [...merged].sort((a, b) => a.created_at - b.created_at),
+      [...merged]
+        .filter((e) => e.created_at > conversationStart)
+        .sort((a, b) => a.created_at - b.created_at),
       channel,
       me,
       myProfile?.avatarUrl ?? null,
@@ -266,7 +292,7 @@ export function AssistantPopoverBody({
       .map((m) => ({ ...m, body: displayText(m.body ?? ""), depth: 0 }))
       .filter((m) => m.body)
       .slice(-80);
-  }, [channel, merged, me, myProfile?.avatarUrl, profiles]);
+  }, [channel, merged, me, myProfile?.avatarUrl, profiles, conversationStart]);
   const mainEntries = React.useMemo(
     () => messages.map((message) => ({ message, summary: null })),
     [messages],
@@ -298,6 +324,75 @@ export function AssistantPopoverBody({
     void tailKey;
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [tailKey]);
+
+  // The Assistant's messages you've seen here are read: advance the same synced read markers the channel view uses
+  // (per-message for thread replies, the channel's top-level marker otherwise) so Inbox → Assistant doesn't show them
+  // as unread. Only while the popup is open on the Chat tab and the page is visible.
+  const chatShown = visible && (!tabbed || tab === "chat");
+  const [pageVisible, setPageVisible] = React.useState(
+    () => typeof document === "undefined" || document.visibilityState === "visible",
+  );
+  React.useEffect(() => {
+    const on = () => setPageVisible(document.visibilityState === "visible");
+    document.addEventListener("visibilitychange", on);
+    return () => document.removeEventListener("visibilitychange", on);
+  }, []);
+  const markedSeen = React.useRef(new Set<string>());
+  React.useEffect(() => {
+    if (!chatShown || !pageVisible || !channel) return;
+    const shownIds = new Set(messages.map((m) => m.id));
+    const plan = planAssistantSeenReads(
+      merged.filter((e) => shownIds.has(e.id)),
+      agentPubkey,
+      markedSeen.current,
+    );
+    for (const r of plan.replies) {
+      markMessageRead(r.id, r.createdAt);
+      if (r.rootId) markThreadRead(r.rootId, r.createdAt);
+    }
+    if (plan.topLevelAt !== null) {
+      markChannelRead(channel.id, new Date(plan.topLevelAt * 1_000).toISOString(), {
+        preserveForcedUnread: true,
+        topLevelOnly: true,
+      });
+    }
+    for (const id of plan.ids) markedSeen.current.add(id);
+  }, [
+    chatShown,
+    pageVisible,
+    channel,
+    messages,
+    merged,
+    agentPubkey,
+    markChannelRead,
+    markMessageRead,
+    markThreadRead,
+  ]);
+
+  const [closeConfirm, setCloseConfirm] = React.useState(false);
+  React.useEffect(() => {
+    if (!closeConfirm) return;
+    const t = window.setTimeout(() => setCloseConfirm(false), CLOSE_THREAD_CONFIRM_MS);
+    return () => window.clearTimeout(t);
+  }, [closeConfirm]);
+  React.useEffect(() => {
+    if (!visible) setCloseConfirm(false);
+  }, [visible]);
+  // Same two-step as the desktop: first click arms "Confirm?", second ends the conversation and closes the popup.
+  const onCloseThreadClick = () => {
+    if (!closeConfirm) {
+      setCloseConfirm(true);
+      return;
+    }
+    const latest = merged.reduce((t, e) => Math.max(t, e.created_at), 0);
+    const at = Math.max(Math.floor(Date.now() / 1000), latest);
+    writeConversationStart(me, agentPubkey, at);
+    setConversationStart(at);
+    setDraft("");
+    setError(null);
+    setCloseConfirm(false);
+    onMinimize();
+  };
 
   const sendMessage = async () => {
     const content = draft.trim();
@@ -412,6 +507,23 @@ export function AssistantPopoverBody({
               : directLive
                 ? "Start"
                 : "Start · Needs Direct"}
+          </Button>
+        ) : null}
+        {messages.length > 0 ? (
+          <Button
+            aria-label={closeConfirm ? "Confirm close thread" : "Close Thread"}
+            className={
+              closeConfirm
+                ? "h-7 shrink-0 rounded-full px-2.5 text-xs font-medium shadow-none"
+                : "h-7 shrink-0 rounded-full border border-border/50 bg-muted/45 px-2.5 text-xs font-medium text-foreground shadow-none hover:bg-muted/70"
+            }
+            data-testid="web-assistant-close-thread"
+            onClick={onCloseThreadClick}
+            size="xs"
+            type="button"
+            variant={closeConfirm ? "destructive" : "ghost"}
+          >
+            {closeConfirm ? "Confirm?" : "Close Thread"}
           </Button>
         ) : null}
         <div className="flex shrink-0 items-center gap-1">
@@ -545,7 +657,7 @@ export function AssistantPopoverBody({
           </div>
           {/* Fixed-height slot, always present: the typing line fades in/out without shifting the composer or chat. */}
           <div
-            className="flex h-6 w-full items-center pl-2 pr-1"
+            className="my-0.5 flex h-4 w-full items-center pl-2 pr-1 text-xs leading-4"
             data-testid="web-assistant-typing-slot"
           >
             {typingPubkeys.length > 0 && channel ? (
