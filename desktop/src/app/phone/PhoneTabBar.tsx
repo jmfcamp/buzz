@@ -104,6 +104,8 @@ export function PhoneTabBar({
     ...badges,
     inbox: preferences.inbox ? (counts.inbox ?? 0) : 0,
   };
+  // While the Assistant popup is open, Assist is the selected tab (the page behind keeps its own tab).
+  const assistantOpen = useWebAssistantOpen();
   return (
     <nav
       aria-label="Primary"
@@ -111,7 +113,7 @@ export function PhoneTabBar({
       data-testid="phone-tabbar"
     >
       {TABS.map(({ id, label, Icon }) => {
-        const isActive = id === active;
+        const isActive = id === active && !assistantOpen;
         return (
           <button
             aria-label={label}

@@ -168,7 +168,11 @@ function installPhoneViewportHeight(mql: MediaQueryList): void {
     // The soft keyboard is up when the visual viewport is much shorter than the layout viewport (or than the
     // largest height seen, for engines that resize both).
     maxH = Math.max(maxH, window.innerHeight, h);
-    const keyboard = h < maxH - 150;
+    // Only a focused text field can have the keyboard up. After the app is backgrounded and resumed, iOS can report a
+    // stale short visual viewport with nothing focused; treating that as "keyboard open" left the shell shrunk to the
+    // top half with a dark band below.
+    const keyboard = isEditableFocused() && h < maxH - 150;
+    if (!keyboard) h = Math.max(h, window.innerHeight);
     if (keyboard) root.setAttribute("data-phone-keyboard", "");
     else root.removeAttribute("data-phone-keyboard");
     // Installed iOS PWA: the visual/inner height can come up short of the full screen (status-bar and home
@@ -208,6 +212,17 @@ function installPhoneViewportHeight(mql: MediaQueryList): void {
       }
     }
   };
+  // Coming back to the app: the keyboard is gone even if a field still holds focus. Blur that stale focus and
+  // re-measure a few times while iOS settles the viewport.
+  const resume = () => {
+    if (document.visibilityState !== "visible") return;
+    const el = document.activeElement;
+    if (el instanceof HTMLElement && isEditableElement(el)) el.blur();
+    for (const ms of [0, 100, 400, 1000]) window.setTimeout(sync, ms);
+  };
+  document.addEventListener("visibilitychange", resume);
+  window.addEventListener("pageshow", resume);
+  window.addEventListener("focus", () => { for (const ms of [0, 300]) window.setTimeout(sync, ms); });
   // Re-sync too: closing a popover (e.g. the reaction picker) drops the keyboard, and the shell must regrow so the
   // composer is back at the bottom of the screen.
   document.addEventListener("focusout", () => { for (const ms of [50, 300]) window.setTimeout(sync, ms); }, true);
@@ -349,4 +364,18 @@ export function usePhoneLayout(): boolean {
     isPhoneLayout,
     () => false,
   );
+}
+
+function isEditableElement(el: Element): boolean {
+  if (el instanceof HTMLTextAreaElement) return !el.readOnly && !el.disabled;
+  if (el instanceof HTMLInputElement) {
+    const t = el.type;
+    return !el.readOnly && !el.disabled && !["button", "checkbox", "radio", "range", "submit", "reset", "file", "color", "image", "hidden"].includes(t);
+  }
+  return el instanceof HTMLElement && el.isContentEditable;
+}
+
+function isEditableFocused(): boolean {
+  const el = document.activeElement;
+  return Boolean(el && el !== document.body && isEditableElement(el));
 }

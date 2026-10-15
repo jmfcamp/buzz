@@ -54,6 +54,7 @@ import { isPositiveEmojiParticle } from "@/shared/ui/EmojiBurstProvider";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { ProtectedMessageAction } from "@protected-feature-components";
+import { WebAskAssistantMessageAction } from "@/features/assistant/ui/WebAssistant";
 import { RelayImg } from "@/shared/ui/RelayImg";
 
 const ACTION_BUTTON_CLASS = "h-8 w-8 rounded-full p-0";
@@ -580,6 +581,10 @@ export const MessageActionBar = React.memo(function MessageActionBar({
           ) : null}
 
           <ProtectedMessageAction channelId={channelId} message={message} />
+          <WebAskAssistantMessageAction
+            channelId={channelId}
+            message={message}
+          />
 
           {hasReactionAction && quickReactionItems.length > 0 ? (
             <div

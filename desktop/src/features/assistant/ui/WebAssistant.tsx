@@ -10,6 +10,10 @@ import { Bot, ChevronDown, Star } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
+import { buildAskContext, queueAsk } from "@/features/assistant/askBus";
+import type { TimelineMessage } from "@/features/messages/types";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
+
 import { ProfileAgentActionRow } from "@/features/profile/ui/UserProfileAgentManagementRows";
 import {
   AlertDialog,
@@ -413,5 +417,41 @@ export function WebAssistSidebarButton() {
     >
       <AssistantGlyph className="h-6 w-6" robotClassName="h-[18px] w-[18px]" />
     </button>
+  );
+}
+
+/** Web "Ask Assistant about this message" (message action bar): opens the popup with the message context drafted. */
+export function WebAskAssistantMessageAction({
+  channelId,
+  message,
+}: {
+  channelId?: string | null;
+  message: TimelineMessage;
+}) {
+  const me = useIdentityQuery().data?.pubkey;
+  const picked = useSyncedAssistant(me);
+  if (!isWebAssistantAvailable() || !picked || !channelId) return null;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          aria-label="Ask Assistant about this message"
+          className="h-8 w-8 rounded-full p-0"
+          data-testid={`web-assistant-ask-${message.id}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            const text = buildAskContext(channelId, message);
+            if (text) queueAsk(text);
+            openWebAssistant();
+          }}
+          size="sm"
+          type="button"
+          variant="ghost"
+        >
+          <AssistantGlyph className="h-5 w-5" robotClassName="h-4 w-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>Ask Assistant</TooltipContent>
+    </Tooltip>
   );
 }
