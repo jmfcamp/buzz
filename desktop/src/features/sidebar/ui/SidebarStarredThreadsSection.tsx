@@ -77,6 +77,7 @@ function StarredThreadRow({
     ? formatWorkingTooltip(activeWorking)
     : undefined;
   const rowLabel = `${displayTitle} · #${entry.channelName}`;
+  const suppressCloseAutoFocusRef = React.useRef(false);
 
   return (
     <ContextMenu>
@@ -144,7 +145,13 @@ function StarredThreadRow({
           </SidebarMenuButton>
         </SidebarMenuItem>
       </ContextMenuTrigger>
-      <ContextMenuContent>
+      <ContextMenuContent
+        onCloseAutoFocus={(event) => {
+          // Opening Rename mounts a modal Dialog; Radix would restore focus to
+          // the row and immediately dismiss that Dialog (flash then gone).
+          if (suppressCloseAutoFocusRef.current) event.preventDefault();
+        }}
+      >
         <AddSurfaceTabMenuItem
           divided
           label={displayTitle}
@@ -158,7 +165,13 @@ function StarredThreadRow({
           <ContextMenuItem
             data-testid={`starred-thread-rename-${entry.rootId}`}
             onSelect={() => {
-              deferMenuAction(onRename);
+              suppressCloseAutoFocusRef.current = true;
+              deferMenuAction(() => {
+                onRename();
+                globalThis.setTimeout(() => {
+                  suppressCloseAutoFocusRef.current = false;
+                }, 400);
+              });
             }}
           >
             <Pencil className="h-4 w-4" />
@@ -198,7 +211,12 @@ export function SidebarStarredThreadsSection({
   const location = useLocation();
   const { unreadThreadFeedItems } = useAppShell();
   const { labelFor, setThreadLabel } = useThreadLabels(currentPubkey);
-  const [renameRootId, setRenameRootId] = React.useState<string | null>(null);
+  // Snapshot the row when Rename is chosen so a starred-list refresh mid-dialog
+  // (thread-labels sync) cannot drop the rename target and close the dialog.
+  const [renameTarget, setRenameTarget] = React.useState<{
+    rootId: string;
+    title: string;
+  } | null>(null);
   const selectedThreadRootId = React.useMemo(
     () => selectedThreadRootFromSearch(location.search),
     [location.search],
@@ -214,34 +232,41 @@ export function SidebarStarredThreadsSection({
     }
     return counts;
   }, [items, unreadThreadFeedItems]);
-  const threadTabLabels = React.useMemo(
+  // Value-stable key so thread-labels sync re-notifies (new labelFor identity)
+  // do not thrash surface-tab renames / remounts while the rename dialog is open.
+  const threadTabLabelsKey = React.useMemo(
     () =>
-      items.map((entry) => ({
-        channelId: entry.channelId,
-        label: starredThreadTitle(entry.title, labelFor(entry.rootId)?.name),
-        rootId: entry.rootId,
-      })),
+      items
+        .map((entry) => {
+          const saved = labelFor(entry.rootId)?.name ?? "";
+          return `${entry.rootId}\0${entry.channelId}\0${starredThreadTitle(entry.title, saved)}`;
+        })
+        .join("\n"),
     [items, labelFor],
   );
   React.useEffect(() => {
     if (!surfaceTabs) return;
-    for (const item of threadTabLabels) {
-      surfaceTabs.renameThreadTab(item);
+    for (const entry of items) {
+      surfaceTabs.renameThreadTab({
+        channelId: entry.channelId,
+        label: starredThreadTitle(entry.title, labelFor(entry.rootId)?.name),
+        rootId: entry.rootId,
+      });
     }
-  }, [surfaceTabs, threadTabLabels]);
+  }, [surfaceTabs, threadTabLabelsKey, items, labelFor]);
   const contentId = "sidebar-starred-threads-list";
 
-  if (items.length === 0) {
+  const renameLabel = renameTarget ? labelFor(renameTarget.rootId) : undefined;
+
+  // Keep the rename dialog mounted even if the starred list is briefly empty
+  // (e.g. sync refresh), so a mid-open rename does not unmount/crash.
+  if (items.length === 0 && renameTarget === null) {
     return null;
   }
 
-  const renameEntry = renameRootId
-    ? items.find((entry) => entry.rootId === renameRootId)
-    : undefined;
-  const renameLabel = renameRootId ? labelFor(renameRootId) : undefined;
-
   return (
     <>
+      {items.length > 0 ? (
       <SidebarGroup
         className="group/sidebar-section select-none"
         data-testid="starred-threads-section"
@@ -285,7 +310,11 @@ export function SidebarStarredThreadsSection({
                     isActive={selectedThreadRootId === entry.rootId}
                     onRename={
                       currentPubkey
-                        ? () => setRenameRootId(entry.rootId)
+                        ? () =>
+                            setRenameTarget({
+                              rootId: entry.rootId,
+                              title: entry.title,
+                            })
                         : undefined
                     }
                     onSelect={() => {
@@ -306,21 +335,25 @@ export function SidebarStarredThreadsSection({
           </SidebarGroupContent>
         ) : null}
       </SidebarGroup>
-      {renameEntry ? (
-        <ThreadRenameDialog
-          allowEmpty={false}
-          initialIcon={renameLabel?.icon ?? ""}
-          initialName={starredThreadTitle(renameEntry.title, renameLabel?.name)}
-          onConfirm={({ name, icon }) => {
-            setThreadLabel(renameEntry.rootId, { name, icon });
-          }}
-          onOpenChange={(open) => {
-            if (!open) setRenameRootId(null);
-          }}
-          open
-          showIcon
-        />
       ) : null}
+      <ThreadRenameDialog
+        allowEmpty={false}
+        initialIcon={renameLabel?.icon ?? ""}
+        initialName={
+          renameTarget
+            ? starredThreadTitle(renameTarget.title, renameLabel?.name)
+            : ""
+        }
+        onConfirm={({ name, icon }) => {
+          if (!renameTarget) return;
+          setThreadLabel(renameTarget.rootId, { name, icon });
+        }}
+        onOpenChange={(open) => {
+          if (!open) setRenameTarget(null);
+        }}
+        open={renameTarget !== null}
+        showIcon
+      />
     </>
   );
 }
