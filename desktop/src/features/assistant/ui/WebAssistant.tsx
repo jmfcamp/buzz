@@ -281,7 +281,7 @@ export function WebAssistantSheet() {
         aria-label="Assistant"
         aria-modal={mode === "open" || mode === "closing" ? true : undefined}
         className={cn(
-          "flex h-full w-full flex-col overflow-hidden bg-popover p-4 text-popover-foreground max-sm:border-y max-sm:border-border/60",
+          "flex h-full w-full flex-col overflow-hidden bg-popover px-4 pt-4 pb-1.5 text-popover-foreground max-sm:border-y max-sm:border-border/60",
           "sm:rounded-md sm:border sm:shadow-md",
           // Open/close always animated: phone slides up/down; iPad/desktop scale-fade from the bottom-left anchor.
           "duration-250 ease-out motion-reduce:animate-none sm:origin-bottom-left sm:duration-220",

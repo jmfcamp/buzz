@@ -657,7 +657,7 @@ export function AssistantPopoverBody({
           </div>
           {/* Fixed-height slot, always present: the typing line fades in/out without shifting the composer or chat. */}
           <div
-            className="flex h-6 w-full items-center pl-2 pr-1"
+            className="my-0.5 flex h-4 w-full items-center pl-2 pr-1 text-xs leading-4"
             data-testid="web-assistant-typing-slot"
           >
             {typingPubkeys.length > 0 && channel ? (
