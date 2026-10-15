@@ -263,8 +263,11 @@ function PairingCodeConfirmation({
 
 export function MobilePairingCard({
   currentPubkey,
+  hideHeader,
 }: {
   currentPubkey?: string;
+  /** Inside the "Mobile & web signing" tab: the tab already names it. */
+  hideHeader?: boolean;
 }) {
   const [step, setStep] = useState<PairingStep>("idle");
   const [qrUri, setQrUri] = useState<string | null>(null);
@@ -420,7 +423,7 @@ export function MobilePairingCard({
 
   return (
     <section className="min-w-0" data-testid="settings-mobile">
-      <SettingsSectionHeader
+      {!hideHeader && <SettingsSectionHeader
         title="Mobile"
         description={
           <>
@@ -429,7 +432,7 @@ export function MobilePairingCard({
             code.
           </>
         }
-      />
+      />}
 
       <SettingsOptionGroup
         className="w-full [container-type:inline-size]"
