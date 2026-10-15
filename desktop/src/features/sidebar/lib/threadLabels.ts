@@ -2,6 +2,9 @@ import { getStorageItem, setStorageItem } from "@/shared/lib/safeStorage";
 
 const STORAGE_KEY_PREFIX = "buzz-thread-labels.v1";
 
+/** Fired after the local label cache was rewritten from the synced doc. */
+export const THREAD_LABELS_APPLIED_EVENT = "buzz-thread-labels-applied";
+
 /** Cap stored titles so a paste cannot grow the sidebar row without bound. */
 export const THREAD_LABEL_NAME_MAX = 80;
 /** Cap an emoji glyph or `:shortcode:` stored as the starred-row icon. */
@@ -131,4 +134,29 @@ export function writeThreadLabelsStore(
     threadLabelsStorageKey(pubkey),
     JSON.stringify(boundThreadLabelStore(store)),
   );
+}
+
+
+/** Optional relay-sync hook registered by threadLabelsSync while a sync runs. */
+export type ThreadLabelSyncUpdater = (
+  pubkey: string,
+  rootId: string,
+  patch: { name: string; icon?: string } | null,
+) => boolean;
+
+let syncedUpdater: ThreadLabelSyncUpdater | null = null;
+
+export function registerThreadLabelSyncUpdater(
+  updater: ThreadLabelSyncUpdater | null,
+): void {
+  syncedUpdater = updater;
+}
+
+/** Returns true when relay sync handled the write. */
+export function tryUpdateSyncedThreadLabel(
+  pubkey: string,
+  rootId: string,
+  patch: { name: string; icon?: string } | null,
+): boolean {
+  return syncedUpdater?.(pubkey, rootId, patch) ?? false;
 }

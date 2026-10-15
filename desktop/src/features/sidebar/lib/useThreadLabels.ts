@@ -6,6 +6,8 @@ import {
   normalizeThreadLabelIcon,
   normalizeThreadLabelName,
   readThreadLabelsStore,
+  THREAD_LABELS_APPLIED_EVENT,
+  tryUpdateSyncedThreadLabel,
   writeThreadLabelsStore,
   type ThreadLabel,
   type ThreadLabelStore,
@@ -17,6 +19,12 @@ const listenersByPubkey = new Map<string, Set<Subscriber>>();
 const storeByPubkey = new Map<string, ThreadLabelStore>();
 let storageListenerBound = false;
 
+function notify(pubkey: string): void {
+  const listeners = listenersByPubkey.get(pubkey);
+  if (!listeners) return;
+  for (const listener of listeners) listener();
+}
+
 function ensureStorageListener(): void {
   if (storageListenerBound || typeof window === "undefined") return;
   storageListenerBound = true;
@@ -25,10 +33,16 @@ function ensureStorageListener(): void {
     const pubkey = event.key.slice("buzz-thread-labels.v1:".length);
     if (!pubkey) return;
     storeByPubkey.delete(pubkey);
-    const listeners = listenersByPubkey.get(pubkey);
-    if (!listeners) return;
-    for (const listener of listeners) listener();
+    notify(pubkey);
   });
+  window.addEventListener(THREAD_LABELS_APPLIED_EVENT, ((
+    event: CustomEvent<{ pubkey?: string }>,
+  ) => {
+    const pubkey = event.detail?.pubkey;
+    if (!pubkey) return;
+    storeByPubkey.delete(pubkey);
+    notify(pubkey);
+  }) as EventListener);
 }
 
 function getStore(pubkey: string): ThreadLabelStore {
@@ -43,10 +57,7 @@ function setStore(pubkey: string, store: ThreadLabelStore): boolean {
   const bounded = boundThreadLabelStore(store);
   if (!writeThreadLabelsStore(pubkey, bounded)) return false;
   storeByPubkey.set(pubkey, bounded);
-  const listeners = listenersByPubkey.get(pubkey);
-  if (listeners) {
-    for (const listener of listeners) listener();
-  }
+  notify(pubkey);
   return true;
 }
 
@@ -73,7 +84,9 @@ export type ThreadLabelPatch = {
 
 /**
  * Identity-scoped thread titles and starred-row icons.
- * A missing name leaves the header on "Thread" and the star row on its excerpt.
+ * When relay sync is running, renames publish to kind 30078 d=buzz:thread-labels
+ * (NIP-44 to self) so desktop + web + phone share them. A missing name leaves
+ * the header on "Thread" and the star row on its excerpt.
  */
 export function useThreadLabels(pubkey: string | undefined): {
   labelFor: (rootId: string) => ThreadLabel | undefined;
@@ -110,6 +123,10 @@ export function useThreadLabels(pubkey: string | undefined): {
       if (!id) return;
       const name = normalizeThreadLabelName(patch.name);
       const icon = normalizeThreadLabelIcon(patch.icon);
+      const syncedPatch =
+        !name && !icon ? null : icon ? { name, icon } : { name };
+      // Prefer the relay-synced doc when it is running for this identity.
+      if (tryUpdateSyncedThreadLabel(pubkey, id, syncedPatch)) return;
       const prev = getStore(pubkey);
       const labels = { ...prev.labels };
       if (!name && !icon) {
