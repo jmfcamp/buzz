@@ -14,6 +14,7 @@ import { useChannelsQuery, useOpenDmMutation } from "@/features/channels/hooks";
 import { useCommunities } from "@/features/communities/useCommunities";
 import { formatTimelineMessages } from "@/features/messages/lib/formatTimelineMessages";
 import {
+  mergeMessages,
   useChannelMessagesQuery,
   useChannelSubscription,
   useSendMessageMutation,
@@ -36,6 +37,14 @@ import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { Textarea } from "@/shared/ui/textarea";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
+import { ASK_EVENT, takeAsk } from "@/features/assistant/askBus";
+import { useAssistantShowActivity } from "@/features/assistant/activityPreference";
+import { AgentSessionTranscriptList } from "@/features/agents/ui/AgentSessionTranscriptList";
+import { isMeaningfulItem } from "@/features/agents/ui/agentSessionTranscriptPresentation";
+import { useAgentTranscript } from "@/features/agents/ui/useObserverEvents";
+import { TypingIndicatorRow } from "@/features/messages/ui/TypingIndicatorRow";
+import { useChannelTyping } from "@/features/messages/useChannelTyping";
+import { useThreadRepliesForRoots } from "@/features/messages/useThreadReplies";
 
 import { useDirectLive } from "../dataStore";
 import { applyWebUserIntents } from "../webIntents";
@@ -130,6 +139,44 @@ export function AssistantPopoverBody({
     }
   };
   const [draft, setDraft] = React.useState("");
+  const inputRef = React.useRef<HTMLTextAreaElement>(null);
+  // "Ask Assistant about this message": take the queued context draft (now, and whenever another arrives).
+  React.useEffect(() => {
+    const apply = () => {
+      const text = takeAsk();
+      if (!text) return;
+      setDraft((d) => (d.trim() ? `${text}\n\n${d}` : `${text}\n\n`));
+      setTab("chat");
+      window.setTimeout(() => {
+        const el = inputRef.current;
+        if (!el) return;
+        el.focus({ preventScroll: true });
+        el.setSelectionRange(el.value.length, el.value.length);
+      }, 60);
+    };
+    apply();
+    window.addEventListener(ASK_EVENT, apply);
+    return () => window.removeEventListener(ASK_EVENT, apply);
+  }, []);
+  const typingEntries = useChannelTyping(channel, me);
+  const typingPubkeys = React.useMemo(
+    () => typingEntries.map((entry) => entry.pubkey),
+    [typingEntries],
+  );
+  const showActivity = useAssistantShowActivity();
+  const agentTranscript = useAgentTranscript(showActivity, agentPubkey);
+  const activityItems = React.useMemo(
+    () =>
+      agentTranscript.filter(
+        (item) =>
+          item.type !== "message" &&
+          isMeaningfulItem(item) &&
+          item.renderClass !== "raw-rail" &&
+          item.renderClass !== "suppressed" &&
+          (!channel || !item.channelId || item.channelId === channel.id),
+      ),
+    [agentTranscript, channel],
+  );
   const [busy, setBusy] = React.useState(false);
   const transcriptRef = React.useRef<HTMLDivElement>(null);
   const tabbed = useTabbedLayout();
@@ -180,13 +227,28 @@ export function AssistantPopoverBody({
       myProfile?.nip05Handle,
     ],
   );
+  // The agent answers in a thread under each of your messages (its reply carries an `e` tag to your message), and
+  // the channel query only returns top-level events. Like the desktop popover, fetch the replies for the recent
+  // roots and show them inline; previously the web view dropped every tagged event, i.e. all agent replies.
+  const rootIds = React.useMemo(
+    () =>
+      (events ?? [])
+        .filter((e) => !e.tags?.some((t) => t[0] === "e"))
+        .slice(-40)
+        .map((e) => e.id),
+    [events],
+  );
+  const threadReplies = useThreadRepliesForRoots(channel, rootIds);
+  const merged = React.useMemo(() => {
+    const base = events ?? [];
+    return threadReplies.events.length
+      ? threadReplies.events.reduce(mergeMessages, base)
+      : base;
+  }, [events, threadReplies.events]);
   const messages = React.useMemo<TimelineMessage[]>(() => {
     if (!channel) return [];
-    const top = (events ?? []).filter(
-      (e) => !e.tags?.some((t) => t[0] === "e"),
-    );
     return formatTimelineMessages(
-      top,
+      [...merged].sort((a, b) => a.created_at - b.created_at),
       channel,
       me,
       myProfile?.avatarUrl ?? null,
@@ -196,10 +258,10 @@ export function AssistantPopoverBody({
         (m) =>
           m.kind === KIND_STREAM_MESSAGE || m.kind === KIND_STREAM_MESSAGE_V2,
       )
-      .map((m) => ({ ...m, body: displayText(m.body ?? "") }))
+      .map((m) => ({ ...m, body: displayText(m.body ?? ""), depth: 0 }))
       .filter((m) => m.body)
-      .slice(-60);
-  }, [channel, events, me, myProfile?.avatarUrl, profiles]);
+      .slice(-80);
+  }, [channel, merged, me, myProfile?.avatarUrl, profiles]);
   const mainEntries = React.useMemo(
     () => messages.map((message) => ({ message, summary: null })),
     [messages],
@@ -383,6 +445,32 @@ export function AssistantPopoverBody({
                 profiles={profiles}
                 stickyDayDividers={false}
               />
+              {showActivity && activityItems.length > 0 ? (
+                <div className="px-1" data-testid="web-assistant-activity">
+                  <AgentSessionTranscriptList
+                    agentAvatarUrl={avatarUrl}
+                    agentName={name}
+                    agentPubkey={agentPubkey}
+                    autoTail={false}
+                    channelId={channel.id}
+                    emptyDescription="Activity will appear here while Assistant works."
+                    items={activityItems}
+                    profiles={profiles}
+                    variant="compactPreview"
+                  />
+                </div>
+              ) : null}
+              {typingPubkeys.length > 0 ? (
+                <div data-testid="web-assistant-typing">
+                  <TypingIndicatorRow
+                    channel={channel}
+                    className="shrink-0 px-0 py-0"
+                    currentPubkey={me}
+                    profiles={profiles}
+                    typingPubkeys={typingPubkeys}
+                  />
+                </div>
+              ) : null}
               <div aria-hidden="true" ref={bottomRef} />
             </div>
           </div>
@@ -395,6 +483,7 @@ export function AssistantPopoverBody({
             aria-label={`Message ${name}`}
             className="min-h-24 resize-none rounded-2xl pb-11"
             data-testid="web-assistant-input"
+            ref={inputRef}
             onChange={(event) => setDraft(event.target.value)}
             onFocus={() => {
               // iOS keyboard: once the popup has resized to the visual viewport, keep the latest message in view.
