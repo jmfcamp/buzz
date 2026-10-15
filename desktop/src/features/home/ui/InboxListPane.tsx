@@ -649,7 +649,7 @@ export function InboxListPane({
       >
         <div className="pr-4 sm:pr-5">
           <div className="flex w-full min-w-0 items-stretch justify-between gap-1 sm:gap-3">
-            <div className="order-2 ml-auto flex shrink-0 items-center self-center justify-end gap-0.5">
+            <div className="order-2 ml-auto flex w-[52px] shrink-0 items-center self-center justify-end gap-0.5 sm:w-[156px]">
               {tab === "inbox" || tab === "agents" ? (
                 <InboxFilterMenu
                   filter={filter}
