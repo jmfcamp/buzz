@@ -25,6 +25,21 @@ function blurField(except?: Element | null) {
   el.blur();
 }
 
+// Only an OPEN menu/picker counts. A Radix popper stays in the DOM with data-state="closed" while its exit
+// animation runs; treating that as open made us synthesize Escape, which Radix delivers to the topmost layer — a
+// dialog just opened from that menu (e.g. starred-thread Rename) — so the dialog closed as soon as it focused its input.
+// Tooltips never take Escape-to-close semantics here either.
+export function hasOpenPopup(root: ParentNode = document): boolean {
+  for (const wrapper of root.querySelectorAll(POPPER)) {
+    const content = wrapper.firstElementChild;
+    if (!content) continue;
+    if (content.getAttribute("role") === "tooltip") continue;
+    if (content.getAttribute("data-state") === "closed") continue;
+    return true;
+  }
+  return false;
+}
+
 export function installMenuKeyboardExclusion(): void {
   if (typeof document === "undefined") return;
 
@@ -115,7 +130,7 @@ export function installMenuKeyboardExclusion(): void {
       if (!isTextField(target) || target.closest(POPPER)) return;
       for (const row of document.querySelectorAll(`[${ROW_OPEN}]`))
         row.removeAttribute(ROW_OPEN);
-      if (document.querySelector(POPPER)) {
+      if (hasOpenPopup()) {
         document.dispatchEvent(
           new KeyboardEvent("keydown", {
             key: "Escape",

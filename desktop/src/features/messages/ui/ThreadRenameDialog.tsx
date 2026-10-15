@@ -41,16 +41,12 @@ export function ThreadRenameDialog({
   const [icon, setIcon] = React.useState(initialIcon);
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
-  // Context-menu → dialog: ignore outside dismiss for a beat while the menu
-  // finishes teardown (otherwise the dialog flashes open then closes).
-  const ignoreOutsideUntilRef = React.useRef(0);
 
   React.useEffect(() => {
     if (!open) {
       setPickerOpen(false);
       return;
     }
-    ignoreOutsideUntilRef.current = Date.now() + 400;
     setName(initialName);
     setIcon(initialIcon);
     const timerId = globalThis.setTimeout(() => {
@@ -59,12 +55,6 @@ export function ThreadRenameDialog({
     }, 50);
     return () => globalThis.clearTimeout(timerId);
   }, [open, initialName, initialIcon]);
-
-  function guardOutside(event: Event) {
-    if (Date.now() < ignoreOutsideUntilRef.current) {
-      event.preventDefault();
-    }
-  }
 
   const trimmed = name.trim().replace(/\s+/g, " ");
   const unchanged =
@@ -84,9 +74,6 @@ export function ThreadRenameDialog({
       <DialogContent
         className="max-w-sm"
         data-testid="thread-rename-dialog"
-        onFocusOutside={guardOutside}
-        onInteractOutside={guardOutside}
-        onPointerDownOutside={guardOutside}
       >
         <DialogHeader>
           <DialogTitle>Rename thread</DialogTitle>
