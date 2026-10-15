@@ -1,4 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
+import * as React from "react";
+
+import {
+  useWentOfflineNotices,
+  wentOfflineFeedItems,
+} from "@/features/agents/wentOfflineNotices";
 
 import { getHomeFeed } from "@/shared/api/tauri";
 import { useRelayConnection } from "@/shared/api/useRelayConnection";
@@ -16,6 +22,30 @@ export const homeFeedFocusRefetchPolicy = {
 } as const;
 
 export function useHomeFeedQuery() {
+  const query = useHomeFeedQueryRaw();
+  // Merge this device's "went offline mid-task" notices into agent activity (Agents inbox tab).
+  const notices = useWentOfflineNotices();
+  const data = React.useMemo(() => {
+    const d = query.data;
+    if (!d || notices.length === 0) return d;
+    const known = new Set(d.feed.agentActivity.map((i) => i.id));
+    const extra = wentOfflineFeedItems(notices).filter((i) => !known.has(i.id));
+    return extra.length
+      ? {
+          ...d,
+          feed: {
+            ...d.feed,
+            agentActivity: [...extra, ...d.feed.agentActivity].sort(
+              (a, b) => b.createdAt - a.createdAt,
+            ),
+          },
+        }
+      : d;
+  }, [query.data, notices]);
+  return data === query.data ? query : { ...query, data };
+}
+
+function useHomeFeedQueryRaw() {
   const connectionState = useRelayConnection();
   const connected = connectionState === "connected";
   const refetchInterval = useFocusedRefetchInterval(
