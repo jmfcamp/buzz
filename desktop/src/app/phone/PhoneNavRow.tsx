@@ -4,7 +4,7 @@ import { BusyRefreshIcon } from "@/shared/ui/BusyRefreshIcon";
 // (AppTopChrome), driven by the same router history (useBackForwardControls), with no destination labels. It is one
 // fixed 40px row under the safe area on every phone screen (channel, Inbox, Channels/Me/Search lists, Settings), so the
 // floating tab-count pill (PhoneTabSwitcher) sits at its right end and never needs a row of its own.
-import { ChevronLeft, ChevronRight, House } from "lucide-react";
+import { ChevronLeft, ChevronRight, House, Search } from "lucide-react";
 
 export function PhoneNavRow({
   canGoBack,
@@ -12,26 +12,28 @@ export function PhoneNavRow({
   onGoBack,
   onGoForward,
   onHome,
+  onSearch,
 }: {
   canGoBack: boolean;
   canGoForward: boolean;
   onGoBack: () => void;
   onGoForward: () => void;
   onHome: () => void;
+  onSearch: () => void;
 }) {
   const refreshPress = useRefreshPress(() => window.location.reload());
   return (
     <nav aria-label="Navigation" className="phone-nav-row" data-testid="phone-nav-row">
-      {/* Same as desktop's top-chrome Refresh (AppTopChrome reloadDesktopWindow): a full page reload, not a refetch. */}
+      {/* Search is the left-most control (it left the bottom tab bar); opens the phone Search screen. */}
       <button
-        aria-label="Refresh"
+        aria-label="Search"
         className="phone-nav-button"
-        data-testid="phone-nav-refresh"
-        {...refreshPress}
-        title="Refresh"
+        data-testid="phone-nav-search"
+        onClick={onSearch}
+        title="Search"
         type="button"
       >
-        <BusyRefreshIcon />
+        <Search aria-hidden="true" />
       </button>
       <button
         aria-label="Go back"
@@ -61,6 +63,17 @@ export function PhoneNavRow({
         type="button"
       >
         <House aria-hidden="true" />
+      </button>
+      {/* Same as desktop's top-chrome Refresh (AppTopChrome reloadDesktopWindow): a full page reload, not a refetch. */}
+      <button
+        aria-label="Refresh"
+        className="phone-nav-button"
+        data-testid="phone-nav-refresh"
+        {...refreshPress}
+        title="Refresh"
+        type="button"
+      >
+        <BusyRefreshIcon />
       </button>
     </nav>
   );
