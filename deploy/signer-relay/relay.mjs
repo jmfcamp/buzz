@@ -33,11 +33,14 @@ function pruneReplay() {
 }
 setInterval(pruneReplay, 10_000).unref();
 const log = (o) => console.log(JSON.stringify({ t: new Date().toISOString(), ...o }));
+const keyTag = (pk) => bytesToHex(sha256(utf8ToBytes(`buzz-signer-pk:${pk}`))).slice(0, 10); // no raw pubkeys in logs
 const ipTag = (ip) => bytesToHex(sha256(utf8ToBytes(`buzz-signer:${ip}`))).slice(0, 10); // no raw IPs in logs
 const PING_MS = 30_000;
 const LIMITS = {
-  ipEvents: { rate: 3, burst: 60 }, // per second refill, bucket size
-  pkEvents: { rate: 2, burst: 40 },
+  // Per-IP is generous: one home IP often carries a phone + desktop signer pair (plus pop-out windows).
+  // Abuse is still bounded per signed pubkey (sigs are verified, so pkEvents can't be spoofed).
+  ipEvents: { rate: 10, burst: 200 }, // per second refill, bucket size
+  pkEvents: { rate: 5, burst: 100 },
   ipReqs: { rate: 2, burst: 60 },
 };
 const HEX64 = /^[0-9a-f]{64}$/;
@@ -111,7 +114,7 @@ const server = http.createServer((req, res) => {
       description: "NIP-46 (kind 24133) only. 60s replay buffer, no persistence, no auth, rate limited.",
       supported_nips: [1, 11, 46],
       software: "buzz-signer-relay",
-      version: "1.1.0",
+      version: "1.2.0",
       limitation: { max_message_length: MAX_FRAME, max_subscriptions: MAX_SUBS, max_filters: MAX_FILTERS, auth_required: false, restricted_writes: true },
     }),
   );
@@ -131,6 +134,8 @@ wss.on("connection", (ws, req) => {
   ws.alive = true;
   ws.openedAt = Date.now();
   ws.stats = { events: 0, reqs: 0, replayed: 0, limited: 0 };
+  ws.toTags = new Set(); // hashed recipient (#p) pubkeys of events this conn sent
+  ws.subTags = new Set(); // hashed #p pubkeys this conn subscribed to
   conns.add(ws);
   ws.on("pong", () => (ws.alive = true));
   ws.on("close", (code, reason) => {
@@ -142,6 +147,8 @@ wss.on("connection", (ws, req) => {
       by: ws.terminatedBy || "peer",
       secs: Math.round((Date.now() - ws.openedAt) / 1000),
       ...ws.stats,
+      to: [...ws.toTags].slice(0, 8),
+      sub: [...ws.subTags].slice(0, 8),
     });
     conns.delete(ws);
     const m = (perIp.get(ip) || 1) - 1;
@@ -178,6 +185,7 @@ wss.on("connection", (ws, req) => {
         limited("pubkey-events");
         return send(ws, ["OK", id, false, "rate-limited: slow down"]);
       }
+      for (const t of ev.tags || []) if (Array.isArray(t) && t[0] === "p" && typeof t[1] === "string" && ws.toTags.size < 16) ws.toTags.add(keyTag(t[1]));
       remember(ev);
       for (const c of conns) for (const [sid, filters] of c.subs) if (filters.some((f) => matches(f, ev))) send(c, ["EVENT", sid, ev]);
       return send(ws, ["OK", id, true, ""]);
@@ -194,6 +202,7 @@ wss.on("connection", (ws, req) => {
       if (filters.length === 0 || filters.length > MAX_FILTERS) return send(ws, ["CLOSED", sid, "invalid: bad filters"]);
       if (!ws.subs.has(sid) && ws.subs.size >= MAX_SUBS) return send(ws, ["CLOSED", sid, "blocked: too many subscriptions"]);
       ws.subs.set(sid, filters);
+      for (const f of filters) if (Array.isArray(f["#p"])) for (const pk of f["#p"]) if (typeof pk === "string" && ws.subTags.size < 16) ws.subTags.add(keyTag(pk));
       // Replay what this client missed in the last REPLAY_MS (only "#p"-addressed filters; at most 200 events).
       const cutoff = Date.now() - REPLAY_MS;
       let sent = 0;
