@@ -14,7 +14,15 @@ export type RemoteAccessStatus = {
   agents: boolean;
   url: string | null;
   openTerminals: number;
+  /** Automatic `tailscale serve` entry (https:9443 -> the desktop's loopback listener). Absent on older builds. */
+  serveState?: "off" | "on" | "waiting" | "conflict" | "error";
+  serveError?: string | null;
+  tailscaleInstalled?: boolean;
+  localPort?: number | null;
 };
+
+/** Direct is actually reachable from the tailnet (listener up and the serve entry points at it). */
+export const directReachable = (s: RemoteAccessStatus) => s.enabled && !!s.url && (s.serveState === undefined || s.serveState === "on");
 
 // Desktop-side preferences for "Allow remote agent management" (frontend-persisted; relay commands are gated on it).
 const PREF_AGENTS = "buzz-remote-agent-mgmt";
@@ -203,8 +211,10 @@ export function remoteInfoForHeartbeat(): RemoteInfo | undefined {
     desktopId: desktopId(),
     name: label,
     url: s.url ?? "",
-    status: s.enabled && s.url ? "on" : "off",
-    ...(s.enabled ? {} : { reason: s.tailscaleUp ? undefined : (s.reason ?? "Tailscale isn't running on this Mac.") }),
+    status: directReachable(s) ? "on" : "off",
+    ...(directReachable(s)
+      ? {}
+      : { reason: s.serveError ?? (s.tailscaleUp ? undefined : (s.reason ?? "Tailscale isn't running on this Mac.")) }),
     terminals: s.terminals,
     termHost: herdr() ? "herdr" : "shell",
     ...(herdr() ? { termSession: getTermPreferences().sessionName } : {}),

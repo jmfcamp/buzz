@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use buzz_remote_access::server::{ManagementBackend, SessionInfo, TerminalHandle, MAX_SESSION_TTL};
-use buzz_remote_access::tailscale::{TickOutcome, SERVE_PORT};
+use buzz_remote_access::tailscale::{ServeHealth, TickOutcome};
 use buzz_remote_access::{
     PtyBackend, RemoteServer, ServeManager, ServerConfig, SystemTailscale, TerminalBackend, TerminalLaunch,
     TerminalMode,
@@ -20,6 +20,14 @@ use tokio::sync::{oneshot, Mutex as AsyncMutex};
 use crate::app_state::AppState;
 
 const POLL: Duration = Duration::from_secs(10);
+
+/// Stable loopback port for the Direct listener so the tailnet entry survives restarts (override with
+/// BUZZ_DIRECT_LOCAL_PORT). Falls back to a random port if taken (e.g. a second Hula Buzz on this Mac).
+const PREFERRED_LOCAL_PORT: u16 = 47443;
+
+fn preferred_local_port() -> u16 {
+    std::env::var("BUZZ_DIRECT_LOCAL_PORT").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(PREFERRED_LOCAL_PORT)
+}
 
 /// Settings → Buzz Term as the desktop frontend last pushed them. Read at the moment each remote terminal launches
 /// (there is no process-wide herdr flag any more); a launch may only ask for less than this allows.
@@ -95,6 +103,12 @@ pub struct RemoteAccessStatus {
     agents: bool,
     url: Option<String>,
     open_terminals: usize,
+    /// "off" | "on" | "waiting" | "conflict" | "error": state of the automatic `tailscale serve` entry.
+    serve_state: &'static str,
+    /// Human explanation when serve_state isn't "on"/"off".
+    serve_error: Option<String>,
+    tailscale_installed: bool,
+    local_port: Option<u16>,
 }
 
 fn herdr_bin() -> PathBuf {
@@ -210,7 +224,21 @@ fn allowed_origins(dns: Option<&str>) -> Vec<String> {
 
 async fn snapshot(inner: &Inner) -> RemoteAccessStatus {
     let ts = inner.mgr.status().await;
+    let (serve_state, serve_error) = match inner.mgr.health() {
+        ServeHealth::Off => ("off", None),
+        ServeHealth::On => ("on", None),
+        ServeHealth::Waiting(r) => ("waiting", Some(r.clone())),
+        ServeHealth::Conflict(p) => (
+            "conflict",
+            Some(format!("Another Hula Buzz on this Mac (port {p}) is serving Direct on {}. Quit it or turn Direct off there.", inner.mgr.https_port())),
+        ),
+        ServeHealth::Error(e) => ("error", Some(e.clone())),
+    };
     RemoteAccessStatus {
+        serve_state,
+        serve_error,
+        tailscale_installed: SystemTailscale::bin().is_some(),
+        local_port: inner.server.as_ref().map(|s| s.addr.port()),
         tailscale_up: ts.up,
         reason: ts.reason,
         dns_name: ts.dns_name,
@@ -264,14 +292,18 @@ pub async fn remote_access_set_enabled(
     let ac = state.agents.lock().map_err(|e| e.to_string())?.clone();
     cfg.session_ttl = ac.ttl;
     cfg.term_session_ttl = *state.term_ttl.lock().unwrap_or_else(|p| p.into_inner());
-    let server = RemoteServer::start(cfg, 0).await.map_err(|e| e.to_string())?;
+    let server = match RemoteServer::start(cfg.clone(), preferred_local_port()).await {
+        Ok(s) => s,
+        Err(_) => RemoteServer::start(cfg, 0).await.map_err(|e| e.to_string())?,
+    };
     server.set_agents_enabled(ac.enabled);
     let port = server.addr.port();
     if let Err(e) = inner.mgr.enable(port).await {
         server.shutdown();
         return Err(e);
     }
-    inner.url = ts.dns_name.map(|d| format!("wss://{d}:{SERVE_PORT}/v1/ws"));
+    let https = inner.mgr.https_port();
+    inner.url = ts.dns_name.map(|d| format!("wss://{d}:{https}/v1/ws"));
     inner.server = Some(server);
     inner.terminals = false; // terminals are a separate switch and start off every time
     inner.agents = ac.enabled;
@@ -281,8 +313,12 @@ pub async fn remote_access_set_enabled(
         loop {
             tokio::time::sleep(POLL).await;
             let mut g = poll_inner.lock().await;
-            if g.mgr.tick().await == TickOutcome::TurnedOff {
-                // Tailscale dropped: serve entry already removed; stay off until the user re-enables.
+            let outcome = g.mgr.tick().await;
+            if outcome == TickOutcome::Changed {
+                let _ = poll_app.emit("remote-access-changed", ());
+            }
+            if outcome == TickOutcome::TurnedOff {
+                // Tailscale stayed down: serve entry already removed; stay off until the user re-enables.
                 if let Some(s) = g.server.take() {
                     s.shutdown();
                 }
