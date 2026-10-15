@@ -24,3 +24,27 @@ export function writeConversationStart(me: string | undefined, agent: string, at
     /* UI preference only */
   }
 }
+
+// Composer draft key for the popup; bumped (per device) to inject or clear text.
+const GEN_KEY = "buzz.web-assistant.draft-gen.v1";
+function genKey(me: string | undefined, agent: string) {
+  return `${GEN_KEY}:${(me ?? "").toLowerCase()}:${agent.toLowerCase()}`;
+}
+export function readDraftGen(me: string | undefined, agent: string): number {
+  try {
+    const n = Number(window.localStorage.getItem(genKey(me, agent)));
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  } catch {
+    return 0;
+  }
+}
+export function writeDraftGen(me: string | undefined, agent: string, n: number) {
+  try {
+    window.localStorage.setItem(genKey(me, agent), String(n));
+  } catch {
+    /* UI state only */
+  }
+}
+export function assistDraftKey(me: string | undefined, agent: string, gen: number) {
+  return `assistant-popup:${(me ?? "").toLowerCase()}:${agent.toLowerCase()}:${gen}`;
+}

@@ -1,5 +1,4 @@
 import {
-  ArrowUp,
   ChevronDown,
   Plus,
   SquareArrowOutUpRight,
@@ -44,7 +43,7 @@ import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import { Checkbox } from "@/shared/ui/checkbox";
-import { Textarea } from "@/shared/ui/textarea";
+import { MessageComposer } from "@/features/messages/ui/MessageComposer";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
 import { useBestieShowActivity } from "./bestieActivityPreference";
@@ -490,7 +489,8 @@ export function BestiePopover({
   const bestie = useBestie();
   const { goChannel } = useAppNavigation();
   const showActivity = useBestieShowActivity();
-  const [draft, setDraft] = React.useState("");
+  // Bumped by Close Thread so the composer starts on a fresh, empty draft.
+  const [composerGen, setComposerGen] = React.useState(0);
   const [contextSent, setContextSent] = React.useState(false);
   const [includeMessageContext, setIncludeMessageContext] =
     React.useState(true);
@@ -919,7 +919,7 @@ export function BestiePopover({
     messageThreadRootRef.current = null;
     setSessionBoundary(null);
     setContextSent(false);
-    setDraft("");
+    setComposerGen((g) => g + 1);
     setCloseThreadConfirm(false);
     onRequestClose?.();
   }, [messageThreadScope, onRequestClose, sessionScope]);
@@ -1129,7 +1129,6 @@ export function BestiePopover({
           setSessionBoundary(next);
         }
         if (composed.attachedContext) setContextSent(true);
-        if (options?.clearDraft !== false) setDraft("");
         const { error: startError } = await startResult;
         if (startError) throw startError;
       } finally {
@@ -1140,10 +1139,6 @@ export function BestiePopover({
         error instanceof Error ? error.message : "Couldn’t message Assistant",
       );
     });
-  };
-
-  const sendMessage = () => {
-    sendAskContent(draft);
   };
 
   const sendAskQuickPrompt = (
@@ -1361,40 +1356,37 @@ export function BestiePopover({
         />
       )}
 
-      <div className="relative shrink-0">
-        <Textarea
-          aria-label={`Message ${agent.name}`}
-          className="min-h-24 resize-none rounded-2xl pb-11"
-          data-bloom-autofocus
-          data-testid="bestie-composer"
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (
-              event.key !== "Enter" ||
-              event.shiftKey ||
-              event.altKey ||
-              event.ctrlKey ||
-              event.metaKey ||
-              event.nativeEvent.isComposing
-            ) {
-              return;
-            }
-            event.preventDefault();
-            sendMessage();
+      {/* Same composer as channels/threads (one row on phone until focused; full toolbar when focused). The wrapper keeps
+          the existing focus targets (bloom autofocus, open-autofocus by test id) and hands focus to the editor. */}
+      <div
+        className="relative shrink-0"
+        data-bloom-autofocus
+        data-testid="bestie-composer"
+        onFocus={(event) => {
+          if (event.target !== event.currentTarget) return;
+          event.currentTarget
+            .querySelector<HTMLElement>("[contenteditable='true'], textarea")
+            ?.focus();
+        }}
+        tabIndex={-1}
+      >
+        <MessageComposer
+          channelId={activeConversationChannel?.id ?? null}
+          channelName={agent.name}
+          channelType={activeConversationChannel?.channelType ?? "dm"}
+          containerClassName="px-0 pb-0"
+          disabled={bestie.isOpening}
+          draftKey={`assistant-popover:${agent.pubkey}:${composerGen}`}
+          isSending={sendMutation.isPending}
+          layoutMode="standalone"
+          onSend={async (content) => {
+            sendAskContent(content, { clearDraft: false });
           }}
           placeholder={`Message ${agent.name}`}
-          value={draft}
+          profiles={conversationProfiles}
+          showBackgroundUploadProgress={false}
+          showTopBorder={false}
         />
-        <Button
-          aria-label="Send in Assistant conversation"
-          className="absolute bottom-2 right-2 rounded-full"
-          disabled={!draft.trim() || bestie.isOpening || sendMutation.isPending}
-          onClick={sendMessage}
-          size="icon"
-          type="button"
-        >
-          <ArrowUp />
-        </Button>
       </div>
 
       {contextMessage && !contextSent ? (
