@@ -5,10 +5,13 @@
 // hooks read: on every remote change this module projects the merged doc into
 // them and tells the hooks to reload. Hooks report user actions through
 // `recordInboxState`, so the cache is never the thing that syncs.
-import { relayClient } from "@/shared/api/relayClient";
-import { signRelayEvent } from "@/shared/api/tauri";
-import type { RelayEvent } from "@/shared/api/types";
-import { decryptAppData, encryptAppData } from "@/shared/lib/appData";
+import {
+  nowSec,
+  readJson,
+  SyncedDoc,
+  type SyncedDocCodec,
+  writeJson,
+} from "@/shared/lib/syncedDoc";
 import {
   activeIds,
   emptyInboxState,
@@ -55,24 +58,6 @@ import {
   readChannelMutesStore,
 } from "@/features/sidebar/lib/channelMutesStorage";
 
-const nowSec = () => Math.floor(Date.now() / 1000);
-
-function readJson(key: string): unknown {
-  try {
-    const raw = window.localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeJson(key: string, value: unknown) {
-  try {
-    window.localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    /* quota / private mode: doc still syncs from memory */
-  }
-}
 
 function stringArray(v: unknown): string[] {
   return Array.isArray(v)
@@ -148,17 +133,34 @@ export function projectInboxStateToLegacy(pk: string, doc: InboxStateDoc) {
   );
 }
 
+const inboxStateCodec: SyncedDocCodec<InboxStateDoc> = {
+  empty: emptyInboxState,
+  parse: parseInboxState,
+  merge: mergeInboxState,
+  prune: pruneInboxState,
+  same: sameInboxState,
+};
+
+/** Inbox-state doc on the generic synced-doc engine (shared/lib/syncedDoc.ts) plus legacy-cache projection. */
 class InboxStateSync {
-  doc: InboxStateDoc;
-  private timer: ReturnType<typeof setTimeout> | null = null;
-  private lastPublished: InboxStateDoc | null = null;
-  private lastCreatedAt = 0;
-  private stopLive: (() => Promise<void>) | null = null;
-  private stopped = false;
+  private engine: SyncedDoc<InboxStateDoc>;
+
+  get doc(): InboxStateDoc {
+    return this.engine.doc;
+  }
 
   constructor(readonly pk: string) {
-    this.doc =
-      parseInboxState(readJson(`${CACHE_PREFIX}:${pk}`)) ?? emptyInboxState();
+    this.engine = new SyncedDoc<InboxStateDoc>({
+      pk,
+      kind: INBOX_STATE_KIND,
+      dTag: INBOX_STATE_D_TAG,
+      codec: inboxStateCodec,
+      cacheKey: `${CACHE_PREFIX}:${pk}`,
+      debounceMs: INBOX_STATE_PUBLISH_DEBOUNCE_MS,
+      label: "Inbox state",
+      onRemoteChange: (doc) => projectInboxStateToLegacy(pk, doc),
+      onBootstrapNoRemote: (doc) => projectInboxStateToLegacy(pk, doc),
+    });
     // One-way: channel mutes (kind channel-mutes) become `ch:` entries in the
     // muted lane at at=1, so any real choice from another device wins.
     if (!readJson(`buzz-channel-notify-migrated.v1:${pk}`)) {
@@ -166,140 +168,34 @@ class InboxStateSync {
       for (const id of mutedChannelIdsFromStore(readChannelMutesStore(pk))) {
         add.lanes.muted[channelNotifyId(id)] = { on: true, at: 1 };
       }
-      this.doc = mergeInboxState(this.doc, add);
+      this.engine.doc = mergeInboxState(this.engine.doc, add);
       writeJson(`buzz-channel-notify-migrated.v1:${pk}`, nowSec());
-      this.persist();
+      this.engine.persist();
     }
     if (!readJson(`${MIGRATED_PREFIX}:${pk}`)) {
-      this.doc = unionLegacyInboxState(this.doc, readLegacyInboxState(pk));
+      this.engine.doc = unionLegacyInboxState(this.engine.doc, readLegacyInboxState(pk));
       writeJson(`${MIGRATED_PREFIX}:${pk}`, nowSec());
-      this.persist();
+      this.engine.persist();
     }
   }
 
-  private persist() {
-    writeJson(`${CACHE_PREFIX}:${this.pk}`, this.doc);
-  }
-
-  private async decode(ev: RelayEvent): Promise<InboxStateDoc | null> {
-    if (ev.pubkey !== this.pk) return null;
-    if (ev.created_at > this.lastCreatedAt) this.lastCreatedAt = ev.created_at;
-    try {
-      return parseInboxState(JSON.parse(await decryptAppData(ev.content)));
-    } catch {
-      return null;
-    }
-  }
-
-  private absorb(remote: InboxStateDoc) {
-    const merged = pruneInboxState(mergeInboxState(this.doc, remote), nowSec());
-    const changed = !sameInboxState(merged, this.doc);
-    this.doc = merged;
-    if (changed) {
-      this.persist();
-      projectInboxStateToLegacy(this.pk, this.doc);
-    }
-    // Remote lacks something we have (e.g. migrated ids): push the union back.
-    if (!sameInboxState(merged, remote)) this.schedule();
-    else this.lastPublished = merged;
-  }
-
-  async start() {
-    try {
-      const events = await relayClient.fetchEvents({
-        kinds: [INBOX_STATE_KIND],
-        authors: [this.pk],
-        "#d": [INBOX_STATE_D_TAG],
-        limit: 1,
-      });
-      const ev = events.find((e) => e.pubkey === this.pk);
-      const remote = ev ? await this.decode(ev) : null;
-      if (this.stopped) return;
-      if (remote) this.absorb(remote);
-      else {
-        projectInboxStateToLegacy(this.pk, this.doc);
-        // An undecryptable head must not be overwritten blindly.
-        if (!ev) this.schedule();
-      }
-    } catch (error) {
-      console.warn("[inboxState] bootstrap failed:", error);
-    }
-    if (this.stopped) return;
-    try {
-      const stop = await relayClient.subscribeLive(
-        {
-          kinds: [INBOX_STATE_KIND],
-          authors: [this.pk],
-          "#d": [INBOX_STATE_D_TAG],
-          limit: 0,
-        },
-        (ev) => {
-          void this.decode(ev).then((remote) => {
-            if (remote && !this.stopped) this.absorb(remote);
-          });
-        },
-      );
-      if (this.stopped) void stop();
-      else this.stopLive = stop;
-    } catch (error) {
-      console.warn("[inboxState] live subscribe failed:", error);
-    }
+  start() {
+    return this.engine.start();
   }
 
   record(lane: InboxStateLane, id: string, on: boolean, meta?: StarMeta) {
     if (!id) return;
     const cur = this.doc.lanes[lane][id];
     if (cur && cur.on === on && (!on || !meta || cur.meta)) return;
-    this.doc = setInboxStateEntry(this.doc, lane, id, on, nowSec(), meta);
-    this.persist();
-    this.schedule();
-  }
-
-  private schedule() {
-    if (this.stopped) return;
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = setTimeout(() => {
-      this.timer = null;
-      void this.publish();
-    }, INBOX_STATE_PUBLISH_DEBOUNCE_MS);
+    this.engine.update(setInboxStateEntry(this.doc, lane, id, on, nowSec(), meta));
   }
 
   flush() {
-    if (!this.timer) return;
-    clearTimeout(this.timer);
-    this.timer = null;
-    void this.publish();
-  }
-
-  private async publish() {
-    if (this.stopped) return;
-    const doc = pruneInboxState(this.doc, nowSec());
-    if (this.lastPublished && sameInboxState(doc, this.lastPublished)) return;
-    try {
-      const content = await encryptAppData(JSON.stringify(doc));
-      const event = await signRelayEvent({
-        kind: INBOX_STATE_KIND,
-        content,
-        createdAt: Math.max(nowSec(), this.lastCreatedAt + 1),
-        tags: [["d", INBOX_STATE_D_TAG]],
-      });
-      if (this.stopped) return;
-      await relayClient.publishEvent(
-        event,
-        "Timed out publishing Inbox state.",
-        "Failed to publish Inbox state.",
-      );
-      this.lastCreatedAt = event.created_at;
-      this.lastPublished = doc;
-    } catch (error) {
-      console.warn("[inboxState] publish failed:", error);
-    }
+    this.engine.flush();
   }
 
   stop() {
-    this.flush();
-    this.stopped = true;
-    void this.stopLive?.();
+    this.engine.stop();
   }
 }
 
