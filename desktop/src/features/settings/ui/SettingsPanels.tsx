@@ -230,7 +230,8 @@ export const settingsSections: SettingsSectionDescriptor[] = [
   },
   {
     value: "desktop-signing",
-    label: "Desktop signing",
+    // Desktop: one page for the Hula Buzz web app (sign-in code, Direct, browsers) and Buzz for iOS pairing.
+    label: isTauri() ? "Mobile & web signing" : "Desktop signing",
     icon: KeyRound,
   },
   {
@@ -910,12 +911,7 @@ export function renderSettingsSection(
     case "agents":
       return <AgentsSettingsPanel />;
     case "desktop-signing":
-      return isTauri() ? (
-        <>
-          <DesktopBunkerPairCard />
-          <DesktopDirectSignerCard empty />
-        </>
-      ) : (
+      return isTauri() ? <MobileAndWebSigningPage currentPubkey={props.currentPubkey} /> : (
         <>
           <WebDesktopBunkerCard />
           <WebDirectSignerCard />
@@ -954,8 +950,8 @@ export function renderSettingsSection(
       return <CustomEmojiSettingsCard />;
     case "local-archive":
       return isTauri() ? <LocalArchiveSettingsCard /> : null;
-    case "mobile":
-      return isTauri() ? <MobilePairingCard currentPubkey={props.currentPubkey} /> : null;
+    case "mobile": // old deep link: same combined page
+      return isTauri() ? <MobileAndWebSigningPage currentPubkey={props.currentPubkey} /> : null;
     case "updates":
       return isTauri() ? <UpdateChecker /> : null;
     default: {
@@ -963,4 +959,30 @@ export function renderSettingsSection(
       return exhaustiveCheck;
     }
   }
+}
+
+/** Desktop: "Mobile & web signing" = Hula Buzz web app (top) + Buzz for iOS pairing (below). Old "mobile" links land here. */
+function MobileAndWebSigningPage(props: { currentPubkey?: string }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-8" data-testid="settings-mobile-web-signing">
+      <div className="flex min-w-0 flex-col gap-4" id="hula-buzz-web" data-testid="settings-part-hula-web">
+        <div>
+          <h2 className="text-lg font-semibold">Hula Buzz (web app)</h2>
+          <p className="text-sm text-muted-foreground">
+            hulabuzz.huladesk.com in a browser or installed on your phone. This computer signs for it: sign-in code, Direct,
+            and the browsers it trusts.
+          </p>
+        </div>
+        <DesktopBunkerPairCard />
+        <DesktopDirectSignerCard empty />
+      </div>
+      <div className="flex min-w-0 flex-col gap-4 border-t border-border/60 pt-6" id="buzz-ios" data-testid="settings-part-buzz-ios">
+        <div>
+          <h2 className="text-lg font-semibold">Buzz for iOS (App Store)</h2>
+          <p className="text-sm text-muted-foreground">The native Buzz mobile app. Pair it with this relay by scanning a QR code.</p>
+        </div>
+        <MobilePairingCard currentPubkey={props.currentPubkey} />
+      </div>
+    </div>
+  );
 }
