@@ -13,6 +13,7 @@ import {
   subscribeRemoteAccess,
 } from "@/features/bridge/remoteAccessStore";
 import { SIG_TTL_OPTIONS_S } from "@/features/bridge/protocol";
+import type { RemoteAccessStatus } from "@/features/bridge/remoteAccessStore";
 import { Switch } from "@/shared/ui/switch";
 import { SettingsOptionGroup, SettingsOptionRow } from "./SettingsOptionGroup";
 
@@ -99,7 +100,13 @@ function DesktopRemoteAgentManagementCard() {
         </SettingsOptionRow>
       </SettingsOptionGroup>
       {error && <p className="text-sm text-destructive">{error}</p>}
-      {status.enabled && status.url && <p className="text-xs text-muted-foreground/70">Direct connection on {status.url}</p>}
+      {status.enabled && status.url && status.serveState !== "conflict" && status.serveState !== "error" && (
+        <p className="text-xs text-muted-foreground/70" data-testid="remote-direct-url">
+          Direct connection on {status.url}
+          {status.serveState === "on" ? " (Tailscale set up automatically)" : ""}
+        </p>
+      )}
+      {prefs.agentManagement && <DirectServeNote status={status} />}
     </div>
   );
 }
@@ -162,5 +169,19 @@ function DesktopRemoteTerminalCard() {
       </SettingsOptionGroup>
       {error && <p className="text-sm text-destructive">{error}</p>}
     </div>
+  );
+}
+
+/** Why Direct over Tailscale isn't reachable yet (set up automatically; the user never runs `tailscale serve`). */
+function DirectServeNote({ status }: { status: RemoteAccessStatus }) {
+  let msg: string | null = null;
+  if (status.tailscaleInstalled === false) msg = "Install Tailscale on this Mac to use Direct from your phone. Until then, the relay path is used.";
+  else if (status.serveState === "waiting") msg = `Waiting for Tailscale: ${status.serveError ?? "it isn't connected."}`;
+  else if (status.serveState === "conflict" || status.serveState === "error") msg = status.serveError ?? "Tailscale couldn't publish Direct.";
+  if (!msg) return null;
+  return (
+    <p className="text-xs text-destructive" data-testid="remote-serve-note">
+      {msg}
+    </p>
   );
 }

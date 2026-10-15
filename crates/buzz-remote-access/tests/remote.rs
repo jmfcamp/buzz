@@ -5,7 +5,7 @@ use std::time::Duration;
 use base64::Engine;
 use buzz_remote_access::challenge::{now_secs, ChallengeBook, ChallengeError, Purpose};
 use buzz_remote_access::server::{TermInput, TerminalHandle};
-use buzz_remote_access::tailscale::{owns_entry, parse_status, ServeManager, TailscaleCli, TailscaleStatus, TickOutcome};
+use buzz_remote_access::tailscale::{entry_target, friendly_serve_error, owns_entry, parse_status, ServeHealth, ServeManager, TailscaleCli, TailscaleStatus, TickOutcome};
 use buzz_remote_access::{RemoteServer, ServerConfig, TerminalBackend, TerminalLaunch};
 use futures_util::{SinkExt, StreamExt};
 use nostr::{EventBuilder, JsonUtil, Keys, Kind, Tag, Timestamp};
@@ -91,7 +91,15 @@ fn tailscale_parsing() {
 struct FakeTs {
     up: Arc<Mutex<bool>>,
     log: Arc<Mutex<Vec<String>>>,
-    serve_json: Arc<Mutex<Option<String>>>,
+    /// Current loopback target of :9443 (None = no entry). Other ports (443) are always present.
+    target: Arc<Mutex<Option<u16>>>,
+    alive: Arc<Mutex<Vec<u16>>>,
+    deny: Arc<Mutex<bool>>,
+}
+impl FakeTs {
+    fn set_target(&self, t: Option<u16>) {
+        *self.target.lock().unwrap() = t;
+    }
 }
 impl TailscaleCli for FakeTs {
     async fn status(&self) -> TailscaleStatus {
@@ -102,15 +110,24 @@ impl TailscaleCli for FakeTs {
         }
     }
     async fn serve_status_json(&self) -> Option<String> {
-        self.serve_json.lock().unwrap().clone()
+        let mine = self.target.lock().unwrap().map(|t| format!(r#","m.ts.net:9443":{{"Handlers":{{"/":{{"Proxy":"http://127.0.0.1:{t}"}}}}}}"#)).unwrap_or_default();
+        Some(format!(r#"{{"Web":{{"m.ts.net:443":{{"Handlers":{{"/":{{"Proxy":"http://127.0.0.1:5199"}}}}}}{mine}}}}}"#))
     }
     async fn serve_on(&self, h: u16, l: u16) -> Result<(), String> {
+        if *self.deny.lock().unwrap() {
+            return Err("Access denied: serve config denied".into());
+        }
         self.log.lock().unwrap().push(format!("on {h} {l}"));
+        self.set_target(Some(l));
         Ok(())
     }
     async fn serve_off(&self, h: u16) -> Result<(), String> {
         self.log.lock().unwrap().push(format!("off {h}"));
+        self.set_target(None);
         Ok(())
+    }
+    async fn port_alive(&self, p: u16) -> bool {
+        self.alive.lock().unwrap().contains(&p)
     }
 }
 
@@ -122,23 +139,59 @@ async fn serve_lifecycle() {
     assert!(m.enable(4000).await.unwrap_err().contains("turned off"));
     assert!(ts.log.lock().unwrap().is_empty());
     *ts.up.lock().unwrap() = true;
-    // a stale entry from a crash is removed first; other ports untouched
-    *ts.serve_json.lock().unwrap() = Some(r#"{"Web":{"m.ts.net:9443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:1"}}},"m.ts.net:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:5199"}}}}}"#.into());
+    // a stale entry from a crash (dead target) is removed first; other ports untouched
+    ts.set_target(Some(1));
     m.enable(4000).await.unwrap();
     assert_eq!(*ts.log.lock().unwrap(), vec!["off 9443", "on 9443 4000"]);
     assert!(m.enabled());
+    assert_eq!(*m.health(), ServeHealth::On);
+    // idempotent: already pointing at us, no command
     assert_eq!(m.tick().await, TickOutcome::Unchanged);
-    // tailscale drops: the switch turns itself off, removes the serve entry, and stays off
+    assert_eq!(ts.log.lock().unwrap().len(), 2);
+    // something removed the entry: the next tick puts it back
+    ts.set_target(None);
+    assert_eq!(m.tick().await, TickOutcome::Unchanged);
+    assert_eq!(ts.log.lock().unwrap().last().unwrap(), "on 9443 4000");
+    // another live app took the port: report a conflict, don't fight it
+    ts.set_target(Some(5000));
+    ts.alive.lock().unwrap().push(5000);
+    assert_eq!(m.tick().await, TickOutcome::Changed);
+    assert_eq!(*m.health(), ServeHealth::Conflict(5000));
+    // and disabling leaves their entry alone
+    let n = ts.log.lock().unwrap().len();
+    m.disable().await;
+    assert_eq!(ts.log.lock().unwrap().len(), n);
+    assert_eq!(*ts.target.lock().unwrap(), Some(5000));
+    // a fresh start doesn't remove another app's live entry during stale cleanup
+    m.cleanup_stale().await;
+    assert_eq!(*ts.target.lock().unwrap(), Some(5000));
+    // explicit enable takes over
+    m.enable(4000).await.unwrap();
+    assert_eq!(*ts.target.lock().unwrap(), Some(4000));
+    // a brief tailscale drop doesn't turn Direct off; a sustained one does
     *ts.up.lock().unwrap() = false;
+    assert_eq!(m.tick().await, TickOutcome::Changed);
+    assert!(m.enabled());
+    assert_eq!(m.tick().await, TickOutcome::Unchanged);
     assert_eq!(m.tick().await, TickOutcome::TurnedOff);
     assert!(!m.enabled());
     assert_eq!(ts.log.lock().unwrap().last().unwrap(), "off 9443");
     *ts.up.lock().unwrap() = true;
     assert_eq!(m.tick().await, TickOutcome::Unchanged);
-    assert!(!m.enabled(), "stays off until the user re-enables it");
-    m.enable(4000).await.unwrap();
-    m.disable().await;
-    assert_eq!(ts.log.lock().unwrap().last().unwrap(), "off 9443");
+    assert!(!m.enabled(), "stays off until re-enabled");
+    // serve not permitted: clear error, switch stays off
+    *ts.deny.lock().unwrap() = true;
+    let e = m.enable(4000).await.unwrap_err();
+    assert!(e.contains("not permitted"), "{e}");
+    assert!(!m.enabled());
+}
+
+#[test]
+fn serve_entry_target_and_errors() {
+    let j = r#"{"Web":{"m.ts.net:9443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:53253"}}}}}"#;
+    assert_eq!(entry_target(j, 9443), Some(53253));
+    assert_eq!(entry_target(j, 443), None);
+    assert!(friendly_serve_error("HTTPS is not enabled for this tailnet").contains("HTTPS"));
 }
 
 type Ws = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;

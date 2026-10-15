@@ -15,4 +15,4 @@ pub mod tailscale;
 pub use challenge::{Challenge, ChallengeBook, ChallengeError, Purpose};
 pub use pty::{PtyBackend, TerminalMode};
 pub use server::{ManagementBackend, RemoteServer, ServerConfig, TerminalBackend, TerminalLaunch};
-pub use tailscale::{ServeManager, SystemTailscale, TailscaleCli, TailscaleStatus};
+pub use tailscale::{ServeHealth, ServeManager, SystemTailscale, TailscaleCli, TailscaleStatus};

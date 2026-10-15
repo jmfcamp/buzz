@@ -69,8 +69,57 @@ pub fn owns_entry(serve_json: &str, port: u16) -> bool {
     })
 }
 
+/// The loopback port our https entry proxies to, if `serve status --json` has a loopback entry on `port`.
+pub fn entry_target(serve_json: &str, port: u16) -> Option<u16> {
+    let v: Value = serde_json::from_str(serve_json).ok()?;
+    let web = v.get("Web")?.as_object()?;
+    web.iter().filter(|(host, _)| host.ends_with(&format!(":{port}"))).find_map(|(_, cfg)| {
+        cfg.get("Handlers")?.as_object()?.values().find_map(|x| {
+            let p = x.get("Proxy")?.as_str()?;
+            let rest = p.strip_prefix("http://127.0.0.1:").or_else(|| p.strip_prefix("http://localhost:"))?;
+            rest.trim_end_matches('/').split('/').next()?.parse().ok()
+        })
+    })
+}
+
+/// Turns a raw `tailscale serve` failure into something a user can act on.
+pub fn friendly_serve_error(raw: &str) -> String {
+    let l = raw.to_ascii_lowercase();
+    if l.contains("access denied") || l.contains("permission") || l.contains("operator") {
+        "Tailscale didn't let Hula Buzz publish Direct (serve not permitted). In Tailscale, allow this user to manage serve, or run `sudo tailscale set --operator=$USER` once.".into()
+    } else if l.contains("https") && (l.contains("not enabled") || l.contains("enable")) {
+        "HTTPS certificates are off for your tailnet. Turn on HTTPS in the Tailscale admin console (DNS page), then try again.".into()
+    } else if l.contains("serve") && l.contains("not") && l.contains("allow") {
+        "Your tailnet policy doesn't allow Tailscale Serve on this Mac.".into()
+    } else if raw.trim().is_empty() {
+        "Tailscale couldn't publish Direct on port 9443.".into()
+    } else {
+        format!("Tailscale couldn't publish Direct: {}", raw.trim())
+    }
+}
+
+/// Health of our https entry, reported to settings and to the web via the heartbeat.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ServeHealth {
+    Off,
+    /// Published: https port -> our loopback port.
+    On,
+    /// Tailscale is down; the listener stays up and the entry is re-added when it returns.
+    Waiting(String),
+    /// Another live app on this Mac owns the https port; we don't take it from them.
+    Conflict(u16),
+    Error(String),
+}
+
 #[allow(async_fn_in_trait)]
 pub trait TailscaleCli: Send + Sync {
+    /// Is something listening on this loopback port? (Used to tell a live entry from one left by a crash.)
+    async fn port_alive(&self, port: u16) -> bool {
+        let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+        tokio::time::timeout(std::time::Duration::from_millis(500), tokio::net::TcpStream::connect(addr))
+            .await
+            .map_or(false, |r| r.is_ok())
+    }
     async fn status(&self) -> TailscaleStatus;
     async fn serve_status_json(&self) -> Option<String>;
     async fn serve_on(&self, https_port: u16, local_port: u16) -> Result<(), String>;
@@ -80,7 +129,7 @@ pub trait TailscaleCli: Send + Sync {
 pub struct SystemTailscale;
 
 impl SystemTailscale {
-    fn bin() -> Option<PathBuf> {
+    pub fn bin() -> Option<PathBuf> {
         ["/usr/local/bin/tailscale", "/opt/homebrew/bin/tailscale", "/Applications/Tailscale.app/Contents/MacOS/Tailscale"]
             .iter()
             .map(PathBuf::from)
@@ -125,24 +174,33 @@ impl TailscaleCli for SystemTailscale {
     }
 }
 
-/// Owns the serve entry's lifecycle: stale cleanup before enabling, removal on disable/quit, auto-off when
-/// Tailscale goes down. `enabled` is the user's switch; it turns itself off and stays off after a drop.
+/// Owns the serve entry's lifecycle. Idempotent: `enable`/`tick` make sure https:`port` proxies to our loopback port,
+/// re-adding it if something removed it, without touching other ports (443/8443) and without taking the port from
+/// another live Hula Buzz on this Mac. A short Tailscale blip doesn't turn Direct off; a sustained one does.
 pub struct ServeManager<T: TailscaleCli> {
     cli: T,
     port: u16,
     enabled: bool,
+    local: Option<u16>,
+    health: ServeHealth,
+    down_ticks: u32,
 }
+
+/// Consecutive down polls (~10 s each) before Direct turns itself off.
+pub const DOWN_TICKS_TO_OFF: u32 = 3;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum TickOutcome {
     Unchanged,
-    /// Tailscale went down: the switch was turned off and the serve entry removed.
+    /// Health changed (repaired, conflict, waiting...): re-publish status.
+    Changed,
+    /// Tailscale stayed down: the switch was turned off and the serve entry removed.
     TurnedOff,
 }
 
 impl<T: TailscaleCli> ServeManager<T> {
     pub fn new(cli: T) -> Self {
-        Self { cli, port: SERVE_PORT, enabled: false }
+        Self { cli, port: SERVE_PORT, enabled: false, local: None, health: ServeHealth::Off, down_ticks: 0 }
     }
     pub fn with_port(mut self, port: u16) -> Self {
         self.port = port;
@@ -151,15 +209,45 @@ impl<T: TailscaleCli> ServeManager<T> {
     pub fn enabled(&self) -> bool {
         self.enabled
     }
+    pub fn health(&self) -> &ServeHealth {
+        &self.health
+    }
+    pub fn https_port(&self) -> u16 {
+        self.port
+    }
     pub async fn status(&self) -> TailscaleStatus {
         self.cli.status().await
     }
-    /// Removes a leftover entry from a previous run (crash). Only our own port, only if it proxies to loopback.
+    /// Removes a leftover loopback entry on our port whose target is dead (crash). Never removes a live one: that's
+    /// another running Hula Buzz (or this one) and removing it is what broke Direct before.
     pub async fn cleanup_stale(&self) {
         if let Some(j) = self.cli.serve_status_json().await {
-            if owns_entry(&j, self.port) {
-                let _ = self.cli.serve_off(self.port).await;
+            if let Some(t) = entry_target(&j, self.port) {
+                if Some(t) != self.local && !self.cli.port_alive(t).await {
+                    let _ = self.cli.serve_off(self.port).await;
+                }
             }
+        }
+    }
+    /// Make the entry point at `local_port`. `takeover` = explicit user action: replace a live entry of another app.
+    async fn ensure(&mut self, local_port: u16, takeover: bool) -> ServeHealth {
+        let current = self.cli.serve_status_json().await;
+        let target = current.as_deref().and_then(|j| entry_target(j, self.port));
+        let foreign = current.as_deref().map_or(false, |j| entry_target(j, self.port).is_none() && has_port(j, self.port));
+        if target == Some(local_port) {
+            return ServeHealth::On;
+        }
+        if foreign && !takeover {
+            return ServeHealth::Error(format!("Port {} on this Mac's tailnet address is used by another Tailscale Serve entry.", self.port));
+        }
+        if let Some(t) = target {
+            if !takeover && self.cli.port_alive(t).await {
+                return ServeHealth::Conflict(t);
+            }
+        }
+        match self.cli.serve_on(self.port, local_port).await {
+            Ok(()) => ServeHealth::On,
+            Err(e) => ServeHealth::Error(friendly_serve_error(&e)),
         }
     }
     /// Turns the switch on. Refuses unless Tailscale is already up; never brings it up.
@@ -168,23 +256,58 @@ impl<T: TailscaleCli> ServeManager<T> {
         if !st.up {
             return Err(st.reason.clone().unwrap_or_else(|| "Tailscale isn't running on this Mac.".into()));
         }
+        self.local = Some(local_port);
         self.cleanup_stale().await;
-        self.cli.serve_on(self.port, local_port).await?;
+        let h = self.ensure(local_port, true).await;
+        if let ServeHealth::Error(e) = &h {
+            self.local = None;
+            self.health = ServeHealth::Off;
+            return Err(e.clone());
+        }
+        self.health = h;
         self.enabled = true;
+        self.down_ticks = 0;
         Ok(st)
     }
+    /// Removes our entry only if it still points at us; leaves another app's entry and other ports alone.
     pub async fn disable(&mut self) {
         if self.enabled {
-            let _ = self.cli.serve_off(self.port).await;
+            let ours = match self.cli.serve_status_json().await {
+                Some(j) => entry_target(&j, self.port) == self.local,
+                None => true,
+            };
+            if ours {
+                let _ = self.cli.serve_off(self.port).await;
+            }
         }
         self.enabled = false;
+        self.local = None;
+        self.health = ServeHealth::Off;
+        self.down_ticks = 0;
     }
-    /// Call every ~10 s while enabled.
+    /// Call every ~10 s while enabled: re-adds a missing entry, tolerates brief Tailscale drops.
     pub async fn tick(&mut self) -> TickOutcome {
-        if self.enabled && !self.cli.status().await.up {
-            self.disable().await;
-            return TickOutcome::TurnedOff;
+        let (true, Some(local)) = (self.enabled, self.local) else { return TickOutcome::Unchanged };
+        let before = self.health.clone();
+        let st = self.cli.status().await;
+        if !st.up {
+            self.down_ticks += 1;
+            if self.down_ticks >= DOWN_TICKS_TO_OFF {
+                self.disable().await;
+                return TickOutcome::TurnedOff;
+            }
+            self.health = ServeHealth::Waiting(st.reason.unwrap_or_else(|| "Waiting for Tailscale.".into()));
+        } else {
+            self.down_ticks = 0;
+            self.health = self.ensure(local, false).await;
         }
-        TickOutcome::Unchanged
+        if self.health == before { TickOutcome::Unchanged } else { TickOutcome::Changed }
     }
+}
+
+fn has_port(serve_json: &str, port: u16) -> bool {
+    serde_json::from_str::<Value>(serve_json)
+        .ok()
+        .and_then(|v| v.get("Web").and_then(Value::as_object).map(|w| w.keys().any(|h| h.ends_with(&format!(":{port}")))))
+        .unwrap_or(false)
 }
