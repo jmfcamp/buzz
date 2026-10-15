@@ -20,7 +20,6 @@ import { hasRenderedVideoAttachment } from "@/features/messages/lib/videoReviewC
 import { getThreadReference } from "@/features/messages/lib/threading";
 import { InboxFilterMenu } from "@/features/home/ui/InboxFilterMenu";
 import {
-  InboxReminderChips,
   InboxTabBar,
 } from "@/features/home/ui/InboxTabBar";
 import {
@@ -726,15 +725,6 @@ export function InboxListPane({
               />
             </div>
           </div>
-          {tab === "reminders" ? (
-            <div className="flex items-center pb-1 pt-1.5">
-              <InboxReminderChips
-                counts={tabCounts}
-                filter={filter}
-                onFilterChange={onFilterChange}
-              />
-            </div>
-          ) : null}
         </div>
       </TopChromeInsetHeader>
 
@@ -768,7 +758,7 @@ export function InboxListPane({
         <div
           className={cn(
             "min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain",
-            tab === "reminders" ? null : "-mt-13 pt-13",
+            "-mt-13 pt-13",
           )}
           data-testid="home-inbox-list"
           ref={scrollRef}

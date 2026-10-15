@@ -125,7 +125,7 @@ export function matchesInboxFilter(
     return kind === "task_finished" || kind === "pr_opened";
   }
 
-  // Assistant rows are pre-scoped to the For you tab.
+  // Assistant rows are pre-scoped to the Assistant tab.
   if (filter === "assistant") return true;
 
   if (filter === "channel") {
