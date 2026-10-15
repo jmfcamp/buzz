@@ -99,6 +99,7 @@ export const CMD_READS = [
   "call_openclaw_workspace_mcp_tool",
   "gh_pr_list",
   "get_git_identity",
+  "get_bestie_assignment",
 ] as const;
 export const CMD_WRITES = [
   "start_managed_agent",
@@ -397,6 +398,15 @@ export async function handleCmd(name: string, args: unknown, deps: CmdDeps): Pro
         return { slug: String(x.slug ?? ""), body: redactSecrets(String(x.body ?? "")), eventId: String(x.eventId ?? ""), createdAt: Number(x.createdAt ?? 0), outgoingRefs: list(x.outgoingRefs, (y) => String(y), 500) };
       };
       return { core: r.core ? entry(r.core) : null, memories: list(r.memories, entry, 5000), truncated: r.truncated === true, fetchedAt: Number(r.fetchedAt ?? 0) };
+    }
+    case "get_bestie_assignment": {
+      // Which agent is the desktop's Assistant for this relay + owner. Only the agent pubkey leaves the desktop.
+      const expectedRelayUrl = str(a.expectedRelayUrl, "Relay", 2048) ?? bad("Missing relay.");
+      const signer = str(a.expectedSignerPubkey, "Owner", 128) ?? bad("Missing owner.");
+      if (!HEX64.test(signer.toLowerCase())) bad("Invalid owner.");
+      const r = await inv(name, { expectedRelayUrl, expectedSignerPubkey: signer.toLowerCase() });
+      const pk = r && typeof r === "object" ? (r as Record<string, unknown>).agent_pubkey : null;
+      return typeof pk === "string" && HEX64.test(pk.toLowerCase()) ? { agent_pubkey: pk.toLowerCase() } : null;
     }
     case "get_presence": {
       // The desktop's own presence answer, so an agent's online dot on the web is exactly what the desktop shows.

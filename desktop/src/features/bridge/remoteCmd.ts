@@ -153,6 +153,8 @@ export const PROXIED_READS: Record<string, () => unknown> = {
   // Project pages: quiet defaults while the desktop isn't reachable (the repo card explains why).
   gh_pr_list: () => "[]",
   get_git_identity: () => ({ name: null, email: null }),
+  // Web Assistant: the desktop's assignment, when Direct is live; otherwise "none known" (the synced pick still applies).
+  get_bestie_assignment: () => null,
 };
 
 /** Commands the web can answer itself: prefer the desktop's answer when Direct is live, else (or if that call fails) the web's own. */

@@ -114,7 +114,8 @@ export function readLegacyInboxState(pk: string) {
 
 /** Rewrite the legacy cache stores from the doc, then notify hooks. */
 export function projectInboxStateToLegacy(pk: string, doc: InboxStateDoc) {
-  const isThreadId = (id: string) => !isChannelNotifyId(id);
+  // `ch:` (channel notify) and `as:` (assistant pick) ids live in lanes but are not threads.
+  const isThreadId = (id: string) => !isChannelNotifyId(id) && !id.startsWith("as:");
   writeJson(legacy.done(pk), activeIds(doc, "done"));
   writeJson(legacy.unread(pk), activeIds(doc, "unread"));
   writeJson(legacy.muted(pk), activeIds(doc, "muted").filter(isThreadId));
