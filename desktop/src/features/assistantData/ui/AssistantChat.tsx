@@ -334,7 +334,8 @@ export function AssistantPopoverBody({
         </div>
         {tabbed ? (
           <div
-            className="flex shrink-0 gap-0.5 rounded-full bg-muted/45 p-0.5"
+            className="grid h-8 shrink-0 auto-cols-fr grid-flow-col items-stretch gap-0.5 rounded-md bg-muted/45 p-0.5"
+            data-slot="segmented-control"
             data-testid="web-assistant-tabs"
             role="tablist"
           >
@@ -342,7 +343,7 @@ export function AssistantPopoverBody({
               <button
                 aria-selected={tab === t}
                 className={cn(
-                  "relative flex h-7 items-center justify-center gap-1 rounded-full px-2.5 text-xs font-medium transition-colors",
+                  "relative flex h-full min-w-14 items-center justify-center gap-1 rounded-md px-2.5 text-xs font-medium transition-colors duration-150 ease-out focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
                   tab === t
                     ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground",

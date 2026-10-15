@@ -3,7 +3,6 @@
 // the desktop and are read/operated over Direct; without Direct those sections are shown disabled ("Needs Direct").
 import {
   AlarmClock,
-  ArrowLeft,
   Briefcase,
   ChevronDown,
   ChevronRight,
@@ -18,7 +17,9 @@ import {
   Plus,
   StickyNote,
   Trash2,
+  ChevronLeft,
 } from "lucide-react";
+import { Button } from "@/shared/ui/button";
 import * as React from "react";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
@@ -41,7 +42,7 @@ import type {
 import type { BestieJob, BestieJobSchedule } from "../core/bestieJobTypes";
 import type { BestieScratchNote } from "../core/bestieScratchTypes";
 import type { BestieTrackedThread } from "../core/bestieThreadTypes";
-import { useAssistantData } from "../dataStore";
+import { useAssistantData, useDirectLive } from "../dataStore";
 
 export type SuiteCategory =
   | "reminder"
@@ -152,6 +153,7 @@ export function SuiteCategoryNav({
   onOpen: (c: SuiteCategory) => void;
 }) {
   const s = useSuiteSummary(me);
+  const directConnected = useDirectLive();
   return (
     <div className="grid grid-cols-3 gap-1.5" data-testid="assistant-suite-nav">
       {CATS.map(({ key, label, icon: Icon }) => {
@@ -160,7 +162,7 @@ export function SuiteCategoryNav({
           (key === "thread" && s.threadLive);
         const count = s[key];
         const due = key === "reminder" && s.dueReminders > 0;
-        const needsDirect = DIRECT_CATS.has(key) && !s.directLive;
+        const needsDirect = DIRECT_CATS.has(key) && !directConnected;
         return (
           <button
             title={
@@ -221,14 +223,16 @@ export function SuiteSection({
       data-testid={`assistant-suite-section-${category}`}
     >
       <div className={cn("flex items-center gap-1", hideHeader && "hidden")}>
-        <button
-          aria-label="Back"
-          className={ICON_BTN}
+        <Button
+          className="h-8 gap-1 pl-2 pr-3"
           onClick={onBack}
+          size="sm"
           type="button"
+          variant="outline"
         >
-          <ArrowLeft className="size-4" />
-        </button>
+          <ChevronLeft aria-hidden="true" className="size-4" />
+          Back
+        </Button>
         <span className="text-sm font-semibold">{cat?.label}</span>
       </div>
       {category === "reminder" ? (
@@ -1022,8 +1026,6 @@ function ScratchEditor({
 
 const RHS_ROW_CLASS =
   "h-8 w-full justify-start gap-2 rounded-md px-2 py-1.5 text-left text-sm font-normal text-sidebar-foreground/80 transition-[background-color,color] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50";
-const PILL =
-  "h-7 gap-1 rounded-full border border-border/50 bg-muted/45 px-2.5 text-xs font-medium text-foreground shadow-none hover:bg-muted/70";
 const COLLAPSED_KEY = "buzz-assistant-popover-lists-collapsed.v1";
 
 function readCollapsed() {
@@ -1045,6 +1047,7 @@ export function AssistantListsCard({
   tabbed?: boolean;
 }) {
   const s = useSuiteSummary(me);
+  const directConnected = useDirectLive();
   const [collapsedPref, setCollapsedState] = React.useState(readCollapsed);
   const collapsed = tabbed ? false : collapsedPref;
   const [active, setActive] = React.useState<SuiteCategory | null>(null);
@@ -1097,7 +1100,7 @@ export function AssistantListsCard({
                 const live =
                   (key === "coffee" && s.coffeeLive) ||
                   (key === "thread" && s.threadLive);
-                const needsDirect = DIRECT_CATS.has(key) && !s.directLive;
+                const needsDirect = DIRECT_CATS.has(key) && !directConnected;
                 const count = s[key];
                 return (
                   <button
@@ -1143,13 +1146,17 @@ export function AssistantListsCard({
             >
               <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-2 px-1">
-                  <button
-                    className={cn("inline-flex items-center", PILL)}
+                  <Button
+                    className="h-8 gap-1 pl-2 pr-3"
+                    data-testid="web-assistant-lists-back"
                     onClick={() => setActive(null)}
+                    size="sm"
                     type="button"
+                    variant="outline"
                   >
+                    <ChevronLeft aria-hidden="true" className="size-4" />
                     Back
-                  </button>
+                  </Button>
                   <span className="text-xs font-medium">
                     {CATS.find((c) => c.key === active)?.label}
                   </span>
