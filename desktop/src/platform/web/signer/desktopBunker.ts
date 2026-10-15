@@ -33,7 +33,10 @@ export type BunkerStatus =
 const CHECK_EVERY_MS = 30_000;
 const CHECK_TIMEOUT_MS = 8_000;
 /** Consecutive failed checks before the desktop counts as offline (one miss = iOS froze a socket, a relay hiccup…). */
-const MISSES_BEFORE_OFFLINE = 2;
+const MISSES_BEFORE_OFFLINE = 3;
+/** A check right after returning to the app races iOS rebuilding its sockets: its miss doesn't count. */
+const RESUME_GRACE_MS = 10_000;
+let resumedAt = 0;
 const PAIR_TIMEOUT_MS = 120_000; // the person has to click Allow on the desktop
 const SIGN_TIMEOUT_MS = 90_000; // instrument.ts applies the real (shorter) limit per kind
 
@@ -51,10 +54,14 @@ const setStatus = (s: BunkerStatus) => {
     `desktop signer ${status} → ${s}${misses ? ` (misses ${misses})` : ""}`,
   );
   status = s;
+  offlineSince = s === "offline" ? Date.now() : 0;
   notifyDirectSignerChange();
   for (const l of listeners) l();
 };
 export const desktopBunkerStatus = () => status;
+let offlineSince = 0;
+/** ms the desktop has been continuously offline (0 when not offline). */
+export const desktopOfflineForMs = () => (status === "offline" && offlineSince ? Date.now() - offlineSince : 0);
 export const hasDesktopBunker = () => !!session;
 export const desktopBunkerLabel = () => session?.label ?? "your desktop";
 export const onDesktopBunkerChange = (fn: () => void) => {
@@ -161,6 +168,9 @@ export function check(timeoutMs = CHECK_TIMEOUT_MS): Promise<boolean> {
           if (!session) return false; // revoked
         }
       }
+      // Misses while hidden (iOS froze us, e.g. while approving in Clave) or just after coming back aren't evidence.
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return false;
+      if (Date.now() - resumedAt < RESUME_GRACE_MS) return false;
       misses++;
       if (misses >= MISSES_BEFORE_OFFLINE) setStatus("offline");
       return false;
@@ -173,6 +183,7 @@ export function check(timeoutMs = CHECK_TIMEOUT_MS): Promise<boolean> {
 
 const onWake = () => {
   if (document.visibilityState !== "visible" || !client) return;
+  resumedAt = Date.now();
   // iOS froze the signer-relay socket in the background: replace it first, then check.
   client.reconnectAll(true);
   void check();

@@ -83,11 +83,13 @@ test("desktop bunker: pair, sign, failover when asleep, switch back, revoke, for
     const again = await ds.sign({ kind: 9, content: "after drop", tags: [], created_at: Math.floor(Date.now() / 1000) });
     assert.ok(verifyEvent(again));
 
-    // 3. desktop asleep: ONE missed check keeps the desktop route (no flapping); the second marks it offline and
+    // 3. desktop asleep: TWO missed checks keep the desktop route (no flapping); the second marks it offline and
     //    signing fails FAST (instant Clave fallback)
     desk.sleep();
     assert.equal(await web.check(700), false);
     assert.equal(web.desktopBunkerStatus(), "online");
+    assert.equal(await web.check(700), false);
+    assert.notEqual(web.desktopBunkerStatus(), "offline", "two misses still aren't offline (3 needed)");
     assert.equal(await web.check(700), false);
     assert.equal(web.desktopBunkerStatus(), "offline");
     assert.equal(route.desktopSignerActive(), false);

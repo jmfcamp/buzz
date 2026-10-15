@@ -2,6 +2,7 @@
 // The relay socket is only open while a sign-in code is showing or a browser is paired through it.
 import * as React from "react";
 import { isTauri } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   createBunkerPolicy,
   createBunkerService,
@@ -30,6 +31,14 @@ export function initDesktopBunker(
     Pick<SignerDeps, "randomHex">,
 ) {
   if (rt || !isTauri()) return;
+  // Popout and huddle windows load the full app too. Only the main window may run the bunker: a second instance shares
+  // the transport key, answers every request twice and doubles traffic into the signer relay's per-IP event limit.
+  try {
+    const label = getCurrentWindow().label;
+    if (label && label !== "main") return;
+  } catch {
+    /* no window API: treat as main */
+  }
   const policy = createBunkerPolicy({
     ...deps,
     store: localSignerStore,

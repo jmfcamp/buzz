@@ -3,10 +3,18 @@
 import {
   check,
   desktopBunkerStatus,
+  desktopOfflineForMs,
   hasDesktopBunker,
   onDesktopBunkerChange,
   type BunkerStatus,
 } from "./desktopBunker";
+import { getDirectRoute } from "./directRoute";
+
+/** Only tell the person once the desktop has been unreachable this long (Clave covers the gap silently meanwhile). */
+export const OFFLINE_NOTICE_AFTER_MS = 2 * 60_000;
+/** After ✕ the offline notice stays quiet this long, even across offline/online flaps. */
+export const DISMISS_SILENCE_MS = 30 * 60_000;
+const DISMISS_KEY = "buzz-desktop-offline-dismissed-at";
 
 export function startDesktopBunkerBanner(opts: {
   sessionKind: () => string | undefined;
@@ -14,6 +22,22 @@ export function startDesktopBunkerBanner(opts: {
 }) {
   let el: HTMLDivElement | null = null;
   let dismissed: BunkerStatus | null = null;
+  let recheck: ReturnType<typeof setTimeout> | undefined;
+  const silencedUntil = () => {
+    try {
+      return Number(sessionStorage.getItem(DISMISS_KEY) || 0) + DISMISS_SILENCE_MS;
+    } catch {
+      return 0;
+    }
+  };
+  /** Direct (desktop app on the same network) still signs: the desktop is reachable, just not over the signer relay. */
+  const directLive = () => {
+    try {
+      return !!getDirectRoute()?.active();
+    } catch {
+      return false;
+    }
+  };
   const hide = () => {
     el?.remove();
     el = null;
@@ -24,7 +48,14 @@ export function startDesktopBunkerBanner(opts: {
     const desktopOnly = opts.sessionKind() === "desktop";
     let text = "";
     let action: { label: string; run: () => void } | null = null;
+    clearTimeout(recheck);
     if (st === "offline" && hasDesktopBunker()) {
+      const waited = desktopOfflineForMs();
+      if (directLive() || Date.now() < silencedUntil()) return hide();
+      if (waited < OFFLINE_NOTICE_AFTER_MS) {
+        recheck = setTimeout(render, OFFLINE_NOTICE_AFTER_MS - waited + 50);
+        return hide();
+      }
       text = desktopOnly
         ? "Your desktop isn't reachable, so Buzz is read-only. Open Hula Buzz on your desktop."
         : "Your desktop isn't reachable. Signing with Clave for now.";
@@ -64,6 +95,10 @@ export function startDesktopBunkerBanner(opts: {
       "✕",
       () => {
         dismissed = st;
+        if (st === "offline")
+          try {
+            sessionStorage.setItem(DISMISS_KEY, String(Date.now()));
+          } catch {}
         hide();
       },
       "desktop-bunker-banner-dismiss",
