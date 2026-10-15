@@ -11,7 +11,7 @@ import {
 } from "@/shared/ui/dropdown-menu";
 
 const TRIGGER_CLASS =
-  "inline-flex h-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-muted/70 data-[state=open]:text-foreground disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 relative w-8 gap-1 px-0 text-sm font-medium sm:w-auto sm:max-w-[8.5rem] sm:px-2";
+  "inline-flex h-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-accent data-[state=open]:text-accent-foreground disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 relative w-8 gap-1 px-0 text-sm font-medium sm:w-auto sm:max-w-[8.5rem] sm:px-2";
 
 type InboxFilterMenuProps = {
   filter: InboxFilter;

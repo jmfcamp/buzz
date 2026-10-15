@@ -97,8 +97,9 @@ const INBOX_UNREAD_EMPTY_STATE_TITLES: Record<InboxFilter, string> = {
   drafts: "No unread drafts",
 };
 
+// Matches Button variant="ghost" size="icon" (shared/ui/button.tsx) + ChatHeader icon colour.
 const INBOX_HEADER_ICON_BUTTON_CLASS =
-  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-muted/70 data-[state=open]:text-foreground disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0";
+  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-accent data-[state=open]:text-accent-foreground disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0";
 const INBOX_PANE_RIGHT_DIVIDER_CLASS =
   "after:pointer-events-none after:absolute after:inset-y-0 after:right-0 after:z-40 after:w-px after:bg-border/35 after:content-['']";
 
@@ -642,14 +643,14 @@ export function InboxListPane({
       )}
     >
       <TopChromeInsetHeader
-        className="sticky top-0 border-b border-border bg-muted/70 backdrop-blur-sm"
+        className="sticky top-0 border-b border-border/35"
         data-testid="inbox-header-bar"
         flush
-        transparent
       >
-        <div className="pr-4 sm:pr-5">
-          <div className="flex w-full min-w-0 items-stretch justify-between gap-1 sm:gap-3">
-            <div className="order-2 ml-auto flex w-[52px] shrink-0 items-center self-center justify-end gap-0.5 sm:w-[156px]">
+        {/* Same padding/row height as ChatHeader (px-5 py-2, h-9 row). */}
+        <div className="px-3 py-2 sm:px-5">
+          <div className="flex h-9 w-full min-w-0 items-center justify-between gap-2 sm:gap-3">
+            <div className="order-2 ml-auto flex w-[68px] shrink-0 items-center justify-end gap-1 sm:w-[172px]">
               {tab === "inbox" || tab === "agents" ? (
                 <InboxFilterMenu
                   filter={filter}
@@ -661,7 +662,7 @@ export function InboxListPane({
                 <PopoverTrigger asChild>
                   <button
                     aria-label="Inbox options"
-                    className={cn(INBOX_HEADER_ICON_BUTTON_CLASS, "-mr-4")}
+                    className={cn(INBOX_HEADER_ICON_BUTTON_CLASS)}
                     data-testid="inbox-options-trigger"
                     type="button"
                   >
@@ -722,7 +723,7 @@ export function InboxListPane({
                 </PopoverContent>
               </Popover>
             </div>
-            <div className="order-1 flex min-w-0 flex-1 items-stretch">
+            <div className="order-1 flex min-w-0 flex-1 items-center">
               <InboxTabBar
                 counts={tabCounts}
                 onTabChange={onTabChange}
