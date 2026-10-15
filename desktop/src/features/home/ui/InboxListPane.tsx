@@ -647,9 +647,9 @@ export function InboxListPane({
         flush
         transparent
       >
-        <div className="pl-2 pr-5 sm:pl-3">
-          <div className="flex min-h-9 w-full min-w-0 items-center justify-between gap-3">
-            <div className="order-2 ml-auto flex shrink-0 items-center justify-end gap-0.5">
+        <div className="pr-4 sm:pr-5">
+          <div className="flex w-full min-w-0 items-stretch justify-between gap-1 sm:gap-3">
+            <div className="order-2 ml-auto flex shrink-0 items-center self-center justify-end gap-0.5">
               {tab === "inbox" || tab === "agents" ? (
                 <InboxFilterMenu
                   filter={filter}
@@ -722,7 +722,7 @@ export function InboxListPane({
                 </PopoverContent>
               </Popover>
             </div>
-            <div className="order-1 flex min-w-0 flex-1 items-center justify-start gap-1">
+            <div className="order-1 flex min-w-0 flex-1 items-stretch">
               <InboxTabBar
                 counts={tabCounts}
                 onTabChange={onTabChange}

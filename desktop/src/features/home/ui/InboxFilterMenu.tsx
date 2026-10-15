@@ -1,4 +1,4 @@
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, ListFilter } from "lucide-react";
 
 import type { InboxFilter } from "@/features/home/lib/inbox";
 import { cn } from "@/shared/lib/cn";
@@ -11,7 +11,7 @@ import {
 } from "@/shared/ui/dropdown-menu";
 
 const TRIGGER_CLASS =
-  "inline-flex h-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-muted/70 data-[state=open]:text-foreground disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 relative w-auto max-w-[8.5rem] gap-1 px-2 text-sm font-medium";
+  "inline-flex h-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-muted/70 data-[state=open]:text-foreground disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 relative w-8 gap-1 px-0 text-sm font-medium sm:w-auto sm:max-w-[8.5rem] sm:px-2";
 
 type InboxFilterMenuProps = {
   filter: InboxFilter;
@@ -36,8 +36,12 @@ export function InboxFilterMenu({
           data-testid="inbox-filter-trigger"
           type="button"
         >
-          <span className="truncate">{activeFilter?.label ?? "All"}</span>
-          <ChevronDown className="text-muted-foreground" />
+          <ListFilter className="sm:hidden" />
+          {activeFilter && activeFilter.value !== "all" ? (
+            <span aria-hidden className="absolute right-1 top-1 size-1.5 rounded-full bg-primary sm:hidden" />
+          ) : null}
+          <span className="hidden truncate sm:inline">{activeFilter?.label ?? "All"}</span>
+          <ChevronDown className="hidden text-muted-foreground sm:block" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-48">
