@@ -46,7 +46,7 @@ test("counts: per tab, done excluded, info agent items not counted, reminders ad
     ownedAgentPubkeys: owned,
     dueReminderCount: 2,
   });
-  assert.deepEqual(counts, { inbox: 2, agents: 1, reminders: 2, total: 5 });
+  assert.deepEqual(counts, { inbox: 2, agents: 1, reminders: 2, dueReminders: 2, assistant: 0, drafts: 0, total: 5 });
   const optIn = computeInboxTabCounts({
     items,
     doneSet: new Set(["done"]),
@@ -59,7 +59,26 @@ test("counts: per tab, done excluded, info agent items not counted, reminders ad
 
 test("tabForFilter keeps current tab when the filter belongs to it", () => {
   assert.equal(tabForFilter("all", "agents"), "agents");
-  assert.equal(tabForFilter("drafts", "inbox"), "reminders");
+  assert.equal(tabForFilter("drafts", "inbox"), "drafts");
+  assert.equal(tabForFilter("channel", "agents"), "inbox");
   assert.equal(tabForFilter("needs_action", "inbox"), "agents");
   assert.equal(tabForFilter("mention", "agents"), "inbox");
+});
+
+test("assistant DM messages go to Reminders & Assistant and count there", () => {
+  const owned = new Set([AGENT]);
+  const msg = item({ id: "as", channelType: "dm", categories: ["activity"], pubkey: AGENT });
+  assert.equal(inboxTabOf(msg, owned, AGENT), "reminders");
+  assert.equal(inboxTabOf(msg, owned, null), "agents");
+  const c = computeInboxTabCounts({
+    items: [msg, item({ id: "m" })],
+    doneSet: new Set(),
+    ownedAgentPubkeys: owned,
+    dueReminderCount: 1,
+    assistantPubkey: AGENT,
+  });
+  assert.deepEqual(
+    [c.inbox, c.agents, c.assistant, c.dueReminders, c.reminders, c.total],
+    [1, 0, 1, 1, 2, 3],
+  );
 });

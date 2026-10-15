@@ -18,6 +18,7 @@ import {
 } from "@/features/profile/ui/ProfileAvatarWithStatus";
 import { AgentManagementMarker } from "@/features/agents/ui/OtherSetupAgentMarker";
 import { UserProfilePopover } from "@/features/profile/ui/UserProfilePopover";
+import { ChannelNotifyMenu } from "@/features/channels/ui/ChannelNotifyMenu";
 import { ConversationInfoButton } from "@/features/channels/ui/ConversationInfoButton";
 import { ConversationPopoutMenu } from "@/features/popout/ui/ConversationPopoutMenu";
 import { ConversationPlaygroundPinsMenu } from "@/features/playground/ui/ConversationPlaygroundPinsMenu";
@@ -145,6 +146,9 @@ export function ChannelScreenHeader({
             />
             <ConversationPlaygroundPinsMenu channelId={activeChannel.id} />
             <ConversationPopoutMenu channelId={activeChannel.id} />
+            {activeChannel.channelType !== "dm" && activeChannel.isMember ? (
+              <ChannelNotifyMenu channelId={activeChannel.id} />
+            ) : null}
           </>
         ) : null}
         {terminalButton}

@@ -41,6 +41,20 @@ const legacy = {
   starred: (pk: string) => `buzz-thread-stars.v1:${pk}`,
 };
 
+import {
+  type ChannelNotifyMode,
+  channelNotifyFromDoc,
+  channelNotifyId,
+  channelNotifyLaneValues,
+  isChannelNotifyId,
+  readChannelNotifyCache,
+  writeChannelNotifyCache,
+} from "./channelNotify";
+import {
+  mutedChannelIdsFromStore,
+  readChannelMutesStore,
+} from "@/features/sidebar/lib/channelMutesStorage";
+
 const nowSec = () => Math.floor(Date.now() / 1000);
 
 function readJson(key: string): unknown {
@@ -100,12 +114,14 @@ export function readLegacyInboxState(pk: string) {
 
 /** Rewrite the legacy cache stores from the doc, then notify hooks. */
 export function projectInboxStateToLegacy(pk: string, doc: InboxStateDoc) {
+  const isThreadId = (id: string) => !isChannelNotifyId(id);
   writeJson(legacy.done(pk), activeIds(doc, "done"));
   writeJson(legacy.unread(pk), activeIds(doc, "unread"));
-  writeJson(legacy.muted(pk), activeIds(doc, "muted"));
+  writeJson(legacy.muted(pk), activeIds(doc, "muted").filter(isThreadId));
+  writeChannelNotifyCache(pk, channelNotifyFromDoc(doc));
   writeJson(
     legacy.followed(pk),
-    activeIds(doc, "followed").map((rootId) => ({
+    activeIds(doc, "followed").filter(isThreadId).map((rootId) => ({
       rootId,
       followedAt: doc.lanes.followed[rootId].at * 1000,
     })),
@@ -142,6 +158,17 @@ class InboxStateSync {
   constructor(readonly pk: string) {
     this.doc =
       parseInboxState(readJson(`${CACHE_PREFIX}:${pk}`)) ?? emptyInboxState();
+    // One-way: channel mutes (kind channel-mutes) become `ch:` entries in the
+    // muted lane at at=1, so any real choice from another device wins.
+    if (!readJson(`buzz-channel-notify-migrated.v1:${pk}`)) {
+      const add = emptyInboxState();
+      for (const id of mutedChannelIdsFromStore(readChannelMutesStore(pk))) {
+        add.lanes.muted[channelNotifyId(id)] = { on: true, at: 1 };
+      }
+      this.doc = mergeInboxState(this.doc, add);
+      writeJson(`buzz-channel-notify-migrated.v1:${pk}`, nowSec());
+      this.persist();
+    }
     if (!readJson(`${MIGRATED_PREFIX}:${pk}`)) {
       this.doc = unionLegacyInboxState(this.doc, readLegacyInboxState(pk));
       writeJson(`${MIGRATED_PREFIX}:${pk}`, nowSec());
@@ -296,6 +323,12 @@ export function startInboxStateSync(pubkey: string): () => void {
 }
 
 /** Report a user action. No-op until a sync is running for that pubkey. */
+/** Apply a local action immediately to the projected caches too (channel notify). */
+export function currentInboxStateDoc(pubkey: string | undefined) {
+  const pk = pubkey?.trim().toLowerCase();
+  return pk && active && active.pk === pk ? active.doc : null;
+}
+
 export function recordInboxState(
   pubkey: string | undefined,
   lane: InboxStateLane,
@@ -306,4 +339,34 @@ export function recordInboxState(
   const pk = pubkey?.trim().toLowerCase();
   if (!pk || !active || active.pk !== pk) return;
   active.record(lane, id, on, meta);
+}
+
+/**
+ * Set a channel's notification level (All messages / Mentions only / Mute).
+ * Writes both `ch:` lane entries and updates the projected cache right away.
+ */
+export function setChannelNotifyMode(
+  pubkey: string | undefined,
+  channelId: string,
+  mode: ChannelNotifyMode,
+) {
+  const pk = pubkey?.trim().toLowerCase();
+  if (!pk || !channelId) return;
+  const values = channelNotifyLaneValues(mode);
+  const id = channelNotifyId(channelId);
+  recordInboxState(pk, "followed", id, values.followed);
+  recordInboxState(pk, "muted", id, values.muted);
+  const doc = currentInboxStateDoc(pk);
+  if (doc) {
+    writeChannelNotifyCache(pk, channelNotifyFromDoc(doc));
+  } else {
+    const cur = readChannelNotifyCache(pk);
+    const all = new Set(cur.all);
+    const muted = new Set(cur.muted);
+    all.delete(channelId);
+    muted.delete(channelId);
+    if (mode === "all") all.add(channelId);
+    if (mode === "mute") muted.add(channelId);
+    writeChannelNotifyCache(pk, { all, muted });
+  }
 }

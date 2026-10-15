@@ -1,3 +1,4 @@
+import * as React from "react";
 // Inbox tabs: Inbox (people) / Agents / Reminders & Assistant.
 // One shared source for tab membership, per-tab filters and badge counts so
 // the Inbox tabs, sidebar/phone tab bar and the app icon badge never disagree.
@@ -6,12 +7,13 @@ import type { InboxFilter } from "./inbox";
 import { matchesInboxAllView } from "./inboxViewHelpers";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 
-export type InboxTab = "inbox" | "agents" | "reminders";
+export type InboxTab = "inbox" | "agents" | "reminders" | "drafts";
 
 export const INBOX_TABS: ReadonlyArray<{ value: InboxTab; label: string }> = [
   { value: "inbox", label: "Inbox" },
   { value: "agents", label: "Agents" },
   { value: "reminders", label: "Reminders & Assistant" },
+  { value: "drafts", label: "Drafts" },
 ];
 
 export const INBOX_TAB_FILTERS: Record<
@@ -21,6 +23,7 @@ export const INBOX_TAB_FILTERS: Record<
   inbox: [
     { value: "all", label: "All" },
     { value: "project", label: "Projects" },
+    { value: "channel", label: "Channels" },
     { value: "dm", label: "Directs" },
     { value: "thread", label: "Thread replies" },
     { value: "mention", label: "Mentions" },
@@ -32,19 +35,23 @@ export const INBOX_TAB_FILTERS: Record<
   ],
   reminders: [
     { value: "reminders", label: "Reminders" },
-    { value: "drafts", label: "Drafts" },
+    { value: "assistant", label: "Assistant" },
   ],
+  drafts: [{ value: "drafts", label: "Drafts" }],
 };
 
 export function defaultFilterForTab(tab: InboxTab): InboxFilter {
-  return tab === "reminders" ? "reminders" : "all";
+  if (tab === "reminders") return "reminders";
+  if (tab === "drafts") return "drafts";
+  return "all";
 }
 
 export function tabForFilter(filter: InboxFilter, current: InboxTab): InboxTab {
   if (INBOX_TAB_FILTERS[current].some((option) => option.value === filter)) {
     return current;
   }
-  if (filter === "reminders" || filter === "drafts") return "reminders";
+  if (filter === "reminders" || filter === "assistant") return "reminders";
+  if (filter === "drafts") return "drafts";
   if (filter === "needs_action" || filter === "agent_activity") return "agents";
   return "inbox";
 }
@@ -76,11 +83,27 @@ export function isAgentsTabItem(
   return Boolean(rep && ownedAgentPubkeys.has(normalizePubkey(rep.pubkey)));
 }
 
+/** A message from your Assistant agent in its DM (or a DM thread). */
+export function isAssistantItem(
+  item: TabItem,
+  assistantPubkey: string | null | undefined,
+): boolean {
+  if (!assistantPubkey) return false;
+  const rep = representative(item);
+  return Boolean(
+    rep &&
+      rep.channelType === "dm" &&
+      normalizePubkey(rep.pubkey) === normalizePubkey(assistantPubkey),
+  );
+}
+
 export function inboxTabOf(
   item: TabItem,
   ownedAgentPubkeys: ReadonlySet<string>,
+  assistantPubkey?: string | null,
 ): InboxTab | null {
   if (!matchesInboxAllView(item, ownedAgentPubkeys)) return null;
+  if (isAssistantItem(item, assistantPubkey)) return "reminders";
   return isAgentsTabItem(item, ownedAgentPubkeys) ? "agents" : "inbox";
 }
 
@@ -102,7 +125,12 @@ export function countsTowardInboxBadge(
 export type InboxTabCounts = {
   inbox: number;
   agents: number;
+  /** Due reminders + unread Assistant messages. */
   reminders: number;
+  dueReminders: number;
+  assistant: number;
+  /** Drafts never carry a badge and never count toward the total. */
+  drafts: 0;
   total: number;
 };
 
@@ -113,17 +141,65 @@ export function computeInboxTabCounts(input: {
   ownedAgentPubkeys: ReadonlySet<string>;
   dueReminderCount: number;
   countAgentInfoItems?: boolean;
+  assistantPubkey?: string | null;
 }): InboxTabCounts {
   let inbox = 0;
   let agents = 0;
+  let assistant = 0;
   for (const item of input.items) {
     if (input.doneSet.has(item.id)) continue;
-    const tab = inboxTabOf(item, input.ownedAgentPubkeys);
+    const tab = inboxTabOf(
+      item,
+      input.ownedAgentPubkeys,
+      input.assistantPubkey,
+    );
     if (tab === null) continue;
     if (!countsTowardInboxBadge(item, input)) continue;
     if (tab === "agents") agents += 1;
+    else if (tab === "reminders") assistant += 1;
     else inbox += 1;
   }
-  const reminders = Math.max(0, input.dueReminderCount);
-  return { inbox, agents, reminders, total: inbox + agents + reminders };
+  const dueReminders = Math.max(0, input.dueReminderCount);
+  const reminders = dueReminders + assistant;
+  return {
+    inbox,
+    agents,
+    reminders,
+    dueReminders,
+    assistant,
+    drafts: 0,
+    total: inbox + agents + reminders,
+  };
+}
+
+// "Count Task finished / PR opened toward badges" (Inbox ⋯ menu), per device.
+const COUNT_AGENT_INFO_KEY = "buzz-inbox-count-agent-info.v1";
+export const COUNT_AGENT_INFO_EVENT = "buzz-inbox-count-agent-info-changed";
+
+export function readCountAgentInfoItems(): boolean {
+  try {
+    return window.localStorage.getItem(COUNT_AGENT_INFO_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function writeCountAgentInfoItems(value: boolean) {
+  try {
+    window.localStorage.setItem(COUNT_AGENT_INFO_KEY, value ? "true" : "false");
+  } catch {
+    /* quota */
+  }
+  window.dispatchEvent(new Event(COUNT_AGENT_INFO_EVENT));
+}
+
+
+export function useCountAgentInfoItems(): [boolean, (value: boolean) => void] {
+  const [value, setValue] = React.useState(readCountAgentInfoItems);
+  React.useEffect(() => {
+    const onChange = () => setValue(readCountAgentInfoItems());
+    window.addEventListener(COUNT_AGENT_INFO_EVENT, onChange);
+    return () => window.removeEventListener(COUNT_AGENT_INFO_EVENT, onChange);
+  }, []);
+  return [value, writeCountAgentInfoItems];
 }

@@ -1,3 +1,5 @@
+import { setAssistantPubkey } from "@/shared/lib/assistantIdentity";
+import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
@@ -63,6 +65,12 @@ export function useBestieAssignmentQuery(enabled = true) {
     },
   });
 
+  const assignedAgentPubkey = (
+    assignmentQuery.data as { agentPubkey?: string | null } | null | undefined
+  )?.agentPubkey;
+  React.useEffect(() => {
+    if (assignedAgentPubkey !== undefined) setAssistantPubkey(assignedAgentPubkey);
+  }, [assignedAgentPubkey]);
   return { assignmentQuery, ownerPubkey, queryKey, relayUrl, scope };
 }
 

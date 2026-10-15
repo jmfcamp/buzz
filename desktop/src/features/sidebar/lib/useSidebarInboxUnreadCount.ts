@@ -9,8 +9,10 @@ import { buildInboxItems } from "@/features/home/lib/inbox";
 import {
   computeInboxTabCounts,
   type InboxTabCounts,
+  useCountAgentInfoItems,
 } from "@/features/home/lib/inboxTabs";
 import { projectInboxEffectiveDoneSet } from "@/features/home/lib/inboxUnreadCount";
+import { useAssistantPubkey } from "@/shared/lib/assistantIdentity";
 import { useDueReminderBadgeCount } from "@/features/reminders/hooks";
 import { filterInboxItems } from "@/features/home/lib/inboxViewHelpers";
 import { useOwnedAgentPubkeys } from "@/features/home/useOwnedAgentPubkeys";
@@ -51,6 +53,8 @@ export function useInboxTabCounts(): InboxTabCounts | undefined {
     identityQuery.data?.pubkey,
   );
   const hiddenDmIds = useHiddenDmIds(identityQuery.data?.pubkey);
+  const [countAgentInfoItems] = useCountAgentInfoItems();
+  const assistantPubkey = useAssistantPubkey();
   const dueReminderCount = useDueReminderBadgeCount(
     identityQuery.data?.pubkey,
     true,
@@ -103,8 +107,12 @@ export function useInboxTabCounts(): InboxTabCounts | undefined {
       doneSet,
       ownedAgentPubkeys,
       dueReminderCount,
+      countAgentInfoItems,
+      assistantPubkey,
     });
   }, [
+    assistantPubkey,
+    countAgentInfoItems,
     dueReminderCount,
     channelsQuery.data,
     feed,
