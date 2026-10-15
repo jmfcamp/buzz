@@ -203,13 +203,17 @@ test("assigns from an agent profile, reopens, drags, and offers the message acti
   await page.keyboard.press("Enter");
   const keyboardOpenedPopover = page.getByTestId("bestie-bloom-content");
   await expect(keyboardOpenedPopover).toHaveAttribute("role", "dialog");
-  await expect(page.getByTestId("bestie-composer")).toBeFocused();
+  await expect(
+    page.getByTestId("bestie-composer").getByTestId("message-input"),
+  ).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(keyboardOpenedPopover).toHaveCount(0);
   await expect(floatingTrigger).toBeFocused();
 
   await floatingTrigger.click();
-  await expect(page.getByTestId("bestie-composer")).toBeFocused();
+  await expect(
+    page.getByTestId("bestie-composer").getByTestId("message-input"),
+  ).toBeFocused();
   const outsideDestination = page.getByTestId("open-agents-view");
   await outsideDestination.click();
   await expect(page.getByTestId("bestie-bloom-content")).toHaveCount(0);
