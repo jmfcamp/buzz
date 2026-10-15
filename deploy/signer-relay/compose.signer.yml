@@ -4,7 +4,7 @@
 #   docker compose -p buzz-prod --env-file .env -f compose.yml -f compose.caddy.yml -f compose.linkpreview.yml -f compose.signer.yml up -d signer-relay
 services:
   signer-relay:
-    image: hulabuzz/signer-relay:20261013
+    image: hulabuzz/signer-relay:20261014-iplimit
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
