@@ -311,6 +311,13 @@ export async function syncMissingHulaRepositories(
   deps: HulaSyncDeps = defaultHulaSyncDeps,
 ): Promise<number> {
   if (!project.hulaPath || project.legacy) return 0;
+  // Only the project owner may add repositories or republish the project.
+  // Any other viewer would sign the owner's announcement with their own key,
+  // which forks the project into a second row and re-creates repos each visit.
+  if (deps.getIdentity) {
+    const identity = (await deps.getIdentity())?.pubkey.trim().toLowerCase() ?? "";
+    if (!identity || identity !== project.owner.trim().toLowerCase()) return 0;
+  }
   const root = hulaDirectoryPath(project.hulaPath);
   if (!root) throw new Error("Choose a directory inside Hula.");
 

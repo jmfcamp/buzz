@@ -458,3 +458,26 @@ test("changing the coding agent leaves the DRI tag in place", async () => {
     [["coding-agent", chosen]],
   );
 });
+
+test("a viewer who is not the project owner never publishes repos or the project", async () => {
+  const writes = [];
+  const count = await syncMissingHulaRepositories(hulaProject(), {
+    getIdentity: async () => ({ pubkey: "d".repeat(64) }),
+    listGitRepositories: async () => [ROOT, `${ROOT}/services`],
+    getOpenChannelDirectory: async () => [],
+    createChannel: async (input) => {
+      writes.push(`channel:${input.name}`);
+      return channel(DESKTOP, input.name);
+    },
+    joinChannel: async () => {},
+    fetchOwnHead: async () => null,
+    signRelayEvent: async (template) => {
+      writes.push(`sign:${template.kind}`);
+      return { ...template, id: "x", pubkey: "d".repeat(64), created_at: 1, sig: "s" };
+    },
+    publishRepositoryEvent: async () => writes.push("repo"),
+    publishProjectEvent: async () => writes.push("project"),
+  });
+  assert.equal(count, 0);
+  assert.deepEqual(writes, []);
+});
