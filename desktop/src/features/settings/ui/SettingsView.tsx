@@ -193,6 +193,8 @@ export function SettingsView({
     return settingsSections.filter((s) => {
       // Web: desktop-only sections (Compute, Mobile, Updates, Hosted communities, Invites, Admin).
       if (DESKTOP_ONLY_SETTINGS_SECTIONS.includes(s.value) && !isTauri()) return false;
+      // Desktop: Mobile lives inside "Mobile & web signing".
+      if (s.value === "mobile") return false;
       // Feature gate check. Manifest is preview-only — if the gate id is in
       // the manifest, it's preview and needs an opt-in; if it's not, it's
       // stable and renders unconditionally (fail-open).
