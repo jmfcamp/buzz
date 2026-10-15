@@ -19,7 +19,7 @@ import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import { invokeTauri } from "@/shared/api/tauri";
 import { startManagedAgent } from "@/shared/api/tauriManagedAgents";
-import { setAssistantPubkey } from "@/shared/lib/assistantIdentity";
+import { setAssistantPubkey, useAssistantPubkey } from "@/shared/lib/assistantIdentity";
 import { cn } from "@/shared/lib/cn";
 import {
   Sheet,
@@ -418,5 +418,49 @@ function AssistantPicker({
         ) : null}
       </div>
     </>
+  );
+}
+
+/** Assistant avatar (round) when set and loadable, else a robot icon. */
+export function AssistantGlyph({ className, robotClassName }: { className: string; robotClassName: string }) {
+  const assistantPubkey = useAssistantPubkey();
+  const profile = useUserProfileQuery(assistantPubkey ?? undefined).data;
+  const avatarUrl = assistantPubkey ? (profile?.avatarUrl ?? null) : null;
+  const [failed, setFailed] = React.useState<string | null>(null);
+  if (avatarUrl && failed !== avatarUrl) {
+    return (
+      <img
+        alt=""
+        className={cn("rounded-full object-cover", className)}
+        data-testid="assistant-glyph-avatar"
+        onError={() => setFailed(avatarUrl)}
+        referrerPolicy="no-referrer"
+        src={avatarUrl}
+      />
+    );
+  }
+  return <Bot className={robotClassName} data-testid="assistant-glyph-robot" />;
+}
+
+/** Desktop-width / iPad web: Assist button in the sidebar profile row (where the desktop's Assistant button sits). */
+export function WebAssistSidebarButton() {
+  const assistantPubkey = useAssistantPubkey();
+  const name = useUserProfileQuery(assistantPubkey ?? undefined).data?.displayName;
+  if (!isWebAssistantAvailable()) return null;
+  const label = name ? `Assist — ${name}` : "Assist";
+  return (
+    <button
+      aria-label={label}
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/70 outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+      data-testid="sidebar-assist-button"
+      onClick={(event) => {
+        event.stopPropagation();
+        openWebAssistant();
+      }}
+      title={label}
+      type="button"
+    >
+      <AssistantGlyph className="h-6 w-6" robotClassName="h-[18px] w-[18px]" />
+    </button>
   );
 }
