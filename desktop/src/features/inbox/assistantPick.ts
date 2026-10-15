@@ -21,18 +21,32 @@ import {
 export const ASSISTANT_PICK_CHANGED_EVENT = "buzz-assistant-pick-changed";
 
 /** Pick (or clear, with null) the assistant for `ownerPubkey`. No-op until the inbox-state sync is running. */
-export function setSyncedAssistant(ownerPubkey: string | undefined, agentPubkey: string | null) {
+export function setSyncedAssistant(
+  ownerPubkey: string | undefined,
+  agentPubkey: string | null,
+) {
   const doc = currentInboxStateDoc(ownerPubkey);
   if (!doc) return false;
   const next = agentPubkey ? agentPubkey.trim().toLowerCase() : null;
   if (next && !HEX64.test(next)) return false;
   for (const [id, e] of Object.entries(doc.lanes.followed)) {
-    if (e.on && isAssistantPickId(id) && id !== `${ASSISTANT_PICK_PREFIX}${next}`) {
+    if (
+      e.on &&
+      isAssistantPickId(id) &&
+      id !== `${ASSISTANT_PICK_PREFIX}${next}`
+    ) {
       recordInboxState(ownerPubkey, "followed", id, false);
     }
   }
-  if (next) recordInboxState(ownerPubkey, "followed", `${ASSISTANT_PICK_PREFIX}${next}`, true);
-  if (typeof window !== "undefined") window.dispatchEvent(new Event(ASSISTANT_PICK_CHANGED_EVENT));
+  if (next)
+    recordInboxState(
+      ownerPubkey,
+      "followed",
+      `${ASSISTANT_PICK_PREFIX}${next}`,
+      true,
+    );
+  if (typeof window !== "undefined")
+    window.dispatchEvent(new Event(ASSISTANT_PICK_CHANGED_EVENT));
   return true;
 }
 
@@ -40,8 +54,12 @@ export function readSyncedAssistant(ownerPubkey: string | undefined) {
   return assistantFromDoc(currentInboxStateDoc(ownerPubkey));
 }
 
-export function useSyncedAssistant(ownerPubkey: string | undefined): string | null {
-  const [value, setValue] = React.useState(() => readSyncedAssistant(ownerPubkey));
+export function useSyncedAssistant(
+  ownerPubkey: string | undefined,
+): string | null {
+  const [value, setValue] = React.useState(() =>
+    readSyncedAssistant(ownerPubkey),
+  );
   React.useEffect(() => {
     const update = () => setValue(readSyncedAssistant(ownerPubkey));
     update();

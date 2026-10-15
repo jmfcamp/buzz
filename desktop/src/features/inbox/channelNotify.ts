@@ -55,7 +55,9 @@ export function readChannelNotifyCache(pk: string): ChannelNotifySets {
     const raw = window.localStorage.getItem(cacheKey(pk));
     const j = raw ? JSON.parse(raw) : null;
     const arr = (v: unknown) =>
-      Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+      Array.isArray(v)
+        ? v.filter((x): x is string => typeof x === "string")
+        : [];
     return { all: new Set(arr(j?.all)), muted: new Set(arr(j?.muted)) };
   } catch {
     return EMPTY;

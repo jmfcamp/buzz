@@ -1,6 +1,20 @@
 import * as React from "react";
 
-import { bestieOwnerScopeKey } from "./bestieOwnerScope";
+import { bestieOwnerScopeKey, bestieOwnerStorageKey } from "./bestieOwnerScope";
+import {
+  applyLocalItems,
+  liveItems,
+  type ListsDoc,
+  markProcessed,
+  migrateLocalLists,
+  processedIds,
+} from "@/features/assistantLists/listsDoc";
+import {
+  getAssistantListsDoc,
+  onAssistantListsSyncStart,
+  subscribeAssistantLists,
+  updateAssistantLists,
+} from "@/features/assistantLists/listsStore";
 
 import {
   addBestieListItem,
@@ -53,10 +67,40 @@ function notify(key: string) {
   for (const listener of listeners) listener();
 }
 
+// Relay sync: the Assistant lists doc (features/assistantLists, kind 30078 d=buzz:assistant-lists) is the source of
+// truth when its sync is running for this owner. This store is a cache of it. The old localStorage copy is migrated
+// once and then kept read-only (rollback only). The AM/PM confirm stays in memory on this device.
+const pendingByKey = new Map<
+  string,
+  BestieListState["pendingReminderConfirm"]
+>();
+const docByKey = new Map<string, unknown>();
+
+function stateFromDoc(scope: BestieListScope, doc: ListsDoc): BestieListState {
+  const key = scopeKey(scope);
+  return {
+    items: liveItems(doc).sort(
+      (a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt,
+    ) as BestieListItem[],
+    pendingReminderConfirm: pendingByKey.get(key) ?? null,
+    processedMessageIds: processedIds(doc).slice(0, 500).reverse(),
+    version: 1,
+  };
+}
+
 function loadState(scope: BestieListScope): BestieListState {
   const key = scopeKey(scope);
+  const doc = getAssistantListsDoc(scope.ownerPubkey);
   const cached = stateByKey.get(key);
-  if (cached) return cached;
+  if (doc) {
+    if (cached && docByKey.get(key) === doc) return cached;
+    const next = stateFromDoc(scope, doc);
+    stateByKey.set(key, next);
+    docByKey.set(key, doc);
+    return next;
+  }
+  if (cached && !docByKey.has(key)) return cached;
+  docByKey.delete(key);
   const loaded = readBestieListState(scope);
   stateByKey.set(key, loaded);
   return loaded;
@@ -67,11 +111,74 @@ function commit(
   next: BestieListState,
 ): BestieListState {
   const key = scopeKey(scope);
-  stateByKey.set(key, next);
-  writeBestieListState(scope, next);
+  const prev = loadState(scope);
+  pendingByKey.set(key, next.pendingReminderConfirm ?? null);
+  const synced = updateAssistantLists(scope.ownerPubkey, (doc, now) => {
+    const known = new Set(Object.keys(doc.processed));
+    const added = next.processedMessageIds.filter((id) => !known.has(id));
+    return markProcessed(
+      applyLocalItems(doc, prev.items, next.items, now),
+      added,
+      now,
+    );
+  });
+  if (synced) {
+    const doc = getAssistantListsDoc(scope.ownerPubkey);
+    if (doc) {
+      stateByKey.set(key, stateFromDoc(scope, doc));
+      docByKey.set(key, doc);
+    }
+  } else {
+    stateByKey.set(key, next);
+    docByKey.delete(key);
+    // Before the relay sync runs (or if it never does), keep the old device-local behavior.
+    if (!isListsMigrated(scope)) writeBestieListState(scope, next);
+  }
   notify(key);
-  return next;
+  return loadState(scope);
 }
+
+const MIGRATED_PREFIX = "buzz-assistant-lists-migrated.v1";
+function migratedKey(scope: { ownerPubkey: string; relayUrl: string }) {
+  return bestieOwnerStorageKey(MIGRATED_PREFIX, scope);
+}
+function isListsMigrated(scope: { ownerPubkey: string; relayUrl: string }) {
+  try {
+    return window.localStorage.getItem(migratedKey(scope)) != null;
+  } catch {
+    return false;
+  }
+}
+
+// One-time: fold this device's localStorage lists into the relay doc when the sync starts for an owner + relay.
+onAssistantListsSyncStart((ownerPubkey, relayUrl) => {
+  const scope = { agentPubkey: "", ownerPubkey, relayUrl };
+  if (!isListsMigrated(scope)) {
+    const local = readBestieListState(scope);
+    const ok = updateAssistantLists(ownerPubkey, (doc, now) =>
+      migrateLocalLists(doc, local, now),
+    );
+    if (ok) {
+      try {
+        window.localStorage.setItem(migratedKey(scope), String(Date.now()));
+      } catch {
+        /* storage denied: migration re-runs next time (idempotent) */
+      }
+    }
+  }
+  stateByKey.clear();
+  docByKey.clear();
+  for (const key of listenersByKey.keys()) notify(key);
+});
+
+// Remote changes (another device): drop cached snapshots and wake subscribers.
+subscribeAssistantLists(() => {
+  for (const key of listenersByKey.keys()) {
+    docByKey.delete(key);
+    stateByKey.delete(key);
+    notify(key);
+  }
+});
 
 export function getBestieListState(scope: BestieListScope): BestieListState {
   return loadState(scope);
@@ -179,7 +286,7 @@ export function applyBestieListActionsFromAgentMessage(
             pending &&
             item.text.trim().toLowerCase() === pending.text.toLowerCase()
               ? pending.bareClock
-              : pending?.bareClock ?? null;
+              : (pending?.bareClock ?? null);
           const reconciledDue = reconcileReminderDueAtWithStatedMeridiem(
             item.dueAt ?? null,
             content,
@@ -191,11 +298,7 @@ export function applyBestieListActionsFromAgentMessage(
           }
         }
         const before = next;
-        next = addBestieListItem(
-          next,
-          addInput,
-          Math.floor(nowMs / 1000),
-        );
+        next = addBestieListItem(next, addInput, Math.floor(nowMs / 1000));
         if (next !== before) applied += 1;
         // Clear pending when a matching reminder lands (fence or reconciled).
         if (
@@ -454,5 +557,7 @@ export function useBestieList(scope: BestieListScope | null): BestieListState {
 /** Test helper: drop cached in-memory state. */
 export function __resetBestieListStoreForTests(): void {
   stateByKey.clear();
+  docByKey.clear();
+  pendingByKey.clear();
   listenersByKey.clear();
 }

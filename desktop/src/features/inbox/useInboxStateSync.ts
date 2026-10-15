@@ -3,6 +3,9 @@ import * as React from "react";
 import { usePersonalPinsSync } from "@/features/pinned-sites/hooks";
 import { currentPopoutPayload } from "@/features/popout/lib/popoutWindow";
 
+import { startAssistantListsSync } from "@/features/assistantLists/listsSync";
+import { useCommunities } from "@/features/communities/useCommunities";
+
 import { startInboxStateSync } from "./inboxStateSync";
 
 /**
@@ -20,4 +23,10 @@ export function useInboxStateSync(
     if (!enabled || isPopout || !pubkey) return;
     return startInboxStateSync(pubkey);
   }, [enabled, isPopout, pubkey]);
+  // Assistant lists (to-dos + reminders) ride the same lifecycle: one synced doc per owner on the community relay.
+  const relayUrl = useCommunities().activeCommunity?.relayUrl ?? "";
+  React.useEffect(() => {
+    if (!enabled || isPopout || !pubkey || !relayUrl) return;
+    return startAssistantListsSync(pubkey, relayUrl);
+  }, [enabled, isPopout, pubkey, relayUrl]);
 }

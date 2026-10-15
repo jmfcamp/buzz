@@ -5,21 +5,36 @@
 // Starting a stopped desktop agent needs Direct and is greyed out without it.
 import { isTauri } from "@tauri-apps/api/core";
 import { decode } from "nostr-tools/nip19";
-import { Bot, Loader2, MessageSquare, Monitor, Play, Send, Sparkles } from "lucide-react";
+import {
+  Bot,
+  Loader2,
+  MessageSquare,
+  Monitor,
+  Play,
+  Send,
+  Sparkles,
+} from "lucide-react";
 import * as React from "react";
 
+import { AssistantListsPanel } from "@/features/assistantLists/ui/AssistantListsPanel";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useManagedAgentsQuery } from "@/features/agents/hooks";
 import { useOpenDmMutation } from "@/features/channels/hooks";
 import { useCommunities } from "@/features/communities/useCommunities";
-import { setSyncedAssistant, useSyncedAssistant } from "@/features/inbox/assistantPick";
+import {
+  setSyncedAssistant,
+  useSyncedAssistant,
+} from "@/features/inbox/assistantPick";
 import { usePresenceQuery } from "@/features/presence/hooks";
 import { useUserProfileQuery } from "@/features/profile/hooks";
 import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import { invokeTauri } from "@/shared/api/tauri";
 import { startManagedAgent } from "@/shared/api/tauriManagedAgents";
-import { setAssistantPubkey, useAssistantPubkey } from "@/shared/lib/assistantIdentity";
+import {
+  setAssistantPubkey,
+  useAssistantPubkey,
+} from "@/shared/lib/assistantIdentity";
 import { cn } from "@/shared/lib/cn";
 import {
   Sheet,
@@ -43,7 +58,11 @@ export function isWebAssistantAvailable() {
 }
 
 function useDirectLive(): boolean {
-  return React.useSyncExternalStore(subscribeProxy, proxyDirectLive, () => false);
+  return React.useSyncExternalStore(
+    subscribeProxy,
+    proxyDirectLive,
+    () => false,
+  );
 }
 
 /** Hex pubkey from hex or npub/nprofile text, or null. */
@@ -53,7 +72,8 @@ export function parseAgentPubkey(input: string): string | null {
   try {
     const d = decode(t);
     if (d.type === "npub") return String(d.data).toLowerCase();
-    if (d.type === "nprofile") return String((d.data as { pubkey: string }).pubkey).toLowerCase();
+    if (d.type === "nprofile")
+      return String((d.data as { pubkey: string }).pubkey).toLowerCase();
   } catch {
     /* not nip19 */
   }
@@ -72,10 +92,13 @@ export function WebAssistantBinding() {
   React.useEffect(() => {
     if (picked || !directLive || !me || !activeCommunity?.relayUrl) return;
     let cancelled = false;
-    void invokeTauri<{ agent_pubkey?: string } | null>("get_bestie_assignment", {
-      expectedRelayUrl: activeCommunity.relayUrl,
-      expectedSignerPubkey: me,
-    })
+    void invokeTauri<{ agent_pubkey?: string } | null>(
+      "get_bestie_assignment",
+      {
+        expectedRelayUrl: activeCommunity.relayUrl,
+        expectedSignerPubkey: me,
+      },
+    )
       .then((r) => {
         const pk = r?.agent_pubkey;
         if (!cancelled && pk && HEX64.test(pk)) setSyncedAssistant(me, pk);
@@ -143,7 +166,8 @@ function AssistantHome({
   onClose: () => void;
 }) {
   const profile = useUserProfileQuery(agentPubkey).data;
-  const presence = usePresenceQuery([agentPubkey]).data?.[agentPubkey] ?? "offline";
+  const presence =
+    usePresenceQuery([agentPubkey]).data?.[agentPubkey] ?? "offline";
   const agents = useManagedAgentsQuery().data ?? [];
   const managed = agents.find((a) => a.pubkey.toLowerCase() === agentPubkey);
   const directLive = useDirectLive();
@@ -152,7 +176,9 @@ function AssistantHome({
   const openDm = useOpenDmMutation();
   const { goChannel } = useAppNavigation();
   const [text, setText] = React.useState("");
-  const [busy, setBusy] = React.useState<null | "send" | "open" | "start">(null);
+  const [busy, setBusy] = React.useState<null | "send" | "open" | "start">(
+    null,
+  );
   const [error, setError] = React.useState<string | null>(null);
   const name = profile?.displayName || managed?.name || "Assistant";
 
@@ -162,14 +188,18 @@ function AssistantHome({
     try {
       const channel = await openDm.mutateAsync({
         pubkeys: [agentPubkey],
-        ...(activeCommunity?.relayUrl ? { expectedRelayUrl: activeCommunity.relayUrl } : {}),
+        ...(activeCommunity?.relayUrl
+          ? { expectedRelayUrl: activeCommunity.relayUrl }
+          : {}),
         ...(me ? { expectedSignerPubkey: me } : {}),
       });
       onClose();
       setText("");
       await goChannel(channel.id, draft ? { autoSend: draft } : undefined);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't open the conversation.");
+      setError(
+        e instanceof Error ? e.message : "Couldn't open the conversation.",
+      );
     } finally {
       setBusy(null);
     }
@@ -180,11 +210,15 @@ function AssistantHome({
     setBusy("start");
     try {
       await startManagedAgent(agentPubkey, {
-        ...(activeCommunity?.relayUrl ? { expectedRelayUrl: activeCommunity.relayUrl } : {}),
+        ...(activeCommunity?.relayUrl
+          ? { expectedRelayUrl: activeCommunity.relayUrl }
+          : {}),
         ...(me ? { expectedSignerPubkey: me } : {}),
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't start the assistant.");
+      setError(
+        e instanceof Error ? e.message : "Couldn't start the assistant.",
+      );
     } finally {
       setBusy(null);
     }
@@ -207,10 +241,19 @@ function AssistantHome({
               <span
                 className={cn(
                   "inline-block h-2 w-2 rounded-full",
-                  presence === "online" ? "bg-emerald-500" : presence === "away" ? "bg-amber-500" : "bg-muted-foreground/50",
+                  presence === "online"
+                    ? "bg-emerald-500"
+                    : presence === "away"
+                      ? "bg-amber-500"
+                      : "bg-muted-foreground/50",
                 )}
               />
-              Your assistant · {presence === "online" ? "Online" : presence === "away" ? "Away" : "Offline"}
+              Your assistant ·{" "}
+              {presence === "online"
+                ? "Online"
+                : presence === "away"
+                  ? "Away"
+                  : "Offline"}
             </SheetDescription>
           </div>
           <button
@@ -238,7 +281,11 @@ function AssistantHome({
             data-testid="web-assistant-input"
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              if (
+                e.key === "Enter" &&
+                !e.shiftKey &&
+                !e.nativeEvent.isComposing
+              ) {
                 e.preventDefault();
                 e.currentTarget.form?.requestSubmit();
               }
@@ -254,11 +301,25 @@ function AssistantHome({
             disabled={!text.trim() || busy !== null}
             type="submit"
           >
-            {busy === "send" ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+            {busy === "send" ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <Send className="h-5 w-5" />
+            )}
           </button>
         </form>
-        <button className={ROW} data-testid="web-assistant-open" disabled={busy !== null} onClick={() => void go()} type="button">
-          {busy === "open" ? <Loader2 className="h-5 w-5 animate-spin" /> : <MessageSquare className="h-5 w-5 text-muted-foreground" />}
+        <button
+          className={ROW}
+          data-testid="web-assistant-open"
+          disabled={busy !== null}
+          onClick={() => void go()}
+          type="button"
+        >
+          {busy === "open" ? (
+            <Loader2 className="h-5 w-5 animate-spin" />
+          ) : (
+            <MessageSquare className="h-5 w-5 text-muted-foreground" />
+          )}
           <span className="flex-1">Open conversation</span>
         </button>
         {canStart ? (
@@ -267,14 +328,22 @@ function AssistantHome({
             data-testid="web-assistant-start"
             disabled={!directLive || busy !== null}
             onClick={() => void start()}
-            title={directLive ? undefined : "Needs your desktop connected (Direct)"}
+            title={
+              directLive ? undefined : "Needs your desktop connected (Direct)"
+            }
             type="button"
           >
-            {busy === "start" ? <Loader2 className="h-5 w-5 animate-spin" /> : <Play className="h-5 w-5 text-muted-foreground" />}
+            {busy === "start" ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <Play className="h-5 w-5 text-muted-foreground" />
+            )}
             <span className="flex flex-1 flex-col">
               <span>Start assistant on your desktop</span>
               {!directLive ? (
-                <span className="text-xs text-muted-foreground">Needs your desktop connected (Direct)</span>
+                <span className="text-xs text-muted-foreground">
+                  Needs your desktop connected (Direct)
+                </span>
               ) : null}
             </span>
           </button>
@@ -284,8 +353,13 @@ function AssistantHome({
             {error}
           </p>
         ) : null}
+        <AssistantListsPanel
+          className="border-t border-border/60 pt-3"
+          me={me}
+        />
         <p className="text-xs text-muted-foreground">
-          Replies land in Inbox → Assistant. Lists, jobs, coffee chats and the quick popover are in the desktop app.
+          Replies land in Inbox → Assistant. Lists sync with your desktop; jobs,
+          coffee chats and the quick popover are in the desktop app.
         </p>
       </div>
     </>
@@ -320,10 +394,13 @@ function AssistantPicker({
     setImporting(true);
     setNote(null);
     try {
-      const r = await invokeTauri<{ agent_pubkey?: string } | null>("get_bestie_assignment", {
-        expectedRelayUrl: activeCommunity.relayUrl,
-        expectedSignerPubkey: me,
-      });
+      const r = await invokeTauri<{ agent_pubkey?: string } | null>(
+        "get_bestie_assignment",
+        {
+          expectedRelayUrl: activeCommunity.relayUrl,
+          expectedSignerPubkey: me,
+        },
+      );
       if (r?.agent_pubkey) pick(r.agent_pubkey);
       else setNote("Your desktop has no assistant set for this community.");
     } catch (e) {
@@ -337,10 +414,17 @@ function AssistantPicker({
   return (
     <>
       <SheetHeader>
-        <SheetTitle>{current ? "Change assistant" : "Choose your assistant"}</SheetTitle>
-        <SheetDescription>Your pick syncs to your other devices.</SheetDescription>
+        <SheetTitle>
+          {current ? "Change assistant" : "Choose your assistant"}
+        </SheetTitle>
+        <SheetDescription>
+          Your pick syncs to your other devices.
+        </SheetDescription>
       </SheetHeader>
-      <div className="flex flex-col gap-2 px-4 pb-2" data-testid="web-assistant-picker">
+      <div
+        className="flex flex-col gap-2 px-4 pb-2"
+        data-testid="web-assistant-picker"
+      >
         <button
           className={ROW}
           data-testid="web-assistant-use-desktop"
@@ -348,30 +432,50 @@ function AssistantPicker({
           onClick={() => void importDesktop()}
           type="button"
         >
-          {importing ? <Loader2 className="h-5 w-5 animate-spin" /> : <Monitor className="h-5 w-5 text-muted-foreground" />}
+          {importing ? (
+            <Loader2 className="h-5 w-5 animate-spin" />
+          ) : (
+            <Monitor className="h-5 w-5 text-muted-foreground" />
+          )}
           <span className="flex flex-1 flex-col">
             <span>Use my desktop's assistant</span>
             {!directLive ? (
-              <span className="text-xs text-muted-foreground">Needs your desktop connected (Direct)</span>
+              <span className="text-xs text-muted-foreground">
+                Needs your desktop connected (Direct)
+              </span>
             ) : null}
           </span>
         </button>
         {agents.length > 0 ? (
-          <div className="pt-1 text-xs font-medium text-muted-foreground">Your agents</div>
+          <div className="pt-1 text-xs font-medium text-muted-foreground">
+            Your agents
+          </div>
         ) : null}
         {agents.map((agent) => {
           const pk = agent.pubkey.toLowerCase();
           return (
             <button
-              className={cn(ROW, pk === current && "border-primary/50 bg-primary/10")}
+              className={cn(
+                ROW,
+                pk === current && "border-primary/50 bg-primary/10",
+              )}
               data-testid={`web-assistant-pick-${pk.slice(0, 8)}`}
               key={pk}
               onClick={() => pick(pk)}
               type="button"
             >
-              <ProfileAvatar avatarUrl={agent.avatarUrl ?? null} className="h-8 w-8" label={agent.name} pubkey={pk} />
+              <ProfileAvatar
+                avatarUrl={agent.avatarUrl ?? null}
+                className="h-8 w-8"
+                label={agent.name}
+                pubkey={pk}
+              />
               <span className="flex-1 truncate">{agent.name}</span>
-              {pk === current ? <Sparkles className="h-4 w-4 text-primary" /> : <Bot className="h-4 w-4 text-muted-foreground" />}
+              {pk === current ? (
+                <Sparkles className="h-4 w-4 text-primary" />
+              ) : (
+                <Bot className="h-4 w-4 text-muted-foreground" />
+              )}
             </button>
           );
         })}
@@ -410,7 +514,11 @@ function AssistantPicker({
               Remove assistant
             </button>
             {onCancel ? (
-              <button className="text-xs text-muted-foreground hover:text-foreground" onClick={onCancel} type="button">
+              <button
+                className="text-xs text-muted-foreground hover:text-foreground"
+                onClick={onCancel}
+                type="button"
+              >
                 Cancel
               </button>
             ) : null}
@@ -422,7 +530,13 @@ function AssistantPicker({
 }
 
 /** Assistant avatar (round) when set and loadable, else a robot icon. */
-export function AssistantGlyph({ className, robotClassName }: { className: string; robotClassName: string }) {
+export function AssistantGlyph({
+  className,
+  robotClassName,
+}: {
+  className: string;
+  robotClassName: string;
+}) {
   const assistantPubkey = useAssistantPubkey();
   const profile = useUserProfileQuery(assistantPubkey ?? undefined).data;
   const avatarUrl = assistantPubkey ? (profile?.avatarUrl ?? null) : null;
@@ -445,7 +559,8 @@ export function AssistantGlyph({ className, robotClassName }: { className: strin
 /** Desktop-width / iPad web: Assist button in the sidebar profile row (where the desktop's Assistant button sits). */
 export function WebAssistSidebarButton() {
   const assistantPubkey = useAssistantPubkey();
-  const name = useUserProfileQuery(assistantPubkey ?? undefined).data?.displayName;
+  const name = useUserProfileQuery(assistantPubkey ?? undefined).data
+    ?.displayName;
   if (!isWebAssistantAvailable()) return null;
   const label = name ? `Assist — ${name}` : "Assist";
   return (

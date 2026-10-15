@@ -1,3 +1,4 @@
+import { useAssistantDueReminderCount } from "@/features/assistantLists/listsStore";
 import * as React from "react";
 
 import { useAppShell } from "@/app/AppShellContext";
@@ -55,10 +56,12 @@ export function useInboxTabCounts(): InboxTabCounts | undefined {
   const hiddenDmIds = useHiddenDmIds(identityQuery.data?.pubkey);
   const [countAgentInfoItems] = useCountAgentInfoItems();
   const assistantPubkey = useAssistantPubkey();
-  const dueReminderCount = useDueReminderBadgeCount(
+  const assistantDueCount = useAssistantDueReminderCount(
     identityQuery.data?.pubkey,
-    true,
   );
+  const dueReminderCount =
+    useDueReminderBadgeCount(identityQuery.data?.pubkey, true) +
+    assistantDueCount;
 
   // Same augmentation as HomeScreen: live thread activity + hidden-DM typing
   // so the badge matches InboxListPane unread under the default All filter.
