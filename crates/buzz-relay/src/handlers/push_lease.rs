@@ -20,7 +20,7 @@ pub(crate) const PUSH_KINDS: &[u64] = &[9, 40_002, 45_001, 45_003, 46_010, 46_01
 /// Lease classes. `default` is the only APNs class; the web profile uses the
 /// named classes so the gateway can pick a content-free notification line.
 pub(crate) const PUSH_CLASSES: &[&str] =
-    &["default", "dm", "mention", "thread_reply", "needs_action"];
+    &["default", "dm", "mention", "thread_reply", "needs_action", "channel"];
 
 /// Server-owned app profiles a lease may name.
 pub(crate) const PUSH_APP_PROFILES: &[AppProfile<'static>] = &[

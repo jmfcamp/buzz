@@ -155,7 +155,7 @@ struct MemberPushPrefs {
     /// Push classes the member turned off (`dm`, `thread_reply`, `mention`, `needs_action`).
     #[serde(default)]
     off: std::collections::HashSet<String>,
-    /// Muted channel / DM ids (UUID strings). Silences `dm` and `thread_reply`; mentions still notify.
+    /// Muted channel / DM ids (UUID strings). Silences `dm`, `thread_reply` and `channel`; mentions still notify.
     #[serde(default)]
     muted_channels: std::collections::HashSet<String>,
     /// Muted thread root ids (hex). Silences `thread_reply`.
@@ -187,7 +187,7 @@ fn prefs_silence(
     if prefs.off.contains(class) {
         return true;
     }
-    if class == "dm" || class == "thread_reply" {
+    if class == "dm" || class == "thread_reply" || class == "channel" {
         if let Some(channel) = job.event.channel_id {
             if prefs.muted_channels.contains(&channel.to_string()) {
                 return true;
@@ -1034,6 +1034,24 @@ mod tests {
         ctx.thread_roots
             .insert(own.event.event.id.as_bytes().to_vec(), vec![9u8; 32]);
         assert!(match_job(&own, &ctx).unwrap().is_empty());
+    }
+
+    #[test]
+    fn channel_class_wakes_for_subscribed_channel_and_respects_mutes() {
+        let (member, other) = (nostr::Keys::generate(), nostr::Keys::generate());
+        let channel = uuid::Uuid::new_v4();
+        let subs = serde_json::json!([{"filter":{"kinds":[9],"#h":[channel.to_string()]},"class":"channel","ignore":[]}]);
+        let ctx = scoped_context(&member, subs, channel);
+        let post = channel_message(&other, channel);
+        let wakes = match_job(&post, &ctx).unwrap();
+        assert_eq!(wakes.len(), 1);
+        assert_eq!(wakes[0].class, "channel");
+        let prefs = MemberPushPrefs {
+            muted_channels: [channel.to_string()].into_iter().collect(),
+            ..Default::default()
+        };
+        assert!(prefs_silence(Some(&prefs), "channel", &post, &ctx));
+        assert!(!prefs_silence(Some(&prefs), "mention", &post, &ctx));
     }
 
     #[test]
