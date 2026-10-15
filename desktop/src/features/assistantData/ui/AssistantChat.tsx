@@ -66,7 +66,10 @@ import {
   readConversationStart,
   writeConversationStart,
 } from "../conversationStart";
-import { applyAssistantListFencesFromMessage } from "@/features/assistantLists/listFences";
+import {
+  applyAssistantListFencesFromMessage,
+  messageMayContainAssistantListFence,
+} from "@/features/assistantLists/listFences";
 import { applyWebUserIntents } from "../webIntents";
 import { AssistantListsCard, useSuiteSummary } from "./AssistantSuite";
 
@@ -345,13 +348,7 @@ export function AssistantPopoverBody({
       if (!ev?.id || appliedFenceIds.current.has(ev.id)) continue;
       if ((ev.pubkey ?? "").toLowerCase() !== agentPubkey.toLowerCase()) continue;
       const body = typeof ev.content === "string" ? ev.content : "";
-      if (
-        !body ||
-        (!/```(?:bestie|assistant)-list\b/i.test(body) &&
-          !/(?:Added|Adding)\s+["'][^"']+["']\s+to your Assistant List/i.test(
-            body,
-          ))
-      ) {
+      if (!body || !messageMayContainAssistantListFence(body)) {
         continue;
       }
       appliedFenceIds.current.add(ev.id);

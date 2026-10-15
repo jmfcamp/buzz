@@ -11,7 +11,28 @@ import {
 import { addItem } from "./listsOps";
 import { updateAssistantLists } from "./listsStore";
 
-const FENCE_RE = /```(?:bestie|assistant)-list\s*\r?\n([\s\S]*?)```/gi;
+// `bestie-list` is a legacy alias. Keep it out of the OSS desktop artifact
+// (build-protected-feature-artifacts asserts no \bbestie\b in OSS). Vite DCE
+// drops the bestie branch when VITE_BUZZ_BESTIE !== "1".
+const FENCE_KIND =
+  import.meta.env.VITE_BUZZ_BESTIE === "1" ? "(?:bestie|assistant)" : "assistant";
+const FENCE_RE = new RegExp(
+  "```" + FENCE_KIND + "-list\\s*\\r?\\n([\\s\\S]*?)```",
+  "gi",
+);
+
+/** True when body may contain a list fence (or recoverable prose claim). */
+export function messageMayContainAssistantListFence(body: string): boolean {
+  if (!body) return false;
+  const probe =
+    import.meta.env.VITE_BUZZ_BESTIE === "1"
+      ? /```(?:bestie|assistant)-list\b/i
+      : /```assistant-list\b/i;
+  if (probe.test(body)) return true;
+  return /(?:Added|Adding)\s+["'][^"']+["']\s+to your Assistant List/i.test(
+    body,
+  );
+}
 
 type FenceAdd = {
   op: "add";
