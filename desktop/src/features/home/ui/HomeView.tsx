@@ -56,9 +56,11 @@ import { InboxDetailPane } from "@/features/home/ui/InboxDetailPane";
 import { InboxListPane } from "@/features/home/ui/InboxListPane";
 import {
   defaultFilterForTab,
-  inboxTabOf,
+  computeInboxTabCounts,
   type InboxTab,
+  selectInboxTabItems,
   tabForFilter,
+  useCountAgentInfoItems,
 } from "@/features/home/lib/inboxTabs";
 import { useAssistantPubkey } from "@/shared/lib/assistantIdentity";
 import { useInboxTabCounts } from "@/features/sidebar/lib/useSidebarInboxUnreadCount";
@@ -139,7 +141,8 @@ export function HomeView({
     homeInboxWidthPx < INBOX_SINGLE_COLUMN_BREAKPOINT_PX;
   const [filter, setFilter] = React.useState<InboxFilter>("all");
   const [inboxTab, setInboxTab] = React.useState<InboxTab>("inbox");
-  const inboxTabCounts = useInboxTabCounts();
+  const sharedInboxTabCounts = useInboxTabCounts();
+  const [countAgentInfoItems] = useCountAgentInfoItems();
   const assistantPubkey = useAssistantPubkey();
   // Default Unread (show unread only). Persist explicit off as "false".
   const [unreadOnly, setUnreadOnly] = React.useState(
@@ -449,6 +452,29 @@ export function HomeView({
       undoDoneLocal: undoDone,
       undoUnreadLocal: undoUnread,
     });
+  // Tab badges come from the exact rows and read set this list filters, so a
+  // tab can never show a count its own "unread only" list does not have.
+  const inboxTabCounts = React.useMemo(
+    () =>
+      sharedInboxTabCounts === undefined
+        ? undefined
+        : computeInboxTabCounts({
+            items: inboxItems,
+            doneSet: effectiveDoneSet,
+            ownedAgentPubkeys,
+            dueReminderCount: sharedInboxTabCounts.reminders,
+            countAgentInfoItems,
+            assistantPubkey,
+          }),
+    [
+      assistantPubkey,
+      countAgentInfoItems,
+      effectiveDoneSet,
+      inboxItems,
+      ownedAgentPubkeys,
+      sharedInboxTabCounts,
+    ],
+  );
   // Selection is known before the unread filter. The open row stays only
   // while another unread row remains.
   const selectedItemFromAll = React.useMemo(
@@ -471,9 +497,11 @@ export function HomeView({
 
   const tabInboxItems = React.useMemo(
     () =>
-      inboxItems.filter(
-        (item) =>
-          inboxTabOf(item, ownedAgentPubkeys, assistantPubkey) === inboxTab,
+      selectInboxTabItems(
+        inboxItems,
+        inboxTab,
+        ownedAgentPubkeys,
+        assistantPubkey,
       ),
     [assistantPubkey, inboxItems, inboxTab, ownedAgentPubkeys],
   );
@@ -600,10 +628,11 @@ export function HomeView({
       const nextTabItems =
         nextTab === inboxTab
           ? tabInboxItems
-          : inboxItems.filter(
-              (item) =>
-                inboxTabOf(item, ownedAgentPubkeys, assistantPubkey) ===
-                nextTab,
+          : selectInboxTabItems(
+              inboxItems,
+              nextTab,
+              ownedAgentPubkeys,
+              assistantPubkey,
             );
       const nextItems = selectVisibleInboxItems(nextTabItems, {
         doneIds: effectiveDoneSet,

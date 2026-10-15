@@ -9,6 +9,7 @@ import { useHomeFeedQuery } from "@/features/home/hooks";
 import { buildInboxItems } from "@/features/home/lib/inbox";
 import {
   computeInboxTabCounts,
+  inboxFeedAuthorPubkeys,
   type InboxTabCounts,
   useCountAgentInfoItems,
 } from "@/features/home/lib/inboxTabs";
@@ -19,6 +20,7 @@ import { filterInboxItems } from "@/features/home/lib/inboxViewHelpers";
 import { useOwnedAgentPubkeys } from "@/features/home/useOwnedAgentPubkeys";
 import type { HomeFeedResponse } from "@/shared/api/types";
 import { useIdentityQuery } from "@/shared/api/hooks";
+import { useUsersBatchQuery } from "@/features/profile/hooks";
 
 /**
  * Inbox left-nav unread: same source as InboxListPane's Mark-all-read numeral
@@ -48,11 +50,7 @@ export function useInboxTabCounts(): InboxTabCounts | undefined {
     isReadStateReady,
     threadActivityFeedItems,
   } = useAppShell();
-  const ownedAgentPubkeys = useOwnedAgentPubkeys(
-    true,
-    undefined,
-    identityQuery.data?.pubkey,
-  );
+
   const hiddenDmIds = useHiddenDmIds(identityQuery.data?.pubkey);
   const [countAgentInfoItems] = useCountAgentInfoItems();
   const assistantPubkey = useAssistantPubkey();
@@ -83,10 +81,31 @@ export function useInboxTabCounts(): InboxTabCounts | undefined {
     return markHiddenDmFeedItems(withThreadActivity, hiddenDmIds);
   }, [hiddenDmIds, homeFeedQuery.data, threadActivityFeedItems]);
 
+  // Same owned-agent set as the Inbox list: managed agents plus any feed
+  // author whose profile names you as owner. Without the profiles, a reply
+  // from your own agent counted on People while the list filed it under Agents.
+  const feedAuthorPubkeys = React.useMemo(
+    () => inboxFeedAuthorPubkeys(feed, identityQuery.data?.pubkey),
+    [feed, identityQuery.data?.pubkey],
+  );
+  const feedProfilesQuery = useUsersBatchQuery(feedAuthorPubkeys, {
+    enabled: feedAuthorPubkeys.length > 0,
+  });
+  const feedProfiles = feedProfilesQuery.data?.profiles;
+  const profilesPending =
+    feedAuthorPubkeys.length > 0 && feedProfilesQuery.data === undefined;
+  const ownedAgentPubkeys = useOwnedAgentPubkeys(
+    true,
+    feedProfiles,
+    identityQuery.data?.pubkey,
+  );
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: readStateVersion invalidates read lookups
   return React.useMemo(() => {
     // Synced read markers must load first, or a fresh install counts everything (99+).
     if (feed === undefined || !isReadStateReady) return undefined;
+    // Wait for author profiles so owned agents are not briefly counted as People.
+    if (profilesPending && !feedProfilesQuery.isError) return undefined;
 
     const items = filterInboxItems(
       buildInboxItems({
@@ -96,6 +115,7 @@ export function useInboxTabCounts(): InboxTabCounts | undefined {
         getChannelReadAt,
         getMessageReadAt,
         getThreadReadAt,
+        profiles: feedProfiles,
       }),
     );
     const doneSet = projectInboxEffectiveDoneSet(items, {
@@ -121,6 +141,9 @@ export function useInboxTabCounts(): InboxTabCounts | undefined {
     feed,
     feedItemState.doneSet,
     feedItemState.unreadSet,
+    feedProfiles,
+    feedProfilesQuery.isError,
+    profilesPending,
     getChannelReadAt,
     getMessageReadAt,
     getThreadReadAt,

@@ -212,3 +212,48 @@ export function useCountAgentInfoItems(): [boolean, (value: boolean) => void] {
   }, []);
   return [value, writeCountAgentInfoItems];
 }
+
+/** Rows that belong to one Inbox tab. The list and the badge counts both use this. */
+export function selectInboxTabItems<T extends TabItem>(
+  items: readonly T[],
+  tab: InboxTab,
+  ownedAgentPubkeys: ReadonlySet<string>,
+  assistantPubkey?: string | null,
+): T[] {
+  return items.filter(
+    (item) => inboxTabOf(item, ownedAgentPubkeys, assistantPubkey) === tab,
+  );
+}
+
+/**
+ * Authors of every feed item. Their profiles decide which agents you own
+ * (profile `ownerPubkey`), and that decides People vs Agents. The Inbox list
+ * and the nav badge must resolve the same set, or a message from your own
+ * agent counts on People but only lists under Agents.
+ */
+export function inboxFeedAuthorPubkeys(
+  feed:
+    | {
+        feed: {
+          mentions: readonly { pubkey: string }[];
+          needsAction: readonly { pubkey: string }[];
+          activity: readonly { pubkey: string }[];
+          agentActivity: readonly { pubkey: string }[];
+        };
+      }
+    | undefined,
+  currentPubkey?: string | null,
+): string[] {
+  if (!feed) return [];
+  const out = new Set<string>();
+  for (const list of [
+    feed.feed.mentions,
+    feed.feed.needsAction,
+    feed.feed.activity,
+    feed.feed.agentActivity,
+  ]) {
+    for (const item of list ?? []) out.add(item.pubkey);
+  }
+  if (currentPubkey) out.add(currentPubkey);
+  return [...out];
+}

@@ -113,3 +113,36 @@ test("assistant thread replies / non-dm items go to Assistant, not Agents", () =
   });
   assert.deepEqual([c.agents, c.assistant], [0, 2]);
 });
+
+test("People badge and People unread list agree for a reply from your own agent (profile-owned)", async () => {
+  const { selectInboxTabItems } = await import("./inboxTabs.ts");
+  const { mergeOwnedAgentPubkeys } = await import(
+    "../../agents/knownAgentPubkeys.ts"
+  );
+  const ME = "b".repeat(64);
+  const items = [item({ id: "r1", pubkey: AGENT, categories: ["mention"] })];
+  const profiles = { [AGENT]: { ownerPubkey: ME } };
+  // Badge and list must resolve owned agents the same way (with profiles).
+  const owned = mergeOwnedAgentPubkeys(undefined, profiles, ME);
+  const counts = computeInboxTabCounts({
+    items,
+    doneSet: new Set(),
+    ownedAgentPubkeys: owned,
+    dueReminderCount: 0,
+  });
+  const peopleRows = selectInboxTabItems(items, "inbox", owned);
+  assert.equal(counts.inbox, peopleRows.length);
+  assert.equal(counts.inbox, 0);
+  assert.equal(counts.agents, selectInboxTabItems(items, "agents", owned).length);
+  // Without profiles (the old badge path) it was misfiled under People.
+  const ownedNoProfiles = mergeOwnedAgentPubkeys(undefined, undefined, ME);
+  assert.equal(
+    computeInboxTabCounts({
+      items,
+      doneSet: new Set(),
+      ownedAgentPubkeys: ownedNoProfiles,
+      dueReminderCount: 0,
+    }).inbox,
+    1,
+  );
+});
