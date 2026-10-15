@@ -2,7 +2,6 @@
 // banner, mini transcript (TimelineMessageList), rounded composer with the round send button, and the "Lists"
 // expansion card. Your DM with the Assistant goes over the relay (signer-only); typed list requests apply at once.
 import {
-  ArrowUp,
   Bell,
   ChevronDown,
   SquareArrowOutUpRight,
@@ -35,7 +34,12 @@ import {
 } from "@/shared/constants/kinds";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
-import { Textarea } from "@/shared/ui/textarea";
+import { MessageComposer } from "@/features/messages/ui/MessageComposer";
+import {
+  deleteDraftEntry,
+  loadDraftEntry,
+  saveDraftEntry,
+} from "@/features/messages/lib/useDrafts";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
 import { ASK_EVENT, takeAsk } from "@/features/assistant/askBus";
 import {
@@ -56,6 +60,9 @@ import { useAutoDirectWhileOpen } from "@/features/bridge/ui/DesktopData";
 import { useDirectLive } from "../dataStore";
 import { planAssistantSeenReads } from "../seenReads";
 import {
+  assistDraftKey,
+  readDraftGen,
+  writeDraftGen,
   readConversationStart,
   writeConversationStart,
 } from "../conversationStart";
@@ -160,26 +167,58 @@ export function AssistantPopoverBody({
       setStarting(false);
     }
   };
-  const [draft, setDraft] = React.useState("");
-  const inputRef = React.useRef<HTMLTextAreaElement>(null);
+  // Same composer as channels/threads (MessageComposer). Text is injected (Ask Assistant) or cleared (Close Thread)
+  // by moving to a fresh draft key: the composer saves the outgoing key and loads the new one we pre-filled.
+  const [draftGen, setDraftGen] = React.useState(() => readDraftGen(me, agentPubkey));
+  const draftKey = assistDraftKey(me, agentPubkey, draftGen);
+  const draftKeyRef = React.useRef(draftKey);
+  draftKeyRef.current = draftKey;
+  const composerBoxRef = React.useRef<HTMLDivElement>(null);
+  const nextDraft = React.useCallback(
+    (content: string) => {
+      const prevKey = draftKeyRef.current;
+      const next = readDraftGen(me, agentPubkey) + 1;
+      writeDraftGen(me, agentPubkey, next);
+      const key = assistDraftKey(me, agentPubkey, next);
+      if (content.trim()) {
+        const now = new Date().toISOString();
+        saveDraftEntry(key, {
+          channelId: channel?.id ?? "",
+          content,
+          createdAt: now,
+          pendingImeta: [],
+          selectionEnd: content.length,
+          selectionStart: content.length,
+          spoileredAttachmentUrls: [],
+          status: "active",
+          updatedAt: now,
+        });
+      }
+      setDraftGen(next);
+      // The old key was saved by the composer on the key change; drop it so it doesn't linger in Drafts.
+      window.setTimeout(() => deleteDraftEntry(prevKey), 0);
+    },
+    [me, agentPubkey, channel?.id],
+  );
   // "Ask Assistant about this message": take the queued context draft (now, and whenever another arrives).
   React.useEffect(() => {
     const apply = () => {
       const text = takeAsk();
       if (!text) return;
-      setDraft((d) => (d.trim() ? `${text}\n\n${d}` : `${text}\n\n`));
+      const current = loadDraftEntry(draftKeyRef.current)?.content ?? "";
+      nextDraft(current.trim() ? `${text}\n\n${current}` : `${text}\n\n`);
       setTab("chat");
       window.setTimeout(() => {
-        const el = inputRef.current;
-        if (!el) return;
-        el.focus({ preventScroll: true });
-        el.setSelectionRange(el.value.length, el.value.length);
-      }, 60);
+        const el = composerBoxRef.current?.querySelector<HTMLElement>(
+          "[contenteditable='true'], textarea",
+        );
+        el?.focus({ preventScroll: true });
+      }, 80);
     };
     apply();
     window.addEventListener(ASK_EVENT, apply);
     return () => window.removeEventListener(ASK_EVENT, apply);
-  }, []);
+  }, [nextDraft]);
   const typingEntries = useChannelTyping(channel, me);
   const typingPubkeys = React.useMemo(
     () => typingEntries.map((entry) => entry.pubkey),
@@ -388,15 +427,19 @@ export function AssistantPopoverBody({
     const at = Math.max(Math.floor(Date.now() / 1000), latest);
     writeConversationStart(me, agentPubkey, at);
     setConversationStart(at);
-    setDraft("");
+    nextDraft("");
     setError(null);
     setCloseConfirm(false);
     onMinimize();
   };
 
-  const sendMessage = async () => {
-    const content = draft.trim();
-    if (!content || busy || !me) return;
+  const sendMessage = async (
+    content: string,
+    mentionPubkeys: string[],
+    mediaTags?: string[][],
+  ) => {
+    const text = content.trim();
+    if ((!text && !mediaTags?.length) || busy || !me) return;
     setBusy(true);
     setError(null);
     try {
@@ -412,18 +455,21 @@ export function AssistantPopoverBody({
         setCreated(target);
       }
       const ev = await send.mutateAsync({
-        content: `${content}${assistantListTurnHint()}`,
+        content: `${text}${assistantListTurnHint()}`,
         targetChannel: target,
         channelId: target.id,
+        mentionPubkeys,
+        ...(mediaTags?.length ? { mediaTags } : {}),
       });
-      setDraft("");
-      if (ev?.id) applyWebUserIntents(me, ev.id, content);
+      if (ev?.id) applyWebUserIntents(me, ev.id, text);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't send.");
+      throw e;
     } finally {
       setBusy(false);
     }
   };
+
 
   return (
     <div
@@ -610,50 +656,34 @@ export function AssistantPopoverBody({
         {/* In-flow under the input (channel views reserve a composer-dock rail; Assist has no overlay dock,
             so absolute ComposerActivityAccessory was painting over / above the box). */}
         <div className="relative shrink-0">
-          <div className="relative">
-            <Textarea
-              aria-label={`Message ${name}`}
-              className="min-h-24 resize-none rounded-2xl pb-11"
-              data-testid="web-assistant-input"
-              ref={inputRef}
-              onChange={(event) => setDraft(event.target.value)}
-              onFocus={() => {
-                // iOS keyboard: once the popup has resized to the visual viewport, keep the latest message in view.
-                for (const ms of [50, 350]) {
-                  window.setTimeout(() => {
-                    const el = transcriptRef.current;
-                    if (el) el.scrollTop = el.scrollHeight;
-                  }, ms);
-                }
-              }}
-              onKeyDown={(event) => {
-                if (
-                  event.key !== "Enter" ||
-                  event.shiftKey ||
-                  event.altKey ||
-                  event.ctrlKey ||
-                  event.metaKey ||
-                  event.nativeEvent.isComposing
-                ) {
-                  return;
-                }
-                event.preventDefault();
-                void sendMessage();
-              }}
+          <div
+            data-testid="web-assistant-input"
+            onFocusCapture={() => {
+              // iOS keyboard: once the popup has resized to the visual viewport, keep the latest message in view.
+              for (const ms of [50, 350]) {
+                window.setTimeout(() => {
+                  const el = transcriptRef.current;
+                  if (el) el.scrollTop = el.scrollHeight;
+                }, ms);
+              }
+            }}
+            ref={composerBoxRef}
+          >
+            <MessageComposer
+              channelId={channel?.id ?? null}
+              channelName={name}
+              channelType={channel?.channelType ?? "dm"}
+              containerClassName="px-0 pb-0"
+              disabled={!me}
+              draftKey={draftKey}
+              isSending={busy}
+              layoutMode="standalone"
+              onSend={sendMessage}
               placeholder={`Message ${name}`}
-              value={draft}
+              profiles={profiles}
+              showBackgroundUploadProgress={false}
+              showTopBorder={false}
             />
-            <Button
-              aria-label="Send in Assistant conversation"
-              className="absolute bottom-2 right-2 rounded-full"
-              data-testid="web-assistant-send"
-              disabled={!draft.trim() || busy}
-              onClick={() => void sendMessage()}
-              size="icon"
-              type="button"
-            >
-              <ArrowUp />
-            </Button>
           </div>
           {/* Fixed-height slot, always present: the typing line fades in/out without shifting the composer or chat. */}
           <div
