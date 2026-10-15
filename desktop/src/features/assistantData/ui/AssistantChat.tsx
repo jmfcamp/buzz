@@ -37,6 +37,12 @@ import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { Textarea } from "@/shared/ui/textarea";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/shared/ui/dropdown-menu";
 
 import { useDirectLive } from "../dataStore";
 import { applyWebUserIntents } from "../webIntents";
@@ -136,6 +142,17 @@ export function AssistantPopoverBody({
   const [draft, setDraft] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const transcriptRef = React.useRef<HTMLDivElement>(null);
+  const tabbed = useTabbedLayout();
+  const summary = useSuiteSummary(me);
+  const [tab, setTab] = React.useState<"chat" | "lists">(readTab);
+  const pickTab = (t: "chat" | "lists") => {
+    setTab(t);
+    try {
+      window.localStorage.setItem(TAB_KEY, t);
+    } catch {
+      /* UI preference only */
+    }
+  };
   const bottomRef = React.useRef<HTMLDivElement>(null);
 
   const profiles = React.useMemo<UserProfileLookup>(
@@ -219,22 +236,51 @@ export function AssistantPopoverBody({
       data-testid="web-assistant-popover"
     >
       <div className="flex shrink-0 items-start gap-2">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <div aria-hidden="true" className="relative shrink-0">
-            <UserAvatar
-              avatarUrl={avatarUrl}
-              className="h-8 w-8"
-              displayName={name}
-              fallbackDelayMs={0}
-              size="sm"
-            />
-            <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-popover">
-              <PresenceDot className="h-2 w-2" status={presence} />
-            </span>
-          </div>
-          <span className="min-w-0 truncate text-sm font-medium">{name}</span>
-          <span className="sr-only">{presence}</span>
-        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              aria-label="Assistant options"
+              className="flex min-w-0 items-center gap-2.5 rounded-md text-left outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid="web-assistant-identity"
+              type="button"
+            >
+              <div aria-hidden="true" className="relative shrink-0">
+                <UserAvatar
+                  avatarUrl={avatarUrl}
+                  className="h-8 w-8"
+                  displayName={name}
+                  fallbackDelayMs={0}
+                  size="sm"
+                />
+                <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-popover">
+                  <PresenceDot className="h-2 w-2" status={presence} />
+                </span>
+              </div>
+              <span className="min-w-0 truncate text-sm font-medium">
+                {name}
+              </span>
+              <span className="sr-only">{presence}</span>
+              <ChevronDown
+                aria-hidden="true"
+                className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+              />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="z-[310]">
+            <DropdownMenuItem
+              data-testid="web-assistant-change"
+              onSelect={onChange}
+            >
+              Change assistant…
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              data-testid="web-assistant-remove"
+              onSelect={onChange}
+            >
+              Remove assistant…
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <div className="flex-1" />
         {managed && presence === "offline" ? (
           <Button
@@ -258,16 +304,6 @@ export function AssistantPopoverBody({
                 : "Start · Needs Direct"}
           </Button>
         ) : null}
-        <Button
-          className="h-7 rounded-full border border-border/50 bg-muted/45 px-2.5 text-xs font-medium text-foreground shadow-none hover:bg-muted/70"
-          data-testid="web-assistant-change"
-          onClick={onChange}
-          size="xs"
-          type="button"
-          variant="ghost"
-        >
-          Change
-        </Button>
         <div className="flex shrink-0 items-center gap-1">
           <Button
             aria-label="Open Assistant conversation"
@@ -280,7 +316,8 @@ export function AssistantPopoverBody({
             <SquareArrowOutUpRight />
           </Button>
           <Button
-            aria-label="Collapse Assistant"
+            aria-label="Close Assistant"
+            className="max-sm:h-11 max-sm:w-11 max-sm:rounded-full max-sm:bg-muted/70 max-sm:text-foreground max-sm:[&_svg]:size-6"
             data-testid="web-assistant-minimize"
             onClick={onMinimize}
             size="icon-xs"
@@ -290,7 +327,8 @@ export function AssistantPopoverBody({
             <ChevronDown />
           </Button>
           <Button
-            aria-label="Close Assistant"
+            aria-label="Discard Assistant session"
+            className="max-sm:hidden"
             data-testid="web-assistant-close"
             onClick={onClose}
             size="icon-xs"
@@ -302,82 +340,134 @@ export function AssistantPopoverBody({
         </div>
       </div>
 
-      <NudgeBanner me={me} />
-
-      {channel && messages.length > 0 ? (
+      {tabbed ? (
         <div
-          aria-live="polite"
-          className="min-h-0 flex-1 overflow-y-auto"
-          data-testid="web-assistant-transcript"
-          ref={transcriptRef}
+          className="flex shrink-0 gap-1 rounded-full bg-muted/45 p-1"
+          data-testid="web-assistant-tabs"
+          role="tablist"
         >
-          <div className="flex min-h-0 flex-col gap-2 pb-3">
-            <TimelineMessageList
-              channelId={channel.id}
-              channelName={channel.name}
-              channelType={channel.channelType}
-              currentPubkey={me}
-              mainEntries={mainEntries}
-              messages={messages}
-              onToggleReaction={async (message, emoji, remove) => {
-                await toggleReaction.mutateAsync({
-                  emoji,
-                  eventId: message.id,
-                  remove,
-                });
-              }}
-              profiles={profiles}
-              stickyDayDividers={false}
-            />
-            <div aria-hidden="true" ref={bottomRef} />
-          </div>
+          {(["chat", "lists"] as const).map((t) => (
+            <button
+              aria-selected={tab === t}
+              className={cn(
+                "relative flex h-9 flex-1 items-center justify-center gap-1.5 rounded-full text-sm font-medium transition-colors",
+                tab === t
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              data-testid={`web-assistant-tab-${t}`}
+              key={t}
+              onClick={() => pickTab(t)}
+              role="tab"
+              type="button"
+            >
+              {t === "chat" ? "Chat" : "Lists"}
+              {t === "lists" && summary.dueReminders > 0 ? (
+                <span
+                  className="min-w-5 rounded-full bg-destructive px-1.5 text-2xs leading-5 text-destructive-foreground tabular-nums"
+                  data-testid="web-assistant-tab-lists-badge"
+                >
+                  {summary.dueReminders}
+                  <span className="sr-only"> due</span>
+                </span>
+              ) : null}
+            </button>
+          ))}
         </div>
-      ) : (
-        <div aria-hidden="true" className="min-h-16 flex-1" />
-      )}
-
-      <div className="relative shrink-0">
-        <Textarea
-          aria-label={`Message ${name}`}
-          className="min-h-24 resize-none rounded-2xl pb-11"
-          data-testid="web-assistant-input"
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (
-              event.key !== "Enter" ||
-              event.shiftKey ||
-              event.altKey ||
-              event.ctrlKey ||
-              event.metaKey ||
-              event.nativeEvent.isComposing
-            ) {
-              return;
-            }
-            event.preventDefault();
-            void sendMessage();
-          }}
-          placeholder={`Message ${name}`}
-          value={draft}
-        />
-        <Button
-          aria-label="Send in Assistant conversation"
-          className="absolute bottom-2 right-2 rounded-full"
-          data-testid="web-assistant-send"
-          disabled={!draft.trim() || busy}
-          onClick={() => void sendMessage()}
-          size="icon"
-          type="button"
-        >
-          <ArrowUp />
-        </Button>
-      </div>
-      {error ? (
-        <p className="shrink-0 text-xs text-destructive" role="alert">
-          {error}
-        </p>
       ) : null}
 
-      <AssistantListsCard me={me} onNavigate={onMinimize} />
+      <div
+        className={cn(
+          "flex min-h-0 flex-1 flex-col gap-3",
+          tabbed && tab !== "chat" && "hidden",
+        )}
+        role={tabbed ? "tabpanel" : undefined}
+      >
+        <NudgeBanner me={me} />
+
+        {channel && messages.length > 0 ? (
+          <div
+            aria-live="polite"
+            className="min-h-0 flex-1 overflow-y-auto"
+            data-testid="web-assistant-transcript"
+            ref={transcriptRef}
+          >
+            <div className="flex min-h-0 flex-col gap-2 pb-3">
+              <TimelineMessageList
+                channelId={channel.id}
+                channelName={channel.name}
+                channelType={channel.channelType}
+                currentPubkey={me}
+                mainEntries={mainEntries}
+                messages={messages}
+                onToggleReaction={async (message, emoji, remove) => {
+                  await toggleReaction.mutateAsync({
+                    emoji,
+                    eventId: message.id,
+                    remove,
+                  });
+                }}
+                profiles={profiles}
+                stickyDayDividers={false}
+              />
+              <div aria-hidden="true" ref={bottomRef} />
+            </div>
+          </div>
+        ) : (
+          <div aria-hidden="true" className="min-h-16 flex-1" />
+        )}
+
+        <div className="relative shrink-0">
+          <Textarea
+            aria-label={`Message ${name}`}
+            className="min-h-24 resize-none rounded-2xl pb-11"
+            data-testid="web-assistant-input"
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (
+                event.key !== "Enter" ||
+                event.shiftKey ||
+                event.altKey ||
+                event.ctrlKey ||
+                event.metaKey ||
+                event.nativeEvent.isComposing
+              ) {
+                return;
+              }
+              event.preventDefault();
+              void sendMessage();
+            }}
+            placeholder={`Message ${name}`}
+            value={draft}
+          />
+          <Button
+            aria-label="Send in Assistant conversation"
+            className="absolute bottom-2 right-2 rounded-full"
+            data-testid="web-assistant-send"
+            disabled={!draft.trim() || busy}
+            onClick={() => void sendMessage()}
+            size="icon"
+            type="button"
+          >
+            <ArrowUp />
+          </Button>
+        </div>
+        {error ? (
+          <p className="shrink-0 text-xs text-destructive" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </div>
+
+      {tabbed ? (
+        tab === "lists" ? (
+          <div className="flex min-h-0 flex-1 flex-col" role="tabpanel">
+            <AssistantListsCard me={me} onNavigate={onMinimize} tabbed />
+          </div>
+        ) : null
+      ) : (
+        <AssistantListsCard me={me} onNavigate={onMinimize} />
+      )}
     </div>
   );
 }
@@ -397,5 +487,27 @@ function NudgeBanner({ me }: { me: string | undefined }) {
         {due} reminder{due === 1 ? "" : "s"} due — open Lists › Reminders
       </span>
     </div>
+  );
+}
+
+const TAB_KEY = "buzz-assistant-popover-tab.v1";
+function readTab(): "chat" | "lists" {
+  try {
+    return window.localStorage.getItem(TAB_KEY) === "lists" ? "lists" : "chat";
+  } catch {
+    return "chat";
+  }
+}
+// iPhone + iPad (touch/tablet widths) get Chat/Lists tabs; desktop-width web keeps the desktop expansion card.
+const TABBED_QUERY = "(max-width: 1023px), (pointer: coarse)";
+function useTabbedLayout(): boolean {
+  return React.useSyncExternalStore(
+    (cb) => {
+      const mq = window.matchMedia?.(TABBED_QUERY);
+      mq?.addEventListener("change", cb);
+      return () => mq?.removeEventListener("change", cb);
+    },
+    () => Boolean(window.matchMedia?.(TABBED_QUERY).matches),
+    () => false,
   );
 }

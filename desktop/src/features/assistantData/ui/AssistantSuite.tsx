@@ -1037,12 +1037,16 @@ function readCollapsed() {
 export function AssistantListsCard({
   me,
   onNavigate,
+  tabbed = false,
 }: {
   me: string | undefined;
   onNavigate?: () => void;
+  /** Touch/tablet Lists tab: always expanded, fills the popup, no toggle row. */
+  tabbed?: boolean;
 }) {
   const s = useSuiteSummary(me);
-  const [collapsed, setCollapsedState] = React.useState(readCollapsed);
+  const [collapsedPref, setCollapsedState] = React.useState(readCollapsed);
+  const collapsed = tabbed ? false : collapsedPref;
   const [active, setActive] = React.useState<SuiteCategory | null>(null);
   const setCollapsed = (v: boolean) => {
     setCollapsedState(v);
@@ -1054,10 +1058,15 @@ export function AssistantListsCard({
   };
   return (
     <div
-      className="min-h-0 shrink-0 border-t border-border/60 pt-2"
+      className={cn(
+        tabbed
+          ? "flex min-h-0 flex-1 flex-col overflow-y-auto"
+          : "min-h-0 shrink-0 border-t border-border/60 pt-2",
+      )}
       data-testid="web-assistant-lists"
     >
       <button
+        hidden={tabbed}
         aria-expanded={!collapsed}
         className="flex w-full items-center gap-1.5 rounded-md px-1 py-1 text-left text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
         data-testid="web-assistant-lists-toggle"
@@ -1077,7 +1086,7 @@ export function AssistantListsCard({
         />
       </button>
       {!collapsed ? (
-        <div className="relative min-h-0 pt-1">
+        <div className={cn("relative min-h-0 pt-1", tabbed && "flex-1")}>
           <div
             aria-hidden={active != null ? true : undefined}
             className={cn(active != null && "invisible")}
