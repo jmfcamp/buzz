@@ -1,6 +1,6 @@
 // Pubkey of the user's Assistant agent, published by the Assistant feature
 // (when built in) so shared code — the Inbox — can route Assistant DM
-// messages to the "Reminders & Assistant" tab without importing it.
+// messages to the "For you" tab without importing it.
 import * as React from "react";
 
 let assistantPubkey: string | null = null;
