@@ -1,5 +1,8 @@
 // Phone-only bottom tab bar (rendered only when usePhoneLayout() is true). iPad/desktop never mount it.
-import { BotMessageSquare, Inbox, MessagesSquare, SquareTerminal } from "lucide-react";
+import { Bot, Inbox, MessagesSquare, SquareTerminal } from "lucide-react";
+import * as ReactRuntime from "react";
+import { useUserProfileQuery } from "@/features/profile/hooks";
+import { useAssistantPubkey } from "@/shared/lib/assistantIdentity";
 
 import { openWebAssistant } from "@/features/assistant/ui/WebAssistant";
 
@@ -11,7 +14,7 @@ import { cn } from "@/shared/lib/cn";
 import type { PhoneTab } from "./phoneTabs";
 
 // Me (avatar) first, then Inbox, Channels, Buzz Term. Search moved to the top nav row (PhoneNavRow); the bottom-right
-// slot is the circular Assistant button.
+// slot is the "Assist" tab.
 const TABS: { id: PhoneTab; label: string; Icon?: React.ComponentType<{ className?: string }> }[] = [
   { id: "me", label: "Me" },
   { id: "inbox", label: "Inbox", Icon: Inbox },
@@ -19,19 +22,38 @@ const TABS: { id: PhoneTab; label: string; Icon?: React.ComponentType<{ classNam
   { id: "term", label: "Buzz Term", Icon: SquareTerminal },
 ];
 
-// Bottom-right Assistant button: opens the web Assistant sheet (ask / open conversation / choose assistant).
-function PhoneAssistantButton() {
+// "Assist" tab item: styled like the other tabs; icon = your assistant's avatar (round, Me-tab size) or a robot.
+// Tapping opens the web Assistant sheet.
+function PhoneAssistTab() {
+  const assistantPubkey = useAssistantPubkey();
+  const profile = useUserProfileQuery(assistantPubkey ?? undefined).data;
+  const avatarUrl = assistantPubkey ? profile?.avatarUrl ?? null : null;
+  const [failed, setFailed] = ReactRuntime.useState<string | null>(null);
+  const showAvatar = Boolean(avatarUrl) && failed !== avatarUrl;
   return (
     <button
-      aria-label="Assistant"
-      className="phone-assistant-button flex h-full shrink-0 items-center justify-center px-1"
+      aria-label="Assist"
+      className="phone-tab flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-md text-[10px] font-medium text-white/60"
       data-testid="phone-tab-assistant"
       onClick={() => openWebAssistant()}
+      title={profile?.displayName ? `Assist — ${profile.displayName}` : "Assist"}
       type="button"
     >
-      <span className="flex h-11 w-11 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md">
-        <BotMessageSquare className="h-[22px] w-[22px]" />
+      <span className="relative flex items-center justify-center">
+        {showAvatar && avatarUrl ? (
+          <img
+            alt=""
+            className="phone-tab-avatar rounded-full object-cover"
+            data-testid="phone-tab-assistant-avatar"
+            onError={() => setFailed(avatarUrl)}
+            referrerPolicy="no-referrer"
+            src={avatarUrl}
+          />
+        ) : (
+          <Bot className="h-[22px] w-[22px]" data-testid="phone-tab-assistant-robot" />
+        )}
       </span>
+      <span className="truncate">Assist</span>
     </button>
   );
 }
@@ -112,7 +134,7 @@ export function PhoneTabBar({
           </button>
         );
       })}
-      <PhoneAssistantButton />
+      <PhoneAssistTab />
     </nav>
   );
 }
