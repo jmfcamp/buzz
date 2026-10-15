@@ -1055,6 +1055,7 @@ export function AppShell() {
                         onGoBack={handlePhoneNavBack}
                         onGoForward={() => handlePhoneNavHistory(1)}
                         onHome={handlePhoneNavHome}
+                        onSearch={() => setPhoneOverlay("search")}
                       />
                     ) : null}
                     {!settingsOpen && !hideAppChrome ? (
@@ -1064,6 +1065,7 @@ export function AppShell() {
                         hasCommunityRail={hasCommunityRail}
                         onGoBack={goBack}
                         onGoForward={goForward}
+                        onOpenSearch={handleOpenSearch}
                       />
                     ) : null}
                     {settingsOpen ? (

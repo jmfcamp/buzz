@@ -2,7 +2,7 @@ import { useRefreshPress } from "@/shared/ui/useRefreshPress";
 import { BusyRefreshIcon } from "@/shared/ui/BusyRefreshIcon";
 import * as React from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 
 import {
   SurfaceTabHomeButton,
@@ -22,6 +22,7 @@ type AppTopChromeProps = {
   onGoBack: () => void;
   onGoForward: () => void;
   hasCommunityRail?: boolean;
+  onOpenSearch?: () => void;
 };
 
 // Fixed px on purpose (button box + glyph): these controls sit beside the
@@ -78,6 +79,7 @@ export function AppTopChrome({
   onGoBack,
   onGoForward,
   hasCommunityRail = false,
+  onOpenSearch,
 }: AppTopChromeProps) {
   const topChromeRef = React.useRef<HTMLDivElement>(null);
   const isFullscreen = useIsFullscreen();
@@ -90,7 +92,9 @@ export function AppTopChrome({
   // Fixed px on purpose: the native traffic lights do not scale with the app's
   // Cmd +/- text zoom (rem), so rem-based clearance shrinks under them when
   // zoomed out. This is a deliberate exception to the rem-first rule.
-  const macChrome = isMacPlatform() && !isFullscreen;
+  // Only the Tauri Mac app has native traffic lights; the web build (iPad Safari reports a Mac platform) must not
+  // reserve that empty space at the top-left.
+  const macChrome = isTauri() && isMacPlatform() && !isFullscreen;
   const navRowPaddingClass = macChrome
     ? hasCommunityRail
       ? "pl-[32px]"
@@ -158,18 +162,18 @@ export function AppTopChrome({
         )}
       >
         <span className="contents" data-phone-hide="">
-        <TopChromeSidebarTrigger />
         <Button
-          aria-label="Refresh"
+          aria-label="Search"
           className={TOP_CHROME_ICON_BUTTON_CLASS}
-          data-testid="global-refresh"
-          {...refreshPress}
+          data-testid="global-search"
+          disabled={!onOpenSearch}
+          onClick={onOpenSearch}
           size="icon"
-          title="Refresh"
+          title="Search"
           type="button"
           variant="ghost"
         >
-          <BusyRefreshIcon />
+          <Search className="size-[16px]" />
         </Button>
         <Button
           aria-label="Go back"
@@ -194,6 +198,19 @@ export function AppTopChrome({
           <ChevronRight />
         </Button>
         <SurfaceTabHomeButton className={TOP_CHROME_ICON_BUTTON_CLASS} />
+        <TopChromeSidebarTrigger />
+        <Button
+          aria-label="Refresh"
+          className={TOP_CHROME_ICON_BUTTON_CLASS}
+          data-testid="global-refresh"
+          {...refreshPress}
+          size="icon"
+          title="Refresh"
+          type="button"
+          variant="ghost"
+        >
+          <BusyRefreshIcon />
+        </Button>
         </span>
       </div>
       <span className="contents" data-phone-hide="">
