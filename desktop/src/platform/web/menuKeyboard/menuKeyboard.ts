@@ -1,3 +1,5 @@
+import { isTouchWeb } from "@/shared/lib/touchFocus";
+
 // Web/PWA only: the software keyboard and menus/pickers are mutually exclusive. Opening a menu, picker, context
 // menu or phone message-action row blurs the focused text field first (so nothing opens behind the keyboard and
 // popups anchor against the real viewport); focusing a text field closes any open menu/picker.
@@ -25,6 +27,35 @@ function blurField(except?: Element | null) {
 
 export function installMenuKeyboardExclusion(): void {
   if (typeof document === "undefined") return;
+
+  // Touch: a text field inside a popup that gains focus without being tapped itself (autoFocus / focus-on-open)
+  // right after the opening tap is blurred, so the keyboard appears only when the user taps the field.
+  let lastPointer: { target: EventTarget | null; at: number } = {
+    target: null,
+    at: 0,
+  };
+  document.addEventListener(
+    "pointerdown",
+    (event) => {
+      lastPointer = { target: event.target, at: Date.now() };
+    },
+    true,
+  );
+  document.addEventListener(
+    "focusin",
+    (event) => {
+      if (!isTouchWeb()) return;
+      const field = event.target as Element | null;
+      if (!isTextField(field) || !field.closest(POPPER)) return;
+      const tappedField =
+        lastPointer.target instanceof Node &&
+        field.contains(lastPointer.target);
+      if (!tappedField && Date.now() - lastPointer.at < 1500) {
+        queueMicrotask(() => field.blur());
+      }
+    },
+    true,
+  );
 
   // A menu/picker trigger (Radix sets aria-haspopup) or a right-click/long-press context menu: close the keyboard.
   document.addEventListener(

@@ -1,3 +1,4 @@
+import { isTouchWeb } from "@/shared/lib/touchFocus";
 import * as React from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
@@ -51,6 +52,7 @@ const PopoverContent = React.forwardRef<
       textureSize = "regular",
       textureTone = "light",
       children,
+      onOpenAutoFocus,
       ...props
     },
     ref,
@@ -60,10 +62,21 @@ const PopoverContent = React.forwardRef<
         ref={ref}
         align={align}
         sideOffset={sideOffset ?? (surface === "textured" ? 24 : 4)}
+        onOpenAutoFocus={(event) => {
+          onOpenAutoFocus?.(event);
+          // Touch web: focus the popover itself rather than its first field, so no keyboard pops on open.
+          if (!event.defaultPrevented && isTouchWeb()) {
+            event.preventDefault();
+            (event.currentTarget as HTMLElement | null)?.focus?.({
+              preventScroll: true,
+            });
+          }
+        }}
         className={cn(
           "z-50 w-72 origin-(--radix-popover-content-transform-origin) outline-hidden",
           // Web: never taller than the space Radix measured inside the safe-area collision padding; scroll inside.
-          !isTauri() && "max-h-(--radix-popover-content-available-height) overflow-y-auto",
+          !isTauri() &&
+            "max-h-(--radix-popover-content-available-height) overflow-y-auto",
           POPOVER_RADIX_MOTION_CLASS,
           POPOVER_RADIX_SIDE_MOTION_CLASS,
           surface === "default" && cn("rounded-xl p-4", POPOVER_SURFACE_CLASS),
@@ -81,7 +94,9 @@ const PopoverContent = React.forwardRef<
         collisionPadding={webCollisionPadding()}
         {...props}
       >
-        {props.asChild || !portalled ? children : (
+        {props.asChild || !portalled ? (
+          children
+        ) : (
           <>
             {children}
             {/* Park native webviews while open, INSIDE Content: Radix Portal needs a single element child. */}
