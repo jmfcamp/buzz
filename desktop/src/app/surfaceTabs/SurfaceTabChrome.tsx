@@ -123,7 +123,7 @@ export function SurfaceTabStrip({ className }: { className?: string }) {
     <div
       aria-label="Tabs"
       className={cn(
-        "ml-1 flex min-w-0 max-w-[55%] shrink items-center gap-0.5 overflow-x-auto",
+        "ml-1 flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto",
         className,
       )}
       data-surface-tab-strip

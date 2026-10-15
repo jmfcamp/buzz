@@ -217,7 +217,7 @@ export function AppTopChrome({
         <SurfaceTabStrip className={navRowAlignmentClass ?? undefined} />
       </span>
       <div
-        className={cn("flex min-w-0 flex-1 items-center", navRowAlignmentClass)}
+        className={cn("ml-auto flex shrink-0 items-center", navRowAlignmentClass)}
         data-tauri-drag-region
         id="app-top-chrome-content"
       />
