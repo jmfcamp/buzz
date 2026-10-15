@@ -157,6 +157,7 @@ import { AppShellTrayMenu } from "@/app/useAppShellTrayMenu";
 import { AppProfilePanelProvider } from "@/app/AppProfilePanelProvider";
 import { AppWorkflowEditorOverlayProvider } from "@/app/AppWorkflowEditorOverlayProvider";
 import { LazySettingsScreen } from "@/app/LazySettingsScreen";
+import { WentOfflineWatcher } from "@/features/agents/wentOfflineNotices";
 import { useInboxPushPairing, useIsNotifiedForThread } from "@/app/useInboxPushPairing";
 import { ownsDesktopNotificationsFor, useDmChannelIds } from "@/app/appShellWindowRole";
 const EMPTY_CHANNELS: Channel[] = [];
@@ -1421,6 +1422,7 @@ export function AppShell() {
                       open={isSendFeedbackOpen}
                     />
                     {!hideAppChrome ? <ProtectedGlobalOverlay /> : null}
+                    <WentOfflineWatcher />
                     {isWebAssistantAvailable() ? (
                       <>
                         <WebAssistantBinding />

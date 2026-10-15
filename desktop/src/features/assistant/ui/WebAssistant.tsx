@@ -199,6 +199,7 @@ export function WebAssistantSheet() {
     setMode("closed");
     setInstance((n) => n + 1);
   };
+  const size = usePopupSize();
   if (mode === "closed") return null;
   // Portalled to <body>: inside the app shell an ancestor established a containing block for `fixed`, so the
   // popup was laid out relative to that box (off-screen on iPhone, clipped left on iPad) instead of the viewport.
@@ -214,7 +215,24 @@ export function WebAssistantSheet() {
         mode === "minimized" && "hidden",
       )}
       data-testid="web-assistant-layer"
+      style={size.style}
     >
+      {size.resizable ? (
+        <>
+          <div
+            aria-hidden="true"
+            className="absolute bottom-2 -right-1 top-2 z-30 w-2 cursor-ew-resize touch-none rounded-full hover:bg-border/80"
+            data-testid="web-assistant-resize-width"
+            onPointerDown={(e) => size.startDrag(e, "width")}
+          />
+          <div
+            aria-hidden="true"
+            className="absolute -top-1 left-2 right-2 z-30 h-2 cursor-ns-resize touch-none rounded-full hover:bg-border/80"
+            data-testid="web-assistant-resize-height"
+            onPointerDown={(e) => size.startDrag(e, "height")}
+          />
+        </>
+      ) : null}
       <div
         aria-label="Assistant"
         aria-modal={mode === "open" || mode === "closing" ? true : undefined}
@@ -454,4 +472,82 @@ export function WebAskAssistantMessageAction({
       <TooltipContent>Ask Assistant</TooltipContent>
     </Tooltip>
   );
+}
+
+// Desktop-width web: drag the right edge (width) and top edge (height) like the desktop popover; size persists.
+const SIZE_KEY = "buzz-assistant-popup-size.v1";
+const MIN_W = 360;
+const MAX_W = 900;
+const MIN_H = 420;
+const MAX_H = 1000;
+function readSize(): { w: number; h: number } | null {
+  try {
+    const v = JSON.parse(window.localStorage.getItem(SIZE_KEY) ?? "null");
+    return v && typeof v.w === "number" && typeof v.h === "number" ? v : null;
+  } catch {
+    return null;
+  }
+}
+function usePopupSize() {
+  const desktopWidth = React.useSyncExternalStore(
+    (cb) => {
+      const mq = window.matchMedia?.("(min-width: 1024px) and (pointer: fine)");
+      mq?.addEventListener("change", cb);
+      return () => mq?.removeEventListener("change", cb);
+    },
+    () =>
+      Boolean(
+        window.matchMedia?.("(min-width: 1024px) and (pointer: fine)").matches,
+      ),
+    () => false,
+  );
+  const [size, setSize] = React.useState(readSize);
+  const startDrag = (e: React.PointerEvent, axis: "width" | "height") => {
+    e.preventDefault();
+    const layer = (e.currentTarget as HTMLElement).parentElement;
+    if (!layer) return;
+    const rect = layer.getBoundingClientRect();
+    const start = { x: e.clientX, y: e.clientY, w: rect.width, h: rect.height };
+    let latest = { w: rect.width, h: rect.height };
+    const move = (ev: PointerEvent) => {
+      latest =
+        axis === "width"
+          ? {
+              w: Math.min(
+                MAX_W,
+                Math.max(MIN_W, start.w + ev.clientX - start.x),
+              ),
+              h: start.h,
+            }
+          : {
+              w: start.w,
+              h: Math.min(
+                MAX_H,
+                Math.max(MIN_H, start.h - (ev.clientY - start.y)),
+              ),
+            };
+      setSize(latest);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      try {
+        window.localStorage.setItem(SIZE_KEY, JSON.stringify(latest));
+      } catch {
+        /* UI preference only */
+      }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+  const style: React.CSSProperties | undefined =
+    desktopWidth && size
+      ? {
+          width: `min(${Math.round(size.w)}px, calc(100vw - 16px))`,
+          height: `min(${Math.round(size.h)}px, calc(100dvh - 16px))`,
+          bottom: `max(8px, min(4rem, calc(100dvh - ${Math.round(size.h)}px - 8px)))`,
+          left: `max(8px, min(0.75rem, calc(100vw - ${Math.round(size.w)}px - 8px)))`,
+        }
+      : undefined;
+  return { resizable: desktopWidth, startDrag, style };
 }

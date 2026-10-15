@@ -121,7 +121,8 @@ export function matchesInboxFilter(
       .flatMap((g) => g?.tags ?? [])
       .find((t) => t[0] === "agent-notify")?.[1];
     if (filter === "agent_needs_input") return kind === "needs_input";
-    if (filter === "agent_failed") return kind === "failed";
+    if (filter === "agent_failed")
+      return kind === "failed" || kind === "went_offline";
     return kind === "task_finished" || kind === "pr_opened";
   }
 

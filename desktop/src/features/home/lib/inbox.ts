@@ -277,6 +277,7 @@ function resolveGroupChannel(
 const AGENT_NOTIFY_LABELS: Record<string, string> = {
   needs_input: "Needs your input",
   failed: "Agent failed",
+  went_offline: "Went offline mid-task",
   task_finished: "Task finished",
   pr_opened: "PR opened",
 };
