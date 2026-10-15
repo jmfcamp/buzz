@@ -140,7 +140,7 @@ import { usePhoneLayout } from "@/shared/lib/phoneLayout";
 import { PhoneMeScreen } from "@/app/phone/PhoneMeScreen";
 import { PhoneTabBar } from "@/app/phone/PhoneTabBar";
 import { PhoneTabSwitcher } from "@/app/phone/PhoneTabSwitcher";
-import { TopbarSearch } from "@/features/search/ui/TopbarSearch";
+import { SheetModeSearch, TopbarSearch } from "@/features/search/ui/SheetModeSearch";
 import {
   type PhoneTab,
   overlayFromHistoryState,
@@ -1427,7 +1427,7 @@ export function AppShell() {
                       open={isSendFeedbackOpen}
                     />
                     {!hideAppChrome ? <ProtectedGlobalOverlay /> : null}
-                    <WentOfflineWatcher />
+                    <WentOfflineWatcher />{!hideAppChrome && !isPhone ? <SheetModeSearch channelId={selectedView === "channel" ? selectedChannelId : null} channels={channels} currentPubkey={identityQuery.data?.pubkey} goChannel={goChannel} onBrowseChannels={handleOpenBrowseChannels} onCreateAgent={requestOpenCreateAgent} onCreateChannel={() => setIsCreateChannelOpen(true)} onOpenResult={handleOpenSearchResult} openDm={openDmMutation.mutateAsync} requests={[searchFocusRequest, scopeSearchFocusRequest]} /> : null}
                     {isWebAssistantAvailable() ? (
                       <>
                         <WebAssistantBinding />
