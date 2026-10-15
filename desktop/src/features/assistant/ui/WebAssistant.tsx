@@ -29,6 +29,7 @@ import {
 
 import { AssistantPopoverBody } from "@/features/assistantData/ui/AssistantChat";
 import { Button } from "@/shared/ui/button";
+import { useOptionalSidebar } from "@/shared/ui/sidebar";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useManagedAgentsQuery } from "@/features/agents/hooks";
 import { useCommunities } from "@/features/communities/useCommunities";
@@ -236,6 +237,16 @@ export function WebAssistantSheet() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [mode, setMode]);
+  // Narrow iPad (< 768px: portrait mini, Split View, Stage Manager): the left panel is a modal Radix sheet, which makes
+  // everything outside it inert (pointer-events: none on <body>). The popup is portalled to <body>, so while the sheet
+  // stayed open every tap in the popup (Chat/Lists, composer) fell through to the sidebar under it. Opening the popup
+  // closes the sheet, like any other sidebar action.
+  const sidebar = useOptionalSidebar();
+  const closeMobileSheet =
+    sidebar?.isMobile && sidebar.openMobile ? sidebar.setOpenMobile : null;
+  React.useEffect(() => {
+    if (mode === "open" && closeMobileSheet) closeMobileSheet(false);
+  }, [mode, closeMobileSheet]);
   const me = useIdentityQuery().data?.pubkey;
   const picked = useSyncedAssistant(me);
   const { goAgents, goChannel } = useAppNavigation();
@@ -465,6 +476,7 @@ export function WebAssistSidebarButton() {
   const name = useUserProfileQuery(assistantPubkey ?? undefined).data
     ?.displayName;
   const assistantOpen = useWebAssistantOpen();
+  const sidebar = useOptionalSidebar();
   if (!isWebAssistantAvailable()) return null;
   const label = name ? `Assist — ${name}` : "Assist";
   return (
@@ -474,6 +486,8 @@ export function WebAssistSidebarButton() {
       data-testid="sidebar-assist-button"
       onClick={(event) => {
         event.stopPropagation();
+        if (sidebar?.isMobile && sidebar.openMobile)
+          sidebar.setOpenMobile(false);
         toggleWebAssistant();
       }}
       aria-pressed={assistantOpen}
