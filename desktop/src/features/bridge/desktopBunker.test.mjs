@@ -74,6 +74,9 @@ test("auto kinds sign silently; profile / follow list / deletes always ask", asy
   assert.equal(s.prompts.length, 3);
   assert.equal(bunkerAutoKind(0), false);
   assert.equal(bunkerAutoKind(9), true);
+  assert.equal(bunkerAutoKind(30350), true);
+  assert.equal(bunkerAutoKind(3), false);
+  assert.equal(bunkerAutoKind(5), false);
 });
 
 test("nip44 self and peer, rate limit", async () => {

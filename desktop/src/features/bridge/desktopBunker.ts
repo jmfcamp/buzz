@@ -4,7 +4,7 @@
 //  - Pairing: Settings shows a one-time bunker:// code / QR (5 minutes, one browser). A browser that presents it in
 //    `connect` gets an Allow/Deny prompt here; on Allow its NIP-46 client key is saved as a device (same list as Direct).
 //  - Approved devices: relay auth, messages, reactions, read markers etc. are signed without asking; profile (0), follow
-//    list (3) and deletes (5) always ask; any other kind asks. NIP-44 encrypt/decrypt for the account is allowed (DMs,
+//    list (3) and deletes (5) always ask; every other kind is signed silently. NIP-44 encrypt/decrypt for the account is allowed (DMs,
 //    synced settings) and logged.
 //  - Revoked / unknown clients get an error (revoked) or nothing at all (unknown), and every client is rate limited.
 // The account key is only used through deps.sign / deps.crypt and is never returned or exported.
@@ -20,6 +20,8 @@ import {
 import type { SignerDeps, SignerDevice } from "./directSigner";
 
 const KIND = 24133;
+/** Requests older than this (relay replay, queued re-sends) are dropped without prompting. */
+const STALE_REQ_SECS = 90;
 const HEX64 = /^[0-9a-f]{64}$/;
 const MAX_CONTENT = 256_000;
 const MAX_TAGS = 2_000;
@@ -49,6 +51,19 @@ export function createBunkerPolicy(deps: BunkerPolicyDeps) {
   const buckets = new Map<string, Bucket>();
   const strangerBucket: Bucket = { tokens: 10, at: deps.now() };
   const devices = () => deps.store.devices();
+  // One native dialog at a time: concurrent prompts stacked identical dialogs, so Allow looked like it did nothing.
+  // Identical asks (same device + kind + content) share the open dialog's answer.
+  const asking = new Map<string, Promise<boolean>>();
+  let dialogChain: Promise<unknown> = Promise.resolve();
+  const confirmOnce = (key: string, title: string, message: string): Promise<boolean> => {
+    const open = asking.get(key);
+    if (open) return open;
+    const p = dialogChain.then(() => deps.confirm(title, message)).catch(() => false);
+    dialogChain = p;
+    asking.set(key, p);
+    void p.finally(() => asking.delete(key));
+    return p;
+  };
   const approved = (pk: string): SignerDevice | undefined =>
     devices().find((d) => d.pubkey === pk && !d.revokedAt);
   const revoked = (pk: string) =>
@@ -161,7 +176,8 @@ export function createBunkerPolicy(deps: BunkerPolicyDeps) {
         case "sign_event": {
           const ev = parseEvent(params[0]);
           if (!bunkerAutoKind(ev.kind)) {
-            const yes = await deps.confirm(
+            const yes = await confirmOnce(
+              `${client}:${ev.kind}:${ev.content}`,
               "Sign this for your browser?",
               `"${ok.label}" asks this computer to sign ${describeKind(ev.kind)}${ev.content ? `:\n\n${ev.content.slice(0, 300)}` : "."}`,
             );
@@ -276,6 +292,7 @@ export function createBunkerService(opts: {
   /** request event id -> reply frame: the browser re-publishes the same event after a reconnect (the signer relay stores
    *  nothing), so a repeat gets the same answer again instead of silence. */
   const replies = new Map<string, { frame: string; at: number }>();
+  const inflight = new Map<string, Promise<{ id: string; result?: string; error?: string } | null>>();
   const lastRx = new Map<string, number>();
   let keepalive: ReturnType<typeof setInterval> | undefined;
   const sockets = new Map<string, WebSocket>();
@@ -364,8 +381,10 @@ export function createBunkerService(opts: {
       if (r && ws.readyState === 1) ws.send(r.frame);
       return;
     }
-    if (seen.size > 2000) seen.clear();
+    if (seen.size > 2000) seen.delete(seen.values().next().value as string);
     seen.add(ev.id);
+    // Stale request (replayed by the relay buffer or a long-queued re-send): the browser has given up on it. Never prompt.
+    if (Math.floor(Date.now() / 1000) - (ev.created_at || 0) > STALE_REQ_SECS) return;
     if (
       !ev.tags?.some((t) => t[0] === "p" && t[1] === pubkey) ||
       !verifyEvent(ev as never)
@@ -389,17 +408,27 @@ export function createBunkerService(opts: {
     )
       return;
     const params = Array.isArray(body.params) ? body.params : [];
-    let reply: { id: string; result?: string; error?: string };
-    try {
-      const r = await opts.policy.handle(ev.pubkey, body.method, params);
-      if (r === null) return;
-      reply = { id: body.id, result: r };
-    } catch (e) {
-      reply = {
-        id: body.id,
-        error: e instanceof BunkerError ? e.message : "internal error",
-      };
+    // The browser re-sends the SAME request id as a new event after a reconnect: one prompt / one answer per (client, id).
+    const reqKey = `${ev.pubkey}:${body.id}`;
+    let pending = inflight.get(reqKey);
+    if (!pending) {
+      const id = body.id;
+      const method = body.method;
+      pending = (async () => {
+        try {
+          const r = await opts.policy.handle(ev.pubkey, method, params);
+          return r === null ? null : { id, result: r };
+        } catch (e) {
+          return { id, error: e instanceof BunkerError ? e.message : "internal error" };
+        }
+      })();
+      inflight.set(reqKey, pending);
+      void pending.finally(() => setTimeout(() => inflight.delete(reqKey), 120_000));
+      if (inflight.size > 1000) inflight.delete(inflight.keys().next().value as string);
     }
+    const res = await pending;
+    if (res === null) return;
+    const reply: { id: string; result?: string; error?: string } = res;
     const out = finalizeEvent(
       {
         kind: KIND,
