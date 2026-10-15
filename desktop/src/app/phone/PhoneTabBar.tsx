@@ -31,6 +31,7 @@ const TABS: {
 
 // "Assist" tab item: styled like the other tabs; icon = your assistant's avatar (round, Me-tab size) or a robot.
 // Tapping opens the web Assistant sheet.
+// Label "Assist" only when unselected and showing the robot (no assistant avatar yet). With an avatar, icon-only.
 function PhoneAssistTab() {
   const assistantPubkey = useAssistantPubkey();
   const profile = useUserProfileQuery(assistantPubkey ?? undefined).data;
@@ -38,6 +39,7 @@ function PhoneAssistTab() {
   const [failed, setFailed] = ReactRuntime.useState<string | null>(null);
   const showAvatar = Boolean(avatarUrl) && failed !== avatarUrl;
   const open = useWebAssistantOpen();
+  const showLabel = !showAvatar && !open;
   return (
     <button
       aria-current={open ? "page" : undefined}
@@ -70,7 +72,7 @@ function PhoneAssistTab() {
           />
         )}
       </span>
-      <span className="truncate">Assist</span>
+      {showLabel ? <span className="truncate">Assist</span> : null}
     </button>
   );
 }
