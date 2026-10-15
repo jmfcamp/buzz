@@ -43,7 +43,26 @@ const ACTIVATION_EVENT = "buzz:desktop-notification-action";
 const RENEW_BEFORE_SECS = 3 * 24 * 3600;
 /** Re-send the lease on every app open/resume, but coalesce the burst of visible/pageshow/focus events. */
 const RESEND_MIN_GAP_MS = 30_000;
-let lastSentAt = 0; // in-memory: every page load re-sends, so a lease the relay dropped heals on the next open
+/** A fresh lease with the same fingerprint is re-signed at most this often (each re-sign can be a signer prompt). */
+const RESEND_PERSISTED_GAP_MS = 12 * 3600_000;
+/** After a failed/declined lease, don't ask the signer again for this long. */
+const FAIL_BACKOFF_MS = 30 * 60_000;
+const SENT_KEY = "buzz-web-push-lease-sent.v1";
+let lastSentAt = 0;
+function sentInfo(): { at: number; fp: string; failAt?: number } | null {
+  try {
+    return JSON.parse(localStorage.getItem(SENT_KEY) || "null");
+  } catch {
+    return null;
+  }
+}
+function setSentInfo(v: { at: number; fp: string; failAt?: number }) {
+  try {
+    localStorage.setItem(SENT_KEY, JSON.stringify(v));
+  } catch {
+    /* storage denied */
+  }
+}
 
 type Stored = {
   pubkey: string;
@@ -154,6 +173,8 @@ export function ensurePushSubscribed(): Promise<boolean> {
     try {
       return await ensurePushSubscribedInner();
     } catch (e) {
+      const si = sentInfo();
+      setSentInfo({ at: si?.at ?? 0, fp: si?.fp ?? "", failAt: Date.now() });
       setDiag(
         { lease: `error: ${errMsg(e)}`, leaseAt: Date.now() },
         `FAILED ${errMsg(e)}`,
@@ -204,6 +225,21 @@ async function ensurePushSubscribedInner(): Promise<boolean> {
     d.executorKeyId,
   ]);
   const prev = load();
+  const si = sentInfo();
+  if (si?.failAt && Date.now() - si.failAt < FAIL_BACKOFF_MS) {
+    setDiag({}, "lease skipped (recent failure, backing off)");
+    return false;
+  }
+  if (
+    prev &&
+    prev.fingerprint === fingerprint &&
+    prev.leaseExpires - nowSecs() > RENEW_BEFORE_SECS &&
+    si?.fp === fingerprint &&
+    Date.now() - si.at < RESEND_PERSISTED_GAP_MS
+  ) {
+    setDiag({}, "lease fresh (sent recently)");
+    return true;
+  }
   if (
     prev &&
     prev.fingerprint === fingerprint &&
@@ -274,6 +310,7 @@ async function ensurePushSubscribedInner(): Promise<boolean> {
   setDiag({ gateway: "enrolled + delegated" }, "gateway ok");
   await publishLease(d, handle, generation, endpoint_grant, me, expiration);
   lastSentAt = Date.now();
+  setSentInfo({ at: lastSentAt, fp: fingerprint });
   setWebPushActive(true);
   setDiag({ lease: "accepted by relay", leaseAt: lastSentAt }, "lease sent ok");
   save({

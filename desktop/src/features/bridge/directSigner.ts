@@ -14,8 +14,8 @@
 //      to anyone else needs a desktop prompt; decrypting from one of the user's OWN agents/bots (observer activity frames) runs
 //      without asking; decrypting from anyone else is not offered (the browser uses its remote signer).
 // Every signature is logged per device; Settings can revoke a device. The account key is never returned or exported.
+import { bunkerAutoKind } from "./bunkerProto";
 import {
-  AUTO_SIGN_KINDS_V2,
   SIGNER_CAP_SIGN_ANY,
   connectDigest,
   cryptDigest,
@@ -168,7 +168,7 @@ export function createDirectSigner(deps: SignerDeps) {
           const ev = parseEvent(p.event);
           if (!verifyDevice(signDigest(c.nonce, seq as number, ev), sigOf(p), device)) throw new MgmtError("bad_signature", "Device signature didn't verify.");
           c.seq = seq as number;
-          if (!AUTO_SIGN_KINDS_V2.has(ev.kind)) {
+          if (!bunkerAutoKind(ev.kind)) {
             const ok = await deps.confirm(
               "Sign this for your browser?",
               `Your browser asks this computer to sign ${describeKind(ev.kind)}${ev.content ? `:\n\n${ev.content.slice(0, 300)}` : "."}`,

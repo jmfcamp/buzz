@@ -4,7 +4,7 @@
 //  - Pairing: Settings shows a one-time bunker:// code / QR (5 minutes, one browser). A browser that presents it in
 //    `connect` gets an Allow/Deny prompt here; on Allow its NIP-46 client key is saved as a device (same list as Direct).
 //  - Approved devices: relay auth, messages, reactions, read markers etc. are signed without asking; profile (0), follow
-//    list (3) and deletes (5) always ask; any other kind asks. NIP-44 encrypt/decrypt for the account is allowed (DMs,
+//    list (3) and deletes (5) always ask; every other kind is signed silently. NIP-44 encrypt/decrypt for the account is allowed (DMs,
 //    synced settings) and logged.
 //  - Revoked / unknown clients get an error (revoked) or nothing at all (unknown), and every client is rate limited.
 // The account key is only used through deps.sign / deps.crypt and is never returned or exported.
