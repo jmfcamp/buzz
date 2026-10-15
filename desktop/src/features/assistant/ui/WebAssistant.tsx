@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 // Web Assistant: the open-source web flow for "your Assistant" (the desktop's full Assistant is a protected feature that
 // the public web build does not include). Which agent is your Assistant is synced in the inbox-state doc
 // (features/inbox/assistantPick.ts); the desktop shares its own assignment there, and over Direct the web can import it
@@ -189,61 +190,74 @@ export function WebAssistantSheet() {
   };
   if (mode === "closed") return null;
   const showPicker = picking || !picked;
-  return (
+  // Portalled to <body>: inside the app shell an ancestor established a containing block for `fixed`, so the
+  // popup was laid out relative to that box (off-screen on iPhone, clipped left on iPad) instead of the viewport.
+  return createPortal(
     <div
-      aria-label="Assistant"
-      aria-modal={mode === "open" || mode === "closing" ? true : undefined}
       className={cn(
-        "fixed z-[100] flex flex-col overflow-hidden bg-popover p-4 text-popover-foreground",
-        // Phone: full-screen layer over the app (the app stays mounted underneath).
-        "inset-x-0 top-[calc(var(--phone-safe-top,env(safe-area-inset-top))+var(--phone-nav-row-h,40px))] bottom-[var(--phone-tabbar-h,calc(env(safe-area-inset-bottom)+4.5rem))] max-sm:border-y max-sm:border-border/60",
-        // iPad / desktop: popover anchored bottom-left like the desktop Assistant popover.
-        "sm:inset-auto sm:bottom-16 sm:left-3 sm:h-[min(720px,calc(100dvh-6rem))] sm:w-[min(448px,calc(100vw-2rem))] sm:rounded-md sm:border sm:top-auto sm:shadow-md",
-        // Phone open/close: slide up / slide down, ~250ms ease; none under reduced motion.
-        "max-sm:duration-250 max-sm:ease-out max-sm:motion-reduce:animate-none",
-        mode === "open" && "max-sm:animate-in max-sm:slide-in-from-bottom",
-        mode === "closing" &&
-          "max-sm:animate-out max-sm:slide-out-to-bottom max-sm:fill-mode-forwards max-sm:ease-in",
+        "fixed z-[100] overflow-hidden",
+        // Phone: the region between the top nav and the tab bar (both stay visible/usable); clips the slide.
+        "inset-x-0 top-[calc(var(--phone-safe-top,env(safe-area-inset-top))+var(--phone-nav-row-h,40px))] bottom-[var(--phone-tabbar-h,calc(env(safe-area-inset-bottom)+4.5rem))]",
+        // iPad / desktop: anchored bottom-left near the sidebar Assist button, always clamped inside the viewport
+        // with >= 8px on every side.
+        "sm:top-auto sm:right-auto sm:bottom-[max(8px,min(4rem,calc(100dvh-728px)))] sm:left-[max(8px,min(0.75rem,calc(100vw-456px)))] sm:h-[min(720px,calc(100dvh-16px))] sm:w-[min(448px,calc(100vw-16px))] sm:overflow-visible",
         mode === "minimized" && "hidden",
       )}
-      data-testid="web-assistant-popup"
-      role="dialog"
+      data-testid="web-assistant-layer"
     >
-      {showPicker ? (
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mb-2 flex justify-end gap-1">
-            <Button
-              aria-label="Close Assistant"
-              className="max-sm:h-11 max-sm:w-11 max-sm:rounded-full max-sm:bg-muted/70 max-sm:[&_svg]:size-6"
-              onClick={() => (picked ? setMode("minimized") : close())}
-              size="icon-xs"
-              type="button"
-              variant="ghost"
-            >
-              <ChevronDown />
-            </Button>
+      <div
+        aria-label="Assistant"
+        aria-modal={mode === "open" || mode === "closing" ? true : undefined}
+        className={cn(
+          "flex h-full w-full flex-col overflow-hidden bg-popover p-4 text-popover-foreground max-sm:border-y max-sm:border-border/60",
+          "sm:rounded-md sm:border sm:shadow-md",
+          // Open/close always animated: phone slides up/down; iPad/desktop scale-fade from the bottom-left anchor.
+          "duration-250 ease-out motion-reduce:animate-none sm:origin-bottom-left sm:duration-220",
+          mode === "open" &&
+            "animate-in slide-in-from-bottom sm:fade-in-0 sm:zoom-in-95 sm:slide-in-from-bottom-4",
+          mode === "closing" &&
+            "animate-out fill-mode-forwards ease-in slide-out-to-bottom sm:fade-out-0 sm:zoom-out-95 sm:slide-out-to-bottom-4",
+        )}
+        data-testid="web-assistant-popup"
+        role="dialog"
+      >
+        {showPicker ? (
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="mb-2 flex justify-end gap-1">
+              <Button
+                aria-label="Close Assistant"
+                className="h-9 w-9 rounded-full bg-muted/70 text-foreground hover:bg-muted [&_svg]:size-5 max-sm:h-11 max-sm:w-11 max-sm:[&_svg]:size-6"
+                onClick={() => (picked ? setMode("minimized") : close())}
+                size="icon-xs"
+                type="button"
+                variant="ghost"
+              >
+                <ChevronDown />
+              </Button>
+            </div>
+            <AssistantPicker
+              current={picked}
+              me={me}
+              onCancel={picked ? () => setPicking(false) : undefined}
+              onPicked={() => setPicking(false)}
+            />
           </div>
-          <AssistantPicker
-            current={picked}
-            me={me}
-            onCancel={picked ? () => setPicking(false) : undefined}
-            onPicked={() => setPicking(false)}
+        ) : picked ? (
+          <AssistantPopoverBody
+            agentPubkey={picked}
+            key={`${picked}:${instance}`}
+            onChange={() => setPicking(true)}
+            onClose={close}
+            onMinimize={() => setMode("minimized")}
+            onOpenConversation={(channel) => {
+              setMode("minimized");
+              if (channel) void goChannel(channel.id);
+            }}
           />
-        </div>
-      ) : picked ? (
-        <AssistantPopoverBody
-          agentPubkey={picked}
-          key={`${picked}:${instance}`}
-          onChange={() => setPicking(true)}
-          onClose={close}
-          onMinimize={() => setMode("minimized")}
-          onOpenConversation={(channel) => {
-            setMode("minimized");
-            if (channel) void goChannel(channel.id);
-          }}
-        />
-      ) : null}
-    </div>
+        ) : null}
+      </div>
+    </div>,
+    document.body,
   );
 }
 

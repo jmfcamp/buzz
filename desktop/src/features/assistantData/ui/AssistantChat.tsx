@@ -6,7 +6,6 @@ import {
   Bell,
   ChevronDown,
   SquareArrowOutUpRight,
-  X,
 } from "lucide-react";
 import * as React from "react";
 
@@ -81,7 +80,6 @@ export function AssistantPopoverBody({
   fallbackName,
   fallbackAvatarUrl,
   onChange,
-  onClose,
   onMinimize,
   onOpenConversation,
 }: {
@@ -89,7 +87,7 @@ export function AssistantPopoverBody({
   fallbackName?: string;
   fallbackAvatarUrl?: string | null;
   onChange: () => void;
-  onClose: () => void;
+  onClose?: () => void;
   onMinimize: () => void;
   onOpenConversation: (channel: Channel | null) => void;
 }) {
@@ -166,8 +164,29 @@ export function AssistantPopoverBody({
           nip05Handle: null,
           ownerPubkey: null,
         },
+        // Your own messages: resolve your profile like the rest of the app (not the raw hex pubkey).
+        ...(me
+          ? {
+              [me]: {
+                avatarUrl: myProfile?.avatarUrl ?? null,
+                displayName: myProfile?.displayName ?? null,
+                isAgent: false,
+                name: myProfile?.displayName ?? null,
+                nip05Handle: myProfile?.nip05Handle ?? null,
+                ownerPubkey: null,
+              },
+            }
+          : {}),
       }) as unknown as UserProfileLookup,
-    [agentPubkey, avatarUrl, name],
+    [
+      agentPubkey,
+      avatarUrl,
+      name,
+      me,
+      myProfile?.avatarUrl,
+      myProfile?.displayName,
+      myProfile?.nip05Handle,
+    ],
   );
   const messages = React.useMemo<TimelineMessage[]>(() => {
     if (!channel) return [];
@@ -235,7 +254,7 @@ export function AssistantPopoverBody({
       className="flex h-full min-h-0 flex-col gap-3"
       data-testid="web-assistant-popover"
     >
-      <div className="flex shrink-0 items-start gap-2">
+      <div className="flex shrink-0 items-center gap-2">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
@@ -281,6 +300,41 @@ export function AssistantPopoverBody({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        {tabbed ? (
+          <div
+            className="flex shrink-0 gap-0.5 rounded-full bg-muted/45 p-0.5"
+            data-testid="web-assistant-tabs"
+            role="tablist"
+          >
+            {(["chat", "lists"] as const).map((t) => (
+              <button
+                aria-selected={tab === t}
+                className={cn(
+                  "relative flex h-7 items-center justify-center gap-1 rounded-full px-2.5 text-xs font-medium transition-colors",
+                  tab === t
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                data-testid={`web-assistant-tab-${t}`}
+                key={t}
+                onClick={() => pickTab(t)}
+                role="tab"
+                type="button"
+              >
+                {t === "chat" ? "Chat" : "Lists"}
+                {t === "lists" && summary.dueReminders > 0 ? (
+                  <span
+                    className="min-w-4 rounded-full bg-destructive px-1 text-2xs leading-4 text-destructive-foreground tabular-nums"
+                    data-testid="web-assistant-tab-lists-badge"
+                  >
+                    {summary.dueReminders}
+                    <span className="sr-only"> due</span>
+                  </span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <div className="flex-1" />
         {managed && presence === "offline" ? (
           <Button
@@ -317,7 +371,7 @@ export function AssistantPopoverBody({
           </Button>
           <Button
             aria-label="Close Assistant"
-            className="max-sm:h-11 max-sm:w-11 max-sm:rounded-full max-sm:bg-muted/70 max-sm:text-foreground max-sm:[&_svg]:size-6"
+            className="h-9 w-9 rounded-full bg-muted/70 text-foreground hover:bg-muted [&_svg]:size-5 max-sm:h-11 max-sm:w-11 max-sm:[&_svg]:size-6"
             data-testid="web-assistant-minimize"
             onClick={onMinimize}
             size="icon-xs"
@@ -326,55 +380,8 @@ export function AssistantPopoverBody({
           >
             <ChevronDown />
           </Button>
-          <Button
-            aria-label="Discard Assistant session"
-            className="max-sm:hidden"
-            data-testid="web-assistant-close"
-            onClick={onClose}
-            size="icon-xs"
-            type="button"
-            variant="ghost"
-          >
-            <X />
-          </Button>
         </div>
       </div>
-
-      {tabbed ? (
-        <div
-          className="flex shrink-0 gap-1 rounded-full bg-muted/45 p-1"
-          data-testid="web-assistant-tabs"
-          role="tablist"
-        >
-          {(["chat", "lists"] as const).map((t) => (
-            <button
-              aria-selected={tab === t}
-              className={cn(
-                "relative flex h-9 flex-1 items-center justify-center gap-1.5 rounded-full text-sm font-medium transition-colors",
-                tab === t
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              data-testid={`web-assistant-tab-${t}`}
-              key={t}
-              onClick={() => pickTab(t)}
-              role="tab"
-              type="button"
-            >
-              {t === "chat" ? "Chat" : "Lists"}
-              {t === "lists" && summary.dueReminders > 0 ? (
-                <span
-                  className="min-w-5 rounded-full bg-destructive px-1.5 text-2xs leading-5 text-destructive-foreground tabular-nums"
-                  data-testid="web-assistant-tab-lists-badge"
-                >
-                  {summary.dueReminders}
-                  <span className="sr-only"> due</span>
-                </span>
-              ) : null}
-            </button>
-          ))}
-        </div>
-      ) : null}
 
       <div
         className={cn(

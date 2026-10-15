@@ -1294,6 +1294,7 @@ export function BestiePopover({
           </Button>
           <Button
             aria-label="Close Assistant"
+            className="h-9 w-9 rounded-full bg-muted/70 text-foreground hover:bg-muted [&_svg]:size-5"
             data-testid="bestie-close"
             onClick={dismissPopover}
             size="icon-xs"
