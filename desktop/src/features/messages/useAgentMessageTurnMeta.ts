@@ -1,11 +1,6 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { buildTranscriptState } from "@/features/agents/ui/agentSessionTranscript";
-import {
-  mergeObserverEventWindows,
-  scopeByChannel,
-} from "@/features/agents/ui/agentSessionPanelLayout";
 import type {
   ObserverEvent,
   TranscriptItem,
@@ -33,6 +28,15 @@ import {
   selectPromptCreatedAtForDuration,
   summarizeThinkingItems,
 } from "@/features/messages/lib/agentMessageTurnMeta";
+import {
+  isHydrationLeader,
+  joinHydration,
+  leaveHydration,
+  publishHasOlderArchived,
+  readSharedHasOlderArchived,
+  resolveTurnMetaTranscript,
+  subscribeHydration,
+} from "@/features/messages/lib/turnMetaShared";
 import { useShowAgentThinking } from "@/features/messages/lib/showAgentThinkingPreference";
 import {
   getAgentTurnMetricNear,
@@ -77,6 +81,9 @@ export type AgentMessageTurnMeta = {
  *   `triggeringEventIds` includes `parentId`, else nearest by time that has
  *   thought/tool content. Includes null-turnId chunks in the prompt→reply window.
  */
+const EMPTY_EVENTS: ObserverEvent[] = [];
+const EMPTY_ITEMS: TranscriptItem[] = [];
+
 export function useAgentMessageTurnMeta(input: {
   agentPubkey: string | null | undefined;
   channelId: string | null | undefined;
@@ -119,34 +126,54 @@ export function useAgentMessageTurnMeta(input: {
   // Eager archive hydrate so Thought chip visibility and expand content are
   // available without waiting for the user to open the card. Same path the
   // activity pane uses (owner_p 24200 → channel index → decrypt → store).
-  const { hasOlderArchived } = useLoadArchivedObserverEvents(
-    enabled && Boolean(input.channelId),
-    input.channelId ?? null,
+  // One row per channel hydrates (the leader); every other reply reads the
+  // shared archive store. Previously each agent reply ran its own backfill +
+  // 10-page archive ingest for the same channel.
+  const hydrationChannelId =
+    enabled && input.channelId ? input.channelId : null;
+  const memberId = React.useId();
+  React.useEffect(() => {
+    if (!hydrationChannelId) return;
+    joinHydration(hydrationChannelId, memberId);
+    return () => leaveHydration(hydrationChannelId, memberId);
+  }, [hydrationChannelId, memberId]);
+  const subscribeLeader = React.useCallback(
+    (listener: () => void) => subscribeHydration(hydrationChannelId, listener),
+    [hydrationChannelId],
   );
+  const isLeader = React.useSyncExternalStore(subscribeLeader, () =>
+    isHydrationLeader(hydrationChannelId, memberId),
+  );
+  const sharedHasOlderArchived = React.useSyncExternalStore(
+    subscribeLeader,
+    () => readSharedHasOlderArchived(hydrationChannelId),
+  );
+  const { hasOlderArchived: leaderHasOlderArchived } =
+    useLoadArchivedObserverEvents(isLeader, input.channelId ?? null);
+  React.useEffect(() => {
+    if (isLeader && hydrationChannelId) {
+      publishHasOlderArchived(hydrationChannelId, leaderHasOlderArchived);
+    }
+  }, [isLeader, hydrationChannelId, leaderHasOlderArchived]);
+  const hasOlderArchived = isLeader
+    ? leaderHasOlderArchived
+    : sharedHasOlderArchived;
 
   const archivedEvents = useArchivedChannelEvents(
     agentPubkey,
     input.channelId ?? null,
   );
 
-  const combinedEvents = React.useMemo(() => {
-    if (!enabled || !agentPubkey) return [] as ObserverEvent[];
-    const scopedLive = scopeByChannel(liveEvents, input.channelId ?? null);
-    // Frames with null channelId are dropped by scopeByChannel. Re-include
-    // recent null-channel frames from live so early turn chunks still join.
-    const nullChannelLive =
-      input.channelId != null
-        ? liveEvents.filter((event) => {
-            if (event.channelId != null) return false;
-            if (!event.timestamp) return false;
-            const ts = Date.parse(event.timestamp);
-            if (!Number.isFinite(ts)) return false;
-            return Math.abs(ts / 1000 - input.createdAt) <= 600;
-          })
-        : [];
-    return mergeObserverEventWindows(
-      [...scopedLive, ...nullChannelLive],
+  // Rows with the same live/archived inputs share one merge + transcript build
+  // (see turnMetaShared). Rebuilding per reply was O(replies × frames) on
+  // every streamed observer frame.
+  const sharedTranscript = React.useMemo(() => {
+    if (!enabled || !agentPubkey) return null;
+    return resolveTurnMetaTranscript(
+      liveEvents,
       archivedEvents,
+      input.channelId ?? null,
+      input.createdAt,
     );
   }, [
     enabled,
@@ -156,11 +183,10 @@ export function useAgentMessageTurnMeta(input: {
     input.channelId,
     input.createdAt,
   ]);
-
-  const transcriptItems = React.useMemo(
-    () => buildTranscriptState(combinedEvents).items,
-    [combinedEvents],
-  );
+  const combinedEvents: ObserverEvent[] =
+    sharedTranscript?.combined ?? EMPTY_EVENTS;
+  const transcriptItems: TranscriptItem[] =
+    sharedTranscript?.items ?? EMPTY_ITEMS;
 
   const { turnId, sessionId, joinMethod, turnStarted } = React.useMemo(() => {
     const byTrigger = findTurnIdForPromptEvent(combinedEvents, input.parentId);
