@@ -1,5 +1,5 @@
 import * as React from "react";
-// Inbox tabs: People / Agents / For you (reminders + assistant) / Drafts.
+// Inbox tabs: People / Agents / Reminders / Assistant / Drafts.
 // One shared source for tab membership, per-tab filters and badge counts so
 // the Inbox tabs, sidebar/phone tab bar and the app icon badge never disagree.
 import type { FeedItem } from "@/shared/api/types";
@@ -7,12 +7,13 @@ import type { InboxFilter } from "./inbox";
 import { matchesInboxAllView } from "./inboxViewHelpers";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 
-export type InboxTab = "inbox" | "agents" | "reminders" | "drafts";
+export type InboxTab = "inbox" | "agents" | "reminders" | "assistant" | "drafts";
 
 export const INBOX_TABS: ReadonlyArray<{ value: InboxTab; label: string }> = [
   { value: "inbox", label: "People" },
   { value: "agents", label: "Agents" },
-  { value: "reminders", label: "For you" },
+  { value: "reminders", label: "Reminders" },
+  { value: "assistant", label: "Assistant" },
   { value: "drafts", label: "Drafts" },
 ];
 
@@ -36,15 +37,14 @@ export const INBOX_TAB_FILTERS: Record<
     { value: "agent_done", label: "Finished & PRs" },
     { value: "agent_activity", label: "All activity" },
   ],
-  reminders: [
-    { value: "reminders", label: "Reminders" },
-    { value: "assistant", label: "Assistant" },
-  ],
+  reminders: [{ value: "reminders", label: "Reminders" }],
+  assistant: [{ value: "assistant", label: "Assistant" }],
   drafts: [{ value: "drafts", label: "Drafts" }],
 };
 
 export function defaultFilterForTab(tab: InboxTab): InboxFilter {
   if (tab === "reminders") return "reminders";
+  if (tab === "assistant") return "assistant";
   if (tab === "drafts") return "drafts";
   return "all";
 }
@@ -53,7 +53,8 @@ export function tabForFilter(filter: InboxFilter, current: InboxTab): InboxTab {
   if (INBOX_TAB_FILTERS[current].some((option) => option.value === filter)) {
     return current;
   }
-  if (filter === "reminders" || filter === "assistant") return "reminders";
+  if (filter === "reminders") return "reminders";
+  if (filter === "assistant") return "assistant";
   if (filter === "drafts") return "drafts";
   if (filter === "needs_action" || filter.startsWith("agent_")) return "agents";
   return "inbox";
@@ -106,7 +107,7 @@ export function inboxTabOf(
   assistantPubkey?: string | null,
 ): InboxTab | null {
   if (!matchesInboxAllView(item, ownedAgentPubkeys)) return null;
-  if (isAssistantItem(item, assistantPubkey)) return "reminders";
+  if (isAssistantItem(item, assistantPubkey)) return "assistant";
   return isAgentsTabItem(item, ownedAgentPubkeys) ? "agents" : "inbox";
 }
 
@@ -128,9 +129,11 @@ export function countsTowardInboxBadge(
 export type InboxTabCounts = {
   inbox: number;
   agents: number;
-  /** Due reminders + unread Assistant messages. */
+  /** Due reminders. */
   reminders: number;
+  /** Alias of `reminders` (kept for older callers). */
   dueReminders: number;
+  /** Unread messages from your Assistant agent. */
   assistant: number;
   /** Drafts never carry a badge and never count toward the total. */
   drafts: 0;
@@ -159,11 +162,11 @@ export function computeInboxTabCounts(input: {
     if (tab === null) continue;
     if (!countsTowardInboxBadge(item, input)) continue;
     if (tab === "agents") agents += 1;
-    else if (tab === "reminders") assistant += 1;
+    else if (tab === "assistant") assistant += 1;
     else inbox += 1;
   }
   const dueReminders = Math.max(0, input.dueReminderCount);
-  const reminders = dueReminders + assistant;
+  const reminders = dueReminders;
   return {
     inbox,
     agents,
@@ -171,7 +174,7 @@ export function computeInboxTabCounts(input: {
     dueReminders,
     assistant,
     drafts: 0,
-    total: inbox + agents + reminders,
+    total: inbox + agents + reminders + assistant,
   };
 }
 

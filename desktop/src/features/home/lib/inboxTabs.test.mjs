@@ -63,12 +63,14 @@ test("tabForFilter keeps current tab when the filter belongs to it", () => {
   assert.equal(tabForFilter("channel", "agents"), "inbox");
   assert.equal(tabForFilter("needs_action", "inbox"), "agents");
   assert.equal(tabForFilter("mention", "agents"), "inbox");
+  assert.equal(tabForFilter("assistant", "inbox"), "assistant");
+  assert.equal(tabForFilter("reminders", "assistant"), "reminders");
 });
 
-test("assistant DM messages go to For you and count there", () => {
+test("assistant DM messages go to the Assistant tab; reminders count separately", () => {
   const owned = new Set([AGENT]);
   const msg = item({ id: "as", channelType: "dm", categories: ["activity"], pubkey: AGENT });
-  assert.equal(inboxTabOf(msg, owned, AGENT), "reminders");
+  assert.equal(inboxTabOf(msg, owned, AGENT), "assistant");
   assert.equal(inboxTabOf(msg, owned, null), "agents");
   const c = computeInboxTabCounts({
     items: [msg, item({ id: "m" })],
@@ -79,7 +81,7 @@ test("assistant DM messages go to For you and count there", () => {
   });
   assert.deepEqual(
     [c.inbox, c.agents, c.assistant, c.dueReminders, c.reminders, c.total],
-    [1, 0, 1, 1, 2, 3],
+    [1, 0, 1, 1, 1, 3],
   );
 });
 
