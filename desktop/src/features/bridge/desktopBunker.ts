@@ -8,6 +8,7 @@
 //    synced settings) and logged.
 //  - Revoked / unknown clients get an error (revoked) or nothing at all (unknown), and every client is rate limited.
 // The account key is only used through deps.sign / deps.crypt and is never returned or exported.
+import { sanitizeDeviceMeta } from "./deviceMeta";
 import { finalizeEvent, getPublicKey, nip44, verifyEvent } from "nostr-tools";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import {
@@ -147,7 +148,7 @@ export function createBunkerPolicy(deps: BunkerPolicyDeps) {
         const others = devices().filter((d) => d.pubkey !== client);
         deps.store.saveDevices([
           ...others,
-          { pubkey: client, label, approvedAt: deps.now(), via: "bunker" },
+          { pubkey: client, label, approvedAt: deps.now(), via: "bunker", meta: sanitizeDeviceMeta(params[4]) },
         ]);
         return "ack";
       }

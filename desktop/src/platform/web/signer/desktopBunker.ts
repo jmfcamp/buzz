@@ -6,6 +6,7 @@
 //    requests fail fast so the fallback is instant), "revoked" (desktop revoked this browser: session dropped).
 //  - A check (get_public_key) runs at start, every 30s while visible, on return to the app and when the network returns.
 // Only the browser's NIP-46 CLIENT key is stored here (IndexedDB); the account key stays on the desktop.
+import { collectDeviceMeta } from "@/features/bridge/deviceMeta";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { generateSecretKey } from "nostr-tools";
 import {
@@ -262,7 +263,7 @@ export async function pairDesktopBunker(
     const label = browserName();
     const r = await c.request(
       "connect",
-      [b.remotePubkey, b.secret ?? "", "", label],
+      [b.remotePubkey, b.secret ?? "", "", label, JSON.stringify(collectDeviceMeta())],
       PAIR_TIMEOUT_MS,
     );
     if (b.secret && r !== "ack" && r !== b.secret)

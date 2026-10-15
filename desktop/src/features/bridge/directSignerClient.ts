@@ -3,6 +3,7 @@ import { beginBusy } from "@/shared/lib/backgroundBusy";
 // the desktop approves it once, then signs allow-listed kinds for it. Each request is signed by the device key and bound
 // to the current Direct connection (per-connection nonce + increasing seq). Never connects on its own: it is only used
 // while a Direct connection is already live, so it never costs an extra remote-signer round trip.
+import { collectDeviceMeta } from "./deviceMeta";
 import { schnorr } from "@noble/curves/secp256k1.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import type { SignedEvent, UnsignedEvent } from "@/platform/web/signer/types";
@@ -162,7 +163,7 @@ export class DirectSignerClient {
       const h = await this.ensureHello(true);
       step = "pair";
       const sig = signWithDevice(pairDigest(h.nonce, this.device), load().secret);
-      const r = await this.agents.call<{ approved: boolean }>("signer.pair", { device: this.device, label, sig });
+      const r = await this.agents.call<{ approved: boolean }>("signer.pair", { device: this.device, label, sig, meta: collectDeviceMeta() });
       if (r.approved) {
         const s = load();
         save({
