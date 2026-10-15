@@ -33,7 +33,7 @@ test("phoneKeyboardOpen requires capable focus", () => {
   );
 });
 
-test("isKeyboardCapableElement ignores inputmode=none seed fields", () => {
+test("isKeyboardCapableElement ignores inputmode=none seed fields", { skip: typeof HTMLTextAreaElement === "undefined" && "needs DOM" }, () => {
   const area = { readOnly: false, disabled: false, inputMode: "none" };
   Object.setPrototypeOf(area, HTMLTextAreaElement.prototype);
   assert.equal(isKeyboardCapableElement(area), false);

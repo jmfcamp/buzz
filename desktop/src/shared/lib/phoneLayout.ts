@@ -37,7 +37,7 @@ export function installPhoneLayoutAttribute(): void {
  *  returns exactly to the initial one. Rotation re-baselines the keyboard detection. */
 function installTabletKeyboardFrame(phoneMql: MediaQueryList): void {
   const vv = window.visualViewport;
-  const frameMql = window.matchMedia("(min-width: 600px) and (display-mode: standalone)");
+  const frameMql = window.matchMedia("(min-width: 600px) and (display-mode: standalone) and (pointer: coarse)");
   const root = document.documentElement;
   let maxH = 0;
   let lastW = window.innerWidth;
@@ -407,10 +407,3 @@ export function usePhoneLayout(): boolean {
   );
 }
 
-function isEditableElement(el: Element): boolean {
-  // Message-list dismiss still blurs any editable (including inputmode=none seed fields).
-  return (
-    el instanceof HTMLElement &&
-    (el.isContentEditable || /^(INPUT|TEXTAREA)$/.test(el.tagName))
-  );
-}
