@@ -58,7 +58,6 @@ import {
   readChannelMutesStore,
 } from "@/features/sidebar/lib/channelMutesStorage";
 
-
 function stringArray(v: unknown): string[] {
   return Array.isArray(v)
     ? v.filter((x): x is string => typeof x === "string")
@@ -100,17 +99,20 @@ export function readLegacyInboxState(pk: string) {
 /** Rewrite the legacy cache stores from the doc, then notify hooks. */
 export function projectInboxStateToLegacy(pk: string, doc: InboxStateDoc) {
   // `ch:` (channel notify) and `as:` (assistant pick) ids live in lanes but are not threads.
-  const isThreadId = (id: string) => !isChannelNotifyId(id) && !id.startsWith("as:");
+  const isThreadId = (id: string) =>
+    !isChannelNotifyId(id) && !id.startsWith("as:");
   writeJson(legacy.done(pk), activeIds(doc, "done"));
   writeJson(legacy.unread(pk), activeIds(doc, "unread"));
   writeJson(legacy.muted(pk), activeIds(doc, "muted").filter(isThreadId));
   writeChannelNotifyCache(pk, channelNotifyFromDoc(doc));
   writeJson(
     legacy.followed(pk),
-    activeIds(doc, "followed").filter(isThreadId).map((rootId) => ({
-      rootId,
-      followedAt: doc.lanes.followed[rootId].at * 1000,
-    })),
+    activeIds(doc, "followed")
+      .filter(isThreadId)
+      .map((rootId) => ({
+        rootId,
+        followedAt: doc.lanes.followed[rootId].at * 1000,
+      })),
   );
   const threads: Record<string, unknown> = {};
   for (const rootId of activeIds(doc, "starred")) {
@@ -149,7 +151,10 @@ class InboxStateSync {
     return this.engine.doc;
   }
 
-  constructor(readonly pk: string) {
+  readonly pk: string;
+
+  constructor(pk: string) {
+    this.pk = pk;
     this.engine = new SyncedDoc<InboxStateDoc>({
       pk,
       kind: INBOX_STATE_KIND,
@@ -173,7 +178,10 @@ class InboxStateSync {
       this.engine.persist();
     }
     if (!readJson(`${MIGRATED_PREFIX}:${pk}`)) {
-      this.engine.doc = unionLegacyInboxState(this.engine.doc, readLegacyInboxState(pk));
+      this.engine.doc = unionLegacyInboxState(
+        this.engine.doc,
+        readLegacyInboxState(pk),
+      );
       writeJson(`${MIGRATED_PREFIX}:${pk}`, nowSec());
       this.engine.persist();
     }
@@ -187,7 +195,9 @@ class InboxStateSync {
     if (!id) return;
     const cur = this.doc.lanes[lane][id];
     if (cur && cur.on === on && (!on || !meta || cur.meta)) return;
-    this.engine.update(setInboxStateEntry(this.doc, lane, id, on, nowSec(), meta));
+    this.engine.update(
+      setInboxStateEntry(this.doc, lane, id, on, nowSec(), meta),
+    );
   }
 
   flush() {

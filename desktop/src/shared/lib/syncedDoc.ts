@@ -61,8 +61,10 @@ export class SyncedDoc<D> {
   private stopLive: (() => Promise<void>) | null = null;
   private stopped = false;
   readonly pk: string;
+  readonly opts: SyncedDocOptions<D>;
 
-  constructor(readonly opts: SyncedDocOptions<D>) {
+  constructor(opts: SyncedDocOptions<D>) {
+    this.opts = opts;
     this.pk = opts.pk;
     this.doc = opts.codec.parse(readJson(opts.cacheKey)) ?? opts.codec.empty();
   }
@@ -88,7 +90,9 @@ export class SyncedDoc<D> {
     if (ev.pubkey !== this.pk) return null;
     if (ev.created_at > this.lastCreatedAt) this.lastCreatedAt = ev.created_at;
     try {
-      return this.opts.codec.parse(JSON.parse(await decryptAppData(ev.content)));
+      return this.opts.codec.parse(
+        JSON.parse(await decryptAppData(ev.content)),
+      );
     } catch {
       return null;
     }
@@ -108,7 +112,11 @@ export class SyncedDoc<D> {
   }
 
   async start() {
-    const filter = { kinds: [this.opts.kind], authors: [this.pk], "#d": [this.opts.dTag] };
+    const filter = {
+      kinds: [this.opts.kind],
+      authors: [this.pk],
+      "#d": [this.opts.dTag],
+    };
     try {
       const events = await relayClient.fetchEvents({ ...filter, limit: 1 });
       const ev = events.find((e) => e.pubkey === this.pk);
@@ -121,19 +129,28 @@ export class SyncedDoc<D> {
         if (!ev) this.schedule();
       }
     } catch (error) {
-      console.warn(`[${this.opts.label ?? this.opts.dTag}] bootstrap failed:`, error);
+      console.warn(
+        `[${this.opts.label ?? this.opts.dTag}] bootstrap failed:`,
+        error,
+      );
     }
     if (this.stopped) return;
     try {
-      const stop = await relayClient.subscribeLive({ ...filter, limit: 0 }, (ev) => {
-        void this.decode(ev).then((remote) => {
-          if (remote && !this.stopped) this.absorb(remote);
-        });
-      });
+      const stop = await relayClient.subscribeLive(
+        { ...filter, limit: 0 },
+        (ev) => {
+          void this.decode(ev).then((remote) => {
+            if (remote && !this.stopped) this.absorb(remote);
+          });
+        },
+      );
       if (this.stopped) void stop();
       else this.stopLive = stop;
     } catch (error) {
-      console.warn(`[${this.opts.label ?? this.opts.dTag}] live subscribe failed:`, error);
+      console.warn(
+        `[${this.opts.label ?? this.opts.dTag}] live subscribe failed:`,
+        error,
+      );
     }
   }
 
@@ -175,7 +192,10 @@ export class SyncedDoc<D> {
       this.lastCreatedAt = event.created_at;
       this.lastPublished = doc;
     } catch (error) {
-      console.warn(`[${this.opts.label ?? this.opts.dTag}] publish failed:`, error);
+      console.warn(
+        `[${this.opts.label ?? this.opts.dTag}] publish failed:`,
+        error,
+      );
     }
   }
 

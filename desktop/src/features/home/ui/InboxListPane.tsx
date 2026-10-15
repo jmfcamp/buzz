@@ -1,3 +1,4 @@
+import { AssistantListsPanel } from "@/features/assistantLists/ui/AssistantListsPanel";
 import {
   AlertCircle,
   Bell,
@@ -20,9 +21,7 @@ import { buildInboxListRows } from "@/features/home/lib/inboxListRows";
 import { hasRenderedVideoAttachment } from "@/features/messages/lib/videoReviewContext";
 import { getThreadReference } from "@/features/messages/lib/threading";
 import { InboxFilterMenu } from "@/features/home/ui/InboxFilterMenu";
-import {
-  InboxTabBar,
-} from "@/features/home/ui/InboxTabBar";
+import { InboxTabBar } from "@/features/home/ui/InboxTabBar";
 import {
   INBOX_TAB_FILTERS,
   type InboxTab,
@@ -757,6 +756,14 @@ export function InboxListPane({
           className="flex min-h-0 flex-1 flex-col overflow-hidden"
           data-testid="home-inbox-reminders"
         >
+          {isWebAssistantAvailable() ? (
+            <div className="max-h-[45%] shrink-0 overflow-y-auto border-b border-border/60 px-3 py-2">
+              <AssistantListsPanel
+                me={reminderPubkey ?? undefined}
+                mode="reminders"
+              />
+            </div>
+          ) : null}
           {reminderPubkey ? (
             <RemindersPanel
               onSelectReminder={onSelectReminder}

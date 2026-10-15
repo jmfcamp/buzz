@@ -95,12 +95,12 @@ import {
   useBestieThreads,
 } from "./bestieThreadStore";
 import {
-
   isBestieThreadSummarizePendingStale,
   messageLooksLikeBestieSummarizeCompetingTrigger,
   BESTIE_THREAD_SUMMARIZE_ABANDONED_OUTPUT,
 } from "./bestieThreadSummarizeLive";
 import { useBestie } from "./useBestie";
+import { claimReminderFires } from "@/features/assistantLists/listsStore";
 
 /** Top-level DM marker for due-reminder notifications (never threaded). */
 export const BESTIE_REMINDER_NOTIFY_MARKER = "[Bestie reminder]";
@@ -123,7 +123,6 @@ function formatBestieReminderNotifyPrompt(nudge: BestieNudge): string {
 let bestieCoffeeSendLock = false;
 
 export function BestieWakeController() {
-
   const bestie = useBestie();
   const identityQuery = useIdentityQuery();
   const channelsQuery = useChannelsQuery();
@@ -242,7 +241,8 @@ export function BestieWakeController() {
       source: "scheduled" | "brew",
       options?: { alreadyBegun?: boolean; path?: "schedule" | "brew-click" },
     ) => {
-      if (!listScope || coffeeSendingRef.current || bestieCoffeeSendLock) return;
+      if (!listScope || coffeeSendingRef.current || bestieCoffeeSendLock)
+        return;
       // Allowed fires only: explicit Brew click, or scheduled begin already
       // claimed inside the 08:00 window. Reject any other caller.
       const pending = getBestieCoffeeState(listScope).pendingRun;
@@ -281,7 +281,8 @@ export function BestieWakeController() {
       }
       coffeeSendingRef.current = true;
       bestieCoffeeSendLock = true;
-      const path = options?.path ?? (source === "brew" ? "brew-click" : "schedule");
+      const path =
+        options?.path ?? (source === "brew" ? "brew-click" : "schedule");
       try {
         logBestieCoffeeFire({
           path,
@@ -346,7 +347,9 @@ export function BestieWakeController() {
         coffeeState.entries
           .filter((entry) => entry.replyMessageId)
           .map((entry) => entry.triggerMessageId)
-          .filter((id): id is string => typeof id === "string" && id.length > 0),
+          .filter(
+            (id): id is string => typeof id === "string" && id.length > 0,
+          ),
       );
       const forgottenCoffeeTriggerIds = new Set(
         coffeeState.forgottenTriggerIds,
@@ -360,7 +363,10 @@ export function BestieWakeController() {
           let bestId: string | null = null;
           let bestAt = -1;
           for (const event of events) {
-            if (typeof event.content !== "string" || event.content.length === 0) {
+            if (
+              typeof event.content !== "string" ||
+              event.content.length === 0
+            ) {
               continue;
             }
             if (normalizePubkey(event.pubkey) !== ownerNorm) continue;
@@ -384,7 +390,8 @@ export function BestieWakeController() {
       // roots-only channel window while the in-thread agent reply is still
       // loadable via thread-replies.
       for (const entry of coffeeState.entries) {
-        if (!entry.triggerMessageId || !isBestieCoffeeStubEntry(entry)) continue;
+        if (!entry.triggerMessageId || !isBestieCoffeeStubEntry(entry))
+          continue;
         if (forgottenCoffeeTriggerIds.has(entry.triggerMessageId)) continue;
         if (matchedCoffeeTriggerIds.has(entry.triggerMessageId)) continue;
         unmatchedCoffeeTriggers.set(entry.triggerMessageId, entry.source);
@@ -615,6 +622,10 @@ export function BestieWakeController() {
         setBestieNudge(nudge);
         if (nudge.reason !== "due-reminder") return;
         if (postedReminderNudgeIdsRef.current.has(nudge.id)) return;
+        // This desktop is the wake firer: skip reminders another device already fired for this due time (synced
+        // firedAt), and mark the rest fired. Null = relay sync not running: old behavior.
+        const fresh = claimReminderFires(listScope.ownerPubkey, nudge.itemIds);
+        if (fresh && fresh.length === 0) return;
         postedReminderNudgeIdsRef.current.add(nudge.id);
         void (async () => {
           try {
@@ -679,8 +690,7 @@ export function BestieWakeController() {
     if (!listScope) return;
     const handles = startBestieCoffeeRunner({
       getCoffeeState: () => getBestieCoffeeState(listScope),
-      getIsAgentOnline: () =>
-        isBestieAgentOnlineForCoffee(presenceRef.current),
+      getIsAgentOnline: () => isBestieAgentOnlineForCoffee(presenceRef.current),
       intervalMs: BESTIE_WAKE_INTERVAL_MS,
       onDueCoffee: () => {
         // Claim day + pending *before* any await so wake/remount re-ticks
@@ -745,7 +755,12 @@ export function BestieWakeController() {
   React.useEffect(() => {
     if (!listScope) return;
     coffeeHandlesRef.current?.tick();
-  }, [coffeeState.pendingRun, coffeeState.lastScheduledDayKey, listScope, presenceStatus]);
+  }, [
+    coffeeState.pendingRun,
+    coffeeState.lastScheduledDayKey,
+    listScope,
+    presenceStatus,
+  ]);
 
   // Drop / finalize abandoned coffee + summarize pending (idle, hard timeout,
   // or superseded by a newer system turn) so Brew/Summarize cannot stick on 👀.
@@ -815,7 +830,13 @@ export function BestieWakeController() {
     check();
     const timer = window.setInterval(check, 15_000);
     return () => window.clearInterval(timer);
-  }, [bestieChannel, coffeeState.pendingRun, listScope, messagesQuery.data, ownerPubkey]);
+  }, [
+    bestieChannel,
+    coffeeState.pendingRun,
+    listScope,
+    messagesQuery.data,
+    ownerPubkey,
+  ]);
 
   // Clear stale nudge when the outstanding set is emptied.
   React.useEffect(() => {

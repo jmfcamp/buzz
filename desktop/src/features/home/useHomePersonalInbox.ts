@@ -1,3 +1,4 @@
+import { useAssistantDueReminderCount } from "@/features/assistantLists/listsStore";
 import * as React from "react";
 
 import { useHomeDrafts } from "@/features/home/useHomeDrafts";
@@ -25,7 +26,9 @@ export function useHomePersonalInbox({
   viewportWidthPx,
 }: UseHomePersonalInboxOptions) {
   const remindersQuery = useRemindersQuery(currentPubkey);
-  const dueReminderCount = countDueReminders(remindersQuery.data ?? []);
+  const assistantDueCount = useAssistantDueReminderCount(currentPubkey);
+  const dueReminderCount =
+    countDueReminders(remindersQuery.data ?? []) + assistantDueCount;
   const pendingReminders = React.useMemo(
     () =>
       groupReminders(remindersQuery.data ?? []).flatMap(
