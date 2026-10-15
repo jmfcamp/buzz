@@ -1,3 +1,4 @@
+import { CommunitySwitcher } from "@/features/communities/ui/CommunitySwitcher";
 import { useDesktopPermissionPrompts } from "@/features/agents/permissionPrompts/useDesktopPermissionPrompts";
 import { isTauri as isTauriShell } from "@tauri-apps/api/core";
 import { WebRemoteWatcher } from "@/features/bridge/ui/WebRemoteSettings";
@@ -1259,6 +1260,34 @@ export function AppShell() {
                                 router.history.push(href, { phoneSettingsDetail: href } as never);
                               }}
                               pubkey={identityQuery.data?.pubkey}
+                              presenceStatus={presenceSession.currentStatus}
+                              userStatus={
+                                deferredPubkey
+                                  ? (visibleUserStatus(
+                                      selfStatusQuery.data?.[
+                                        deferredPubkey.toLowerCase()
+                                      ],
+                                    ) ?? undefined)
+                                  : undefined
+                              }
+                              onSetUserStatus={setUserStatusMutation.mutate}
+                              onClearUserStatus={() =>
+                                setUserStatusMutation.mutate({ text: "", emoji: "" })
+                              }
+                              onSendFeedback={() => setIsSendFeedbackOpen(true)}
+                              renderCommunityTile={(className) => (
+                                <CommunitySwitcher
+                                  activeCommunity={communitiesHook.activeCommunity}
+                                  communities={communitiesHook.communities}
+                                  onAddCommunity={addCommunityDialog.openDialog}
+                                  onLeaveCommunity={handleLeaveCommunity}
+                                  onRemoveCommunityFromDevice={removeFromDevice}
+                                  onSwitchCommunity={handleSwitchCommunity}
+                                  onUpdateCommunity={communitiesHook.updateCommunity}
+                                  tileClassName={className}
+                                  variant="tile"
+                                />
+                              )}
                             />
                           </div>
                         ) : null}

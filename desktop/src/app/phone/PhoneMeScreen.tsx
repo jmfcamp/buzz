@@ -7,10 +7,11 @@ import {
   ChevronRight,
   FolderKanban,
   Globe,
+  MessageSquareHeart,
   Settings,
   Workflow,
 } from "lucide-react";
-import type * as React from "react";
+import * as React from "react";
 
 import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
 import {
@@ -19,6 +20,11 @@ import {
 } from "@/features/sidebar/lib/sidebarMenuCounts";
 import { useSidebarMenuCounts } from "@/features/sidebar/lib/useSidebarMenuCounts";
 import { FeatureGate } from "@/shared/features";
+import { PresenceDot } from "@/features/presence/ui/PresenceBadge";
+import { getPresenceLabel } from "@/features/presence/lib/presence";
+import { SetStatusDialog } from "@/features/user-status/ui/SetStatusDialog";
+import type { UserStatusInput } from "@/features/user-status/types";
+import type { PresenceStatus, UserStatus } from "@/shared/api/types";
 
 import { PhonePinnedSitesCard } from "./PhonePinnedSitesCard";
 import { PhoneTabLongPress } from "./PhoneTabLongPress";
@@ -43,6 +49,9 @@ const TAB_TARGETS: Record<string, SurfaceTabTarget> = {
   workflows: { kind: "workflows" },
 };
 
+const ACTION_TILE_CLASS =
+  "flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl border border-border bg-card px-2 py-3 text-center active:bg-accent disabled:opacity-50";
+
 export function PhoneMeScreen({
   displayName,
   avatarUrl,
@@ -55,6 +64,12 @@ export function PhoneMeScreen({
   onWorkflows,
   onOpenPinnedSite,
   onManagePinnedSites,
+  presenceStatus,
+  userStatus,
+  onSetUserStatus,
+  onClearUserStatus,
+  onSendFeedback,
+  renderCommunityTile,
 }: {
   displayName: string;
   avatarUrl?: string | null;
@@ -67,10 +82,18 @@ export function PhoneMeScreen({
   onWorkflows: () => void;
   onOpenPinnedSite: (pinId: string) => void;
   onManagePinnedSites: () => void;
+  presenceStatus?: PresenceStatus;
+  userStatus?: UserStatus;
+  onSetUserStatus?: (status: UserStatusInput) => void;
+  onClearUserStatus?: () => void;
+  onSendFeedback?: () => void;
+  /** Renders the community switcher as a tile, given the shared tile class. */
+  renderCommunityTile?: (className: string) => React.ReactNode;
 }) {
+  const [statusOpen, setStatusOpen] = React.useState(false);
   const { preferences, counts } = useSidebarMenuCounts();
-  // Same order as the desktop left-nav primary menu (Projects, Agents, Bots, Browsers, Workflows); Settings last,
-  // where the desktop sidebar keeps it (footer / profile menu).
+  // Same order as the desktop left-nav primary menu (Projects, Agents, Bots, Browsers, Workflows). Settings is the
+  // cog tile in the header.
   const rows: Row[] = [
     {
       id: "projects",
@@ -106,7 +129,6 @@ export function PhoneMeScreen({
       onSelect: onWorkflows,
       feature: "workflows",
     },
-    { id: "settings", label: "Settings", Icon: Settings, onSelect: onSettings },
   ];
   const npubShort = pubkey ? `${pubkey.slice(0, 8)}…${pubkey.slice(-6)}` : "";
   return (
@@ -121,7 +143,7 @@ export function PhoneMeScreen({
           label={displayName}
           pubkey={pubkey}
         />
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="truncate text-lg font-semibold">{displayName}</div>
           {npubShort ? (
             <div className="truncate font-mono text-xs text-muted-foreground">
@@ -129,6 +151,59 @@ export function PhoneMeScreen({
             </div>
           ) : null}
         </div>
+        <button
+          aria-label="Settings"
+          className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground active:bg-accent"
+          data-testid="phone-me-settings"
+          onClick={onSettings}
+          title="Settings"
+          type="button"
+        >
+          <Settings className="h-6 w-6" />
+        </button>
+      </div>
+      <div className="mx-3 mb-3 grid grid-cols-3 gap-2" data-testid="phone-me-actions">
+        <button
+          aria-label="Status"
+          className={ACTION_TILE_CLASS}
+          data-testid="phone-me-status"
+          disabled={!onSetUserStatus}
+          onClick={() => setStatusOpen(true)}
+          type="button"
+        >
+          <span className="flex h-[18px] items-center">
+            {presenceStatus ? (
+              <PresenceDot className="h-3 w-3" status={presenceStatus} />
+            ) : (
+              <span className="h-3 w-3 rounded-full bg-muted-foreground/40" />
+            )}
+          </span>
+          <span className="text-[13px] font-medium">Status</span>
+          <span className="max-w-full truncate text-xs text-muted-foreground">
+            {userStatus?.text || userStatus?.emoji
+                ? `${userStatus.emoji ? `${userStatus.emoji} ` : ""}${userStatus.text}`
+                : presenceStatus
+                  ? getPresenceLabel(presenceStatus)
+                  : "Set status"}
+          </span>
+        </button>
+        {renderCommunityTile ? (
+          renderCommunityTile(ACTION_TILE_CLASS)
+        ) : (
+          <div className={ACTION_TILE_CLASS} />
+        )}
+        <button
+          aria-label="Send feedback"
+          className={ACTION_TILE_CLASS}
+          data-testid="phone-me-feedback"
+          disabled={!onSendFeedback}
+          onClick={onSendFeedback}
+          type="button"
+        >
+          <MessageSquareHeart className="h-[18px] w-[18px] text-muted-foreground" />
+          <span className="text-[13px] font-medium">Feedback</span>
+          <span className="max-w-full truncate text-xs text-muted-foreground">Send</span>
+        </button>
       </div>
       <ul className="mx-3 divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
         {rows.map(({ id, label, Icon, onSelect, count, feature }) => {
@@ -185,6 +260,19 @@ export function PhoneMeScreen({
         <Blocks className="h-3.5 w-3.5" /> Desktop-owned settings are read-only
         on the web.
       </p>
+      {onSetUserStatus && onClearUserStatus ? (
+        <SetStatusDialog
+          hasExistingStatus={Boolean(userStatus?.text || userStatus?.emoji)}
+          initialEmoji={userStatus?.emoji}
+          initialExpiresAt={userStatus?.expiresAt}
+          initialText={userStatus?.text}
+          initialUpdatedAt={userStatus?.updatedAt}
+          onClear={onClearUserStatus}
+          onOpenChange={setStatusOpen}
+          onSave={onSetUserStatus}
+          open={statusOpen}
+        />
+      ) : null}
     </div>
   );
 }
