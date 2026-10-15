@@ -7,7 +7,7 @@ import {
 import { cn } from "@/shared/lib/cn";
 
 const BADGE_CLASS =
-  "pointer-events-none absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-2xs font-semibold leading-none text-primary-foreground ring-2 ring-background";
+  "pointer-events-none absolute -right-1.5 -top-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-2xs font-semibold leading-none text-primary-foreground ring-2 ring-background";
 
 const TAB_ICONS: Record<InboxTab, LucideIcon> = {
   inbox: Users,
@@ -34,7 +34,7 @@ export function InboxTabBar({
   return (
     <div
       aria-label="Inbox sections"
-      className="flex min-w-0 items-center gap-1 overflow-x-auto px-1 pt-1 [scrollbar-width:none]"
+      className="flex min-w-0 items-center gap-2 overflow-x-auto px-1.5 py-1.5 [scrollbar-width:none]"
       data-testid="inbox-tab-bar"
       role="tablist"
     >
@@ -48,10 +48,10 @@ export function InboxTabBar({
             aria-label={label}
             aria-selected={selected}
             className={cn(
-              "relative inline-flex h-8 w-9 shrink-0 items-center justify-center rounded-lg transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring",
+              "relative inline-flex size-9 shrink-0 items-center justify-center rounded-[10px] border transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
               selected
-                ? "bg-primary/15 text-primary"
-                : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                ? "border-primary/40 bg-primary/20 text-primary shadow-sm"
+                : "border-border/60 bg-muted/40 text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground",
             )}
             data-testid={`inbox-tab-${option.value}`}
             key={option.value}
