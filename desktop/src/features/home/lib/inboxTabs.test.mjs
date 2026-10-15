@@ -97,3 +97,19 @@ test("agent-notify kinds stay in Agents; failed/needs_input count, finished/pr d
   assert.equal(c.agents, 2);
   assert.equal(tabForFilter("agent_failed", "inbox"), "agents");
 });
+
+test("assistant thread replies / non-dm items go to Assistant, not Agents", () => {
+  const owned = new Set([AGENT]);
+  const reply = item({ id: "r", channelType: "stream", categories: ["activity"], pubkey: AGENT });
+  assert.equal(inboxTabOf(reply, owned, AGENT), "assistant");
+  const noType = item({ id: "n", categories: ["activity"], pubkey: AGENT });
+  assert.equal(inboxTabOf(noType, owned, AGENT), "assistant");
+  const c = computeInboxTabCounts({
+    items: [reply, noType],
+    doneSet: new Set(),
+    ownedAgentPubkeys: owned,
+    dueReminderCount: 0,
+    assistantPubkey: AGENT,
+  });
+  assert.deepEqual([c.agents, c.assistant], [0, 2]);
+});
