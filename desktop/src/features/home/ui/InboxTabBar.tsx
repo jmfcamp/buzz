@@ -13,7 +13,7 @@ function formatBadge(n: number) {
   return n > 99 ? "99+" : String(n);
 }
 
-/** Inbox / Agents / Reminders & Assistant tabs, each with its own unread badge. */
+/** People / Agents / For you / Drafts tabs, each with its own unread badge. */
 export function InboxTabBar({
   counts,
   onTabChange,
@@ -50,14 +50,7 @@ export function InboxTabBar({
             type="button"
           >
             <span>
-              {option.value === "reminders" ? (
-                <>
-                  <span className="hidden sm:inline">{option.label}</span>
-                  <span className="sm:hidden">Reminders</span>
-                </>
-              ) : (
-                option.label
-              )}
+              {option.label}
             </span>
             {count > 0 ? (
               <span
@@ -74,7 +67,7 @@ export function InboxTabBar({
   );
 }
 
-/** Reminders / Assistant chips for the "Reminders & Assistant" tab. */
+/** Reminders / Assistant chips for the "For you" tab. */
 export function InboxReminderChips({
   counts,
   filter,

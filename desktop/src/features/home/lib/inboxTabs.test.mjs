@@ -65,7 +65,7 @@ test("tabForFilter keeps current tab when the filter belongs to it", () => {
   assert.equal(tabForFilter("mention", "agents"), "inbox");
 });
 
-test("assistant DM messages go to Reminders & Assistant and count there", () => {
+test("assistant DM messages go to For you and count there", () => {
   const owned = new Set([AGENT]);
   const msg = item({ id: "as", channelType: "dm", categories: ["activity"], pubkey: AGENT });
   assert.equal(inboxTabOf(msg, owned, AGENT), "reminders");
