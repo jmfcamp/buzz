@@ -1,4 +1,5 @@
 import { AppWindow, Columns2 } from "lucide-react";
+import { isTauri } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 
 import {
@@ -7,6 +8,7 @@ import {
 } from "@/features/popout/lib/popoutWindow";
 import { listConversationPlaygroundPins } from "@/features/playground/lib/conversationPins";
 import type { PlaygroundCard } from "@/features/playground/lib/types";
+import { isStandaloneDisplay } from "@/shared/lib/phoneLayout";
 import { Button } from "@/shared/ui/button";
 import {
   DropdownMenu,
@@ -60,6 +62,11 @@ export function ConversationPopoutMenu({
     playgroundPinsScopeKey(channelId, threadId),
   ).map(pinAsCard);
 
+  // Installed PWA: a "new window" is just another browser tab outside the app, so drop the plain entry; with no
+  // playground to split, nothing useful is left, so hide the whole button. Desktop app and browser tabs unchanged.
+  const pwa = !isTauri() && isStandaloneDisplay();
+  if (pwa && playgrounds.length === 0) return null;
+
   async function openPlain() {
     try {
       await openPopoutWindow({
@@ -109,13 +116,15 @@ export function ConversationPopoutMenu({
         <TooltipContent>Open in a new window</TooltipContent>
       </Tooltip>
       <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuItem
-          data-testid="conversation-popout-plain"
-          onSelect={() => void openPlain()}
-        >
-          <AppWindow />
-          Open in a new window
-        </DropdownMenuItem>
+        {pwa ? null : (
+          <DropdownMenuItem
+            data-testid="conversation-popout-plain"
+            onSelect={() => void openPlain()}
+          >
+            <AppWindow />
+            Open in a new window
+          </DropdownMenuItem>
+        )}
         {playgrounds.length > 0 ? (
           <DropdownMenuSub>
             <DropdownMenuSubTrigger data-testid="conversation-popout-split">
