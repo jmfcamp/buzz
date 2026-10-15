@@ -7,7 +7,7 @@ import {
 import { cn } from "@/shared/lib/cn";
 
 const BADGE_CLASS =
-  "pointer-events-none absolute right-1 top-1 z-10 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-none text-primary-foreground sm:right-2 sm:top-2 sm:h-6 sm:min-w-6 sm:px-1.5 sm:text-xs";
+  "pointer-events-none absolute right-0.5 top-0.5 z-10 inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-semibold leading-none text-primary-foreground";
 
 const TAB_ICONS: Record<InboxTab, LucideIcon> = {
   inbox: Users,
@@ -49,7 +49,7 @@ export function InboxTabBar({
             aria-label={label}
             aria-selected={selected}
             className={cn(
-              "relative inline-flex h-12 min-w-11 flex-1 basis-0 sm:h-[72px] items-center justify-center transition-colors focus-visible:z-20 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+              "relative inline-flex h-8 min-w-11 flex-1 basis-0 items-center justify-center transition-colors focus-visible:z-20 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
               selected
                 ? "bg-primary/20 text-primary"
                 : "bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -61,7 +61,7 @@ export function InboxTabBar({
             title={option.label}
             type="button"
           >
-            <Icon aria-hidden className="size-6 sm:size-9" strokeWidth={selected ? 2.25 : 1.75} />
+            <Icon aria-hidden className="size-[18px]" strokeWidth={selected ? 2.25 : 2} />
             {count > 0 ? (
               <span
                 className={BADGE_CLASS}
