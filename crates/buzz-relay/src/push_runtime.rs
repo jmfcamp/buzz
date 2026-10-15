@@ -6,6 +6,7 @@ use std::{
 };
 
 use buzz_core::filter::{filters_match, reader_authorized_for_event};
+use buzz_core::kind::KIND_EVENT_REMINDER;
 use chrono::{TimeDelta, Utc};
 use nostr::Filter;
 use serde::{Deserialize, Serialize};
@@ -425,6 +426,18 @@ fn match_job(
     for lease in &context.leases {
         let author_hex = hex::encode(&lease.author);
         if !reader_authorized_for_event(&job.event.event, &author_hex) {
+            continue;
+        }
+        // Author-only reminders: never wake another member's lease (content is
+        // encrypted, but timing would still leak).
+        if buzz_core::kind::event_kind_u32(&job.event.event) == KIND_EVENT_REMINDER
+            && hex::encode(job.event.event.pubkey.to_bytes()) != author_hex
+        {
+            continue;
+        }
+        if buzz_core::kind::event_kind_u32(&job.event.event) == KIND_EVENT_REMINDER
+            && !event_reminder_is_due(&job.event.event)
+        {
             continue;
         }
         if let Some(channel) = job.event.channel_id {
@@ -878,6 +891,29 @@ async fn retry_or_fail(
             )
             .await;
         "retry"
+    }
+}
+
+
+/// True when a kind 30300 event's public `not_before` is absent or already due.
+fn event_reminder_is_due(event: &nostr::Event) -> bool {
+    let mut not_before: Option<u64> = None;
+    for tag in event.tags.iter() {
+        let parts = tag.as_slice();
+        if parts.len() < 2 || parts[0] != "not_before" {
+            continue;
+        }
+        let Ok(parsed) = parts[1].parse::<u64>() else {
+            return false;
+        };
+        if not_before.is_some() {
+            return false;
+        }
+        not_before = Some(parsed);
+    }
+    match not_before {
+        None => false, // bookmarks / terminal states must not wake
+        Some(ts) => ts <= chrono::Utc::now().timestamp() as u64,
     }
 }
 

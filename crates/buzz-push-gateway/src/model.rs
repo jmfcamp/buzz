@@ -100,7 +100,7 @@ impl WebPushHint {
     pub fn is_valid(&self) -> bool {
         matches!(
             self.class.as_str(),
-            "default" | "dm" | "mention" | "thread_reply" | "needs_action" | "channel"
+            "default" | "dm" | "mention" | "thread_reply" | "needs_action" | "channel" | "reminder"
         ) && is_hex_id(&self.event_id)
             && self.thread_root_id.as_deref().is_none_or(is_hex_id)
             && self

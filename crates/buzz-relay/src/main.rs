@@ -1384,6 +1384,19 @@ async fn run_relay_main(boot: BootTracker) -> anyhow::Result<()> {
                                  (reminder stays claimed, will not retry): {release_err}"
                             );
                         }
+                        continue;
+                    }
+                    // Wake push leases (class `reminder`) now that not_before has
+                    // passed. Insert-time match deliberately skips kind 30300.
+                    if let Err(e) = scheduler_state
+                        .db
+                        .enqueue_due_reminder_push_match(reminder.community_id, &reminder.id)
+                        .await
+                    {
+                        warn!(
+                            event_id = hex::encode(&reminder.id),
+                            "Reminder scheduler: push match enqueue failed (WS due signal still sent): {e}"
+                        );
                     }
                 }
             }

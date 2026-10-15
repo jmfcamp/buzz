@@ -602,6 +602,43 @@ pub struct WakeRequest {
 /// Atomically enqueue at most one job per community, endpoint, and event.
 ///
 /// Batch-of-one shape of [`enqueue_wakes`]; see there for the protocol.
+
+/// Enqueue a push match job for a NIP-ER reminder that just became due.
+/// Kind 30300 is absent from insert-time PUSH_MATCH_KINDS; the due scheduler
+/// calls this after claiming delivery so leases of class `reminder` can wake.
+pub async fn enqueue_due_reminder_push_match(
+    pool: &PgPool,
+    community: CommunityId,
+    event_id: &[u8],
+) -> Result<()> {
+    let mut conn =
+        acquire_operation_connection(pool, crate::observability::WriterOperation::Maintenance)
+            .await?;
+    crate::observability::observe_advisory_lock(
+        crate::observability::LockType::PushGate,
+        sqlx::query("SELECT pg_advisory_xact_lock_shared(hashtextextended($1, 0))")
+            .bind(push_gate_lock_key(community))
+            .execute(&mut *conn),
+    )
+    .await?;
+    sqlx::query(
+        "INSERT INTO push_match_queue (community_id, event_id) \
+         SELECT $1, $2 \
+         WHERE EXISTS ( \
+             SELECT 1 FROM push_leases \
+             WHERE community_id = $1 \
+               AND active \
+               AND endpoint_enabled \
+               AND expires_at > EXTRACT(EPOCH FROM now())::bigint) \
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(community.as_uuid())
+    .bind(event_id)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
 pub async fn enqueue_wake(
     pool: &PgPool,
     community: CommunityId,
@@ -1420,6 +1457,17 @@ impl Db {
 
     /// Set-wise [`Self::enqueue_push_wake`]: one transaction per batch.
     #[datastore_span(name = "enqueue_push_wakes", system = "postgresql")]
+
+    /// Enqueue push matching for a due NIP-ER reminder (kind 30300).
+    #[datastore_span(name = "enqueue_due_reminder_push_match", system = "postgresql")]
+    pub async fn enqueue_due_reminder_push_match(
+        &self,
+        community: CommunityId,
+        event_id: &[u8],
+    ) -> Result<()> {
+        crate::push::enqueue_due_reminder_push_match(&self.pool, community, event_id).await
+    }
+
     pub async fn enqueue_push_wakes(
         &self,
         community: CommunityId,

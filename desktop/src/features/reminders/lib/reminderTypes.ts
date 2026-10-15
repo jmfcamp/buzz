@@ -17,6 +17,10 @@ export type ReminderContent = {
   /** Optional user-provided note. */
   note?: string;
   status: ReminderStatus;
+  /** Dual-write from Assist lists → NIP-ER so relay can push when due. */
+  source?: "assist-list";
+  /** Assist list item id when `source` is `assist-list`. */
+  assistItemId?: string;
 };
 
 export type Reminder = {

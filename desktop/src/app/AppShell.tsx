@@ -110,6 +110,7 @@ import {
   type SettingsSection,
   isSettingsSection,
 } from "@/features/settings/ui/SettingsPanels";
+import { useAssistReminderNotifications } from "@/features/assistantLists/useAssistReminderNotifications";
 import { useReminderNotifications } from "@/features/reminders/useReminderNotifications";
 import { AppSidebar } from "@/features/sidebar/ui/AppSidebar";
 import { requestFocusedThreadClose } from "@/features/channels/focusedThreadCloseRequest";
@@ -466,6 +467,10 @@ export function AppShell() {
     ownsDesktopNotifications ? identityQuery.data?.pubkey : undefined,
     notificationSettings.settings,
     channels,
+  );
+  // Assist list reminders: OS toast on web + NIP-ER dual-write for push.
+  useAssistReminderNotifications(
+    ownsDesktopNotifications ? identityQuery.data?.pubkey : undefined,
   );
   const refetchHomeFeedFromLiveSignal = React.useEffectEvent(() => {
     void homeFeedQuery.refetch();

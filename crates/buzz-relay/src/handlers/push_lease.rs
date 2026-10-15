@@ -20,7 +20,7 @@ pub(crate) const PUSH_KINDS: &[u64] = &[9, 40_002, 45_001, 45_003, 46_010, 46_01
 /// Lease classes. `default` is the only APNs class; the web profile uses the
 /// named classes so the gateway can pick a content-free notification line.
 pub(crate) const PUSH_CLASSES: &[&str] =
-    &["default", "dm", "mention", "thread_reply", "needs_action", "channel"];
+    &["default", "dm", "mention", "thread_reply", "needs_action", "channel", "reminder"];
 
 /// Server-owned app profiles a lease may name.
 pub(crate) const PUSH_APP_PROFILES: &[AppProfile<'static>] = &[
@@ -268,9 +268,56 @@ pub fn validate_plaintext(body: &LeasePlaintext, limits: &LeaseLimits<'_>) -> Re
     Ok(())
 }
 
+
+fn validate_reminder_subscription(sub: &Subscription, limits: &LeaseLimits<'_>) -> Result<(), String> {
+    if sub.scope.is_some() {
+        return Err("reminder lease scope not supported".into());
+    }
+    const ALLOWED: &[&str] = &["kinds", "authors"];
+    let filter = &sub.filter;
+    if let Some(key) = filter.keys().find(|key| !ALLOWED.contains(&key.as_str())) {
+        return Err(format!("filter member not permitted: {key}"));
+    }
+    let kinds = string_or_integer_array(filter, "kinds", limits.max_kinds, true)?;
+    let kinds: Vec<u64> = kinds
+        .iter()
+        .map(|value| {
+            value
+                .as_u64()
+                .ok_or_else(|| "kind must be an integer".to_string())
+        })
+        .collect::<Result<_, _>>()?;
+    if kinds != [30_300] {
+        return Err("reminder lease kinds must be [30300]".into());
+    }
+    let authors = optional_string_array(filter, "authors", limits.max_authors)?;
+    let Some(authors) = authors else {
+        return Err("reminder lease requires authors".into());
+    };
+    if authors.len() != 1 || authors[0] != limits.author_hex {
+        return Err("reminder lease authors must be self".into());
+    }
+    for value in &authors {
+        check_exact_hex(value, "author")?;
+    }
+    if !sub.ignore.is_empty() {
+        return Err("reminder lease ignores not supported".into());
+    }
+    if sub.suppress.is_some() {
+        return Err("reminder lease suppress not supported".into());
+    }
+    Ok(())
+}
+
 fn validate_subscription(sub: &Subscription, limits: &LeaseLimits<'_>) -> Result<(), String> {
     if !limits.supported_classes.contains(&sub.class.as_str()) {
         return Err("class not supported".into());
+    }
+    // NIP-ER kind 30300 is absent from PUSH_KINDS so create-time match never
+    // wakes for a future-dated reminder. Class `reminder` is validated here and
+    // matched when the due scheduler enqueues the event.
+    if sub.class == "reminder" {
+        return validate_reminder_subscription(sub, limits);
     }
     if let Some(scope) = &sub.scope {
         if !PUSH_SCOPES.contains(&scope.as_str()) {
@@ -745,6 +792,31 @@ mod tests {
         assert!(
             migration.contains(&predicate),
             "migration trigger must use PUSH_KINDS exactly: {predicate}"
+        );
+    }
+
+    #[test]
+    fn reminder_lease_requires_self_authors_and_30300() {
+        let lim = LeaseLimits {
+            supported_classes: &["reminder"],
+            push_kinds: &[9],
+            ..limits()
+        };
+        let ok = parse_plaintext(
+            r##"{"v":1,"origin":"o","generation":1,"active":true,"app_profile":"p","transport":"apns","endpoint":"token","subscriptions":[{"filter":{"kinds":[30300],"authors":["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]},"class":"reminder"}]}"##,
+            4096,
+        )
+        .unwrap();
+        assert!(validate_plaintext(&ok, &lim).is_ok());
+
+        let bad_kind = parse_plaintext(
+            r##"{"v":1,"origin":"o","generation":1,"active":true,"app_profile":"p","transport":"apns","endpoint":"token","subscriptions":[{"filter":{"kinds":[9],"authors":["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]},"class":"reminder"}]}"##,
+            4096,
+        )
+        .unwrap();
+        assert_eq!(
+            validate_plaintext(&bad_kind, &lim).unwrap_err(),
+            "reminder lease kinds must be [30300]"
         );
     }
 
