@@ -331,7 +331,7 @@ export function BestieProfileTrigger({ className }: { className?: string }) {
       </PopoverTrigger>
       <PopoverContent
         align="end"
-        className="relative z-[300] flex w-auto max-w-none flex-col overflow-visible p-4"
+        className="relative z-[300] flex w-auto max-w-none flex-col overflow-visible p-4 duration-220 data-[state=closed]:duration-200 data-[state=open]:slide-in-from-bottom-4 data-[state=closed]:slide-out-to-bottom-4 data-[side=top]:slide-in-from-bottom-4"
         onClick={(event) => event.stopPropagation()}
         onFocusOutside={keepPopoverForReader}
         onInteractOutside={keepPopoverForReader}
