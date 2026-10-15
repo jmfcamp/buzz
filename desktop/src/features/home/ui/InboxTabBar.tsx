@@ -7,7 +7,7 @@ import {
 import { cn } from "@/shared/lib/cn";
 
 const BADGE_CLASS =
-  "pointer-events-none absolute -right-2 -top-2 z-10 inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold leading-none text-primary-foreground ring-2 ring-background";
+  "pointer-events-none absolute right-1 top-1 z-10 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-none text-primary-foreground sm:right-2 sm:top-2 sm:h-6 sm:min-w-6 sm:px-1.5 sm:text-xs";
 
 const TAB_ICONS: Record<InboxTab, LucideIcon> = {
   inbox: Users,
@@ -34,11 +34,11 @@ export function InboxTabBar({
   return (
     <div
       aria-label="Inbox sections"
-      className="flex min-w-0 items-center overflow-x-auto px-3 py-3 [scrollbar-width:none]"
+      className="flex h-full w-full min-w-0 items-stretch"
       data-testid="inbox-tab-bar"
       role="tablist"
     >
-      <div className="inline-flex shrink-0 items-stretch divide-x divide-border/60 rounded-2xl border border-border/60 bg-muted/40">
+      <div className="flex w-full min-w-0 items-stretch divide-x divide-border/60 border-r border-border/60">
       {INBOX_TABS.map((option) => {
         const selected = option.value === tab;
         const count = counts?.[option.value] ?? 0;
@@ -49,10 +49,10 @@ export function InboxTabBar({
             aria-label={label}
             aria-selected={selected}
             className={cn(
-              "relative inline-flex size-16 shrink-0 sm:size-[72px] items-center justify-center transition-colors first:rounded-l-[15px] last:rounded-r-[15px] focus-visible:z-20 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+              "relative inline-flex h-12 min-w-11 flex-1 basis-0 sm:h-[72px] items-center justify-center transition-colors focus-visible:z-20 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
               selected
                 ? "bg-primary/20 text-primary"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                : "bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground",
             )}
             data-testid={`inbox-tab-${option.value}`}
             key={option.value}
@@ -61,7 +61,7 @@ export function InboxTabBar({
             title={option.label}
             type="button"
           >
-            <Icon aria-hidden className="size-8 sm:size-9" strokeWidth={selected ? 2.25 : 1.75} />
+            <Icon aria-hidden className="size-6 sm:size-9" strokeWidth={selected ? 2.25 : 1.75} />
             {count > 0 ? (
               <span
                 className={BADGE_CLASS}
