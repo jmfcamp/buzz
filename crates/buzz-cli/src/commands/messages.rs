@@ -698,6 +698,21 @@ pub struct SendMessageParams {
     pub broadcast: bool,
     pub files: Vec<String>,
     pub mentions: Vec<String>,
+    pub notify: Option<String>,
+}
+
+/// Agent notification kinds accepted by `--notify` (shown in the owner's
+/// Inbox → Agents tab). Kept in sync with desktop `inboxTabs.ts`.
+pub const AGENT_NOTIFY_KINDS: &[&str] = &["needs_input", "task_finished", "pr_opened", "failed"];
+
+pub fn agent_notify_tag(kind: &str) -> Result<nostr::Tag, CliError> {
+    if !AGENT_NOTIFY_KINDS.contains(&kind) {
+        return Err(CliError::Usage(format!(
+            "--notify {kind} is not supported (use one of: {})",
+            AGENT_NOTIFY_KINDS.join(", ")
+        )));
+    }
+    nostr::Tag::parse(["agent-notify", kind]).map_err(|e| CliError::Other(e.to_string()))
 }
 
 pub async fn cmd_send_message(
@@ -827,6 +842,10 @@ pub async fn cmd_send_message(
         }
     };
 
+    let builder = match p.notify.as_deref() {
+        Some(kind) => builder.tag(agent_notify_tag(kind)?),
+        None => builder,
+    };
     let event = client.sign_event(builder)?;
     let emitted_mentions = event_mention_pubkeys(&event);
     let resp = client.submit_event(event).await?;
@@ -1030,6 +1049,7 @@ pub async fn dispatch(
             broadcast,
             files,
             mentions,
+            notify,
         } => {
             cmd_send_message(
                 client,
@@ -1041,6 +1061,7 @@ pub async fn dispatch(
                     broadcast,
                     files,
                     mentions,
+                    notify,
                 },
             )
             .await
@@ -1823,6 +1844,7 @@ mod tests {
             broadcast: false,
             files: vec![],
             mentions: vec![],
+            notify: None,
         }
     }
 
@@ -1993,5 +2015,19 @@ mod tests {
             emoji_tags.is_empty(),
             "palette-error fallback must produce no emoji tags, got: {emoji_tags:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod agent_notify_tests {
+    use super::*;
+
+    #[test]
+    fn agent_notify_tag_accepts_known_kinds_only() {
+        for kind in AGENT_NOTIFY_KINDS {
+            let tag = agent_notify_tag(kind).expect("known kind");
+            assert_eq!(tag.as_slice(), &["agent-notify".to_string(), kind.to_string()]);
+        }
+        assert!(agent_notify_tag("bogus").is_err());
     }
 }

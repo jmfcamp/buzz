@@ -112,6 +112,19 @@ export function matchesInboxFilter(
     );
   }
 
+  if (
+    filter === "agent_needs_input" ||
+    filter === "agent_failed" ||
+    filter === "agent_done"
+  ) {
+    const kind = [item.item, ...(item.groupItems ?? [])]
+      .flatMap((g) => g?.tags ?? [])
+      .find((t) => t[0] === "agent-notify")?.[1];
+    if (filter === "agent_needs_input") return kind === "needs_input";
+    if (filter === "agent_failed") return kind === "failed";
+    return kind === "task_finished" || kind === "pr_opened";
+  }
+
   // Assistant rows are pre-scoped to the Reminders & Assistant tab.
   if (filter === "assistant") return true;
 

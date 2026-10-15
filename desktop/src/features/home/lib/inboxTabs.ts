@@ -31,7 +31,10 @@ export const INBOX_TAB_FILTERS: Record<
   agents: [
     { value: "all", label: "All" },
     { value: "needs_action", label: "Approvals" },
-    { value: "agent_activity", label: "Activity" },
+    { value: "agent_needs_input", label: "Needs input" },
+    { value: "agent_failed", label: "Failed" },
+    { value: "agent_done", label: "Finished & PRs" },
+    { value: "agent_activity", label: "All activity" },
   ],
   reminders: [
     { value: "reminders", label: "Reminders" },
@@ -52,7 +55,7 @@ export function tabForFilter(filter: InboxFilter, current: InboxTab): InboxTab {
   }
   if (filter === "reminders" || filter === "assistant") return "reminders";
   if (filter === "drafts") return "drafts";
-  if (filter === "needs_action" || filter === "agent_activity") return "agents";
+  if (filter === "needs_action" || filter.startsWith("agent_")) return "agents";
   return "inbox";
 }
 
