@@ -54,7 +54,7 @@ pub struct DeliveryRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WebPushHint {
-    /// Lease subscription class: `dm`, `mention`, `thread_reply`, `needs_action` or `default`.
+    /// Lease subscription class: `dm`, `mention`, `thread_reply`, `needs_action`, `channel` or `default`.
     pub class: String,
     /// Lowercase hex event id.
     pub event_id: String,
@@ -100,7 +100,7 @@ impl WebPushHint {
     pub fn is_valid(&self) -> bool {
         matches!(
             self.class.as_str(),
-            "default" | "dm" | "mention" | "thread_reply" | "needs_action"
+            "default" | "dm" | "mention" | "thread_reply" | "needs_action" | "channel"
         ) && is_hex_id(&self.event_id)
             && self.thread_root_id.as_deref().is_none_or(is_hex_id)
             && self

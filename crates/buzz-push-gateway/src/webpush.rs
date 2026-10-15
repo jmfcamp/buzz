@@ -102,6 +102,7 @@ pub fn build_payload(hint: Option<&WebPushHint>) -> Vec<u8> {
         "mention" => "You were mentioned",
         "thread_reply" => "New reply in a thread",
         "needs_action" => "Something needs your approval",
+        "channel" => "New post in a channel you follow",
         _ => "New activity",
     };
     let target = hint.map(|h| {
