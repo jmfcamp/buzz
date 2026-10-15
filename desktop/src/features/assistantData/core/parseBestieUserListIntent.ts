@@ -30,6 +30,9 @@ const ADD_REMINDER_RE =
   /^(?:please\s+)?(?:remind\s+me\s+to|add\s+(?:a\s+)?reminder(?:\s+to|\s+for)?|set\s+(?:a\s+)?reminder(?:\s+to|\s+for)?)\s+(.+)$/i;
 const ADD_TODO_RE =
   /^(?:please\s+)?(?:add\s+(?:a\s+)?(?:to-?do|todo|task)|to-?do|todo)\s*:?\s+(.+)$/i;
+/** "add X to my todos / todo list" (quoted or bare). */
+const ADD_TODO_TO_LIST_RE =
+  /^(?:please\s+)?(?:add|put|save)\s+["']?(.+?)["']?\s+to\s+(?:my\s+)?(?:to-?dos?|todo\s*list|tasks?)\b/i;
 const COMPLETE_RE =
   /^(?:please\s+)?(?:mark|complete|finish|done\s+with|check\s+off)\s+(?:the\s+)?(?:(reminder|to-?do|todo|task)\s+)?(?:called\s+|named\s+)?["']?(.+?)["']?\s*(?:as\s+done|done)?\.?$/i;
 const REMOVE_RE =
@@ -430,7 +433,7 @@ export function parseBestieUserListIntent(
     };
   }
 
-  const todoMatch = firstLine.match(ADD_TODO_RE);
+  const todoMatch = firstLine.match(ADD_TODO_RE) ?? firstLine.match(ADD_TODO_TO_LIST_RE);
   if (todoMatch) {
     const text = trimTrailingPunctuation(todoMatch[1] ?? "");
     if (!text) return null;

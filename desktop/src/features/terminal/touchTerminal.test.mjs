@@ -80,6 +80,7 @@ test("keyboard inset: the on-screen keyboard shows up as a much shorter visual v
   const k = keyboardInset({ height: 470, offsetTop: 0, width: 390 }, 800);
   assert.deepEqual([k.open, k.height], [true, 470]);
   assert.equal(keyboardInset(null, 800).open, false);
+  assert.equal(keyboardInset({ height: 470, offsetTop: 0, width: 390 }, 800, 120, false).open, false);
 });
 
 test("pendingTouchInput: composed text survives, sentinel padding is dropped, repeatable for a second Tab", async () => {

@@ -75,9 +75,13 @@ export function AssistantListsPanel({
       </p>
     );
   }
-  const all = liveItems(doc).filter(
-    (i) => mode === "all" || i.kind === "reminder",
-  );
+  // mode=todos must show todos (was wrongly filtering to reminders only, so To-dos looked empty
+  // aside from a stray Reminders section).
+  const all = liveItems(doc).filter((i) => {
+    if (mode === "reminders") return i.kind === "reminder";
+    if (mode === "todos") return i.kind === "todo";
+    return true;
+  });
   const open = all.filter((i) => i.status === "open");
   const done = all.filter((i) => i.status === "done");
   const reminders = open
