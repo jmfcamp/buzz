@@ -22,6 +22,12 @@ type Entry = {
   probe: ReturnType<typeof setTimeout> | null;
   dead: boolean;
   openedAt: number;
+  /** outbound pacing (relay admission: ~10 WS frames/s per human principal) */
+  q: string[];
+  tokens: number;
+  refillAt: number;
+  pausedUntil: number;
+  drain: ReturnType<typeof setTimeout> | null;
 };
 const sockets = new Map<number, Entry>();
 let next = 1;
@@ -32,6 +38,93 @@ const IDLE_PROBE_MS = 25_000; // probe a socket that has been silent this long
 const PROBE_TIMEOUT_MS = 6_000; // ...and give it this long to answer
 const ZERO_ID = "0".repeat(64);
 
+// Outbound pacing. The relay admits ~10 WS operations per second per human principal and answers the excess with
+// CLOSED "rate-limited: quota exceeded; retry in Ns". After a reconnect the session replays every live subscription and
+// every mounted view fires its one-shot reads at once, which produced hundreds of rejected REQs per connection. All REQ
+// and EVENT frames now go through a per-socket token bucket (burst 6, 6/s), duplicates collapse while queued, a CLOSE
+// cancels a still-queued REQ, and a rate-limited CLOSED/NOTICE pauses the queue for the relay's retry hint.
+export const PACE_BURST = 6;
+export const PACE_PER_SEC = 6;
+const MAX_PAUSE_MS = 60_000;
+
+function frameKey(raw: string): { type: string; key: string } | null {
+  const m = /^\["(REQ|CLOSE|EVENT)",\s*"([^"]*)"/.exec(raw);
+  if (m) return { type: m[1], key: m[2] };
+  if (raw.startsWith('["EVENT"')) return { type: "EVENT", key: "" };
+  return null;
+}
+
+function schedule(e: Entry, ms: number) {
+  e.drain = setTimeout(() => {
+    e.drain = null;
+    pump(e);
+  }, ms);
+}
+
+function pump(e: Entry) {
+  if (e.drain) return;
+  const now = Date.now();
+  if (e.dead || e.ws.readyState !== WebSocket.OPEN) {
+    if (e.dead) e.q.length = 0;
+    else if (e.q.length) schedule(e, 100);
+    return;
+  }
+  if (now < e.pausedUntil) {
+    schedule(e, e.pausedUntil - now);
+    return;
+  }
+  e.tokens = Math.min(PACE_BURST, e.tokens + ((now - e.refillAt) / 1000) * PACE_PER_SEC);
+  e.refillAt = now;
+  while (e.q.length && e.tokens >= 1) {
+    const raw = e.q.shift() as string;
+    e.tokens -= 1;
+    try {
+      e.ws.send(raw);
+    } catch {
+      /* socket closing; report() follows */
+    }
+  }
+  if (e.q.length)
+    schedule(e, Math.ceil(((1 - e.tokens) / PACE_PER_SEC) * 1000));
+}
+
+/** Queue a frame for paced send. REQ/EVENT are paced and deduped; CLOSE drops a queued REQ for the same sub. */
+function pacedSend(e: Entry, raw: string) {
+  const f = frameKey(raw);
+  if (!f) {
+    e.ws.send(raw); // AUTH and anything unrecognised go straight out
+    return;
+  }
+  if (f.type === "CLOSE") {
+    const i = e.q.findIndex((r) => frameKey(r)?.type === "REQ" && frameKey(r)?.key === f.key);
+    if (i >= 0) {
+      e.q.splice(i, 1); // the relay never saw this REQ: nothing to close
+      return;
+    }
+    e.ws.send(raw);
+    return;
+  }
+  if (f.type === "REQ") {
+    const i = e.q.findIndex((r) => frameKey(r)?.type === "REQ" && frameKey(r)?.key === f.key);
+    if (i >= 0) {
+      e.q[i] = raw; // same subscription re-requested before it went out: send only the latest filter
+      return;
+    }
+  } else if (e.q.includes(raw)) return; // identical EVENT already queued
+  e.q.push(raw);
+  pump(e);
+}
+
+/** Relay back-pressure on this socket: hold the queue for the hinted window. */
+function noteBackpressure(e: Entry, parsed: unknown[]) {
+  const msg = parsed[0] === "CLOSED" ? parsed[2] : parsed[0] === "NOTICE" ? parsed[1] : parsed[0] === "OK" && parsed[2] === false ? parsed[3] : null;
+  if (typeof msg !== "string" || !/rate-limited|quota exceeded/i.test(msg)) return;
+  const hint = /retry in (\d+)s/i.exec(msg);
+  const ms = Math.min(MAX_PAUSE_MS, (hint ? Number(hint[1]) : 5) * 1000);
+  e.pausedUntil = Math.max(e.pausedUntil, Date.now() + ms);
+  e.tokens = 0;
+}
+
 function report(id: number, e: Entry, code: number, reason: string) {
   if (e.dead) return;
   e.dead = true;
@@ -41,6 +134,8 @@ function report(id: number, e: Entry, code: number, reason: string) {
   deadListeners.delete(e);
   e.side.clear();
   if (e.probe) clearTimeout(e.probe);
+  if (e.drain) clearTimeout(e.drain);
+  e.q.length = 0;
   sockets.delete(id);
   e.sink.onmessage({ type: "Close", data: { code, reason } });
 }
@@ -117,7 +212,7 @@ export function wsConnect(url: string, sink: Sink): Promise<number> {
   return new Promise((resolve, reject) => {
     const id = next++;
     const ws = new WebSocket(url);
-    const e: Entry = { ws, url, authId: null, authed: false, side: new Map(), sink, lastRx: Date.now(), probe: null, dead: false, openedAt: Date.now() };
+    const e: Entry = { ws, url, authId: null, authed: false, side: new Map(), sink, lastRx: Date.now(), probe: null, dead: false, openedAt: Date.now(), q: [], tokens: PACE_BURST, refillAt: Date.now(), pausedUntil: 0, drain: null };
     sockets.set(id, e);
     ws.onopen = () => {
       e.lastRx = Date.now();
@@ -135,6 +230,11 @@ export function wsConnect(url: string, sink: Sink): Promise<number> {
         if (parsed[0] === "EOSE" && e.ws.readyState === WebSocket.OPEN)
           e.ws.send(JSON.stringify(["CLOSE", parsed[1]]));
         return;
+      }
+      if (data.startsWith('["CLOSED"') || data.startsWith('["NOTICE"') || data.startsWith('["OK"')) {
+        try {
+          noteBackpressure(e, JSON.parse(data));
+        } catch {}
       }
       if (data.startsWith('["OK"') || e.side.size) {
         let parsed: unknown[] | null = null;
@@ -167,7 +267,7 @@ export function wsSend(id: number, message: { type: string; data: string }) {
       }
     } catch {}
   }
-  e.ws.send(message.data);
+  pacedSend(e, message.data);
 }
 
 /**
@@ -187,7 +287,7 @@ export function sharedAuthedSocket(url: string): SharedSocket | null {
   for (const e of sockets.values()) {
     if (e.dead || !e.authed || e.ws.readyState !== WebSocket.OPEN || norm(e.url) !== norm(url)) continue;
     return {
-      send: (raw) => e.ws.send(raw),
+      send: (raw) => pacedSend(e, raw),
       on: (k, h) => void e.side.set(k, h),
       off: (k) => void e.side.delete(k),
       onDead: (f) => {
@@ -204,6 +304,8 @@ export function wsClose(id: number) {
   const e = sockets.get(id);
   if (!e) return;
   if (e.probe) clearTimeout(e.probe);
+  if (e.drain) clearTimeout(e.drain);
+  e.q.length = 0;
   sockets.delete(id);
   e.ws.close();
 }
