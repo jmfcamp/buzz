@@ -21,7 +21,12 @@ function localDayKey(seconds: number) {
 export function addItem(
   doc: ListsDoc,
   now: number,
-  input: { kind: ListKind; text: string; dueAt?: number | null },
+  input: {
+    kind: ListKind;
+    text: string;
+    dueAt?: number | null;
+    repeat?: ListItem["repeat"];
+  },
 ): ListsDoc {
   const text = input.text.trim();
   if (!text) return doc;
@@ -35,7 +40,7 @@ export function addItem(
     dueAt: input.kind === "reminder" ? (input.dueAt ?? null) : null,
     id: newId(),
     kind: input.kind,
-    repeat: null,
+    repeat: input.kind === "reminder" ? (input.repeat ?? null) : null,
     sortOrder: minOrder - 1,
     sourceMessageId: null,
     starred: false,
