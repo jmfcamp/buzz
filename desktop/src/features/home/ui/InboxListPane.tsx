@@ -6,6 +6,7 @@ import {
   ExternalLink,
   LoaderCircle,
   MailOpen,
+  Sparkles,
 } from "lucide-react";
 import * as React from "react";
 
@@ -40,6 +41,10 @@ import {
   useReminderSources,
 } from "@/features/reminders/ui/RemindersPanel";
 import { TopChromeInsetHeader } from "@/shared/layout/TopChromeInsetHeader";
+import {
+  isWebAssistantAvailable,
+  openWebAssistant,
+} from "@/features/assistant/ui/WebAssistant";
 import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import {
@@ -733,6 +738,19 @@ export function InboxListPane({
           </div>
         </div>
       </TopChromeInsetHeader>
+      {tab === "assistant" && isWebAssistantAvailable() ? (
+        <div className="shrink-0 px-3 pt-2">
+          <button
+            className="flex w-full items-center gap-2 rounded-md border border-border/60 px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            data-testid="inbox-ask-assistant"
+            onClick={() => openWebAssistant()}
+            type="button"
+          >
+            <Sparkles className="h-4 w-4" />
+            <span className="flex-1">Ask your assistant…</span>
+          </button>
+        </div>
+      ) : null}
 
       {isReminders ? (
         <div

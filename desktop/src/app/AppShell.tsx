@@ -1,4 +1,9 @@
 import { CommunitySwitcher } from "@/features/communities/ui/CommunitySwitcher";
+import {
+  isWebAssistantAvailable,
+  WebAssistantBinding,
+  WebAssistantSheet,
+} from "@/features/assistant/ui/WebAssistant";
 import { useDesktopPermissionPrompts } from "@/features/agents/permissionPrompts/useDesktopPermissionPrompts";
 import { isTauri as isTauriShell } from "@tauri-apps/api/core";
 import { WebRemoteWatcher } from "@/features/bridge/ui/WebRemoteSettings";
@@ -1416,6 +1421,12 @@ export function AppShell() {
                       open={isSendFeedbackOpen}
                     />
                     {!hideAppChrome ? <ProtectedGlobalOverlay /> : null}
+                    {isWebAssistantAvailable() ? (
+                      <>
+                        <WebAssistantBinding />
+                        <WebAssistantSheet />
+                      </>
+                    ) : null}
                   </AppWorkflowEditorOverlayProvider>
                 </AppProfilePanelProvider>
               </SurfaceTabsProvider>

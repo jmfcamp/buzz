@@ -1,14 +1,7 @@
 // Phone-only bottom tab bar (rendered only when usePhoneLayout() is true). iPad/desktop never mount it.
-import { BotMessageSquare, Inbox, MessagesSquare, Plus, SquareTerminal } from "lucide-react";
-import * as ReactRuntime from "react";
+import { BotMessageSquare, Inbox, MessagesSquare, SquareTerminal } from "lucide-react";
 
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/shared/ui/sheet";
+import { openWebAssistant } from "@/features/assistant/ui/WebAssistant";
 
 import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
 import { useSidebarMenuCounts } from "@/features/sidebar/lib/useSidebarMenuCounts";
@@ -26,56 +19,20 @@ const TABS: { id: PhoneTab; label: string; Icon?: React.ComponentType<{ classNam
   { id: "term", label: "Buzz Term", Icon: SquareTerminal },
 ];
 
-// Placeholder: for now the Assistant button only offers "+ Add an assistant". Next step syncs with the desktop's
-// assistant or lets you pick one from Agents.
+// Bottom-right Assistant button: opens the web Assistant sheet (ask / open conversation / choose assistant).
 function PhoneAssistantButton() {
-  const [open, setOpen] = ReactRuntime.useState(false);
   return (
-    <>
-      <button
-        aria-label="Assistant"
-        className="phone-assistant-button flex h-full shrink-0 items-center justify-center px-1"
-        data-testid="phone-tab-assistant"
-        onClick={() => setOpen(true)}
-        type="button"
-      >
-        <span className="flex h-11 w-11 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md">
-          <BotMessageSquare className="h-[22px] w-[22px]" />
-        </span>
-      </button>
-      <Sheet onOpenChange={setOpen} open={open}>
-        <SheetContent
-          className="z-[130] rounded-t-2xl pb-[calc(env(safe-area-inset-bottom)+1rem)]"
-          data-testid="phone-assistant-sheet"
-          side="bottom"
-        >
-          <SheetHeader>
-            <SheetTitle>Assistant</SheetTitle>
-            <SheetDescription>
-              No assistant set up on this device yet.
-            </SheetDescription>
-          </SheetHeader>
-          <div className="px-4 pb-2">
-            <button
-              className="flex w-full items-center gap-3 rounded-xl border border-border/60 px-4 py-3 text-left text-sm font-medium hover:bg-accent"
-              data-testid="phone-assistant-add"
-              onClick={() => setOpen(false)}
-              type="button"
-            >
-              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                <Plus className="h-5 w-5" />
-              </span>
-              <span className="flex flex-col">
-                <span>Add an assistant</span>
-                <span className="text-xs font-normal text-muted-foreground">
-                  Coming soon: use your desktop's assistant or pick one from Agents.
-                </span>
-              </span>
-            </button>
-          </div>
-        </SheetContent>
-      </Sheet>
-    </>
+    <button
+      aria-label="Assistant"
+      className="phone-assistant-button flex h-full shrink-0 items-center justify-center px-1"
+      data-testid="phone-tab-assistant"
+      onClick={() => openWebAssistant()}
+      type="button"
+    >
+      <span className="flex h-11 w-11 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md">
+        <BotMessageSquare className="h-[22px] w-[22px]" />
+      </span>
+    </button>
   );
 }
 

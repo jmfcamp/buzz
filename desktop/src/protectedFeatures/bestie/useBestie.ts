@@ -1,4 +1,5 @@
 import { setAssistantPubkey } from "@/shared/lib/assistantIdentity";
+import { readSyncedAssistant, setSyncedAssistant } from "@/features/inbox/assistantPick";
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -70,7 +71,21 @@ export function useBestieAssignmentQuery(enabled = true) {
   )?.agentPubkey;
   React.useEffect(() => {
     if (assignedAgentPubkey !== undefined) setAssistantPubkey(assignedAgentPubkey);
-  }, [assignedAgentPubkey]);
+    // Share the pick with your other devices (web) through the synced inbox-state doc. A desktop without an
+    // assignment never clears a pick made elsewhere.
+    if (!assignedAgentPubkey || !ownerPubkey) return;
+    let tries = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const share = () => {
+      if (readSyncedAssistant(ownerPubkey) === assignedAgentPubkey.toLowerCase()) return;
+      // The inbox-state sync may not be running yet; retry for a minute.
+      if (!setSyncedAssistant(ownerPubkey, assignedAgentPubkey) && tries++ < 12) {
+        timer = setTimeout(share, 5_000);
+      }
+    };
+    share();
+    return () => clearTimeout(timer);
+  }, [assignedAgentPubkey, ownerPubkey]);
   return { assignmentQuery, ownerPubkey, queryKey, relayUrl, scope };
 }
 
