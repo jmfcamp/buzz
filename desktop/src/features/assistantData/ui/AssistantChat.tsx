@@ -38,6 +38,10 @@ import { Button } from "@/shared/ui/button";
 import { Textarea } from "@/shared/ui/textarea";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
 import { ASK_EVENT, takeAsk } from "@/features/assistant/askBus";
+import {
+  assistantListTurnHint,
+  stripAssistantListHint,
+} from "@/features/assistant/listProtocol";
 import { useAssistantShowActivity } from "@/features/assistant/activityPreference";
 import { AgentSessionTranscriptList } from "@/features/agents/ui/AgentSessionTranscriptList";
 import { isMeaningfulItem } from "@/features/agents/ui/agentSessionTranscriptPresentation";
@@ -56,7 +60,7 @@ const ACTION_FENCE =
   /```[a-z]+-(?:list|lists|job|jobs|scratch|coffee|thread|threads)\b[\s\S]*?```/gi;
 
 export function displayText(content: string) {
-  return content
+  return stripAssistantListHint(content)
     .replace(ACTION_FENCE, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
@@ -290,7 +294,7 @@ export function AssistantPopoverBody({
         setCreated(target);
       }
       const ev = await send.mutateAsync({
-        content,
+        content: `${content}${assistantListTurnHint()}`,
         targetChannel: target,
         channelId: target.id,
       });

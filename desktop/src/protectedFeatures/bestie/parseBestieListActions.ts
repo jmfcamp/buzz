@@ -27,7 +27,8 @@ export type BestieListAction =
       op: "complete" | "remove";
     };
 
-const FENCE_RE = /```bestie-list\s*\r?\n([\s\S]*?)```/gi;
+// `assistant-list` = the same fence as sent by the web Assistant (whose public build can't name this protocol).
+const FENCE_RE = /```(?:bestie|assistant)-list\s*\r?\n([\s\S]*?)```/gi;
 
 function isKind(value: unknown): value is BestieListKind {
   return value === "todo" || value === "reminder";
@@ -89,9 +90,7 @@ function parseAddItems(value: unknown): BestieListAddInput[] {
     const rawText = record.text.trim();
     if (!rawText) continue;
     const text =
-      record.kind === "reminder"
-        ? crystallizeReminderText(rawText)
-        : rawText;
+      record.kind === "reminder" ? crystallizeReminderText(rawText) : rawText;
     if (!text) continue;
     const dueAt = coerceDueAt(record.dueAt);
     items.push({

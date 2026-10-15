@@ -13,6 +13,8 @@ const OUTBOUND_HINT_MARKERS = [
   BESTIE_LIVE_LIST_STATE_TURN_HINT_MARKER,
   BESTIE_LIST_TURN_HINT_MARKER,
   BESTIE_JOB_TURN_HINT_MARKER,
+  // Web Assistant's list hint (features/assistant/listProtocol.ts).
+  "[Assistant lists]",
 ] as const;
 
 /**
