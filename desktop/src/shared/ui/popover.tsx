@@ -1,7 +1,9 @@
 import * as React from "react";
+import { isTauri } from "@tauri-apps/api/core";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 
 import { cn } from "@/shared/lib/cn";
+import { webCollisionPadding } from "@/shared/ui/webCollisionPadding";
 import {
   type CardTextureSize,
   type CardTextureTone,
@@ -60,6 +62,8 @@ const PopoverContent = React.forwardRef<
         sideOffset={sideOffset ?? (surface === "textured" ? 24 : 4)}
         className={cn(
           "z-50 w-72 origin-(--radix-popover-content-transform-origin) outline-hidden",
+          // Web: never taller than the space Radix measured inside the safe-area collision padding; scroll inside.
+          !isTauri() && "max-h-(--radix-popover-content-available-height) overflow-y-auto",
           POPOVER_RADIX_MOTION_CLASS,
           POPOVER_RADIX_SIDE_MOTION_CLASS,
           surface === "default" && cn("rounded-xl p-4", POPOVER_SURFACE_CLASS),
@@ -74,6 +78,7 @@ const PopoverContent = React.forwardRef<
           ...(surface === "default" ? POPOVER_SHADOW_STYLE : {}),
           ...style,
         }}
+        collisionPadding={webCollisionPadding()}
         {...props}
       >
         {props.asChild || !portalled ? children : (

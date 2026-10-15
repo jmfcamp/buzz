@@ -3,6 +3,7 @@ import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
 import { Check, ChevronRight, Circle } from "lucide-react";
 
 import { cn } from "@/shared/lib/cn";
+import { webCollisionPadding } from "@/shared/ui/webCollisionPadding";
 import { ParkNativeWebviewsWhileMounted } from "@/shared/ui/ParkNativeWebviewsWhileMounted";
 import {
   POPOVER_RADIX_MOTION_CLASS,
@@ -59,6 +60,7 @@ const ContextMenuSubContent = React.forwardRef<
       "min-w-60",
     )}
     style={{ ...POPOVER_SHADOW_STYLE, ...style }}
+    collisionPadding={webCollisionPadding()}
     {...props}
   />
 ));
@@ -81,6 +83,7 @@ const ContextMenuContent = React.forwardRef<
         "min-w-60",
       )}
       style={{ ...POPOVER_SHADOW_STYLE, ...style }}
+      collisionPadding={webCollisionPadding()}
       {...props}
     >
       {props.asChild ? children : (
