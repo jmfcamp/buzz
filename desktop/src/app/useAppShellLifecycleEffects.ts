@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { startBootWarm } from "@/features/agents/acpRuntimesQuery";
 import { setDesktopAppBadge } from "@/features/notifications/lib/desktop";
+import { useInboxBadgeTotal } from "@/features/sidebar/lib/inboxBadgeStore";
 import { useForegroundQueryRefresh } from "@/features/workflows/hooks";
 import { relayClient } from "@/shared/api/relayClient";
 import { useRelayResumeTriggers } from "@/shared/api/useRelayResumeTriggers";
@@ -70,12 +71,17 @@ export function useAppShellLifecycleEffects({
     };
   }, []);
 
+  // App/Home Screen badge = total Inbox items across all tabs (same shared
+  // count as the sidebar and the Inbox tab badges). Falls back to the legacy
+  // channel+home count until the Inbox count is ready.
+  const inboxBadgeTotal = useInboxBadgeTotal();
   React.useEffect(() => {
     if (!desktopBadgeEnabled) {
       return;
     }
 
     const count =
+      inboxBadgeTotal ??
       unreadChannelNotificationCount + homeBadgeCountExcludingHighPriority;
     void setDesktopAppBadge(
       count
@@ -85,6 +91,7 @@ export function useAppShellLifecycleEffects({
   }, [
     desktopBadgeEnabled,
     homeBadgeCountExcludingHighPriority,
+    inboxBadgeTotal,
     topLevelUnreadChannelIds,
     unreadChannelNotificationCount,
   ]);

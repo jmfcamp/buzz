@@ -7,9 +7,11 @@ import { useHiddenDmIds } from "@/features/channels/useHiddenDmIds";
 import { useHomeFeedQuery } from "@/features/home/hooks";
 import { buildInboxItems } from "@/features/home/lib/inbox";
 import {
-  deriveSidebarInboxUnreadCount,
-  projectInboxEffectiveDoneSet,
-} from "@/features/home/lib/inboxUnreadCount";
+  computeInboxTabCounts,
+  type InboxTabCounts,
+} from "@/features/home/lib/inboxTabs";
+import { projectInboxEffectiveDoneSet } from "@/features/home/lib/inboxUnreadCount";
+import { useDueReminderBadgeCount } from "@/features/reminders/hooks";
 import { filterInboxItems } from "@/features/home/lib/inboxViewHelpers";
 import { useOwnedAgentPubkeys } from "@/features/home/useOwnedAgentPubkeys";
 import type { HomeFeedResponse } from "@/shared/api/types";
@@ -26,6 +28,11 @@ import { useIdentityQuery } from "@/shared/api/hooks";
  * the badge to the same unread set Inbox shows.
  */
 export function useSidebarInboxUnreadCount(): number | undefined {
+  return useInboxTabCounts()?.total;
+}
+
+/** Per-tab Inbox counts (Inbox / Agents / Reminders) and their total. */
+export function useInboxTabCounts(): InboxTabCounts | undefined {
   const identityQuery = useIdentityQuery();
   const homeFeedQuery = useHomeFeedQuery();
   const channelsQuery = useChannelsQuery();
@@ -44,6 +51,10 @@ export function useSidebarInboxUnreadCount(): number | undefined {
     identityQuery.data?.pubkey,
   );
   const hiddenDmIds = useHiddenDmIds(identityQuery.data?.pubkey);
+  const dueReminderCount = useDueReminderBadgeCount(
+    identityQuery.data?.pubkey,
+    true,
+  );
 
   // Same augmentation as HomeScreen: live thread activity + hidden-DM typing
   // so the badge matches InboxListPane unread under the default All filter.
@@ -87,12 +98,14 @@ export function useSidebarInboxUnreadCount(): number | undefined {
       localDoneSet: feedItemState.doneSet,
       localUnreadSet: feedItemState.unreadSet,
     });
-    return deriveSidebarInboxUnreadCount({
+    return computeInboxTabCounts({
       items,
       doneSet,
       ownedAgentPubkeys,
+      dueReminderCount,
     });
   }, [
+    dueReminderCount,
     channelsQuery.data,
     feed,
     feedItemState.doneSet,

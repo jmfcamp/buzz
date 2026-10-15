@@ -13,6 +13,7 @@ import {
 } from "@/app/AppShell.helpers";
 import { useTerminalContext } from "@/app/useTerminalContext";
 import { AppShellProvider } from "@/app/AppShellContext";
+import { InboxBadgeSync } from "@/features/sidebar/lib/inboxBadgeStore";
 import { AppShellOverlays, TerminalBootstrap } from "@/app/AppShellOverlays";
 import { AppShellChannelSurface } from "@/app/AppShellChannelSurface";
 import { AppHuddleShell } from "@/app/AppHuddleShell";
@@ -983,6 +984,7 @@ export function AppShell() {
             onOpenSettings: handleOpenSettings,
           }}
         >
+          <InboxBadgeSync />
           <AppHuddleShell
             currentPubkey={identityQuery.data?.pubkey}
             isCompanionOpen={isHuddleCompanionOpen}
