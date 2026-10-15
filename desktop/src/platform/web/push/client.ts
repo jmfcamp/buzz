@@ -4,6 +4,7 @@
 //   3. delegate it to this relay's push executor -> opaque endpoint grant,
 //   4. publish a NIP-44-encrypted kind:30350 lease telling the relay which events to push.
 // The relay enforces channel access and fans out; the gateway only ever sees content-free hints.
+import { getPushInterest, onPushInterestChange } from "./interest";
 import { nip98Header, submitSignedEvent } from "../relayHttp";
 import { getSigner, signerPubkey } from "../signer";
 import { relayHttpBase } from "../relayConfig";
@@ -150,7 +151,7 @@ async function publishLease(
     descriptor: d,
     generation,
     grant,
-    subscriptions: leaseSubscriptions(me, prefs()),
+    subscriptions: leaseSubscriptions(me, prefs(), getPushInterest()),
   });
   const content = await signer.nip44.encrypt(d.executorPubkey, plaintext);
   const ev = await signer.signEvent(
@@ -221,6 +222,7 @@ async function ensurePushSubscribedInner(): Promise<boolean> {
     me,
     sub.endpoint,
     prefs(),
+    getPushInterest(),
     d.origin,
     d.executorKeyId,
   ]);
@@ -405,3 +407,14 @@ export function installPushClickRouting() {
     /* malformed */
   }
 }
+
+// Re-send the lease (debounced) when All-messages channels or followed
+// threads change, so pushes follow the Notifications menu.
+let interestTimer: ReturnType<typeof setTimeout> | null = null;
+onPushInterestChange(() => {
+  if (interestTimer) clearTimeout(interestTimer);
+  interestTimer = setTimeout(() => {
+    interestTimer = null;
+    void ensurePushSubscribed().catch(() => false);
+  }, 5_000);
+});

@@ -106,3 +106,18 @@ test("plaintext matches relay schema; empty => inactive", () => {
     ["d", "expiration", "exec", "alt"],
   );
 });
+
+test("leaseSubscriptions adds channel + followed-thread subs from interest", async () => {
+  const { leaseSubscriptions } = await import("./lease.ts");
+  const me = "a".repeat(64);
+  const prefs = { mention: true, needs_action: true, dm: true, thread_reply: true };
+  const base = leaseSubscriptions(me, prefs);
+  const withInterest = leaseSubscriptions(me, prefs, { channels: ["c1"], roots: ["r1"] });
+  assert.equal(withInterest.length, base.length + 2);
+  const channel = withInterest.find((s) => s.class === "channel");
+  assert.deepEqual(channel.filter["#h"], ["c1"]);
+  const followed = withInterest.find((s) => s.class === "thread_reply" && s.filter["#e"]);
+  assert.deepEqual(followed.filter["#e"], ["r1"]);
+  const noThreads = leaseSubscriptions(me, { ...prefs, thread_reply: false }, { channels: [], roots: ["r1"] });
+  assert.ok(!noThreads.some((s) => s.filter["#e"]));
+});
