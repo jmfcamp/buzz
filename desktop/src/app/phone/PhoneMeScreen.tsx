@@ -132,8 +132,10 @@ export function PhoneMeScreen({
   ];
   const npubShort = pubkey ? `${pubkey.slice(0, 8)}…${pubkey.slice(-6)}` : "";
   return (
+    // Scroll container: children must not flex-shrink, or overflow-hidden cards (the Projects/Agents list) collapse
+    // to their border once the page (e.g. many pinned sites) is taller than the screen.
     <div
-      className="phone-screen flex h-full flex-col overflow-y-auto bg-background"
+      className="phone-screen flex h-full flex-col overflow-y-auto bg-background [&>*]:shrink-0"
       data-testid="phone-me-screen"
     >
       <div className="flex items-center gap-3 px-4 pb-4 pt-6">
