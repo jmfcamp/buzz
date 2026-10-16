@@ -439,18 +439,6 @@ function BestieConversationTranscript({
           </div>
         ) : null}
 
-        {typingPubkeys.length > 0 ? (
-          <div data-testid="bestie-typing-indicator">
-            <TypingIndicatorRow
-              channel={channel}
-              className="shrink-0 px-0 py-0"
-              currentPubkey={currentPubkey}
-              profiles={profiles}
-              typingPubkeys={typingPubkeys}
-            />
-          </div>
-        ) : null}
-
         <div aria-hidden="true" ref={bottomSentinelRef} />
       </div>
     </div>
@@ -1387,6 +1375,25 @@ export function BestiePopover({
           showBackgroundUploadProgress={false}
           showTopBorder={false}
         />
+      </div>
+
+      {/* Typing sits below the composer, in the gap above Lists. The slot keeps a fixed height so the panel doesn't jump. */}
+      <div
+        aria-live="polite"
+        className="-mt-1 flex h-5 shrink-0 items-center overflow-hidden"
+        data-testid="bestie-typing-slot"
+      >
+        {typingPubkeys.length > 0 && activeConversationChannel ? (
+          <div data-testid="bestie-typing-indicator">
+            <TypingIndicatorRow
+              channel={activeConversationChannel}
+              className="shrink-0 px-0 py-0"
+              currentPubkey={currentPubkey}
+              profiles={conversationProfiles}
+              typingPubkeys={typingPubkeys}
+            />
+          </div>
+        ) : null}
       </div>
 
       {contextMessage && !contextSent ? (
