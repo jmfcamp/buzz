@@ -1,4 +1,4 @@
-import { EllipsisVertical, Settings2, Users } from "lucide-react";
+import { EllipsisVertical, Link2, Settings2, Users } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
@@ -31,6 +31,7 @@ import {
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
 import { AddChannelBotDialog } from "./AddChannelBotDialog";
+import { useRepairProjectLinks } from "@/features/projects/useRepairProjectLinks";
 import { huddlesAvailable } from "@/features/huddle/lib/huddlesAvailable";
 
 type ChannelMembersBarProps = {
@@ -190,6 +191,18 @@ export function ChannelMembersBar({
     />
   );
 
+  const repairLinks = useRepairProjectLinks(channel.id);
+  const repairItem = repairLinks.available ? (
+    <DropdownMenuItem
+      data-testid="repair-project-links"
+      disabled={repairLinks.pending}
+      onSelect={repairLinks.repair}
+    >
+      <Link2 />
+      <span>{repairLinks.pending ? "Repairing links…" : "Repair project links"}</span>
+    </DropdownMenuItem>
+  ) : null;
+
   const controls =
     variant === "compact" ? (
       <div className="flex items-center gap-[6px]">
@@ -224,6 +237,7 @@ export function ChannelMembersBar({
               <Settings2 />
               <span>Manage channel</span>
             </DropdownMenuItem>
+            {repairItem}
           </DropdownMenuContent>
         </DropdownMenu>
         {endActions}
@@ -251,21 +265,47 @@ export function ChannelMembersBar({
 
         {huddleIndicator}
 
-        <Tooltip disableHoverableContent>
-          <TooltipTrigger asChild>
-            <Button
-              aria-label="Manage channel"
-              data-testid="channel-management-trigger"
-              onClick={onManageChannel}
-              size="icon"
-              type="button"
-              variant="outline"
-            >
-              <EllipsisVertical />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Channel settings</TooltipContent>
-        </Tooltip>
+        {repairItem ? (
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                aria-label="Channel actions"
+                data-testid="channel-actions-menu-trigger"
+                size="icon"
+                type="button"
+                variant="outline"
+              >
+                <EllipsisVertical />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuItem
+                data-testid="channel-management-trigger"
+                onSelect={onManageChannel}
+              >
+                <Settings2 />
+                <span>Manage channel</span>
+              </DropdownMenuItem>
+              {repairItem}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <Tooltip disableHoverableContent>
+            <TooltipTrigger asChild>
+              <Button
+                aria-label="Manage channel"
+                data-testid="channel-management-trigger"
+                onClick={onManageChannel}
+                size="icon"
+                type="button"
+                variant="outline"
+              >
+                <EllipsisVertical />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Channel settings</TooltipContent>
+          </Tooltip>
+        )}
 
         {endActions}
       </div>
