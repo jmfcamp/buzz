@@ -16,9 +16,22 @@ export function relayReadRetry(failureCount: number, error: unknown): boolean {
   return failureCount < 2;
 }
 
+const CONNECTION_STATE =
+  /superseded|not connected|connection|closed the history subscription/i;
+
+/**
+ * Backoff tuned for boot: the first retries are sub-second so a read that
+ * failed only because the socket was still (re)connecting lands as soon as
+ * it can. Connection-state errors retry every ≤2 s; rate limits honor the
+ * relay's "retry in Ns" hint; anything else backs off to at most 8 s.
+ */
 export function relayReadRetryDelay(attempt: number, error?: unknown): number {
   const text = error instanceof Error ? error.message : String(error ?? "");
   const hint = /retry in (\d+)s/i.exec(text);
-  const base = hint ? Number(hint[1]) * 1000 : Math.min(30_000, 1_000 * 2 ** attempt);
-  return base + Math.floor(Math.random() * 1_000);
+  let base: number;
+  if (hint) base = Number(hint[1]) * 1000;
+  else if (CONNECTION_STATE.test(text))
+    base = Math.min(2_000, 300 * (attempt + 1));
+  else base = Math.min(8_000, 500 * 2 ** attempt);
+  return base + Math.floor(Math.random() * 250);
 }
