@@ -1,10 +1,15 @@
 // Browser port of desktop/src-tauri/src/relay.rs HTTP helpers: NIP-98 auth + POST /query, /events.
 // Every request is signed through the pluggable Signer (NIP-07 extension) — the page never holds a key.
+import { isBootCriticalRead } from "./bootCriticalRead";
 import { relayFetchUrl } from "./relayProxy";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { getSigner, signerPubkey } from "./signer";
-import { dropRelaySession, relaySessionAuth, revokeRelaySession } from "./relaySession";
+import {
+  dropRelaySession,
+  relaySessionAuth,
+  revokeRelaySession,
+} from "./relaySession";
 import type { SignPriority } from "./signer/types";
 import type { Filter, NostrEvent } from "./nostrTypes";
 import { relayHttpBase } from "./relayConfig";
@@ -47,7 +52,11 @@ export class RelayHttpError extends Error {}
 /** Kill switch (`localStorage["buzz-web-ws-publish"]="0"`) shared with the WS read toggle. */
 function canPublishWs(_event: NostrEvent): boolean {
   try {
-    if (localStorage.getItem("buzz-web-ws-publish") === "0" || localStorage.getItem("buzz-web-ws-reads") === "0") return false;
+    if (
+      localStorage.getItem("buzz-web-ws-publish") === "0" ||
+      localStorage.getItem("buzz-web-ws-reads") === "0"
+    )
+      return false;
   } catch {}
   return true;
 }
@@ -70,7 +79,13 @@ const inflightQueries = new Map<string, Promise<unknown>>();
 // Signature priority for the NIP-98 token: writes (POST /events) are user actions (P0); reads are P1; a presence poll is background (P3,
 // droppable: a slow signer must never queue it ahead of a send or a channel read).
 const isPresenceRead = (body: unknown) =>
-  Array.isArray(body) && body.length > 0 && body.every((f) => Array.isArray(f?.kinds) && f.kinds.every((k: number) => k === 20001 || k === 20002));
+  Array.isArray(body) &&
+  body.length > 0 &&
+  body.every(
+    (f) =>
+      Array.isArray(f?.kinds) &&
+      f.kinds.every((k: number) => k === 20001 || k === 20002),
+  );
 
 async function post(path: string, body: unknown): Promise<unknown> {
   if (path !== "/query") return postOnce(path, body);
@@ -84,15 +99,21 @@ async function post(path: string, body: unknown): Promise<unknown> {
   return p;
 }
 
-async function postOnce(path: string, body: unknown, noSession = false): Promise<unknown> {
+async function postOnce(
+  path: string,
+  body: unknown,
+  noSession = false,
+): Promise<unknown> {
   const url = `${relayHttpBase()}${path}`;
   const bytes = utf8(JSON.stringify(body));
-  const prio: SignPriority = path === "/events" ? 0 : isPresenceRead(body) ? 3 : 1;
+  const prio: SignPriority =
+    path === "/events" ? 0 : isPresenceRead(body) ? 3 : 1;
   // Reads use the per-session bearer (one signature per session); writes and fallbacks sign NIP-98 per request.
-  const session = path === "/query" && !noSession ? await readSessionAuth() : null;
+  const session =
+    path === "/query" && !noSession ? await readSessionAuth() : null;
   const auth = session ?? (await nip98Header("POST", url, bytes, prio));
   let res: Response;
-    // Dev: same-origin /__relay proxy; production: the relay directly (or a CDN prefix). See relayProxy.ts. The NIP-98 `u`
+  // Dev: same-origin /__relay proxy; production: the relay directly (or a CDN prefix). See relayProxy.ts. The NIP-98 `u`
   // tag above is still signed for the real relay URL.
   const fetchUrl = relayFetchUrl(relayHttpBase(), path);
   try {
@@ -134,7 +155,10 @@ function readSessionAuth(): Promise<string | null> {
     mint: async () => {
       const url = `${base}${SESSION_PATH}`;
       const auth = await nip98Header("POST", url, new Uint8Array(), 1);
-      return fetch(relayFetchUrl(base, SESSION_PATH), { method: "POST", headers: { Authorization: auth } });
+      return fetch(relayFetchUrl(base, SESSION_PATH), {
+        method: "POST",
+        headers: { Authorization: auth },
+      });
     },
   });
 }
@@ -142,7 +166,10 @@ function readSessionAuth(): Promise<string | null> {
 if (typeof window !== "undefined")
   window.addEventListener("buzz-signout", () =>
     revokeRelaySession((base, auth) =>
-      fetch(relayFetchUrl(base, SESSION_PATH), { method: "DELETE", headers: { Authorization: auth } }),
+      fetch(relayFetchUrl(base, SESSION_PATH), {
+        method: "DELETE",
+        headers: { Authorization: auth },
+      }),
     ),
   );
 
@@ -158,7 +185,16 @@ export async function queryRelayHttp(filters: Filter[]): Promise<NostrEvent[]> {
 /** Relay NIP-11 `max_filters` for a WebSocket REQ (crates/buzz-relay/src/protocol.rs MAX_FILTERS_PER_REQ). */
 export const WS_MAX_FILTERS = 10;
 
+export { isBootCriticalRead };
+
 export async function queryRelay(filters: Filter[]): Promise<NostrEvent[]> {
+  if (isBootCriticalRead(filters)) {
+    try {
+      return await queryRelayHttp(filters);
+    } catch {
+      // Fall back to the socket below.
+    }
+  }
   if (canUseWs(filters)) {
     try {
       // The relay rejects a WebSocket REQ with more than 10 filters (NIP-11 max_filters) without a CLOSED for the sub,
@@ -198,13 +234,17 @@ export async function submitSignedEvent(
       const r = await ws;
       if (!r.accepted) {
         // "duplicate:" means the relay already has it (e.g. a retry) — success, as over HTTP.
-        if (/^duplicate:/i.test(r.message)) return { event_id: event.id, accepted: true, message: r.message };
+        if (/^duplicate:/i.test(r.message))
+          return { event_id: event.id, accepted: true, message: r.message };
         throw new RelayHttpError(`relay rejected event: ${r.message}`);
       }
       return { event_id: event.id, accepted: true, message: r.message };
     } catch (e) {
       if (e instanceof RelayHttpError) throw e;
-      console.warn("[relay] WS publish failed, falling back to HTTP:", e instanceof Error ? e.message : e);
+      console.warn(
+        "[relay] WS publish failed, falling back to HTTP:",
+        e instanceof Error ? e.message : e,
+      );
     }
   }
   const r = (await post("/events", event)) as SubmitResult;
@@ -214,15 +254,22 @@ export async function submitSignedEvent(
 }
 
 /** GET a relay JSON endpoint with NIP-98 (port of relay/get.rs get_relay_json), e.g. /workflows/<id>/runs. */
-export async function getRelayJson<T = unknown>(pathWithQuery: string): Promise<T> {
-  if (!pathWithQuery.startsWith("/")) throw new Error("relay GET path must begin with '/'");
+export async function getRelayJson<T = unknown>(
+  pathWithQuery: string,
+): Promise<T> {
+  if (!pathWithQuery.startsWith("/"))
+    throw new Error("relay GET path must begin with '/'");
   const url = `${relayHttpBase()}${pathWithQuery}`;
   const auth = await nip98Header("GET", url, null, 1);
   let res: Response;
   try {
-    res = await fetch(relayFetchUrl(relayHttpBase(), pathWithQuery), { headers: { Authorization: auth, Accept: "application/json" } });
+    res = await fetch(relayFetchUrl(relayHttpBase(), pathWithQuery), {
+      headers: { Authorization: auth, Accept: "application/json" },
+    });
   } catch (e) {
-    throw new RelayHttpError(`relay unreachable: could not connect to relay (${e instanceof Error ? e.message : e})`);
+    throw new RelayHttpError(
+      `relay unreachable: could not connect to relay (${e instanceof Error ? e.message : e})`,
+    );
   }
   if (!res.ok) throw new RelayHttpError(await relayError(res));
   return (await res.json()) as T;
