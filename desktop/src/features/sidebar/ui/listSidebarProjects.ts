@@ -1,5 +1,6 @@
 import type { Project } from "@/features/projects/projectModels";
 import { isExplicitProject } from "@/features/projects/projectModels";
+import { listProjectBoundChannels } from "@/features/projects/lib/projectRelatedChannels";
 import { isProjectOwnedByCurrentUser } from "@/features/projects/lib/projectsViewHelpers";
 
 const SIDEBAR_PROJECTS_FILTER_KEY = "buzz.sidebar.projects.filter";
@@ -198,4 +199,34 @@ export function listSidebarProjects({
       }
       return left.name.localeCompare(right.name);
     });
+}
+
+/**
+ * Channel ids that the sidebar Projects section already renders (each listed
+ * project's home channel plus its related/repo sub-channels). The default
+ * Channels list hides these so project channels appear only under Projects.
+ */
+export function sidebarProjectChannelIds(
+  projects: readonly Project[],
+): Set<string> {
+  const ids = new Set<string>();
+  for (const project of projects) {
+    for (const binding of listProjectBoundChannels(project)) {
+      ids.add(binding.channelId);
+    }
+  }
+  return ids;
+}
+
+/**
+ * Split the ungrouped Channels bucket: only channels with no explicit
+ * personal/community section placement reach here, so this never hides a
+ * project channel the user deliberately put in a section.
+ */
+export function excludeProjectChannelsFromUngrouped<T extends { id: string }>(
+  ungrouped: readonly T[],
+  projectChannelIds: ReadonlySet<string>,
+): T[] {
+  if (projectChannelIds.size === 0) return [...ungrouped];
+  return ungrouped.filter((channel) => !projectChannelIds.has(channel.id));
 }

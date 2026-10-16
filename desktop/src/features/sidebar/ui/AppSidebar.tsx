@@ -1,5 +1,14 @@
 // biome-ignore format: keep compact to stay within file size limit
 import * as React from "react";
+import { useProjectsQuery } from "@/features/projects/hooks";
+import { useProjectSidebarMembership } from "@/features/projects/lib/useProjectSidebarMembership";
+import {
+  excludeProjectChannelsFromUngrouped,
+  listSidebarProjects,
+  readSidebarProjectsFilter,
+  sidebarProjectChannelIds,
+} from "@/features/sidebar/ui/listSidebarProjects";
+import { getCachedRelayOrigin } from "@/shared/lib/mediaUrl";
 import { LayoutList } from "lucide-react";
 import { FeatureGate } from "@/shared/features";
 import { SidebarDndContext } from "@/features/sidebar/ui/SidebarDnd";
@@ -376,12 +385,57 @@ export function AppSidebar({
     [channels],
   );
 
+  // Project channels live under the Projects section; keep them out of the
+  // default (ungrouped) Channels list. Mirrors the Projects section's own
+  // project selection (filter + sidebar membership) so nothing disappears.
+  const sidebarProjectsQuery = useProjectsQuery();
+  const sidebarRelayOrigin = getCachedRelayOrigin();
+  const sidebarAddedProjects = useProjectSidebarMembership(
+    sidebarRelayOrigin,
+    currentPubkey,
+  );
+  const sidebarProjectsFilter = readSidebarProjectsFilter(
+    sidebarRelayOrigin,
+    currentPubkey,
+  );
+  const projectChannelIds = React.useMemo(
+    () =>
+      sidebarProjectChannelIds(
+        listSidebarProjects({
+          addedProjectAddresses: new Set(sidebarAddedProjects),
+          currentPubkey,
+          filter: sidebarProjectsFilter,
+          projects: sidebarProjectsQuery.data ?? [],
+          sort: "name",
+        }),
+      ),
+    [
+      sidebarAddedProjects,
+      currentPubkey,
+      sidebarProjectsFilter,
+      sidebarProjectsQuery.data,
+    ],
+  );
+
+  // Community sections keep their relay-side channel lists untouched; we just
+  // drop project channels from what the sidebar renders. A community section
+  // left with no channels hides itself (existing SidebarSection behavior).
+  const communityNonProjectChannelsById = React.useMemo(() => {
+    if (projectChannelIds.size === 0) return communityChannelsById;
+    const map = new Map(communityChannelsById);
+    for (const id of projectChannelIds) map.delete(id);
+    return map;
+  }, [communityChannelsById, projectChannelIds]);
+
   const sectionBuckets = React.useMemo(() => {
     const bySection: Record<string, Channel[]> = {};
     const unassigned: Channel[] = [];
     const sectionIds = new Set(channelSections.map((s) => s.id));
 
     for (const channel of streamChannels) {
+      // Project channels render only under Projects — also when a personal
+      // section assigns them. Display-only; assignments are left intact.
+      if (projectChannelIds.has(channel.id)) continue;
       if (starredChannelIds?.has(channel.id)) continue;
       if (communityOccupiedChannelIds.has(channel.id)) continue;
       const sectionId = channelAssignments[channel.id];
@@ -404,9 +458,13 @@ export function AppSidebar({
     }
     return {
       bySection,
-      unassigned: sortChannelsForSidebar(unassigned, sortModeFor("channels")),
+      unassigned: sortChannelsForSidebar(
+        excludeProjectChannelsFromUngrouped(unassigned, projectChannelIds),
+        sortModeFor("channels"),
+      ),
     };
   }, [
+    projectChannelIds,
     streamChannels,
     channelSections,
     channelAssignments,
@@ -418,10 +476,14 @@ export function AppSidebar({
   const starredChannels = React.useMemo(() => {
     if (!starredChannelIds || starredChannelIds.size === 0) return [];
     return sortChannelsForSidebar(
-      streamChannels.filter((channel) => starredChannelIds.has(channel.id)),
+      streamChannels.filter(
+        (channel) =>
+          starredChannelIds.has(channel.id) &&
+          !projectChannelIds.has(channel.id),
+      ),
       sortModeFor("starred"),
     );
-  }, [streamChannels, starredChannelIds, sortModeFor]);
+  }, [streamChannels, starredChannelIds, sortModeFor, projectChannelIds]);
 
   const handleCreateSectionForChannel = React.useCallback(
     (channelId: string) => {
@@ -775,7 +837,7 @@ export function AppSidebar({
                     const sectionChannels = sortChannelsForSidebar(
                       channelsForCommunitySection(
                         section,
-                        communityChannelsById,
+                        communityNonProjectChannelsById,
                         starredChannelIds,
                       ),
                       sortModeFor(
@@ -958,24 +1020,26 @@ export function AppSidebar({
                       onDeleteChannel={requestDeleteChannel}
                     />
                   </FeatureGate>
-                  {huddlesAvailable() ? <ArchivedHuddlesSection
-                    isActiveChannel={selectedView === "channel"}
-                    isCollapsed={collapsedGroups.archivedHuddles}
-                    items={archivedHuddleChannels}
-                    mutedChannelIds={mutedChannelIds}
-                    onMarkChannelRead={onMarkChannelRead}
-                    onMarkChannelUnread={onMarkChannelUnread}
-                    onMuteChannel={onMuteChannel}
-                    onSelectChannel={onSelectChannel}
-                    onToggleCollapsed={() =>
-                      toggleCollapsedGroup("archivedHuddles")
-                    }
-                    onUnmuteChannel={onUnmuteChannel}
-                    parentChannels={channels}
-                    selectedChannelId={selectedChannelId}
-                    unreadChannelCounts={unreadChannelCounts}
-                    unreadChannelIds={unreadChannelIds}
-                  /> : null}
+                  {huddlesAvailable() ? (
+                    <ArchivedHuddlesSection
+                      isActiveChannel={selectedView === "channel"}
+                      isCollapsed={collapsedGroups.archivedHuddles}
+                      items={archivedHuddleChannels}
+                      mutedChannelIds={mutedChannelIds}
+                      onMarkChannelRead={onMarkChannelRead}
+                      onMarkChannelUnread={onMarkChannelUnread}
+                      onMuteChannel={onMuteChannel}
+                      onSelectChannel={onSelectChannel}
+                      onToggleCollapsed={() =>
+                        toggleCollapsedGroup("archivedHuddles")
+                      }
+                      onUnmuteChannel={onUnmuteChannel}
+                      parentChannels={channels}
+                      selectedChannelId={selectedChannelId}
+                      unreadChannelCounts={unreadChannelCounts}
+                      unreadChannelIds={unreadChannelIds}
+                    />
+                  ) : null}
                 </>
               ) : null}
 
