@@ -2,11 +2,15 @@ export const MAX_COMMUNITY_BOT_NAME_LEN = 80;
 
 export type CommunityBotSource = "openclaw";
 
+export const MAX_COMMUNITY_BOT_DESCRIPTION_LEN = 160;
+
 export type CommunityBot = {
   id: string;
   name: string;
   pubkey: string;
   source: CommunityBotSource;
+  /** Owner-set one-liner (Settings → Communities → Bots); the Bots card subtitle. Optional; omitted when empty. */
+  description?: string;
 };
 
 export type CommunityBotsPayload = {

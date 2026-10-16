@@ -31,8 +31,10 @@ export type CommunityBotDirectoryCard = {
   name: string;
   pubkey: string;
   status: CommunityBotDirectoryStatus;
-  /** Kind-0 `about` (card subtitle); null when the bot has none. */
+  /** Owner-set install description, else kind-0 `about`; absent when neither. */
   description?: string | null;
+  /** Unix seconds of the bot's latest message, when known (subtitle fallback). */
+  lastActiveAt?: number | null;
 };
 
 export type CommunityBotDirectoryChannel = {
@@ -231,8 +233,12 @@ export function communityBotDirectoryCard(
     name: communityBotDirectoryName(bot, profile?.displayName),
     pubkey: normalizePubkey(bot.pubkey),
     status: resolveCommunityBotDirectoryStatus(statusInput ?? {}),
-    ...(profile?.about?.trim()
-      ? { description: communityBotDirectoryDescription(profile.about) }
+    ...((bot.description?.trim() || profile?.about?.trim())
+      ? {
+          description: communityBotDirectoryDescription(
+            bot.description?.trim() || profile?.about,
+          ),
+        }
       : {}),
   };
 }
@@ -258,7 +264,9 @@ export function communityBotDirectoryDetail(input: {
   return {
     avatarUrl: input.profile?.avatarUrl?.trim() || null,
     channels: communityBotMemberChannels(hexPubkey, input.channels),
-    description: communityBotDirectoryDescription(input.profile?.about),
+    description: communityBotDirectoryDescription(
+      input.bot.description?.trim() || input.profile?.about,
+    ),
     hexPubkey,
     id: input.bot.id,
     name: communityBotDirectoryName(input.bot, input.profile?.displayName),
@@ -269,4 +277,27 @@ export function communityBotDirectoryDetail(input: {
       presence: input.presence,
     }),
   };
+}
+
+/** Compact "Active 5m ago" label for a unix-seconds timestamp. */
+export function communityBotActiveLabel(lastActiveAt: number, nowMs = Date.now()): string {
+  const seconds = Math.max(0, Math.floor(nowMs / 1000 - lastActiveAt));
+  if (seconds < 60) return "Active just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `Active ${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Active ${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `Active ${days}d ago`;
+}
+
+/** Bots card second line: install description > kind-0 about > last activity > nothing (the dot shows presence). */
+export function communityBotCardSubtitle(
+  card: Pick<CommunityBotDirectoryCard, "description" | "lastActiveAt">,
+  nowMs = Date.now(),
+): string | null {
+  const description = card.description?.trim();
+  if (description) return description;
+  if (card.lastActiveAt) return communityBotActiveLabel(card.lastActiveAt, nowMs);
+  return null;
 }

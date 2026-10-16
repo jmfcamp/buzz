@@ -20,7 +20,11 @@ import {
   resolveCommunityBotsRelayUrl,
 } from "./localCatalog";
 import { communityBotProfileLooksSecret } from "./profile";
-import type { CommunityBot, CommunityBotsPayload } from "./types";
+import {
+  MAX_COMMUNITY_BOT_DESCRIPTION_LEN,
+  type CommunityBot,
+  type CommunityBotsPayload,
+} from "./types";
 
 export const COMMUNITY_BOTS_D_TAG = "buzz:community-bots";
 
@@ -52,7 +56,29 @@ function parseBot(value: unknown): CommunityBot | null {
   ) {
     return null;
   }
-  return { id, name, pubkey, source: "openclaw" };
+  const description =
+    typeof candidate.description === "string"
+      ? candidate.description.trim().slice(0, MAX_COMMUNITY_BOT_DESCRIPTION_LEN)
+      : "";
+  return {
+    id,
+    name,
+    pubkey,
+    source: "openclaw",
+    ...(description ? { description } : {}),
+  };
+}
+
+/** Wire shape of one bot; `description` only when set (older readers ignore unknown fields). */
+export function serializeCommunityBot(bot: CommunityBot) {
+  const description = bot.description?.trim() ?? "";
+  return {
+    id: bot.id,
+    name: bot.name,
+    pubkey: normalizePubkey(bot.pubkey),
+    source: "openclaw" as const,
+    ...(description ? { description } : {}),
+  };
 }
 
 export function parseCommunityBotsPayload(content: string): CommunityBot[] {
@@ -109,12 +135,7 @@ export function saveLocalCommunityBots(
 ): void {
   const payload: CommunityBotsPayload = {
     version: 1,
-    bots: bots.map((bot) => ({
-      id: bot.id,
-      name: bot.name,
-      pubkey: normalizePubkey(bot.pubkey),
-      source: "openclaw",
-    })),
+    bots: bots.map(serializeCommunityBot),
   };
   setStorageItem(communityBotsStorageKey(relayUrl), JSON.stringify(payload));
   rememberCommunityBotNames(bots, relayUrl);
@@ -141,12 +162,7 @@ async function publishCommunityBotsToRelay(
 ): Promise<void> {
   const payload: CommunityBotsPayload = {
     version: 1,
-    bots: bots.map((bot) => ({
-      id: bot.id,
-      name: bot.name,
-      pubkey: normalizePubkey(bot.pubkey),
-      source: "openclaw",
-    })),
+    bots: bots.map(serializeCommunityBot),
   };
   const serialized = JSON.stringify(payload);
   if (communityBotProfileLooksSecret(serialized)) {
