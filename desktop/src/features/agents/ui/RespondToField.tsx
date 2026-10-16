@@ -43,7 +43,10 @@ import type { PersonaDropdownOption } from "./agentConfigOptions";
  * Inbound author gate UI for create/edit agent dialogs.
  *
  * Dropdown:
- *   - Only me        (default; maps to `buzz-acp --respond-to=owner-only`)
+ *   - Only me        (default; maps to `buzz-acp --respond-to=owner-only` —
+ *                     strictly the owner, no other agents)
+ *   - Me and my agents (`--respond-to=owner-and-agents` — owner plus every
+ *                     verified same-owner agent)
  *   - Anyone         (`--respond-to=anyone` — fully open agent)
  *   - Selected people (`--respond-to=allowlist`, plus the selected pubkeys as
  *                     `--respond-to-allowlist`)
@@ -62,11 +65,10 @@ import type { PersonaDropdownOption } from "./agentConfigOptions";
  * than an explanation, and stays one sentence — Only me already owns the line
  * below the control.
  *
- * The line below Only me says "Only you and your agents", because the harness
- * gate admits the owner and every verified same-owner agent, not the owner
- * alone (see `managed_agents/access_policy.rs`). The dropdown label stays
- * "Only me": it is the audience the user picks, and it has meant this since
- * before agents could instruct each other.
+ * The line below Only me says "Only you can send instructions": the harness
+ * admits the owner alone. Letting the owner's own agents instruct this one is
+ * the separate, explicit "Me and my agents" option, whose line lists them
+ * (see `managed_agents/access_policy.rs`).
  *
  * Which machine and stakes it names follow the optional `runLocation` prop, and
  * an unknown location falls back to the local wording rather than hedging with
@@ -97,6 +99,7 @@ function formatSearchUserSecondary(user: UserSearchResult) {
 
 const RESPOND_TO_OPTIONS: PersonaDropdownOption[] = [
   { label: "Only me (default)", value: "owner-only" },
+  { label: "Me and my agents", value: "owner-and-agents" },
   { label: "Anyone", value: "anyone" },
   { label: "Selected people", value: "allowlist" },
   { label: "Allow All Local Agents", value: "all-local-agents" },
@@ -340,7 +343,15 @@ export function CreateAgentRespondToField({
       {mode === "owner-only" ? (
         <>
           <p className="text-xs text-muted-foreground">
-            Only you and your agents can send instructions.
+            Only you can send instructions.
+          </p>
+          <OwnerOnlyMembers agents={[]} />
+        </>
+      ) : null}
+      {mode === "owner-and-agents" ? (
+        <>
+          <p className="text-xs text-muted-foreground">
+            You and your agents can send instructions.
           </p>
           <OwnerOnlyMembers agents={managedAgentsQuery.data ?? []} />
         </>
@@ -701,7 +712,7 @@ function AllowlistPicker({
   );
 }
 
-/** Who "Only me" includes: you and your own agents (the harness gate admits the owner and every same-owner agent). */
+/** Who may instruct the agent: you, plus your own agents when "Me and my agents" is chosen. */
 export function OwnerOnlyMembers({ agents }: { agents: ManagedAgent[] }) {
   const me = useIdentityQuery().data?.pubkey;
   return (

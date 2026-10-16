@@ -73,15 +73,18 @@ test("the warning copy comes from the shared helper, not inline text", () => {
   assert.match(collapsedSource, /<p aria-live="polite"[^>]*> \{warningText\}/);
 });
 
-test("the Only me line names the owner's agents, not the owner alone", () => {
-  // The harness gate admits the owner and every verified same-owner agent
-  // (`managed_agents/access_policy.rs`), and the built-in Welcome team depends
-  // on that, so a line promising the owner alone would overstate the boundary.
+test("Only me is strictly the owner; Me and my agents lists the agents", () => {
+  // `owner-only` admits the owner alone; same-owner agents need the explicit
+  // `owner-and-agents` option (`managed_agents/access_policy.rs`).
   assert.match(
     collapsedSource,
-    /mode === "owner-only" \? \( <> <p[^>]*> Only you and your agents can send instructions\./,
+    /mode === "owner-only" \? \( <> <p[^>]*> Only you can send instructions\. <\/p> <OwnerOnlyMembers agents=\{\[\]\} \/>/,
   );
-  assert.match(collapsedSource, /<OwnerOnlyMembers agents=/);
+  assert.match(
+    collapsedSource,
+    /mode === "owner-and-agents" \? \( <> <p[^>]*> You and your agents can send instructions\./,
+  );
+  assert.match(collapsedSource, /value: "owner-and-agents"/);
   assert.match(collapsedSource, /<DesktopDataNotice what=/);
 });
 

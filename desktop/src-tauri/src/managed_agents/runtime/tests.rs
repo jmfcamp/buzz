@@ -144,7 +144,7 @@ fn build_env_owner_only_sets_mode_and_removes_others() {
             set_map
                 .get("BUZZ_ACP_ALLOWED_RESPOND_TO")
                 .map(String::as_str),
-            Some("owner-only")
+            Some("owner-only,owner-and-agents")
         );
         assert!(!remove.contains(&"BUZZ_ACP_ALLOWED_RESPOND_TO"));
     } else {

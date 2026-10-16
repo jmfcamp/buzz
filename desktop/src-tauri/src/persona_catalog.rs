@@ -249,7 +249,7 @@ fn parse_agent(content: &str) -> Option<CatalogAgentProjection> {
 
     let respond_to = match object.get("respond_to").and_then(Value::as_str) {
         Some("allowlist") => Some("owner-only".to_string()),
-        Some(value @ ("owner-only" | "anyone")) => Some(value.to_string()),
+        Some(value @ ("owner-only" | "owner-and-agents" | "anyone")) => Some(value.to_string()),
         _ => None,
     };
     let parallelism = object

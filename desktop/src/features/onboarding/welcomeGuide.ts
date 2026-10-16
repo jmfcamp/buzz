@@ -268,10 +268,11 @@ export function welcomeTeammateHasExpectedAccess(
   agentAccessOwnerOnly: boolean,
 ) {
   if (agentAccessOwnerOnly) {
-    // Welcome teammates are created owner-only, and the lead remains authorized
-    // as a NIP-OA-verified sibling because every Welcome agent shares one owner.
+    // Owner-only builds clamp wider modes, so teammates use "Me and my agents":
+    // the lead is authorized as a NIP-OA-verified same-owner sibling. Strict
+    // "owner-only" would lock the lead out.
     return (
-      teammate.respondTo === "owner-only" &&
+      teammate.respondTo === "owner-and-agents" &&
       teammate.respondToAllowlist.length === 0
     );
   }
@@ -304,7 +305,7 @@ export function welcomeTeammateAccessUpdate(
   return agentAccessOwnerOnly
     ? {
         pubkey: teammate.pubkey,
-        respondTo: "owner-only",
+        respondTo: "owner-and-agents",
         respondToAllowlist: [],
       }
     : {

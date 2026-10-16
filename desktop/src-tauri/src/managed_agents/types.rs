@@ -861,6 +861,8 @@ fn default_record_active() -> bool {
 pub enum RespondTo {
     #[default]
     OwnerOnly,
+    /// Owner plus verified same-owner agents (the pre-split `owner-only`).
+    OwnerAndAgents,
     Allowlist,
     Anyone,
 }
@@ -870,6 +872,7 @@ impl RespondTo {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::OwnerOnly => "owner-only",
+            Self::OwnerAndAgents => "owner-and-agents",
             Self::Allowlist => "allowlist",
             Self::Anyone => "anyone",
         }
@@ -883,10 +886,11 @@ impl RespondTo {
     pub fn parse_wire(value: &str) -> Result<Self, String> {
         match value {
             "owner-only" => Ok(Self::OwnerOnly),
+            "owner-and-agents" => Ok(Self::OwnerAndAgents),
             "allowlist" => Ok(Self::Allowlist),
             "anyone" => Ok(Self::Anyone),
             other => Err(format!(
-                "definition respond_to '{other}' is not a recognized mode (expected 'owner-only', 'allowlist', or 'anyone')"
+                "definition respond_to '{other}' is not a recognized mode (expected 'owner-only', 'owner-and-agents', 'allowlist', or 'anyone')"
             )),
         }
     }

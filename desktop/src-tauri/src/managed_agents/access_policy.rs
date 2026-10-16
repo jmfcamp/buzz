@@ -22,20 +22,14 @@
 //!   does not present the locked owner-only control as applied while the remote
 //!   deployment may still use a wider policy.
 //!
-//! ## "owner-only" is owner plus verified same-owner sibling agents
+//! ## "owner-only" is strictly the owner; "owner-and-agents" adds siblings
 //!
-//! The harness gate this projection targets admits the human owner *and* every
-//! cryptographically NIP-OA-verified agent that shares that owner (see
-//! `crates/buzz-acp/src/lib.rs`). That is the intended boundary, not an
-//! oversight: an owner's own agents are inside their trust boundary, and Buzz's
-//! built-in Welcome team relies on it, because the lead instructs its teammates
-//! while every teammate is created owner-only (see
-//! `welcomeTeammateHasExpectedAccess` in
-//! `desktop/src/features/onboarding/welcomeGuide.ts`). Read every use of
-//! "owner-only" in this module as `owner ∪ verified same-owner agents`. The
-//! setting's own copy says so: the line under Only me reads "Only you and your
-//! agents can send instructions." (`RespondToField.tsx`). The dropdown label
-//! stays "Only me", which is the audience the user picks.
+//! `owner-only` ("Only me") admits only the human owner. `owner-and-agents`
+//! ("Me and my agents") additionally admits every NIP-OA-verified agent that
+//! shares the owner (see `crates/buzz-acp/src/lib.rs`) — the meaning
+//! `owner-only` had before the split. Both stay inside the owner's trust
+//! boundary, so an owner-only access build keeps `owner-and-agents` and clamps
+//! every wider mode to `owner-only`.
 
 use super::{validate_respond_to_allowlist, ManagedAgentRecord, RespondTo};
 
@@ -62,7 +56,12 @@ pub(crate) fn projected_access_with_policy(
     owner_only_access: bool,
 ) -> (RespondTo, Vec<String>) {
     if owner_only_with_policy(owner_only_access) {
-        (RespondTo::OwnerOnly, Vec::new())
+        let mode = if record.respond_to == RespondTo::OwnerAndAgents {
+            RespondTo::OwnerAndAgents
+        } else {
+            RespondTo::OwnerOnly
+        };
+        (mode, Vec::new())
     } else {
         (record.respond_to, record.respond_to_allowlist.clone())
     }
@@ -89,7 +88,11 @@ pub(crate) fn build_respond_to_env_with_policy(
     if enforced_owner_only {
         set.push((
             "BUZZ_ACP_ALLOWED_RESPOND_TO",
-            RespondTo::OwnerOnly.as_str().to_string(),
+            format!(
+                "{},{}",
+                RespondTo::OwnerOnly.as_str(),
+                RespondTo::OwnerAndAgents.as_str()
+            ),
         ));
     } else {
         remove.push("BUZZ_ACP_ALLOWED_RESPOND_TO");
