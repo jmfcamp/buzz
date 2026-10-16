@@ -1,4 +1,5 @@
 import * as React from "react";
+import { deleteChannelUnarchivingIfNeeded } from "./lib/deleteArchivedChannel";
 import {
   useMutation,
   useQuery,
@@ -794,7 +795,20 @@ export function useDeleteChannelMutation(channelId: string | null) {
         throw new Error("No channel selected.");
       }
 
-      await deleteChannel(channelId);
+      const cached =
+        queryClient
+          .getQueryData<Channel[]>(channelsQueryKey)
+          ?.find((channel) => channel.id === channelId) ??
+        queryClient.getQueryData<Channel>(channelDetailQueryKey(channelId));
+      await deleteChannelUnarchivingIfNeeded(
+        channelId,
+        Boolean(cached?.archivedAt),
+        { deleteChannel, unarchiveChannel, archiveChannel },
+      );
+    },
+    onError: async () => {
+      // Delete may have unarchived/re-archived; refresh archived state.
+      await invalidateChannelState(queryClient, channelId);
     },
     onSuccess: () => {
       if (!channelId) {
