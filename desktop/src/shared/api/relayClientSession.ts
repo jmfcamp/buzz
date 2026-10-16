@@ -82,6 +82,14 @@ import { createRelayInboundBuffer } from "@/shared/api/relayInboundBuffer";
 import { buildThreadReferenceTags } from "@/features/messages/lib/threading";
 import { handleProtectedRelayPayload } from "@protected-feature-components";
 type UserStatusInput = { text: string; emoji: string; expiresAt?: number };
+function isWebPlatform(): boolean {
+  try {
+    return import.meta.env?.VITE_BUZZ_PLATFORM === "web";
+  } catch {
+    return false;
+  }
+}
+
 export class RelayClient {
   private wsId: number | null = null;
   private relayUrl: string | null = null;
@@ -250,6 +258,23 @@ export class RelayClient {
   }
 
   async fetchEvents(filter: RelaySubscriptionFilter): Promise<RelayEvent[]> {
+    // Web: small boot-critical reads (projects, repos, their tombstones,
+    // section config, own app-data) skip the socket — which waits for
+    // remote-signer AUTH and queues behind every channel REQ — and use the
+    // HTTP /query session bearer, which the relay answers in milliseconds.
+    if (isWebPlatform()) {
+      const http = await import("@/platform/web/relayHttp");
+      const filters = [filter as never];
+      if (http.isBootCriticalRead(filters)) {
+        try {
+          return (await http.queryRelayHttp(
+            filters,
+          )) as unknown as RelayEvent[];
+        } catch {
+          // Fall through to the socket path.
+        }
+      }
+    }
     return this.fetchHistory(filter);
   }
 

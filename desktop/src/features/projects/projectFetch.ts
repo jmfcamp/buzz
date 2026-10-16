@@ -1,4 +1,5 @@
 import { getCachedRelayOrigin } from "@/shared/lib/mediaUrl";
+import { bootDiagTime } from "@/shared/lib/bootDiag";
 import { getIdentity } from "@/shared/api/tauriIdentity";
 import {
   buildProjectHomeFromFetcher,
@@ -36,13 +37,20 @@ export async function fetchProjects(
   // Delegates to `buildProjectsFromFetcher` in `projectEnumeration.ts`, which
   // is the pure, Tauri-free core of this operation. Its javadoc explains
   // fail-closed tombstones and NIP-OA owner-deletion suppression.
-  const viewerPubkey = await getIdentity()
+  const viewerPubkey = await bootDiagTime("projects.identity", () =>
+    getIdentity(),
+  )
     .then((identity) => identity.pubkey)
     .catch(() => undefined);
   const fetcher: FetchProjectEventsExhaustively =
     fetchExhaustively ??
     ((kinds, extraFilter) =>
-      fetchProjectEventsExhaustively(kinds, extraFilter, undefined, signal));
+      bootDiagTime(
+        `projects.kind${kinds.join(",")}`,
+        () =>
+          fetchProjectEventsExhaustively(kinds, extraFilter, undefined, signal),
+        (events) => `count=${events.length}`,
+      ));
   const projects = await buildProjectsFromFetcher(fetcher, {
     relayOrigin: getCachedRelayOrigin(),
     hiddenAddresses: new Set(readHiddenProjectCards()),
