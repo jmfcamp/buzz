@@ -53,7 +53,10 @@ export function HulaProjectOverview({
     enabled: hulaPath.length > 0,
     queryKey: ["hula-sync", syncKey],
     queryFn: () => syncMissingHulaRepositories(project),
-    retry: false,
+    // Relay reads can be briefly rate-limited right after a (re)load; retry with
+    // backoff instead of caching the failure for the whole session.
+    retry: (count, error) => count < 4 && !isDesktopRepoError(error),
+    retryDelay: (attempt) => Math.min(30_000, 4_000 * 2 ** attempt),
     staleTime: Number.POSITIVE_INFINITY,
   });
   const added = syncQuery.data ?? 0;
