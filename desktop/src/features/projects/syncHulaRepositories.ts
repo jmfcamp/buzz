@@ -340,6 +340,11 @@ export async function syncMissingHulaRepositories(
   const announcements = deps.listRepositoryAnnouncements
     ? await deps.listRepositoryAnnouncements()
     : null;
+  if (announcements && announcements.length === 0 && project.repositories.length > 0) {
+    // A project with live repos can't have zero announcements; the read failed.
+    // Creating now would duplicate every repo, so stop and let the caller retry.
+    throw new Error("Could not load repositories from the relay. Try again.");
+  }
   const links = planRepositoryLinks(project, root, discovered, announcements);
   const known = links.known;
   const missing = discovered.filter((path) => !known.has(path));
