@@ -397,7 +397,9 @@ export async function syncMissingHulaRepositories(
 
   const renamed = await correctStoredRepositoryNames(project, deps);
   const driPubkey = await loggedInOwnerDri(project, deps);
-  const adopted = await adoptableAgentChannels(project, deps);
+  const adopted = await adoptableAgentChannels(project, deps, {
+    trustNamePrefix: options.linksOnly === true,
+  });
   if (missing.length === 0 && !linkChanged && adopted.length === 0) {
     if (!driPubkey) return renamed;
     const wrote = await publishMissingProjectDri(project, driPubkey, deps);
@@ -513,8 +515,8 @@ export async function syncMissingHulaRepositories(
 async function adoptableAgentChannels(
   project: Project,
   deps: HulaSyncDeps,
+  options: { trustNamePrefix: boolean },
 ): Promise<string[]> {
-  if (!deps.getUsersBatch) return [];
   try {
     const directory = await deps.getOpenChannelDirectory();
     const linked = new Set<string>([
@@ -534,6 +536,17 @@ async function adoptableAgentChannels(
       )
       .slice(0, 20);
     if (candidates.length === 0) return [];
+    if (options.trustNamePrefix) {
+      return findAdoptableProjectChannels({
+        projectChannelName: project.name,
+        ownerPubkey: project.owner,
+        linkedChannelIds: linked,
+        directory: candidates.map((channel) => ({ ...channel, createdBy: "" })),
+        creatorOwners: new Map(),
+        trustNamePrefix: true,
+      });
+    }
+    if (!deps.getUsersBatch) return [];
     const withCreators = (
       await Promise.all(
         candidates.map(async (channel) => {

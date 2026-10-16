@@ -32,3 +32,35 @@ test("adopts owner-agent channels with the project prefix only", () => {
   });
   assert.deepEqual(ids, ["4e55"]);
 });
+
+test("explicit repair trusts the prefix when ownership is unprovable (web: relay as creator, no NIP-OA)", () => {
+  const RELAY = "05c8";
+  const ids = findAdoptableProjectChannels({
+    projectChannelName: "products_hulahealth",
+    ownerPubkey: JM,
+    linkedChannelIds: new Set(["linked"]),
+    creatorOwners: new Map(),
+    trustNamePrefix: true,
+    directory: [
+      ch("4e55", "products_hulahealth_portal-shell-and-journeys", RELAY),
+      ch("dup", "products_hulahealth_hulahealth-portal-app (2)", RELAY),
+      ch("linked", "products_hulahealth_portal-app", RELAY),
+      ch("arch", "products_hulahealth_old", RELAY, "2026-10-16"),
+      ch("other", "products_hulabill_y", RELAY),
+    ],
+  });
+  assert.deepEqual(ids, ["4e55"]);
+});
+
+test("auto sync still requires a provable owner", () => {
+  const ids = findAdoptableProjectChannels({
+    projectChannelName: "products_hulahealth",
+    ownerPubkey: JM,
+    linkedChannelIds: new Set(),
+    creatorOwners: new Map(),
+    directory: [
+      ch("4e55", "products_hulahealth_portal-shell-and-journeys", "05c8"),
+    ],
+  });
+  assert.deepEqual(ids, []);
+});
