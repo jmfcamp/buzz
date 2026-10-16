@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { relayReadRetry, relayReadRetryDelay } from "@/shared/lib/relayReadRetry";
 import * as React from "react";
 
 import { relayClient } from "@/shared/api/relayClient";
@@ -624,6 +625,8 @@ export function useProjectsQuery(enabled = true) {
     staleTime: PROJECTS_STALE_TIME_MS,
     gcTime: PROJECTS_GC_TIME_MS,
     structuralSharing: PROJECT_QUERY_STRUCTURAL_SHARING,
+    retry: relayReadRetry,
+    retryDelay: relayReadRetryDelay,
     enabled,
   });
 }
@@ -657,6 +660,8 @@ export function useProjectQuery(projectId: string) {
     staleTime: PROJECTS_STALE_TIME_MS,
     gcTime: PROJECTS_GC_TIME_MS,
     structuralSharing: PROJECT_QUERY_STRUCTURAL_SHARING,
+    retry: relayReadRetry,
+    retryDelay: relayReadRetryDelay,
   });
 }
 
