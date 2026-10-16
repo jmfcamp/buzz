@@ -3,6 +3,8 @@ import { ArrowUpRight, MessageSquare } from "lucide-react";
 import { UsageAndActivityButton } from "@/features/agents/ui/AgentUsageActivityPanel";
 
 import { AgentIdentityCard } from "@/features/agents/ui/AgentIdentityCard";
+import { AgentRuntimeAvatarControl } from "@/features/agents/ui/AgentRuntimeAvatarControl";
+import type { PresenceStatus } from "@/shared/api/types";
 import { IDENTITY_CARD_GRID_CLASS } from "@/features/agents/ui/UnifiedAgentsSection";
 import {
   communityBotDirectoryChannelLink,
@@ -46,6 +48,10 @@ export function BotsEmptyState({
   );
 }
 
+function botAvailability(statusId: string): PresenceStatus {
+  return statusId === "online" || statusId === "away" ? statusId : "offline";
+}
+
 export function BotsDirectoryGrid({
   cards,
   onOpenBot,
@@ -58,12 +64,25 @@ export function BotsDirectoryGrid({
       {cards.map((card) => (
         <AgentIdentityCard
           ariaLabel={`Open ${card.name}`}
-          avatarUrl={card.avatarUrl}
+          avatar={
+            // Same portrait as a local agent card: rounded-square avatar with the presence dot cut into its
+            // bottom-right corner. Bots have no local runtime, so it is always in the status-dot state (no Start).
+            <AgentRuntimeAvatarControl
+              activeTestId={`bot-card-${card.id}-status-dot`}
+              availability={botAvailability(card.status.id)}
+              avatarUrl={card.avatarUrl}
+              isActive
+              isStarting={false}
+              label={card.name}
+              onStart={() => {}}
+              startTestId={`bot-card-${card.id}-start`}
+            />
+          }
+          avatarIsControl={false}
           dataTestId={`bot-card-${card.id}`}
           key={card.id}
           label={card.name}
-          subtitle={card.status.label}
-          statusDot={card.status.id === "online" || card.status.id === "away" ? card.status.id : "offline"}
+          subtitle={card.description?.trim() || card.status.label}
           onClick={() => onOpenBot(card.id)}
         />
       ))}

@@ -9,6 +9,8 @@ type AgentIdentityCardProps = {
   actions?: ReactNode;
   ariaLabel: string;
   avatar?: ReactNode;
+  /** False when `avatar` is display-only (community bots): skip the web no-Direct controls gate. Default true. */
+  avatarIsControl?: boolean;
   avatarUrl?: string | null;
   footerAccessory?: ReactNode;
   dataTestId: string;
@@ -30,6 +32,7 @@ export function AgentIdentityCard({
   actions,
   ariaLabel,
   avatar,
+  avatarIsControl = true,
   avatarUrl,
   dataTestId,
   footerAccessory,
@@ -83,7 +86,7 @@ export function AgentIdentityCard({
           rowFooter ? "pt-3 pb-11" : "pb-12",
         )}>
         <div className={cn("flex items-center justify-center", rowFooter ? "aspect-square h-auto max-h-24 w-auto max-w-24 min-h-0 flex-1" : "h-24 w-24")}>
-          {avatar && controlsOff ? gate(avatar, `${dataTestId}-controls-off`) : avatar ??
+          {avatar && controlsOff && avatarIsControl ? gate(avatar, `${dataTestId}-controls-off`) : avatar ??
             (trimmedAvatarUrl ? (
               <ProfileAvatar
                 avatarUrl={trimmedAvatarUrl}
