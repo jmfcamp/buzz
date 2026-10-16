@@ -232,7 +232,8 @@
 [data-phone] [data-phone-actions-open] {
   background: hsl(var(--muted) / 0.6);
 }
-[data-phone] [data-testid="message-row"] {
+[data-phone] [data-testid="message-row"],
+[data-phone] [data-phone-action-row] {
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
