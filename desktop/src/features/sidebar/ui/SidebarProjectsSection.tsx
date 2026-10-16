@@ -35,7 +35,7 @@ import {
   addProjectToSidebar,
   removeProjectFromSidebar,
 } from "@/features/projects/lib/projectSidebarMembership";
-import { useProjectSidebarMembership } from "@/features/projects/lib/useProjectSidebarMembership";
+import { useProjectSidebarMembershipState } from "@/features/projects/lib/useProjectSidebarMembership";
 import { projectMatchesRouteId } from "@/features/projects/projectRoutes";
 import { ProjectBrowserDialog } from "@/features/projects/ui/ProjectBrowserDialog";
 import { ProjectChannelIcon } from "@/features/projects/ui/ProjectChannelIcon";
@@ -146,13 +146,17 @@ export function SidebarProjectsSection() {
     React.useState<SidebarProjectExpansionState>(() =>
       readSidebarProjectExpansion(relayOrigin, currentPubkey),
     );
-  const addedProjectAddresses = useProjectSidebarMembership(
+  const membership = useProjectSidebarMembershipState(
     relayOrigin,
     currentPubkey,
   );
+  const addedProjectAddresses = membership.addresses;
   const createProjectMutation = useCreateProjectMutation();
   const deleteProjectMutation = useDeleteProjectMutation();
-  const isPending = projectsQuery.isPending || identityQuery.isPending;
+  const isPending =
+    projectsQuery.isPending ||
+    identityQuery.isPending ||
+    (filter === "added" && !membership.resolved);
   React.useEffect(() => {
     setProjectExpansion(
       readSidebarProjectExpansion(relayOrigin, currentPubkey),

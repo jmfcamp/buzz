@@ -1,5 +1,9 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  relayReadRetry,
+  relayReadRetryDelay,
+} from "@/shared/lib/relayReadRetry";
 
 import { useMyRelayMembershipLookupQuery } from "@/features/community-members/hooks";
 import { useCommunities } from "@/features/communities/useCommunities";
@@ -67,6 +71,8 @@ export function useCommunitySectionsCatalogQuery() {
     enabled: Boolean(relayUrl),
     queryFn: () => fetchCommunitySections(relayUrl),
     staleTime: 30_000,
+    retry: relayReadRetry,
+    retryDelay: relayReadRetryDelay,
   });
 }
 

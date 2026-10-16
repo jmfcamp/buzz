@@ -21,6 +21,19 @@ export function useProjectSidebarMembership(
   relayUrl: string | null,
   pubkey: string | undefined,
 ): string[] {
+  return useProjectSidebarMembershipState(relayUrl, pubkey).addresses;
+}
+
+/**
+ * Membership plus `resolved`: false until the remote membership bootstrap has
+ * finished (or a non-empty local copy exists), so callers can show a loading
+ * state instead of a false "No projects yet".
+ */
+export function useProjectSidebarMembershipState(
+  relayUrl: string | null,
+  pubkey: string | undefined,
+): { addresses: string[]; resolved: boolean } {
+  const [bootstrapped, setBootstrapped] = React.useState(false);
   const [store, setStore] = React.useState<ProjectSidebarMembershipStore>(
     EMPTY_PROJECT_SIDEBAR_MEMBERSHIP_STORE,
   );
@@ -118,12 +131,18 @@ export function useProjectSidebarMembership(
     if (!relayUrl || !pubkey) return;
     let cancelled = false;
     const local = readProjectSidebarMembershipStore(relayUrl, pubkey);
-    void managerRef.current?.bootstrap(local).then((result) => {
-      if (cancelled) return;
-      if (result.action === "apply-remote") {
-        setStore(applyRemote(result.data));
-      }
-    });
+    setBootstrapped(false);
+    void managerRef.current
+      ?.bootstrap(local)
+      .then((result) => {
+        if (cancelled) return;
+        if (result.action === "apply-remote") {
+          setStore(applyRemote(result.data));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setBootstrapped(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -169,5 +188,12 @@ export function useProjectSidebarMembership(
     };
   }, [applyRemote, pubkey, relayUrl]);
 
-  return React.useMemo(() => selectedProjectAddressesFromStore(store), [store]);
+  const addresses = React.useMemo(
+    () => selectedProjectAddressesFromStore(store),
+    [store],
+  );
+  return {
+    addresses,
+    resolved: bootstrapped || addresses.length > 0,
+  };
 }

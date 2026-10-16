@@ -1,9 +1,6 @@
-import { encryptAppData } from "@/shared/lib/appData";
-import { lazyDecryptFromSelf } from "@/shared/lib/lazyDecrypt";
+import { decryptAppData, encryptAppData } from "@/shared/lib/appData";
 import { relayClient } from "@/shared/api/relayClient";
-import {
-  signRelayEvent,
-} from "@/shared/api/tauri";
+import { signRelayEvent } from "@/shared/api/tauri";
 import type { RelayEvent } from "@/shared/api/types";
 import { KIND_PROJECT_SIDEBAR_MEMBERSHIP } from "@/shared/constants/kinds";
 import {
@@ -20,6 +17,9 @@ import {
 } from "@/features/sidebar/lib/sidebarSyncWatermark";
 
 const D_TAG = "project-sidebar-membership";
+export const MEMBERSHIP_BOOT_RETRY_DELAYS_MS = [
+  500, 1_000, 2_000, 4_000, 8_000,
+];
 const BLOB_TYPE = D_TAG;
 const DEBOUNCE_MS = 2_000;
 
@@ -33,7 +33,7 @@ async function decryptAndParse(
   event: RelayEvent,
 ): Promise<RemoteProjectSidebarMembership | null> {
   try {
-    const plaintext = await lazyDecryptFromSelf(event.content);
+    const plaintext = await decryptAppData(event.content);
     const store = parseProjectSidebarMembershipPayload(JSON.parse(plaintext));
     if (!store) return null;
     return { store, createdAt: event.created_at, eventId: event.id };
@@ -203,7 +203,24 @@ export class ProjectSidebarMembershipSyncManager {
   }
 
   async bootstrap(localStore: ProjectSidebarMembershipStore) {
-    const fetchResult = await this.fetchRemoteMembership();
+    // Membership decides which projects the sidebar lists (and therefore
+    // which channels move under Projects), so it is boot-critical: decrypt
+    // eagerly and retry a failed read/decrypt quickly instead of leaving the
+    // sidebar on "No projects yet" until the next reconnect.
+    let fetchResult = await this.fetchRemoteMembership();
+    for (
+      let attempt = 0;
+      fetchResult.status === "failed" &&
+      attempt < MEMBERSHIP_BOOT_RETRY_DELAYS_MS.length &&
+      !this.destroyed;
+      attempt += 1
+    ) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, MEMBERSHIP_BOOT_RETRY_DELAYS_MS[attempt]),
+      );
+      if (this.destroyed) break;
+      fetchResult = await this.fetchRemoteMembership();
+    }
     return runBootstrap({
       fetchResult,
       lastHead: this.lastRemoteCreatedAt,
