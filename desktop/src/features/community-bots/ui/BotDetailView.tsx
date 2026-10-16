@@ -12,8 +12,21 @@ import {
   findCommunityDirectoryBot,
   visibleCommunityDirectoryBots,
 } from "@/features/community-bots/lib/directory";
-import { BotDetailContent } from "@/features/community-bots/ui/BotsDirectoryPanels";
-import { useRelayMembersQuery } from "@/features/community-members/hooks";
+import {
+  BotDetailContent,
+  type BotPingState,
+} from "@/features/community-bots/ui/BotsDirectoryPanels";
+import {
+  useMyRelayMembershipLookupQuery,
+  useRelayMembersQuery,
+} from "@/features/community-members/hooks";
+import { awaitPingOutcome, PING_TIMEOUT_MS } from "@/features/agents/lib/pingOutcome";
+import { subscribeControlResults } from "@/features/agents/observerRelayStore";
+import { useDirectLive } from "@/features/assistantData/dataStore";
+import { isWebBuild } from "@/features/bridge/ui/DesktopData";
+import { pingManagedAgent } from "@/shared/api/agentControl";
+import { useIdentityQuery } from "@/shared/api/hooks";
+import { canManageCommunityMembers } from "@/shared/api/relayMembers";
 import { useIsArchivedPredicate } from "@/features/identity-archive/hooks";
 import { usePresenceQuery } from "@/features/presence/hooks";
 import { useUserProfileQuery } from "@/features/profile/hooks";
@@ -39,6 +52,12 @@ export function BotDetailView({
   const { goChannel } = useAppNavigation();
   const openDmMutation = useOpenDmMutation();
   const [messagePending, setMessagePending] = React.useState(false);
+  const [pingState, setPingState] = React.useState<BotPingState>({
+    kind: "idle",
+  });
+  const myPubkey = useIdentityQuery().data?.pubkey;
+  const myMembershipQuery = useMyRelayMembershipLookupQuery();
+  const directLive = useDirectLive();
   const isMountedRef = React.useRef(false);
 
   React.useEffect(() => {
@@ -113,6 +132,53 @@ export function BotDetailView({
     })();
   }, [bot, goChannel, messagePending, onClose, openDmMutation]);
 
+  // Owner-only: the bridge only honors control frames signed by its owner, and
+  // telemetry replies are encrypted to the owner. When the profile names an
+  // owner, require it to be me; otherwise fall back to community owner/admin.
+  const profileOwner = profileQuery.data?.ownerPubkey ?? null;
+  const canPing = Boolean(
+    bot &&
+      myPubkey &&
+      (profileOwner
+        ? normalizePubkey(profileOwner) === normalizePubkey(myPubkey)
+        : canManageCommunityMembers(myMembershipQuery.data)),
+  );
+  // Web decrypts the pong through the paired desktop (Direct); without it the
+  // reply can't be read, so the button is disabled rather than timing out.
+  const pingUnavailableReason =
+    isWebBuild() && !directLive ? "Needs Direct (desktop) to read the reply" : null;
+
+  const handlePing = React.useCallback(() => {
+    if (!bot || pingState.kind === "pending") return;
+    const requestId = crypto.randomUUID();
+    setPingState({ kind: "pending" });
+    void awaitPingOutcome({
+      requestId,
+      subscribe: (listener) => subscribeControlResults(bot.pubkey, listener),
+      sendPing: () => pingManagedAgent(bot.pubkey, requestId),
+      scheduleTimeout: (onTimeout) => {
+        const id = window.setTimeout(onTimeout, PING_TIMEOUT_MS);
+        return () => window.clearTimeout(id);
+      },
+      now: () => performance.now(),
+    })
+      .then((outcome) => {
+        if (!isMountedRef.current) return;
+        setPingState(
+          outcome.kind === "up"
+            ? { kind: "up", ms: outcome.ms }
+            : { kind: "timeout" },
+        );
+      })
+      .catch((error) => {
+        if (!isMountedRef.current) return;
+        setPingState({ kind: "idle" });
+        toast.error(
+          error instanceof Error ? error.message : "Couldn't send the ping.",
+        );
+      });
+  }, [bot, pingState.kind]);
+
   const isLoading =
     catalogQuery.isLoading ||
     (bot !== undefined &&
@@ -144,6 +210,9 @@ export function BotDetailView({
       messagePending={messagePending}
       onMessage={handleMessage}
       onOpenChannel={onOpenChannel}
+      onPing={canPing ? handlePing : undefined}
+      pingState={pingState}
+      pingUnavailableReason={pingUnavailableReason}
     />
   );
 }

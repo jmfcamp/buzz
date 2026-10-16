@@ -1940,6 +1940,9 @@ fn handle_relay_observer_control_event(
         Some("switch_model") => {
             handle_switch_model_control(&payload, pool, observer);
         }
+        Some("ping") => {
+            handle_ping_control(&payload, pool, observer);
+        }
         Some("publish_project_owner_announcements") => {
             handle_publish_project_owner_announcements_control(
                 &payload,
@@ -2097,6 +2100,41 @@ fn emit_project_owner_control_result(
 }
 
 /// Handle a `cancel_turn` control frame: signal the in-flight task to cancel.
+/// Handle an owner `ping` control frame: answer at once with a `control_result`
+/// (`status: "pong"`) echoing `requestId`. No model turn, no channel post, no
+/// secrets — just the bridge version and how many turns are in flight.
+fn handle_ping_control(
+    payload: &serde_json::Value,
+    pool: &AgentPool,
+    observer: Option<&observer::ObserverHandle>,
+) {
+    let Some(observer) = observer else {
+        return;
+    };
+    let channel_id = payload
+        .get("channelId")
+        .and_then(|value| value.as_str())
+        .and_then(|value| value.parse::<Uuid>().ok())
+        .map(|id| id.to_string());
+    observer.emit(
+        "control_result",
+        None,
+        &observer::ObserverContext {
+            channel_id,
+            session_id: None,
+            turn_id: None,
+            started_at: None,
+        },
+        serde_json::json!({
+            "type": "ping",
+            "status": "pong",
+            "requestId": payload.get("requestId"),
+            "inFlight": pool.task_map().len(),
+            "bridgeVersion": env!("CARGO_PKG_VERSION"),
+        }),
+    );
+}
+
 fn handle_cancel_turn_control(
     payload: &serde_json::Value,
     pool: &mut AgentPool,
@@ -7181,6 +7219,46 @@ mod owner_control_command_tests {
                 successful_steer_deliveries: HashSet::new(),
             },
         );
+    }
+
+    #[tokio::test]
+    async fn ping_control_answers_pong_with_request_id_and_in_flight_count() {
+        let mut pool = AgentPool::from_slots(vec![]);
+        let ch = Uuid::new_v4();
+        let (tx, mut rx) = tokio::sync::oneshot::channel();
+        insert_task_meta(
+            &mut pool,
+            0,
+            scope::SessionScope::Conversation { channel_id: ch },
+            tx,
+        );
+        let observer = observer::ObserverHandle::in_process();
+        handle_ping_control(
+            &serde_json::json!({ "requestId": "p-1" }),
+            &pool,
+            Some(&observer),
+        );
+        let results = observer.snapshot();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, "control_result");
+        assert_eq!(results[0].payload["type"], "ping");
+        assert_eq!(results[0].payload["status"], "pong");
+        assert_eq!(results[0].payload["requestId"], "p-1");
+        assert_eq!(results[0].payload["inFlight"], 1);
+        assert_eq!(results[0].channel_id, None);
+        // A ping never signals or cancels in-flight work.
+        assert_eq!(
+            rx.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        );
+        // Optional channelId is echoed when valid; no observer means nothing to answer on.
+        handle_ping_control(
+            &serde_json::json!({ "requestId": "p-2", "channelId": ch.to_string() }),
+            &pool,
+            Some(&observer),
+        );
+        assert_eq!(observer.snapshot()[1].channel_id, Some(ch.to_string()));
+        handle_ping_control(&serde_json::json!({ "requestId": "p-3" }), &pool, None);
     }
 
     #[tokio::test]

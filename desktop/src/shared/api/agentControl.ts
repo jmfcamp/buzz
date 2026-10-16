@@ -36,3 +36,11 @@ export async function switchManagedAgentModel(
     requestId,
   });
 }
+
+/** Owner-only liveness probe; the bridge answers with a `ping`/`pong` control_result. */
+export async function pingManagedAgent(
+  pubkey: string,
+  requestId: string,
+): Promise<void> {
+  await sendAgentObserverControl(pubkey, { type: "ping", requestId });
+}

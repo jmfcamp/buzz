@@ -1,4 +1,4 @@
-import { ArrowUpRight, MessageSquare } from "lucide-react";
+import { Activity, ArrowUpRight, CheckCircle2, MessageSquare, XCircle } from "lucide-react";
 
 import { UsageAndActivityButton } from "@/features/agents/ui/AgentUsageActivityPanel";
 
@@ -91,16 +91,85 @@ export function BotsDirectoryGrid({
   );
 }
 
+export type BotPingState =
+  | { kind: "idle" }
+  | { kind: "pending" }
+  | { kind: "up"; ms: number }
+  | { kind: "timeout" };
+
+const PRIMARY_ACTION_CLASS =
+  "flex min-h-20 w-full flex-col items-center justify-center gap-1.5 rounded-xl bg-muted px-2 py-3 text-center transition-colors hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
+
+function BotPingButton({
+  onPing,
+  state,
+  unavailableReason,
+}: {
+  onPing: () => void;
+  state: BotPingState;
+  unavailableReason: string | null;
+}) {
+  const pending = state.kind === "pending";
+  let icon = <Activity className="h-5 w-5 text-foreground" />;
+  let label = "Ping";
+  if (pending) {
+    icon = <Spinner aria-hidden="true" className="h-5 w-5 border-2" />;
+    label = "Pinging…";
+  } else if (state.kind === "up") {
+    icon = <CheckCircle2 className="h-5 w-5 text-green-600" />;
+    label = `Up, ${state.ms} ms`;
+  } else if (state.kind === "timeout") {
+    icon = <XCircle className="h-5 w-5 text-red-600" />;
+    label = "Not responding";
+  }
+  return (
+    <button
+      aria-busy={pending || undefined}
+      aria-label="Ping"
+      className={PRIMARY_ACTION_CLASS}
+      data-ping-state={state.kind}
+      data-testid="bot-detail-ping"
+      disabled={pending || unavailableReason !== null}
+      onClick={onPing}
+      title={
+        unavailableReason ??
+        (state.kind === "timeout"
+          ? "No reply in 10s — the bridge may need an update"
+          : "Check the bot's bridge is up")
+      }
+      type="button"
+    >
+      {icon}
+      <span
+        className={`min-w-0 text-xs font-medium leading-tight ${state.kind === "up" ? "text-green-600" : state.kind === "timeout" ? "text-red-600" : ""}`}
+      >
+        {label}
+      </span>
+      {state.kind === "timeout" ? (
+        <span className="min-w-0 text-[10px] leading-tight text-red-600/80">
+          bridge may need update
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
 export function BotDetailContent({
   detail,
   messagePending = false,
   onMessage,
   onOpenChannel,
+  onPing,
+  pingState,
+  pingUnavailableReason,
 }: {
   detail: CommunityBotDirectoryDetail;
   messagePending?: boolean;
   onMessage?: () => void;
   onOpenChannel: (channelId: string) => void;
+  onPing?: () => void;
+  pingState?: BotPingState;
+  pingUnavailableReason?: string | null;
 }) {
   const channelLinks = detail.channels.map(communityBotDirectoryChannelLink);
 
@@ -147,7 +216,7 @@ export function BotDetailContent({
         </div>
       </div>
 
-      {onMessage ? (
+      {onMessage || onPing ? (
         <div
           className="grid grid-flow-col auto-cols-fr gap-2"
           data-testid="bot-detail-primary-actions"
@@ -170,6 +239,13 @@ export function BotDetailContent({
               Message
             </span>
           </button>
+          {onPing ? (
+            <BotPingButton
+              onPing={onPing}
+              state={pingState ?? { kind: "idle" }}
+              unavailableReason={pingUnavailableReason ?? null}
+            />
+          ) : null}
         </div>
       ) : null}
 
