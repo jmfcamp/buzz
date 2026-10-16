@@ -449,7 +449,7 @@ test("access remediation skips a teammate that already allows the lead", () => {
 test("owner-only-access policy accepts provider Welcome teammates", () => {
   const teammate = makeAgent({
     backend: { type: "provider", id: "remote", config: {} },
-    respondTo: "owner-only",
+    respondTo: "owner-and-agents",
     respondToAllowlist: [],
   });
   assert.equal(welcomeTeammateHasExpectedAccess(teammate, PUB_B, true), true);
