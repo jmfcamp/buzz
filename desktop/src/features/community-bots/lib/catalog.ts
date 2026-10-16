@@ -21,7 +21,7 @@ import {
 } from "./localCatalog";
 import { communityBotProfileLooksSecret } from "./profile";
 import {
-  MAX_COMMUNITY_BOT_DESCRIPTION_LEN,
+  descriptionField,
   type CommunityBot,
   type CommunityBotsPayload,
 } from "./types";
@@ -56,28 +56,25 @@ function parseBot(value: unknown): CommunityBot | null {
   ) {
     return null;
   }
-  const description =
-    typeof candidate.description === "string"
-      ? candidate.description.trim().slice(0, MAX_COMMUNITY_BOT_DESCRIPTION_LEN)
-      : "";
   return {
     id,
     name,
     pubkey,
     source: "openclaw",
-    ...(description ? { description } : {}),
+    ...descriptionField(
+      typeof candidate.description === "string" ? candidate.description : null,
+    ),
   };
 }
 
 /** Wire shape of one bot; `description` only when set (older readers ignore unknown fields). */
 export function serializeCommunityBot(bot: CommunityBot) {
-  const description = bot.description?.trim() ?? "";
   return {
     id: bot.id,
     name: bot.name,
     pubkey: normalizePubkey(bot.pubkey),
     source: "openclaw" as const,
-    ...(description ? { description } : {}),
+    ...descriptionField(bot.description),
   };
 }
 

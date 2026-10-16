@@ -119,3 +119,9 @@ export const REQUIRED_OPERATOR_SCOPES = [
   "operator.write",
   "operator.admin",
 ] as const;
+
+/** Trimmed, length-capped community bot description field, or nothing when empty. */
+export function descriptionField(description: string | undefined | null): { description?: string } {
+  const trimmed = description?.trim().slice(0, MAX_COMMUNITY_BOT_DESCRIPTION_LEN) ?? "";
+  return trimmed ? { description: trimmed } : {};
+}

@@ -6,7 +6,7 @@ import {
 import { assertValidCommunityBotDisplayName } from "./profile";
 import {
   defaultRemoteAgentName,
-  MAX_COMMUNITY_BOT_DESCRIPTION_LEN,
+  descriptionField,
   normalizeCommunityBotDisplayName,
   type CommunityBot,
   type RemoteOpenClawAgent,
@@ -63,8 +63,3 @@ export async function completeCommunityBotRename(input: {
   return next;
 }
 
-/** Trimmed, length-capped description field, or nothing when empty. */
-export function descriptionField(description: string | undefined): { description?: string } {
-  const trimmed = description?.trim().slice(0, MAX_COMMUNITY_BOT_DESCRIPTION_LEN) ?? "";
-  return trimmed ? { description: trimmed } : {};
-}
