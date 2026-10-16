@@ -139,6 +139,7 @@ export function InboxMessageRow({
           isContinuation ? "items-center" : "items-start",
         )}
         data-message-id={message.id}
+        data-phone-action-row=""
         data-testid={
           message.isSelected
             ? "home-inbox-selected-message"
@@ -147,6 +148,9 @@ export function InboxMessageRow({
       >
         {canReply || canToggleReactions || onDelete || onEdit ? (
           <div
+            // Phone hides every action rail until its row is tapped or
+            // long-pressed (phone.css + phoneLayout touch behaviors).
+            data-message-action-rail=""
             className={cn(
               "absolute right-2 top-1 z-10",
               !isFirst && "sm:top-0 sm:-translate-y-1/2",

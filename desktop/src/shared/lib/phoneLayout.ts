@@ -285,10 +285,13 @@ export function isStandaloneDisplay(): boolean {
   return nav.standalone === true || (typeof window.matchMedia === "function" && window.matchMedia("(display-mode: standalone)").matches);
 }
 
-const ROW_SELECTOR = '[data-testid="message-row"]';
+// Channel/DM timeline rows and Inbox detail rows (DMs opened from Inbox).
+const ROW_SELECTOR = '[data-testid="message-row"],[data-phone-action-row]';
 const INTERACTIVE_SELECTOR =
   'a,button,input,textarea,select,label,[contenteditable="true"],[role="button"],[role="menu"],[role="menuitem"],[data-message-action-rail],[data-radix-popper-content-wrapper]';
 const OPEN_ATTR = "data-phone-actions-open";
+const TIMELINE_SELECTOR =
+  '[data-testid="message-timeline"],[data-testid="home-inbox-detail-scroll"]';
 
 function isEditable(el: Element | null): el is HTMLElement {
   return !!el && (el instanceof HTMLElement) && (el.isContentEditable || /^(INPUT|TEXTAREA)$/.test(el.tagName));
@@ -312,7 +315,7 @@ function installPhoneTouchBehaviors(mql: MediaQueryList): void {
     (event) => {
       if (!mql.matches) return;
       const target = event.target as Element | null;
-      if (!target?.closest?.('[data-testid="message-timeline"]')) return;
+      if (!target?.closest?.(TIMELINE_SELECTOR)) return;
       if (target.closest('[data-testid="message-composer"],[data-radix-popper-content-wrapper]')) return;
       const active = document.activeElement;
       if (isEditable(active) && !active.contains(target)) active.blur();
@@ -357,7 +360,7 @@ function installPhoneTouchBehaviors(mql: MediaQueryList): void {
       const target = event.target as Element | null;
       // Some timeline click handlers re-focus the composer; a tap in the list keeps the keyboard down.
       if (
-        target?.closest?.('[data-testid="message-timeline"]') &&
+        target?.closest?.(TIMELINE_SELECTOR) &&
         !target.closest('[data-testid="message-composer"],[data-radix-popper-content-wrapper]')
       ) {
         window.setTimeout(() => {
