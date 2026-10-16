@@ -42,6 +42,8 @@ import {
   signRelayEvent,
 } from "@/shared/api/tauri";
 import { getIdentity } from "@/shared/api/tauriIdentity";
+import { planRepositoryLinks } from "@/features/projects/lib/hulaRepositoryLinks";
+import { fetchProjectEventsExhaustively } from "@/features/projects/projectEnumeration";
 import type { Channel, RelayEvent } from "@/shared/api/types";
 import {
   KIND_PROJECT_ANNOUNCEMENT,
@@ -59,6 +61,11 @@ type HulaSyncDeps = {
   publishRepositoryEvent: (event: RelayEvent) => Promise<void>;
   /** Logged-in desktop user. Used to backfill a missing DRI. Tests omit it. */
   getIdentity?: () => Promise<{ pubkey: string }>;
+  /**
+   * Every live repository announcement, any author. Lets the owner's sync
+   * reuse a collaborator's repo for a folder instead of re-creating it.
+   */
+  listRepositoryAnnouncements?: () => Promise<RelayEvent[]>;
 };
 
 const defaultHulaSyncDeps: HulaSyncDeps = {
@@ -72,6 +79,8 @@ const defaultHulaSyncDeps: HulaSyncDeps = {
   publishProjectEvent,
   publishRepositoryEvent,
   getIdentity,
+  listRepositoryAnnouncements: () =>
+    fetchProjectEventsExhaustively([KIND_REPO_ANNOUNCEMENT]),
 };
 
 /**
@@ -85,6 +94,8 @@ export function buildHulaMembershipPatch(input: {
   repositoryAddresses: string[];
   /** Logged-in owner pubkey used when the live announcement has no DRI. */
   driPubkey?: string | null;
+  /** Related channels to remove (for example archived duplicate channels). */
+  dropRelatedChannelIds?: readonly string[];
 }): ProjectEventTemplate {
   const patched = buildProjectPatchTemplate({
     liveHead: input.liveHead,
@@ -96,7 +107,11 @@ export function buildHulaMembershipPatch(input: {
       .filter((tag) => tag[0] === PROJECT_RELATED_CHANNEL_TAG)
       .map((tag) => tag[1]),
   );
-  const tags = patched.tags.map((tag) => [...tag]);
+  const drop = new Set(input.dropRelatedChannelIds ?? []);
+  const tags = patched.tags
+    .filter((tag) => !(tag[0] === PROJECT_RELATED_CHANNEL_TAG && drop.has(tag[1])))
+    .map((tag) => [...tag]);
+  for (const channelId of [...drop]) present.delete(channelId);
   for (const channelId of [...input.relatedChannelIds].sort()) {
     if (!channelId || present.has(channelId)) continue;
     tags.push([PROJECT_RELATED_CHANNEL_TAG, channelId]);
@@ -322,15 +337,16 @@ export async function syncMissingHulaRepositories(
   if (!root) throw new Error("Choose a directory inside Hula.");
 
   const discovered = await deps.listGitRepositories(root);
-  const known = new Set<string>([root]);
-  for (const repository of project.repositories) {
-    if (!repository.hulaPath) continue;
-    const normalized = hulaDirectoryPath(repository.hulaPath);
-    if (normalized) known.add(normalized);
-  }
+  const announcements = deps.listRepositoryAnnouncements
+    ? await deps.listRepositoryAnnouncements()
+    : null;
+  const links = planRepositoryLinks(project, root, discovered, announcements);
+  const known = links.known;
   const missing = discovered.filter((path) => !known.has(path));
+  const linkChanged =
+    links.relinked.length > 0 || links.replaced.size > 0 || links.dropped.size > 0;
   if (
-    project.repositoryAddresses.length + missing.length >
+    links.addresses.length + missing.length >
     MAX_PROJECT_MEMBERS
   ) {
     throw new Error(
@@ -348,7 +364,7 @@ export async function syncMissingHulaRepositories(
 
   const renamed = await correctStoredRepositoryNames(project, deps);
   const driPubkey = await loggedInOwnerDri(project, deps);
-  if (missing.length === 0) {
+  if (missing.length === 0 && !linkChanged) {
     if (!driPubkey) return renamed;
     const wrote = await publishMissingProjectDri(project, driPubkey, deps);
     return renamed + (wrote ? 1 : 0);
@@ -358,7 +374,16 @@ export async function syncMissingHulaRepositories(
   const taken = directory
     .filter((channel) => channel.archivedAt === null)
     .map((channel) => channel.name);
-  const usedDtags = project.repositories.map((repository) => repository.dtag);
+  const usedDtags = [
+    ...project.repositories.map((repository) => repository.dtag),
+    ...links.allDtags,
+  ];
+  const archived = new Set(
+    directory
+      .filter((channel) => channel.archivedAt !== null)
+      .map((channel) => channel.id),
+  );
+  const dropRelated = project.relatedChannelIds.filter((id) => archived.has(id));
   const resume = new Map<string, Channel>();
   const added: { address: string; channelId: string; dtag: string }[] = [];
 
@@ -425,7 +450,8 @@ export async function syncMissingHulaRepositories(
   }
   const related = [
     ...new Set([
-      ...project.relatedChannelIds,
+      ...project.relatedChannelIds.filter((id) => !archived.has(id)),
+      ...links.relinkedChannelIds.filter((id) => !archived.has(id)),
       ...added
         .map((repo) => repo.channelId)
         .filter((channelId) => channelId !== project.projectChannelId),
@@ -436,16 +462,14 @@ export async function syncMissingHulaRepositories(
     ownerPubkey: project.owner,
     relatedChannelIds: related,
     driPubkey,
+    dropRelatedChannelIds: dropRelated,
     repositoryAddresses: [
-      ...new Set([
-        ...project.repositoryAddresses,
-        ...added.map((repo) => repo.address),
-      ]),
+      ...new Set([...links.addresses, ...added.map((repo) => repo.address)]),
     ],
   });
   const projectEvent = await deps.signRelayEvent(patched);
   await deps.publishProjectEvent(projectEvent);
-  return added.length + renamed;
+  return added.length + renamed + (linkChanged ? 1 : 0);
 }
 
 /**
@@ -506,3 +530,4 @@ function assertPathLength(hulaPath: string) {
     throw new Error("The Hula path is too long.");
   }
 }
+
