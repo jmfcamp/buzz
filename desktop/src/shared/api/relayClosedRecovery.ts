@@ -14,6 +14,15 @@ import {
 import type { RelayEvent } from "@/shared/api/types";
 
 const RETRY_BASE_DELAY_MS = 1_000;
+
+/** Rate-limited history reads retry this many times (with jitter) before rejecting. */
+export const HISTORY_RATE_LIMIT_RETRIES = 12;
+let historyRetryJitter = (attempt: number) =>
+  Math.floor(Math.random() * 2_000 * (attempt + 1));
+/** Test hook: make retry timing deterministic. */
+export function setHistoryRetryJitterForTests(fn: (attempt: number) => number) {
+  historyRetryJitter = fn;
+}
 const RETRY_MAX_DELAY_MS = 30_000;
 
 type LiveSubscription = Extract<RelaySubscription, { mode: "live" }>;
@@ -55,7 +64,7 @@ export function handleRelayClosed({
       // rather than waiting forever.
       if (subscription.mode === "history") {
         const attempt = subscription.closedRetryAttempt ?? 0;
-        if (attempt < 3) {
+        if (attempt < HISTORY_RATE_LIMIT_RETRIES) {
           subscription.closedRetryAttempt = attempt + 1;
           // The same cancellable timeout owns admission waiting and, only once
           // dispatched, the response budget. A later hint can extend the gate.
@@ -92,9 +101,10 @@ export function handleRelayClosed({
               );
             });
           };
+          // Jitter so every refused read doesn't resend the instant the gate opens.
           subscription.timeout = window.setTimeout(
             retryWhenAdmitted,
-            rateLimitRemainingMs(),
+            rateLimitRemainingMs() + historyRetryJitter(attempt),
           );
           return;
         }

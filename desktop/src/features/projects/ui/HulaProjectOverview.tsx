@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 
 import type { Project } from "@/features/projects/hooks";
@@ -12,6 +12,8 @@ import {
 import { openClawWorkspaceClient } from "@/features/projects/lib/openClawWorkspaceClient";
 import { syncMissingHulaRepositories } from "@/features/projects/syncHulaRepositories";
 import { Button } from "@/shared/ui/button";
+import { relayReadRetry, relayReadRetryDelay } from "@/shared/lib/relayReadRetry";
+import { useIdentityQuery } from "@/shared/api/hooks";
 import { isWebBuild } from "@/features/bridge/ui/DesktopData";
 import { DesktopRepoCard, isDesktopRepoError, useDesktopRepoDirect } from "./DesktopRepoCard";
 import { OverviewRailSection } from "./ProjectOverviewPanel";
@@ -49,17 +51,26 @@ export function HulaProjectOverview({
     queryFn: () => loadCheckoutRows(project),
   });
   const syncKey = `${project.id}:${project.repositoryAddresses.length}`;
+  const identityQuery = useIdentityQuery();
+  const isOwner =
+    !!identityQuery.data?.pubkey &&
+    identityQuery.data.pubkey.toLowerCase() === project.owner.toLowerCase();
+  const republish = useMutation({
+    mutationFn: () => syncMissingHulaRepositories(project, undefined, { linksOnly: true }),
+    retry: relayReadRetry,
+    retryDelay: relayReadRetryDelay,
+  });
   const syncQuery = useQuery({
     enabled: hulaPath.length > 0,
     queryKey: ["hula-sync", syncKey],
     queryFn: () => syncMissingHulaRepositories(project),
     // Relay reads can be briefly rate-limited right after a (re)load; retry with
     // backoff instead of caching the failure for the whole session.
-    retry: (count, error) => count < 4 && !isDesktopRepoError(error),
-    retryDelay: (attempt) => Math.min(30_000, 4_000 * 2 ** attempt),
+    retry: (count, error) => !isDesktopRepoError(error) && relayReadRetry(count, error),
+    retryDelay: relayReadRetryDelay,
     staleTime: Number.POSITIVE_INFINITY,
   });
-  const added = syncQuery.data ?? 0;
+  const added = (syncQuery.data ?? 0) + (republish.data ?? 0);
 
   React.useEffect(() => {
     if (added > 0) {
@@ -80,6 +91,29 @@ export function HulaProjectOverview({
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-6 px-4 py-4">
       <OverviewRailSection title="Repositories">
+        {isOwner ? (
+          <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+            <Button
+              className="h-6 px-2 text-xs"
+              data-testid="hula-republish-links"
+              disabled={republish.isPending}
+              onClick={() => republish.mutate()}
+              size="sm"
+              variant="outline"
+            >
+              {republish.isPending ? "Republishing…" : "Republish project links"}
+            </Button>
+            <span className="min-w-0 truncate" data-testid="hula-republish-status">
+              {republish.isError
+                ? `Failed: ${syncErrorText(republish.error)}`
+                : republish.isSuccess
+                  ? republish.data > 0
+                    ? "Project links republished."
+                    : "Links already correct."
+                  : null}
+            </span>
+          </div>
+        ) : null}
         {!needsDesktop && (syncQuery.isError || syncQuery.failureCount > 0) ? (
           <div
             className="mb-2 flex items-start gap-2 rounded-md border border-border/60 bg-muted/30 px-2.5 py-2 text-xs text-muted-foreground"
@@ -89,7 +123,7 @@ export function HulaProjectOverview({
             <span className="min-w-0 flex-1 break-words">
               {syncQuery.isError
                 ? `Repository sync failed: ${syncErrorText(syncQuery.error)}`
-                : `Repository sync hit an error, retrying (attempt ${syncQuery.failureCount + 1} of 5): ${syncErrorText(syncQuery.failureReason)}`}
+                : `Repository sync hit an error, retrying (attempt ${syncQuery.failureCount + 1}): ${syncErrorText(syncQuery.failureReason)}`}
             </span>
             <Button
               className="h-6 shrink-0 px-2 text-xs"

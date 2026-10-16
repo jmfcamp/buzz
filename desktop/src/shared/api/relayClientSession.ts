@@ -1,4 +1,5 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { paceRelayFrame, shouldPaceFrame } from "@/shared/api/relayFramePacer";
 import {
   createAuthEvent,
   getRelayWsUrl,
@@ -722,6 +723,12 @@ export class RelayClient {
     if (this.wsId === null) {
       throw new Error("Relay socket is not connected.");
     }
+    if (shouldPaceFrame(payload)) {
+      await paceRelayFrame();
+      if (this.wsId === null) {
+        throw new Error("Relay socket is not connected.");
+      }
+    }
 
     await invoke("plugin:websocket|send", {
       id: this.wsId,
@@ -735,6 +742,12 @@ export class RelayClient {
   private async sendRawForGeneration(payload: unknown[], generation: number) {
     if (generation !== this.connectionGeneration || this.wsId === null) {
       throw new Error("Relay publish was superseded by a session change.");
+    }
+    if (shouldPaceFrame(payload)) {
+      await paceRelayFrame();
+      if (generation !== this.connectionGeneration || this.wsId === null) {
+        throw new Error("Relay publish was superseded by a session change.");
+      }
     }
     const wsId = this.wsId;
     await invoke("plugin:websocket|send", {

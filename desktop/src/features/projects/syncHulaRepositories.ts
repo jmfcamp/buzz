@@ -324,6 +324,13 @@ async function loggedInOwnerDri(
 export async function syncMissingHulaRepositories(
   project: Project,
   deps: HulaSyncDeps = defaultHulaSyncDeps,
+  options: {
+    /**
+     * Only fix the project's repository links from live announcements under the
+     * project folder. Never lists the workspace and never creates repos or channels.
+     */
+    linksOnly?: boolean;
+  } = {},
 ): Promise<number> {
   if (!project.hulaPath || project.legacy) return 0;
   // Only the project owner may add repositories or republish the project.
@@ -336,10 +343,13 @@ export async function syncMissingHulaRepositories(
   const root = hulaDirectoryPath(project.hulaPath);
   if (!root) throw new Error("Choose a directory inside Hula.");
 
-  const discovered = await deps.listGitRepositories(root);
   const announcements = deps.listRepositoryAnnouncements
     ? await deps.listRepositoryAnnouncements()
     : null;
+  if (options.linksOnly && !announcements) return 0;
+  const discovered = options.linksOnly
+    ? announcementPathsUnder(root, announcements ?? [])
+    : await deps.listGitRepositories(root);
   if (announcements && announcements.length === 0 && project.repositories.length > 0) {
     // A project with live repos can't have zero announcements; the read failed.
     // Creating now would duplicate every repo, so stop and let the caller retry.
@@ -347,7 +357,9 @@ export async function syncMissingHulaRepositories(
   }
   const links = planRepositoryLinks(project, root, discovered, announcements);
   const known = links.known;
-  const missing = discovered.filter((path) => !known.has(path));
+  const missing = options.linksOnly
+    ? []
+    : discovered.filter((path) => !known.has(path));
   const linkChanged =
     links.relinked.length > 0 || links.replaced.size > 0 || links.dropped.size > 0;
   if (
@@ -536,3 +548,15 @@ function assertPathLength(hulaPath: string) {
   }
 }
 
+
+/** Folder paths of live repo announcements inside `root` (and `root` itself). */
+function announcementPathsUnder(root: string, events: readonly RelayEvent[]): string[] {
+  const paths = new Set<string>([root]);
+  for (const event of events) {
+    if (event.kind !== KIND_REPO_ANNOUNCEMENT) continue;
+    const raw = event.tags.find((tag) => tag[0] === PROJECT_HULA_PATH_TAG)?.[1];
+    const path = raw ? hulaDirectoryPath(raw) : null;
+    if (path && path.startsWith(`${root}/`)) paths.add(path);
+  }
+  return [...paths];
+}

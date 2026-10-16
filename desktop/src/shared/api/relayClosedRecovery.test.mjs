@@ -4,7 +4,10 @@ import test from "node:test";
 import {
   handleRelayClosed,
   handleSubscriptionEose,
+  HISTORY_RATE_LIMIT_RETRIES,
+  setHistoryRetryJitterForTests,
 } from "./relayClosedRecovery.ts";
+setHistoryRetryJitterForTests(() => 0);
 import {
   requestFirstEventGated,
   requestHistoryGated,
@@ -146,7 +149,7 @@ test("rate-limited history CLOSED schedules retry instead of rejecting immediate
   );
 });
 
-test("rate-limited history CLOSED exhausts 3 retries then rejects permanently", () => {
+test("rate-limited history CLOSED exhausts its retries then rejects permanently", () => {
   resetAll(0);
   const errors = [];
   const reqsSent = [];
@@ -167,7 +170,7 @@ test("rate-limited history CLOSED exhausts 3 retries then rejects permanently", 
   };
 
   // Simulate 3 rate-limited CLOSEDs (exhausts the attempt budget).
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < HISTORY_RATE_LIMIT_RETRIES; i++) {
     // The current live subId rotates on each retry; find it.
     const currentSubId = [...subscriptions.keys()].find((k) =>
       k.startsWith("history"),
