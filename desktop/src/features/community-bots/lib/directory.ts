@@ -31,6 +31,8 @@ export type CommunityBotDirectoryCard = {
   name: string;
   pubkey: string;
   status: CommunityBotDirectoryStatus;
+  /** Kind-0 `about` (card subtitle); null when the bot has none. */
+  description?: string | null;
 };
 
 export type CommunityBotDirectoryChannel = {
@@ -216,7 +218,7 @@ export function communityBotMemberChannels(
 
 export function communityBotDirectoryCard(
   bot: CommunityBot,
-  profile?: { avatarUrl?: string | null; displayName?: string | null } | null,
+  profile?: { avatarUrl?: string | null; displayName?: string | null; about?: string | null } | null,
   statusInput?: {
     gatewayState?: CommunityBotsState | null;
     isRelayMember?: boolean | null;
@@ -229,6 +231,9 @@ export function communityBotDirectoryCard(
     name: communityBotDirectoryName(bot, profile?.displayName),
     pubkey: normalizePubkey(bot.pubkey),
     status: resolveCommunityBotDirectoryStatus(statusInput ?? {}),
+    ...(profile?.about?.trim()
+      ? { description: communityBotDirectoryDescription(profile.about) }
+      : {}),
   };
 }
 
