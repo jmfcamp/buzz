@@ -18,3 +18,35 @@ test("no projects -> unchanged", () => {
     [{ id: "a" }],
   );
 });
+
+import { listSidebarProjects } from "./listSidebarProjects.ts";
+const ME = "a".repeat(64);
+const mk = (name, owner, channel) => ({
+  name,
+  projectAddress: `30621:${owner}:${name}`,
+  owner,
+  legacy: false,
+  ownerPubkey: owner,
+  pubkey: owner,
+  projectChannelId: channel,
+  relatedChannelIds: [],
+  repositories: [],
+  createdAt: 1,
+  isExplicitProject: true,
+  kind: "project",
+});
+test("empty added list falls back to owned + member-channel projects", () => {
+  const owned = mk("owned", ME, "c1");
+  const joined = mk("joined", "b".repeat(64), "c2");
+  const other = mk("other", "b".repeat(64), "c3");
+  const out = listSidebarProjects({
+    addedProjectAddresses: new Set(),
+    currentPubkey: ME,
+    filter: "added",
+    memberChannelIds: new Set(["c2"]),
+    projects: [owned, joined, other],
+    sort: "name",
+  });
+  assert.ok(out.every((p) => p.name !== "other"));
+  assert.ok(out.some((p) => p.name === "joined"));
+});

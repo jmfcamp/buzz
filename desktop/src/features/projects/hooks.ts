@@ -1,5 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { relayReadRetry, relayReadRetryDelay } from "@/shared/lib/relayReadRetry";
+import { bootDiagTime } from "@/shared/lib/bootDiag";
+import {
+  relayReadRetry,
+  relayReadRetryDelay,
+} from "@/shared/lib/relayReadRetry";
 import * as React from "react";
 
 import { relayClient } from "@/shared/api/relayClient";
@@ -617,7 +621,11 @@ export function useProjectsQuery(enabled = true) {
   return useQuery({
     queryKey: projectsQueryKey,
     queryFn: async ({ signal }) => {
-      const projects = await fetchProjects(undefined, signal);
+      const projects = await bootDiagTime(
+        "projects.fetch",
+        () => fetchProjects(undefined, signal),
+        (list) => `count=${list.length}`,
+      );
       markProjectCollectionAuthoritative(queryClient);
       persistProjectSnapshot(queryClient, projects);
       return projects;
@@ -971,4 +979,3 @@ export function useDeleteProjectMutation() {
 
   return useMutation(projectDeletionMutationOptions(queryClient));
 }
-

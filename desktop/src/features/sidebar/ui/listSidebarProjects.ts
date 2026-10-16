@@ -170,10 +170,19 @@ export function listSidebarProjects({
   addedProjectAddresses,
   currentPubkey,
   filter,
+  memberChannelIds,
   projects,
   sort,
 }: {
   addedProjectAddresses: ReadonlySet<string>;
+  /**
+   * Channels the viewer belongs to. When the synced "added" list is empty
+   * (not decrypted yet, decrypt failed on a web remote signer, or never
+   * synced to this device) the "added" view falls back to projects the
+   * viewer owns or whose home channel they are a member of, so the sidebar
+   * never depends on a NIP-44 decrypt to show projects.
+   */
+  memberChannelIds?: ReadonlySet<string>;
   currentPubkey: string | undefined;
   filter: SidebarProjectsFilter;
   projects: readonly Project[];
@@ -186,7 +195,13 @@ export function listSidebarProjects({
     filter === "owned"
       ? (project: Project) =>
           isProjectOwnedByCurrentUser(project, currentPubkey)
-      : (project: Project) => addedProjectAddresses.has(project.projectAddress);
+      : addedProjectAddresses.size > 0
+        ? (project: Project) =>
+            addedProjectAddresses.has(project.projectAddress)
+        : (project: Project) =>
+            isProjectOwnedByCurrentUser(project, currentPubkey) ||
+            (project.projectChannelId != null &&
+              (memberChannelIds?.has(project.projectChannelId) ?? false));
   return projects
     .filter(isExplicitProject)
     .filter(matchesFilter)

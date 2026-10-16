@@ -1,4 +1,5 @@
 import { CommunitySwitcher } from "@/features/communities/ui/CommunitySwitcher";
+import { BootDiagOverlay } from "@/shared/ui/BootDiagOverlay";
 import {
   isWebAssistantAvailable,
   WebAssistantBinding,
@@ -11,7 +12,12 @@ const webBuild = !isTauriShell();
 import * as React from "react";
 import { ProtectedGlobalOverlay } from "@protected-feature-components";
 import { useQueryClient } from "@tanstack/react-query";
-import { Outlet, useLocation, useNavigate, useRouter } from "@tanstack/react-router";
+import {
+  Outlet,
+  useLocation,
+  useNavigate,
+  useRouter,
+} from "@tanstack/react-router";
 import {
   deriveShellRoute,
   markAllReadSources,
@@ -94,9 +100,7 @@ import {
 import { useCommunityEmojiLiveUpdates } from "@/features/custom-emoji/hooks";
 import { useRemoteAccessEvents } from "@/features/bridge/useRemoteAccessEvents";
 import { RemoteBrowserIndicator } from "@/features/bridge/ui/RemoteBrowserIndicator";
-import {
-  useCommunityPinnedSitesLiveUpdates,
-} from "@/features/pinned-sites/hooks";
+import { useCommunityPinnedSitesLiveUpdates } from "@/features/pinned-sites/hooks";
 import { closeLinkSidePanel } from "@/features/link-panel/lib/linkSidePanelStore";
 import { hideAllPinWebviews } from "@/features/pinned-sites/lib/pinWebview";
 import { useArchiveSync } from "@/features/local-archive/useArchiveSync";
@@ -140,7 +144,10 @@ import { usePhoneLayout } from "@/shared/lib/phoneLayout";
 import { PhoneMeScreen } from "@/app/phone/PhoneMeScreen";
 import { PhoneTabBar } from "@/app/phone/PhoneTabBar";
 import { PhoneTabSwitcher } from "@/app/phone/PhoneTabSwitcher";
-import { SheetModeSearch, TopbarSearch } from "@/features/search/ui/SheetModeSearch";
+import {
+  SheetModeSearch,
+  TopbarSearch,
+} from "@/features/search/ui/SheetModeSearch";
 import {
   type PhoneTab,
   overlayFromHistoryState,
@@ -159,8 +166,14 @@ import { AppProfilePanelProvider } from "@/app/AppProfilePanelProvider";
 import { AppWorkflowEditorOverlayProvider } from "@/app/AppWorkflowEditorOverlayProvider";
 import { LazySettingsScreen } from "@/app/LazySettingsScreen";
 import { WentOfflineWatcher } from "@/features/agents/wentOfflineNotices";
-import { useInboxPushPairing, useIsNotifiedForThread } from "@/app/useInboxPushPairing";
-import { ownsDesktopNotificationsFor, useDmChannelIds } from "@/app/appShellWindowRole";
+import {
+  useInboxPushPairing,
+  useIsNotifiedForThread,
+} from "@/app/useInboxPushPairing";
+import {
+  ownsDesktopNotificationsFor,
+  useDmChannelIds,
+} from "@/app/appShellWindowRole";
 const EMPTY_CHANNELS: Channel[] = [];
 export function AppShell() {
   useWebviewZoomShortcuts();
@@ -189,7 +202,10 @@ export function AppShell() {
   useUserSignerDraftListener(true);
   const popout = usePopoutBootstrap();
   const hideAppChrome = isHuddleRoom || popout != null;
-  const ownsDesktopNotifications = ownsDesktopNotificationsFor(isHuddleRoom, popout);
+  const ownsDesktopNotifications = ownsDesktopNotificationsFor(
+    isHuddleRoom,
+    popout,
+  );
   const hasCommunityRail = communitiesHook.communities.length > 1;
   const addCommunityDialog = useAddCommunityDialogState();
   const [isChannelManagementOpen, setIsChannelManagementOpen] =
@@ -264,20 +280,37 @@ export function AppShell() {
     }
     handlePhoneNavHistoryRef.current(-1);
   }, [isPhoneInlineThread]);
-  const handlePhoneNavHistoryRef = React.useRef<(dir: -1 | 1) => void>(() => goBack());
+  const handlePhoneNavHistoryRef = React.useRef<(dir: -1 | 1) => void>(() =>
+    goBack(),
+  );
   // Phone list screens (Channels / Me / Search) are history entries: the overlay rides in the entry's state, so Back,
   // Forward and Settings' Back step through them (see phoneTabs.ts). Clearing an overlay is deferred a tick because a
   // navigation almost always follows (opening a channel from the list); that new entry already has no overlay.
-  const historyOverlay = overlayFromHistoryState(location.state, router.history.location.href);
+  const historyOverlay = overlayFromHistoryState(
+    location.state,
+    router.history.location.href,
+  );
   React.useEffect(() => {
     if (isPhone) syncPhoneOverlayFromHistory(historyOverlay);
   }, [historyOverlay, isPhone]);
   React.useEffect(() => {
     if (!isPhone) return;
-    const write = (next: ReturnType<typeof overlayFromHistoryState>, replace: boolean) => {
+    const write = (
+      next: ReturnType<typeof overlayFromHistoryState>,
+      replace: boolean,
+    ) => {
       const loc = router.history.location;
-      const { __TSR_index: _i, __TSR_key: _k, key: _key, ...rest } = (loc.state ?? {}) as unknown as Record<string, unknown>;
-      const state = { ...rest, phoneOverlay: next, phoneOverlayHref: loc.href } as never;
+      const {
+        __TSR_index: _i,
+        __TSR_key: _k,
+        key: _key,
+        ...rest
+      } = (loc.state ?? {}) as unknown as Record<string, unknown>;
+      const state = {
+        ...rest,
+        phoneOverlay: next,
+        phoneOverlayHref: loc.href,
+      } as never;
       if (replace) router.history.replace(loc.href, state);
       else router.history.push(loc.href, state);
     };
@@ -291,7 +324,11 @@ export function AppShell() {
         const settle = (tries: number) =>
           window.setTimeout(() => {
             const now = router.history.location;
-            if (now.href !== href || overlayFromHistoryState(now.state, now.href) === null) return;
+            if (
+              now.href !== href ||
+              overlayFromHistoryState(now.state, now.href) === null
+            )
+              return;
             if (router.state.isLoading && tries > 0) return settle(tries - 1);
             write(null, false);
           }, 250);
@@ -306,14 +343,19 @@ export function AppShell() {
   // screens) are pass-through, so Back from #design lands on #general rather than ping-ponging through the list
   // between them; consecutive duplicates (same href + screen) are skipped too. A new navigation after Back replaces
   // the entry at that index, which truncates the remembered forward entries (the browser already dropped them).
-  const navIndex = ((location.state as { __TSR_index?: number } | undefined)?.__TSR_index ?? 0) as number;
-  const navKey = String((location.state as { __TSR_key?: string } | undefined)?.__TSR_key ?? navIndex);
+  const navIndex = ((location.state as { __TSR_index?: number } | undefined)
+    ?.__TSR_index ?? 0) as number;
+  const navKey = String(
+    (location.state as { __TSR_key?: string } | undefined)?.__TSR_key ??
+      navIndex,
+  );
   const navSig = `${router.history.location.href}|${historyOverlay ?? ""}`;
   React.useEffect(() => {
     if (!isPhone) return;
     const map = readPhoneNavMap();
     if (map[navIndex] && map[navIndex].key !== navKey) {
-      for (const k of Object.keys(map)) if (Number(k) >= navIndex) delete map[Number(k)];
+      for (const k of Object.keys(map))
+        if (Number(k) >= navIndex) delete map[Number(k)];
     }
     map[navIndex] = {
       key: navKey,
@@ -327,8 +369,13 @@ export function AppShell() {
       const map = readPhoneNavMap();
       const here = map[navIndex]?.sig ?? navSig;
       let t = navIndex + dir;
-      const limit = dir < 0 ? 0 : Math.max(...Object.keys(map).map(Number), navIndex);
-      while ((dir < 0 ? t > limit : t < limit) && (map[t]?.list || map[t]?.sig === here)) t += dir;
+      const limit =
+        dir < 0 ? 0 : Math.max(...Object.keys(map).map(Number), navIndex);
+      while (
+        (dir < 0 ? t > limit : t < limit) &&
+        (map[t]?.list || map[t]?.sig === here)
+      )
+        t += dir;
       if (t < 0 || (dir > 0 && t > limit)) return 0;
       return t - navIndex;
     },
@@ -345,7 +392,10 @@ export function AppShell() {
   handlePhoneNavHistoryRef.current = handlePhoneNavHistory;
   const handlePhoneNavHome = React.useCallback(() => {
     if (location.pathname === "/settings") {
-      router.history.push("/", { phoneOverlay: "channels", phoneOverlayHref: "/" } as never);
+      router.history.push("/", {
+        phoneOverlay: "channels",
+        phoneOverlayHref: "/",
+      } as never);
       return;
     }
     setPhoneOverlay("channels");
@@ -355,7 +405,8 @@ export function AppShell() {
   React.useEffect(() => {
     if (!isPhone || phoneStartedRef.current) return;
     phoneStartedRef.current = true;
-    if (location.pathname === "/" && !historyOverlay) setPhoneOverlay("channels", { replace: true });
+    if (location.pathname === "/" && !historyOverlay)
+      setPhoneOverlay("channels", { replace: true });
   }, [historyOverlay, isPhone, location.pathname]);
   React.useEffect(() => {
     const root = document.documentElement;
@@ -453,8 +504,12 @@ export function AppShell() {
   // Desktop: agent permission prompts (cards, Approvals alert, push nudge for phones). No-op outside Tauri.
   const approvalsAlertRef = React.useRef(false);
   approvalsAlertRef.current =
-    notificationSettings.settings.desktopEnabled && notificationSettings.settings.slotAlertsEnabled.needs_action;
-  useDesktopPermissionPrompts(identityQuery.data?.pubkey, () => approvalsAlertRef.current);
+    notificationSettings.settings.desktopEnabled &&
+    notificationSettings.settings.slotAlertsEnabled.needs_action;
+  useDesktopPermissionPrompts(
+    identityQuery.data?.pubkey,
+    () => approvalsAlertRef.current,
+  );
   // PWA bridge (slice A): desktop publishes agent status for the member's own browser. No-op outside Tauri.
   useBridgePublisher(
     identityQuery.data?.pubkey,
@@ -693,8 +748,19 @@ export function AppShell() {
     if (channelNotifySets.muted.size === 0) return mutedChannelIds;
     return new Set([...mutedChannelIds, ...channelNotifySets.muted]);
   }, [channelNotifySets.muted, mutedChannelIds]);
-  const pairedInboxFeedItems = useInboxPushPairing({ pubkey: identityQuery.data?.pubkey, channels, mentions: homeFeedQuery.data?.feed.mentions, liveItems: threadActivityFeedItems,
-    settings: notificationSettings.settings, followedRootIds, starredRootIds: starredThreadIds, mutedChannelIds: inboxMutedChannelIds, mutedRootIds, enabled: !isHuddleRoom, allChannelIds: channelNotifySets.all });
+  const pairedInboxFeedItems = useInboxPushPairing({
+    pubkey: identityQuery.data?.pubkey,
+    channels,
+    mentions: homeFeedQuery.data?.feed.mentions,
+    liveItems: threadActivityFeedItems,
+    settings: notificationSettings.settings,
+    followedRootIds,
+    starredRootIds: starredThreadIds,
+    mutedChannelIds: inboxMutedChannelIds,
+    mutedRootIds,
+    enabled: !isHuddleRoom,
+    allChannelIds: channelNotifySets.all,
+  });
   const channelSubscriptionFeedItems = useChannelSubscriptionFeedItems({
     pubkey: identityQuery.data?.pubkey,
     channels,
@@ -967,6 +1033,7 @@ export function AppShell() {
   });
   return (
     <PreventSleepProvider>
+      <BootDiagOverlay />
       <RemoteBrowserIndicator />
       {!hideAppChrome ? (
         <AppShellTrayMenu
@@ -1124,123 +1191,135 @@ export function AppShell() {
                       </div>
                     ) : (
                       <div className="relative flex min-h-0 flex-1 overflow-visible">
-                        {!hideAppChrome && (!isPhone || phoneOverlay === "channels") ? (
-                          <PhoneFullscreen phone={isPhone} testId="phone-channels-screen">
-                          <AppSidebar
-                            activeCommunity={communitiesHook.activeCommunity}
-                            archivedHuddleChannels={archivedHuddleChannels}
-                            channels={sidebarChannels}
-                            currentPubkey={identityQuery.data?.pubkey}
-                            errorMessage={channelsErrorMessage}
-                            fallbackDisplayName={
-                              identityQuery.data?.displayName
-                            }
-                            addCommunityPrefill={addCommunityDialog.prefill}
-                            isAddCommunityOpen={addCommunityDialog.open}
-                            relayConnectionCard={relayConnectionCard}
-                            isCreatingChannel={createChannelMutation.isPending}
-                            isCreatingForum={createForumMutation.isPending}
-                            isLoading={channelsQuery.isLoading}
-                            isCreateChannelOpen={isCreateChannelOpen}
-                            isHuddleCompanionOpen={isHuddleCompanionOpen}
-                            isPresencePending={presenceSession.isPending}
-                            onAddCommunity={(community) => {
-                              const id = communitiesHook.addCommunity({
-                                ...community,
-                                pubkey:
-                                  community.pubkey ??
-                                  identityQuery.data?.pubkey,
-                              });
-                              handleSwitchCommunity(id);
-                            }}
-                            onAddCommunityOpenChange={
-                              addCommunityDialog.onOpenChange
-                            }
-                            onNewMessage={goNewMessage}
-                            onBackgroundClick={requestFocusedThreadClose}
-                            onCreateChannelOpenChange={setIsCreateChannelOpen}
-                            onOpenAddCommunity={addCommunityDialog.openDialog}
-                            onSendFeedback={() => setIsSendFeedbackOpen(true)}
-                            onUpdateCommunity={communitiesHook.updateCommunity}
-                            onLeaveCommunity={handleLeaveCommunity}
-                            onRemoveCommunityFromDevice={removeFromDevice}
-                            onSwitchCommunity={handleSwitchCommunity}
-                            onCreateAgent={() => requestOpenCreateAgent()}
-                            selfPresenceStatus={presenceSession.currentStatus}
-                            communities={communitiesHook.communities}
-                            onCreateChannel={handleCreateChannel}
-                            onCreateForum={handleCreateForum}
-                            onHideDm={handleHideDm}
-                            onHuddleEnded={handleHuddleEnded}
-                            onMarkAllChannelsRead={markAllChannelsRead}
-                            onMarkChannelRead={markChannelRead}
-                            onMarkChannelUnread={markChannelUnread}
-                            onBrowseChannels={handleOpenBrowseChannels}
-                            onOpenDm={async ({ pubkeys }) => {
-                              const directMessage =
-                                await openDmMutation.mutateAsync({
-                                  pubkeys,
+                        {!hideAppChrome &&
+                        (!isPhone || phoneOverlay === "channels") ? (
+                          <PhoneFullscreen
+                            phone={isPhone}
+                            testId="phone-channels-screen"
+                          >
+                            <AppSidebar
+                              activeCommunity={communitiesHook.activeCommunity}
+                              archivedHuddleChannels={archivedHuddleChannels}
+                              channels={sidebarChannels}
+                              currentPubkey={identityQuery.data?.pubkey}
+                              errorMessage={channelsErrorMessage}
+                              fallbackDisplayName={
+                                identityQuery.data?.displayName
+                              }
+                              addCommunityPrefill={addCommunityDialog.prefill}
+                              isAddCommunityOpen={addCommunityDialog.open}
+                              relayConnectionCard={relayConnectionCard}
+                              isCreatingChannel={
+                                createChannelMutation.isPending
+                              }
+                              isCreatingForum={createForumMutation.isPending}
+                              isLoading={channelsQuery.isLoading}
+                              isCreateChannelOpen={isCreateChannelOpen}
+                              isHuddleCompanionOpen={isHuddleCompanionOpen}
+                              isPresencePending={presenceSession.isPending}
+                              onAddCommunity={(community) => {
+                                const id = communitiesHook.addCommunity({
+                                  ...community,
+                                  pubkey:
+                                    community.pubkey ??
+                                    identityQuery.data?.pubkey,
                                 });
-                              await goChannel(directMessage.id);
-                            }}
-                            onSelectAgents={() => void goAgents()}
-                            onSelectBrowsers={() => void goBrowsers()}
-                            onSelectBots={() => void goBots()}
-                            onSelectPinnedSite={(pinId) =>
-                              void goPinnedSite(pinId)
-                            }
-                            onSelectChannel={(...args: Parameters<typeof handleSidebarChannelSelect>) => {
-                              setPhoneOverlay(null);
-                              return handleSidebarChannelSelect(...args);
-                            }}
-                            onOpenSearchResult={handleOpenSearchResult}
-                            searchChannels={channels}
-                            searchFocusRequests={[
-                              searchFocusRequest,
-                              scopeSearchFocusRequest,
-                            ]}
-                            onSelectHome={() => void goHome()}
-                            onSelectProjects={() => void goProjects()}
-                            onSelectPulse={() => void goPulse()}
-                            onSelectSettings={handleOpenSettings}
-                            onSelectWorkflows={() => void goWorkflows()}
-                            onSetPresenceStatus={(status) =>
-                              presenceSession.setStatus(status)
-                            }
-                            onSetUserStatus={setUserStatusMutation.mutate}
-                            onClearUserStatus={() =>
-                              setUserStatusMutation.mutate({
-                                text: "",
-                                emoji: "",
-                              })
-                            }
-                            profile={profileQuery.data}
-                            projectsOverviewActive={
-                              location.pathname === "/projects"
-                            }
-                            selfUserStatus={
-                              deferredPubkey
-                                ? (visibleUserStatus(
-                                    selfStatusQuery.data?.[
-                                      deferredPubkey.toLowerCase()
-                                    ],
-                                  ) ?? undefined)
-                                : undefined
-                            }
-                            selectedChannelId={selectedChannelId}
-                            selectedPinId={selectedPinId}
-                            selectedView={selectedView}
-                            unreadChannelIds={unreadChannelIds}
-                            {...{ highPriorityUnreadChannelIds }}
-                            previewActivityChannelIds={unreadThreadChannelIds}
-                            unreadChannelCounts={unreadChannelCounts}
-                            mutedChannelIds={mutedChannelIds}
-                            onMuteChannel={muteChannel}
-                            onUnmuteChannel={unmuteChannel}
-                            starredChannelIds={starredChannelIds}
-                            onStarChannel={starChannel}
-                            onUnstarChannel={unstarChannel}
-                          />
+                                handleSwitchCommunity(id);
+                              }}
+                              onAddCommunityOpenChange={
+                                addCommunityDialog.onOpenChange
+                              }
+                              onNewMessage={goNewMessage}
+                              onBackgroundClick={requestFocusedThreadClose}
+                              onCreateChannelOpenChange={setIsCreateChannelOpen}
+                              onOpenAddCommunity={addCommunityDialog.openDialog}
+                              onSendFeedback={() => setIsSendFeedbackOpen(true)}
+                              onUpdateCommunity={
+                                communitiesHook.updateCommunity
+                              }
+                              onLeaveCommunity={handleLeaveCommunity}
+                              onRemoveCommunityFromDevice={removeFromDevice}
+                              onSwitchCommunity={handleSwitchCommunity}
+                              onCreateAgent={() => requestOpenCreateAgent()}
+                              selfPresenceStatus={presenceSession.currentStatus}
+                              communities={communitiesHook.communities}
+                              onCreateChannel={handleCreateChannel}
+                              onCreateForum={handleCreateForum}
+                              onHideDm={handleHideDm}
+                              onHuddleEnded={handleHuddleEnded}
+                              onMarkAllChannelsRead={markAllChannelsRead}
+                              onMarkChannelRead={markChannelRead}
+                              onMarkChannelUnread={markChannelUnread}
+                              onBrowseChannels={handleOpenBrowseChannels}
+                              onOpenDm={async ({ pubkeys }) => {
+                                const directMessage =
+                                  await openDmMutation.mutateAsync({
+                                    pubkeys,
+                                  });
+                                await goChannel(directMessage.id);
+                              }}
+                              onSelectAgents={() => void goAgents()}
+                              onSelectBrowsers={() => void goBrowsers()}
+                              onSelectBots={() => void goBots()}
+                              onSelectPinnedSite={(pinId) =>
+                                void goPinnedSite(pinId)
+                              }
+                              onSelectChannel={(
+                                ...args: Parameters<
+                                  typeof handleSidebarChannelSelect
+                                >
+                              ) => {
+                                setPhoneOverlay(null);
+                                return handleSidebarChannelSelect(...args);
+                              }}
+                              onOpenSearchResult={handleOpenSearchResult}
+                              searchChannels={channels}
+                              searchFocusRequests={[
+                                searchFocusRequest,
+                                scopeSearchFocusRequest,
+                              ]}
+                              onSelectHome={() => void goHome()}
+                              onSelectProjects={() => void goProjects()}
+                              onSelectPulse={() => void goPulse()}
+                              onSelectSettings={handleOpenSettings}
+                              onSelectWorkflows={() => void goWorkflows()}
+                              onSetPresenceStatus={(status) =>
+                                presenceSession.setStatus(status)
+                              }
+                              onSetUserStatus={setUserStatusMutation.mutate}
+                              onClearUserStatus={() =>
+                                setUserStatusMutation.mutate({
+                                  text: "",
+                                  emoji: "",
+                                })
+                              }
+                              profile={profileQuery.data}
+                              projectsOverviewActive={
+                                location.pathname === "/projects"
+                              }
+                              selfUserStatus={
+                                deferredPubkey
+                                  ? (visibleUserStatus(
+                                      selfStatusQuery.data?.[
+                                        deferredPubkey.toLowerCase()
+                                      ],
+                                    ) ?? undefined)
+                                  : undefined
+                              }
+                              selectedChannelId={selectedChannelId}
+                              selectedPinId={selectedPinId}
+                              selectedView={selectedView}
+                              unreadChannelIds={unreadChannelIds}
+                              {...{ highPriorityUnreadChannelIds }}
+                              previewActivityChannelIds={unreadThreadChannelIds}
+                              unreadChannelCounts={unreadChannelCounts}
+                              mutedChannelIds={mutedChannelIds}
+                              onMuteChannel={muteChannel}
+                              onUnmuteChannel={unmuteChannel}
+                              starredChannelIds={starredChannelIds}
+                              onStarChannel={starChannel}
+                              onUnstarChannel={unstarChannel}
+                            />
                           </PhoneFullscreen>
                         ) : null}
                         {isPhone && phoneOverlay === "me" && !hideAppChrome ? (
@@ -1260,7 +1339,8 @@ export function AppShell() {
                               onWorkflows={() => void goWorkflows()}
                               onOpenPinnedSite={(pinId) => {
                                 // Web: default opens in the browser (stay on Me); "Open with Buzz" pins show in-app.
-                                if (isWebPinOpenInBuzz(pinId)) setPhoneOverlay(null);
+                                if (isWebPinOpenInBuzz(pinId))
+                                  setPhoneOverlay(null);
                                 void goPinnedSite(pinId);
                               }}
                               onManagePinnedSites={() => {
@@ -1268,7 +1348,9 @@ export function AppShell() {
                                 // Phone Settings shows a section full screen only when pushed with phoneSettingsDetail
                                 // (SettingsView openPhoneSection); a plain goSettings lands on the section list.
                                 const href = "/settings?section=pinned-sites";
-                                router.history.push(href, { phoneSettingsDetail: href } as never);
+                                router.history.push(href, {
+                                  phoneSettingsDetail: href,
+                                } as never);
                               }}
                               pubkey={identityQuery.data?.pubkey}
                               presenceStatus={presenceSession.currentStatus}
@@ -1283,18 +1365,25 @@ export function AppShell() {
                               }
                               onSetUserStatus={setUserStatusMutation.mutate}
                               onClearUserStatus={() =>
-                                setUserStatusMutation.mutate({ text: "", emoji: "" })
+                                setUserStatusMutation.mutate({
+                                  text: "",
+                                  emoji: "",
+                                })
                               }
                               onSendFeedback={() => setIsSendFeedbackOpen(true)}
                               renderCommunityTile={(className) => (
                                 <CommunitySwitcher
-                                  activeCommunity={communitiesHook.activeCommunity}
+                                  activeCommunity={
+                                    communitiesHook.activeCommunity
+                                  }
                                   communities={communitiesHook.communities}
                                   onAddCommunity={addCommunityDialog.openDialog}
                                   onLeaveCommunity={handleLeaveCommunity}
                                   onRemoveCommunityFromDevice={removeFromDevice}
                                   onSwitchCommunity={handleSwitchCommunity}
-                                  onUpdateCommunity={communitiesHook.updateCommunity}
+                                  onUpdateCommunity={
+                                    communitiesHook.updateCommunity
+                                  }
                                   tileClassName={className}
                                   variant="tile"
                                 />
@@ -1302,10 +1391,17 @@ export function AppShell() {
                             />
                           </div>
                         ) : null}
-                        {isPhone && phoneOverlay === "search" && !hideAppChrome ? (
-                          <div className="phone-fullscreen phone-search-screen" data-testid="phone-search-screen">
+                        {isPhone &&
+                        phoneOverlay === "search" &&
+                        !hideAppChrome ? (
+                          <div
+                            className="phone-fullscreen phone-search-screen"
+                            data-testid="phone-search-screen"
+                          >
                             <div className="phone-settings-header">
-                              <h1 className="px-3 text-base font-semibold">Search</h1>
+                              <h1 className="px-3 text-base font-semibold">
+                                Search
+                              </h1>
                             </div>
                             <div className="px-3 pt-2">
                               <TopbarSearch
@@ -1353,7 +1449,11 @@ export function AppShell() {
                               pubkey: identityQuery.data?.pubkey,
                             }}
                             onSelect={(tab: PhoneTab) => {
-                              if (tab === "channels" || tab === "me" || tab === "search") {
+                              if (
+                                tab === "channels" ||
+                                tab === "me" ||
+                                tab === "search"
+                              ) {
                                 setPhoneOverlay(tab);
                                 return;
                               }
@@ -1427,7 +1527,23 @@ export function AppShell() {
                       open={isSendFeedbackOpen}
                     />
                     {!hideAppChrome ? <ProtectedGlobalOverlay /> : null}
-                    <WentOfflineWatcher />{!hideAppChrome && !isPhone ? <SheetModeSearch channelId={selectedView === "channel" ? selectedChannelId : null} channels={channels} currentPubkey={identityQuery.data?.pubkey} goChannel={goChannel} onBrowseChannels={handleOpenBrowseChannels} onCreateAgent={requestOpenCreateAgent} onCreateChannel={() => setIsCreateChannelOpen(true)} onOpenResult={handleOpenSearchResult} openDm={openDmMutation.mutateAsync} requests={[searchFocusRequest, scopeSearchFocusRequest]} /> : null}
+                    <WentOfflineWatcher />
+                    {!hideAppChrome && !isPhone ? (
+                      <SheetModeSearch
+                        channelId={
+                          selectedView === "channel" ? selectedChannelId : null
+                        }
+                        channels={channels}
+                        currentPubkey={identityQuery.data?.pubkey}
+                        goChannel={goChannel}
+                        onBrowseChannels={handleOpenBrowseChannels}
+                        onCreateAgent={requestOpenCreateAgent}
+                        onCreateChannel={() => setIsCreateChannelOpen(true)}
+                        onOpenResult={handleOpenSearchResult}
+                        openDm={openDmMutation.mutateAsync}
+                        requests={[searchFocusRequest, scopeSearchFocusRequest]}
+                      />
+                    ) : null}
                     {isWebAssistantAvailable() ? (
                       <>
                         <WebAssistantBinding />

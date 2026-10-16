@@ -1,4 +1,5 @@
 import { decryptAppData, encryptAppData } from "@/shared/lib/appData";
+import { bootDiag, bootDiagTime } from "@/shared/lib/bootDiag";
 import { relayClient } from "@/shared/api/relayClient";
 import { signRelayEvent } from "@/shared/api/tauri";
 import type { RelayEvent } from "@/shared/api/types";
@@ -37,7 +38,8 @@ async function decryptAndParse(
     const store = parseProjectSidebarMembershipPayload(JSON.parse(plaintext));
     if (!store) return null;
     return { store, createdAt: event.created_at, eventId: event.id };
-  } catch {
+  } catch (error) {
+    bootDiag("membership.decrypt", `threw: ${String(error)}`);
     return null;
   }
 }
@@ -61,18 +63,28 @@ export class ProjectSidebarMembershipSyncManager {
     FetchResult<RemoteProjectSidebarMembership>
   > {
     try {
-      const events = await relayClient.fetchEvents({
-        kinds: [KIND_PROJECT_SIDEBAR_MEMBERSHIP],
-        authors: [this.pubkey],
-        "#d": [D_TAG],
-        limit: 1,
-      });
+      const events = await bootDiagTime(
+        "membership.fetch",
+        () =>
+          relayClient.fetchEvents({
+            kinds: [KIND_PROJECT_SIDEBAR_MEMBERSHIP],
+            authors: [this.pubkey],
+            "#d": [D_TAG],
+            limit: 1,
+          }),
+        (list) => `count=${list.length}`,
+      );
       if (events.length === 0 || events[0].pubkey !== this.pubkey) {
         return { status: "absent" };
       }
       const event = events[0];
       this.recordRemoteHead(event.created_at);
-      const result = await decryptAndParse(event);
+      const result = await bootDiagTime(
+        "membership.decrypt",
+        () => decryptAndParse(event),
+        (r) =>
+          r ? `projects=${Object.keys(r.store.projects).length}` : "unparsed",
+      );
       if (!result) {
         return { status: "failed", createdAt: event.created_at };
       }
@@ -82,7 +94,8 @@ export class ProjectSidebarMembershipSyncManager {
         createdAt: result.createdAt,
         eventId: result.eventId,
       };
-    } catch {
+    } catch (error) {
+      bootDiag("membership.fetch", `failed: ${String(error)}`);
       return { status: "failed" };
     }
   }

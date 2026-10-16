@@ -1,4 +1,5 @@
 import * as React from "react";
+import { bootDiagTime } from "@/shared/lib/bootDiag";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   relayReadRetry,
@@ -69,7 +70,12 @@ export function useCommunitySectionsCatalogQuery() {
   return useQuery({
     queryKey: [...communitySectionsQueryKey, relayUrl],
     enabled: Boolean(relayUrl),
-    queryFn: () => fetchCommunitySections(relayUrl),
+    queryFn: () =>
+      bootDiagTime(
+        "sections.catalog",
+        () => fetchCommunitySections(relayUrl),
+        (list) => `count=${list.length}`,
+      ),
     staleTime: 30_000,
     retry: relayReadRetry,
     retryDelay: relayReadRetryDelay,
