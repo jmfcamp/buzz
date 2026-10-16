@@ -356,6 +356,15 @@ export function CreateAgentRespondToField({
           <OwnerOnlyMembers agents={managedAgentsQuery.data ?? []} />
         </>
       ) : null}
+      {mode === "owner-only" || mode === "owner-and-agents" ? (
+        <p
+          className="text-xs text-muted-foreground"
+          data-testid="agent-respond-to-a2a-note"
+        >
+          When one of your agents reaches out to another, both agents must
+          allow it (Me and my agents), or the message won't be accepted.
+        </p>
+      ) : null}
       <DesktopDataNotice what="Your desktop's agents" />
       {mode === "allowlist" ? (
         <AllowlistPicker
