@@ -67,8 +67,8 @@ import type { PersonaDropdownOption } from "./agentConfigOptions";
  * below the control.
  *
  * The line below Only me says "Only you can send instructions": the harness
- * admits the owner alone. Letting the owner's own agents instruct this one is
- * the separate, explicit "Me and my agents" option, whose line lists them
+ * admits the owner alone. Letting this computer's agents instruct this one is
+ * the separate, explicit "All local bots" option, whose line lists them
  * (see `managed_agents/access_policy.rs`).
  *
  * Which machine and stakes it names follow the optional `runLocation` prop, and
