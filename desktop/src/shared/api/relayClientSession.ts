@@ -1,5 +1,9 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
-import { paceRelayFrame, shouldPaceFrame } from "@/shared/api/relayFramePacer";
+import {
+  framePriority,
+  paceRelayFrame,
+  shouldPaceFrame,
+} from "@/shared/api/relayFramePacer";
 import {
   createAuthEvent,
   getRelayWsUrl,
@@ -115,7 +119,15 @@ export class RelayClient {
       import.meta.env?.VITE_BUZZ_PLATFORM === "web"
         ? () => {
             const id = `ka${Date.now().toString(36)}`;
-            void this.sendRaw(["REQ", id, { kinds: [65535], limit: 0, since: Math.floor(Date.now() / 1000) + 86_400 }])
+            void this.sendRaw([
+              "REQ",
+              id,
+              {
+                kinds: [65535],
+                limit: 0,
+                since: Math.floor(Date.now() / 1000) + 86_400,
+              },
+            ])
               .then(() => this.sendRaw(["CLOSE", id]))
               .catch(() => {});
           }
@@ -724,7 +736,7 @@ export class RelayClient {
       throw new Error("Relay socket is not connected.");
     }
     if (shouldPaceFrame(payload)) {
-      await paceRelayFrame();
+      await paceRelayFrame(framePriority(payload));
       if (this.wsId === null) {
         throw new Error("Relay socket is not connected.");
       }
@@ -744,7 +756,7 @@ export class RelayClient {
       throw new Error("Relay publish was superseded by a session change.");
     }
     if (shouldPaceFrame(payload)) {
-      await paceRelayFrame();
+      await paceRelayFrame(framePriority(payload));
       if (generation !== this.connectionGeneration || this.wsId === null) {
         throw new Error("Relay publish was superseded by a session change.");
       }
