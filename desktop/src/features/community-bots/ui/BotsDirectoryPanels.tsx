@@ -7,6 +7,7 @@ import { AgentRuntimeAvatarControl } from "@/features/agents/ui/AgentRuntimeAvat
 import type { PresenceStatus } from "@/shared/api/types";
 import { IDENTITY_CARD_GRID_CLASS } from "@/features/agents/ui/UnifiedAgentsSection";
 import {
+  communityBotCardSubtitle,
   communityBotDirectoryChannelLink,
   type CommunityBotDirectoryCard,
   type CommunityBotDirectoryDetail,
@@ -82,7 +83,7 @@ export function BotsDirectoryGrid({
           dataTestId={`bot-card-${card.id}`}
           key={card.id}
           label={card.name}
-          subtitle={card.description?.trim() || card.status.label}
+          subtitle={communityBotCardSubtitle(card)}
           onClick={() => onOpenBot(card.id)}
         />
       ))}

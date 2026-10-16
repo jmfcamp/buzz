@@ -114,6 +114,7 @@ export function useInstallCommunityBotMutation() {
     mutationFn: async (input: {
       agent: RemoteOpenClawAgent;
       name?: string;
+      description?: string;
       pubkey?: string | null;
     }) => {
       const { agent } = input;
@@ -138,6 +139,7 @@ export function useInstallCommunityBotMutation() {
         current,
         agent,
         displayName: input.name ?? defaultRemoteAgentName(agent),
+        description: input.description,
         identity,
         relayUrl,
       });
@@ -156,7 +158,11 @@ export function useRenameCommunityBotMutation() {
   const queryClient = useQueryClient();
   const relayUrl = useCommunityBotsRelayUrl();
   return useMutation({
-    mutationFn: async (input: { bot: CommunityBot; name: string }) => {
+    mutationFn: async (input: {
+      bot: CommunityBot;
+      name: string;
+      description?: string;
+    }) => {
       const installed = queryClient.getQueryData<CommunityBot[]>([
         ...communityBotsQueryKey,
         relayUrl,
@@ -166,6 +172,7 @@ export function useRenameCommunityBotMutation() {
         current,
         bot: input.bot,
         displayName: input.name,
+        description: input.description,
         relayUrl,
       });
     },

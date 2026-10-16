@@ -1,4 +1,8 @@
+import { useQuery } from "@tanstack/react-query";
 import * as React from "react";
+
+import { relayClient } from "@/shared/api/relayClient";
+import { KIND_STREAM_MESSAGE } from "@/shared/constants/kinds";
 
 import { IDENTITY_CARD_GRID_CLASS } from "@/features/agents/ui/UnifiedAgentsSection";
 import {
@@ -45,6 +49,33 @@ export function BotsView({ onOpenBot, onOpenBotsSettings }: BotsViewProps) {
     enabled: pubkeys.length > 0,
   });
   const profiles = profilesQuery.data?.profiles;
+  // Subtitle fallback when a bot has no description: its latest message (relay-only, so it works on web without Direct).
+  const lastActiveQuery = useQuery({
+    queryKey: ["community-bots", "last-active", [...pubkeys].sort().join(",")],
+    enabled: pubkeys.length > 0,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const entries = await Promise.all(
+        pubkeys.map(async (pubkey) => {
+          try {
+            const events = await relayClient.fetchEvents({
+              kinds: [KIND_STREAM_MESSAGE],
+              authors: [pubkey],
+              limit: 1,
+            });
+            const latest = events.reduce(
+              (max, event) => Math.max(max, event.created_at),
+              0,
+            );
+            return [normalizePubkey(pubkey), latest || null] as const;
+          } catch {
+            return [normalizePubkey(pubkey), null] as const;
+          }
+        }),
+      );
+      return Object.fromEntries(entries) as Record<string, number | null>;
+    },
+  });
   const memberPubkeys = React.useMemo(() => {
     if (membersQuery.data === undefined) return null;
     return new Set(
@@ -56,15 +87,18 @@ export function BotsView({ onOpenBot, onOpenBotsSettings }: BotsViewProps) {
     (pubkeys.length > 0 && profilesQuery.isLoading && profiles === undefined);
   const cards = bots.map((bot) => {
     const pubkey = normalizePubkey(bot.pubkey);
-    return communityBotDirectoryCard(
-      bot,
-      profiles?.[bot.pubkey] ?? profiles?.[pubkey],
-      {
-        gatewayState: statusQuery.data?.state,
-        isRelayMember: memberPubkeys ? memberPubkeys.has(pubkey) : null,
-        presence: presenceQuery.data?.[pubkey] ?? null,
-      },
-    );
+    return {
+      ...communityBotDirectoryCard(
+        bot,
+        profiles?.[bot.pubkey] ?? profiles?.[pubkey],
+        {
+          gatewayState: statusQuery.data?.state,
+          isRelayMember: memberPubkeys ? memberPubkeys.has(pubkey) : null,
+          presence: presenceQuery.data?.[pubkey] ?? null,
+        },
+      ),
+      lastActiveAt: lastActiveQuery.data?.[pubkey] ?? null,
+    };
   });
 
   return (

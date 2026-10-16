@@ -20,7 +20,11 @@ import {
   resolveCommunityBotsRelayUrl,
 } from "./localCatalog";
 import { communityBotProfileLooksSecret } from "./profile";
-import type { CommunityBot, CommunityBotsPayload } from "./types";
+import {
+  descriptionField,
+  type CommunityBot,
+  type CommunityBotsPayload,
+} from "./types";
 
 export const COMMUNITY_BOTS_D_TAG = "buzz:community-bots";
 
@@ -52,7 +56,26 @@ function parseBot(value: unknown): CommunityBot | null {
   ) {
     return null;
   }
-  return { id, name, pubkey, source: "openclaw" };
+  return {
+    id,
+    name,
+    pubkey,
+    source: "openclaw",
+    ...descriptionField(
+      typeof candidate.description === "string" ? candidate.description : null,
+    ),
+  };
+}
+
+/** Wire shape of one bot; `description` only when set (older readers ignore unknown fields). */
+export function serializeCommunityBot(bot: CommunityBot) {
+  return {
+    id: bot.id,
+    name: bot.name,
+    pubkey: normalizePubkey(bot.pubkey),
+    source: "openclaw" as const,
+    ...descriptionField(bot.description),
+  };
 }
 
 export function parseCommunityBotsPayload(content: string): CommunityBot[] {
@@ -109,12 +132,7 @@ export function saveLocalCommunityBots(
 ): void {
   const payload: CommunityBotsPayload = {
     version: 1,
-    bots: bots.map((bot) => ({
-      id: bot.id,
-      name: bot.name,
-      pubkey: normalizePubkey(bot.pubkey),
-      source: "openclaw",
-    })),
+    bots: bots.map(serializeCommunityBot),
   };
   setStorageItem(communityBotsStorageKey(relayUrl), JSON.stringify(payload));
   rememberCommunityBotNames(bots, relayUrl);
@@ -141,12 +159,7 @@ async function publishCommunityBotsToRelay(
 ): Promise<void> {
   const payload: CommunityBotsPayload = {
     version: 1,
-    bots: bots.map((bot) => ({
-      id: bot.id,
-      name: bot.name,
-      pubkey: normalizePubkey(bot.pubkey),
-      source: "openclaw",
-    })),
+    bots: bots.map(serializeCommunityBot),
   };
   const serialized = JSON.stringify(payload);
   if (communityBotProfileLooksSecret(serialized)) {

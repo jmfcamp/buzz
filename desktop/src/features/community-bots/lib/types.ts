@@ -2,11 +2,15 @@ export const MAX_COMMUNITY_BOT_NAME_LEN = 80;
 
 export type CommunityBotSource = "openclaw";
 
+export const MAX_COMMUNITY_BOT_DESCRIPTION_LEN = 160;
+
 export type CommunityBot = {
   id: string;
   name: string;
   pubkey: string;
   source: CommunityBotSource;
+  /** Owner-set one-liner (Settings → Communities → Bots); the Bots card subtitle. Optional; omitted when empty. */
+  description?: string;
 };
 
 export type CommunityBotsPayload = {
@@ -115,3 +119,9 @@ export const REQUIRED_OPERATOR_SCOPES = [
   "operator.write",
   "operator.admin",
 ] as const;
+
+/** Trimmed, length-capped community bot description field, or nothing when empty. */
+export function descriptionField(description: string | undefined | null): { description?: string } {
+  const trimmed = description?.trim().slice(0, MAX_COMMUNITY_BOT_DESCRIPTION_LEN) ?? "";
+  return trimmed ? { description: trimmed } : {};
+}

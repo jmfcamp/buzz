@@ -14,6 +14,7 @@ import {
 } from "@/features/community-bots/hooks";
 import {
   defaultRemoteAgentName,
+  MAX_COMMUNITY_BOT_DESCRIPTION_LEN,
   MAX_COMMUNITY_BOT_NAME_LEN,
   missingBuzzAccountMessage,
   pairingRequestIdLabel,
@@ -50,6 +51,9 @@ export function BotsSettingsCard() {
   const [draftNames, setDraftNames] = React.useState<Record<string, string>>(
     {},
   );
+  const [draftDescriptions, setDraftDescriptions] = React.useState<
+    Record<string, string>
+  >({});
   const [draftPubkeys, setDraftPubkeys] = React.useState<
     Record<string, string>
   >({});
@@ -123,6 +127,14 @@ export function BotsSettingsCard() {
     return draftNames[bot.id] ?? bot.name;
   }
 
+  function descriptionForAgent(agent: RemoteOpenClawAgent): string {
+    return draftDescriptions[agent.id] ?? "";
+  }
+
+  function descriptionForInstalled(bot: CommunityBot): string {
+    return draftDescriptions[bot.id] ?? bot.description ?? "";
+  }
+
   function pubkeyForAgent(agent: RemoteOpenClawAgent): string | null {
     return (
       parseConfirmedPublicHex(agent.pubkey ?? "") ??
@@ -138,7 +150,12 @@ export function BotsSettingsCard() {
       return;
     }
     try {
-      await installMutation.mutateAsync({ agent, name, pubkey });
+      await installMutation.mutateAsync({
+        agent,
+        name,
+        description: descriptionForAgent(agent),
+        pubkey,
+      });
       toast.success(`Installed ${name} as a community bot.`);
     } catch (error) {
       toast.error(
@@ -150,7 +167,11 @@ export function BotsSettingsCard() {
   async function handleRename(bot: CommunityBot) {
     const name = nameForInstalled(bot);
     try {
-      await renameMutation.mutateAsync({ bot, name });
+      await renameMutation.mutateAsync({
+        bot,
+        name,
+        description: descriptionForInstalled(bot),
+      });
       toast.success(`Updated ${name}.`);
     } catch (error) {
       toast.error(
@@ -378,6 +399,21 @@ export function BotsSettingsCard() {
                             }
                             value={nameForAgent(agent)}
                           />
+                          {bot ? null : (
+                            <Input
+                              aria-label={`${agent.id} description`}
+                              data-testid={`settings-bots-agent-description-${agent.id}`}
+                              maxLength={MAX_COMMUNITY_BOT_DESCRIPTION_LEN}
+                              onChange={(event) =>
+                                setDraftDescriptions((current) => ({
+                                  ...current,
+                                  [agent.id]: event.target.value,
+                                }))
+                              }
+                              placeholder="Description (shown on the Bots page)"
+                              value={descriptionForAgent(agent)}
+                            />
+                          )}
                           <p className="truncate font-mono text-2xs text-muted-foreground">
                             {agent.id}
                             {vpsPubkey ? ` · ${truncatePubkey(vpsPubkey)}` : ""}
@@ -449,7 +485,10 @@ export function BotsSettingsCard() {
               <div className="divide-y divide-border/60">
                 {installed.map((bot) => {
                   const draftName = nameForInstalled(bot);
-                  const dirty = draftName.trim() !== bot.name;
+                  const draftDescription = descriptionForInstalled(bot);
+                  const dirty =
+                    draftName.trim() !== bot.name ||
+                    draftDescription.trim() !== (bot.description ?? "");
                   return (
                     <div
                       className="flex flex-wrap items-center gap-3 px-4 py-3"
@@ -469,6 +508,19 @@ export function BotsSettingsCard() {
                             }))
                           }
                           value={draftName}
+                        />
+                        <Input
+                          aria-label={`${bot.id} description`}
+                          data-testid={`settings-bots-installed-description-${bot.id}`}
+                          maxLength={MAX_COMMUNITY_BOT_DESCRIPTION_LEN}
+                          onChange={(event) =>
+                            setDraftDescriptions((current) => ({
+                              ...current,
+                              [bot.id]: event.target.value,
+                            }))
+                          }
+                          placeholder="Description (shown on the Bots page)"
+                          value={draftDescription}
                         />
                         <p className="truncate font-mono text-2xs text-muted-foreground">
                           {bot.id}
@@ -495,7 +547,7 @@ export function BotsSettingsCard() {
                         size="sm"
                         type="button"
                       >
-                        Save name
+                        Save
                       </Button>
                       <Button
                         data-testid={`settings-bots-uninstall-${bot.id}`}
