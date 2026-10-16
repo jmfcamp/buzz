@@ -1,12 +1,10 @@
 import { Activity, Plus } from "lucide-react";
+import { usePersistedIdSet } from "@/features/projects/lib/persistedIdSet";
 import { PhoneFilterToggle } from "@/features/projects/ui/PhoneFilterToggle";
 import * as React from "react";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
-import {
-  useChannelsQuery,
-  useOpenDmMutation,
-} from "@/features/channels/hooks";
+import { useChannelsQuery, useOpenDmMutation } from "@/features/channels/hooks";
 import {
   type ProfilePanelTab,
   type ProfilePanelView,
@@ -74,7 +72,9 @@ const PROJECTS_PANEL_SEARCH_KEYS = [
 export function ProjectsView() {
   const { goChannel, goProject } = useAppNavigation();
   const identityQuery = useIdentityQuery();
-  const { applyPatch, values } = useHistorySearchState(PROJECTS_PANEL_SEARCH_KEYS);
+  const { applyPatch, values } = useHistorySearchState(
+    PROJECTS_PANEL_SEARCH_KEYS,
+  );
   const profilePanelPubkey = values.profile;
   const profilePanelTab = profilePanelTabFromSearch(values.profileTab);
   const profilePanelView = profilePanelViewFromSearch(values.profileView);
@@ -136,9 +136,10 @@ export function ProjectsView() {
     return map;
   }, [channelsQuery.data]);
   const [createProjectOpen, setCreateProjectOpen] = React.useState(false);
-  const [collapsedProjectIds, setCollapsedProjectIds] = React.useState<
-    ReadonlySet<string>
-  >(() => new Set());
+  // Projects start collapsed; only ids the user expanded are remembered.
+  const [expandedProjectIds, updateExpandedProjectIds] = usePersistedIdSet(
+    "buzz.projects.page.expanded",
+  );
   const [activityCollapsed, setActivityCollapsed] = React.useState(false);
   // Phone: one pane at a time (project list OR activity), never a split; the header pill switches. iPad/desktop unchanged.
   const phone = usePhoneLayout();
@@ -192,22 +193,37 @@ export function ProjectsView() {
     () => tree.map((node) => node.project),
     [tree],
   );
-  const handleToggleProject = React.useCallback((projectId: string) => {
-    setCollapsedProjectIds((current) => {
-      const next = new Set(current);
-      if (next.has(projectId)) next.delete(projectId);
-      else next.add(projectId);
+  const handleToggleProject = React.useCallback(
+    (projectId: string) => {
+      updateExpandedProjectIds((next) => {
+        if (next.has(projectId)) next.delete(projectId);
+        else next.add(projectId);
+        return next;
+      });
+    },
+    [updateExpandedProjectIds],
+  );
+  const handleExpandAll = React.useCallback(() => {
+    updateExpandedProjectIds((next) => {
+      for (const project of visibleProjects) next.add(project.id);
       return next;
     });
-  }, []);
-  const handleExpandAll = React.useCallback(() => {
-    setCollapsedProjectIds(new Set());
-  }, []);
+  }, [updateExpandedProjectIds, visibleProjects]);
   const handleCollapseAll = React.useCallback(() => {
-    setCollapsedProjectIds(
-      new Set(visibleProjects.map((project) => project.id)),
-    );
-  }, [visibleProjects]);
+    updateExpandedProjectIds((next) => {
+      for (const project of visibleProjects) next.delete(project.id);
+      return next;
+    });
+  }, [updateExpandedProjectIds, visibleProjects]);
+  const collapsedProjectIds = React.useMemo(
+    () =>
+      new Set(
+        visibleProjects
+          .map((project) => project.id)
+          .filter((id) => !expandedProjectIds.has(id)),
+      ),
+    [expandedProjectIds, visibleProjects],
+  );
   const handleOpenProject = React.useCallback(
     (project: Project) => {
       void goProject(project.id);
@@ -332,199 +348,214 @@ export function ProjectsView() {
   const phonePaneOnly = phone ? phonePane : null;
   return (
     <ProfilePanelProvider onOpenProfilePanel={handleOpenProfilePanel}>
-    <div
-      className={cn(
-        "relative flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden",
-        !isNarrowProjectsLayout && "bg-sidebar pb-2 pr-2 pt-px",
-        !isNarrowProjectsLayout && sidebar?.open === false && "pl-2",
-      )}
-      data-project-context-detached={
-        isNarrowProjectsLayout ? undefined : "true"
-      }
-      data-testid="projects-overview-layout"
-    >
-      <ProjectsWorkspaceChrome
-        actions={null}
-        onGoActivity={() => {}}
-        section="Projects"
-      />
       <div
         className={cn(
-          "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
-          !isNarrowProjectsLayout
-            ? "ml-px rounded-2xl bg-background"
-            : cn("rounded-tl-xl", topChromeInset.divider),
+          "relative flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden",
+          !isNarrowProjectsLayout && "bg-sidebar pb-2 pr-2 pt-px",
+          !isNarrowProjectsLayout && sidebar?.open === false && "pl-2",
         )}
+        data-project-context-detached={
+          isNarrowProjectsLayout ? undefined : "true"
+        }
+        data-testid="projects-overview-layout"
       >
-        <ProjectCreationDialog
-          onOpenChange={setCreateProjectOpen}
-          open={createProjectOpen}
+        <ProjectsWorkspaceChrome
+          actions={null}
+          onGoActivity={() => {}}
+          section="Projects"
         />
-        <div className="flex min-h-0 min-w-0 flex-1">
-          <div className={cn("relative min-h-0 min-w-0 flex-1", phonePaneOnly === "activity" && "hidden")}>
+        <div
+          className={cn(
+            "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
+            !isNarrowProjectsLayout
+              ? "ml-px rounded-2xl bg-background"
+              : cn("rounded-tl-xl", topChromeInset.divider),
+          )}
+        >
+          <ProjectCreationDialog
+            onOpenChange={setCreateProjectOpen}
+            open={createProjectOpen}
+          />
+          <div className="flex min-h-0 min-w-0 flex-1">
             <div
-              aria-hidden="true"
-              className="pointer-events-none absolute right-[3px] top-0 z-50 w-1 rounded-full bg-border/80 opacity-0 transition-opacity duration-200"
-              ref={scrollIndicatorRef}
-            />
-            <div
-              className="buzz-content-scrollbar h-full min-h-0 min-w-0 overflow-x-hidden overflow-y-scroll"
-              onScroll={handleContentScroll}
+              className={cn(
+                "relative min-h-0 min-w-0 flex-1",
+                phonePaneOnly === "activity" && "hidden",
+              )}
             >
-              <div className="px-4 pb-4">
-                <div className="w-full space-y-3">
-                  <div
-                    className={cn(
-                      "sticky top-0 z-30 -mx-4 flex h-13 min-w-0 items-center gap-1.5 overflow-hidden px-4",
-                      PROJECT_COLUMN_HEADER_BACKDROP_CLASS,
-                      isNarrowProjectsLayout
-                        ? "rounded-tl-xl"
-                        : "rounded-t-2xl",
-                    )}
-                    data-testid="projects-page-tabs"
-                  >
-                    {phone ? (
-                      <>
-                        <span className="min-w-0 flex-1 truncate text-sm font-medium">Projects</span>
-                        <PhoneFilterToggle
-                          active={searchQuery.trim().length > 0}
-                          onToggle={() => setPhoneListFiltersOpen((v) => !v)}
-                          open={phoneListFiltersOpen}
-                          testId="projects-list-phone-filters"
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute right-[3px] top-0 z-50 w-1 rounded-full bg-border/80 opacity-0 transition-opacity duration-200"
+                ref={scrollIndicatorRef}
+              />
+              <div
+                className="buzz-content-scrollbar h-full min-h-0 min-w-0 overflow-x-hidden overflow-y-scroll"
+                onScroll={handleContentScroll}
+              >
+                <div className="px-4 pb-4">
+                  <div className="w-full space-y-3">
+                    <div
+                      className={cn(
+                        "sticky top-0 z-30 -mx-4 flex h-13 min-w-0 items-center gap-1.5 overflow-hidden px-4",
+                        PROJECT_COLUMN_HEADER_BACKDROP_CLASS,
+                        isNarrowProjectsLayout
+                          ? "rounded-tl-xl"
+                          : "rounded-t-2xl",
+                      )}
+                      data-testid="projects-page-tabs"
+                    >
+                      {phone ? (
+                        <>
+                          <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                            Projects
+                          </span>
+                          <PhoneFilterToggle
+                            active={searchQuery.trim().length > 0}
+                            onToggle={() => setPhoneListFiltersOpen((v) => !v)}
+                            open={phoneListFiltersOpen}
+                            testId="projects-list-phone-filters"
+                          />
+                        </>
+                      ) : (
+                        <ProjectsSectionSearch
+                          onCollapseAll={handleCollapseAll}
+                          onExpandAll={handleExpandAll}
+                          onQueryChange={setSearchQuery}
+                          onSortChange={handleSortChange}
+                          sort={sort}
                         />
-                      </>
-                    ) : (
-                      <ProjectsSectionSearch
-                        onCollapseAll={handleCollapseAll}
-                        onExpandAll={handleExpandAll}
-                        onQueryChange={setSearchQuery}
-                        onSortChange={handleSortChange}
-                        sort={sort}
-                      />
-                    )}
-                    {phone ? (
+                      )}
+                      {phone ? (
+                        <Button
+                          aria-label="Show activity"
+                          className="h-7 w-auto shrink-0 gap-1 rounded-full border border-border px-2.5 text-xs text-muted-foreground hover:text-foreground"
+                          data-testid="projects-phone-pane-toggle"
+                          onClick={() => setPhonePane("activity")}
+                          size="sm"
+                          type="button"
+                          variant="ghost"
+                        >
+                          <Activity aria-hidden className="h-3.5 w-3.5" />
+                          <span>Activity</span>
+                        </Button>
+                      ) : null}
                       <Button
-                        aria-label="Show activity"
-                        className="h-7 w-auto shrink-0 gap-1 rounded-full border border-border px-2.5 text-xs text-muted-foreground hover:text-foreground"
-                        data-testid="projects-phone-pane-toggle"
-                        onClick={() => setPhonePane("activity")}
-                        size="sm"
+                        aria-label="Create project"
+                        className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+                        data-testid="projects-overview-create-project"
+                        onClick={() => setCreateProjectOpen(true)}
+                        size="icon"
+                        title="Create project"
                         type="button"
                         variant="ghost"
                       >
-                        <Activity aria-hidden className="h-3.5 w-3.5" />
-                        <span>Activity</span>
+                        <Plus className="h-4 w-4" />
                       </Button>
-                    ) : null}
-                    <Button
-                      aria-label="Create project"
-                      className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
-                      data-testid="projects-overview-create-project"
-                      onClick={() => setCreateProjectOpen(true)}
-                      size="icon"
-                      title="Create project"
-                      type="button"
-                      variant="ghost"
-                    >
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  {phone ? (
-                    <div
-                      className={cn("flex min-w-0 items-center", !phoneListFiltersOpen && "hidden")}
-                      data-testid="projects-list-phone-filter-row"
-                    >
-                      <ProjectsSectionSearch
-                        onCollapseAll={handleCollapseAll}
-                        onExpandAll={handleExpandAll}
-                        onQueryChange={setSearchQuery}
-                        onSortChange={handleSortChange}
-                        sort={sort}
-                      />
                     </div>
-                  ) : null}
-                  <ProjectsWorkItemsLoadNotice
-                    error={projectsWorkItemsQuery.error}
-                    failedSections={
-                      projectsWorkItemsQuery.data?.issues.failedSections ?? []
-                    }
-                    isRetrying={
-                      projectsWorkItemsQuery.isFetching &&
-                      !projectsWorkItemsQuery.isLoading
-                    }
-                    onRetry={() => void projectsWorkItemsQuery.refetch()}
-                    subject="issues"
-                  />
-                  {projectsWorkItemsQuery.isLoading ? (
-                    <p className="px-2 text-xs text-muted-foreground">
-                      Loading tasks
-                    </p>
-                  ) : null}
-                  <ProjectsIndexTree
-                    channelsById={channelsById}
-                    channelsLoading={channelsQuery.isLoading}
-                    collapsedProjectIds={collapsedProjectIds}
-                    nodes={tree}
-                    onOpenChannel={handleOpenChannel}
-                    onToggleProject={handleToggleProject}
-                    onOpenIssue={handleOpenIssue}
-                    onOpenProject={handleOpenProject}
-                    onOpenRepository={handleOpenRepository}
-                    onOpenRepositoryBranch={handleOpenRepositoryBranch}
-                    onOpenRepositoryCommit={handleOpenRepositoryCommit}
-                    repositorySummaries={repositoryActivitySummariesQuery.data}
-                    searching={searchQuery.trim().length > 0}
-                  />
+                    {phone ? (
+                      <div
+                        className={cn(
+                          "flex min-w-0 items-center",
+                          !phoneListFiltersOpen && "hidden",
+                        )}
+                        data-testid="projects-list-phone-filter-row"
+                      >
+                        <ProjectsSectionSearch
+                          onCollapseAll={handleCollapseAll}
+                          onExpandAll={handleExpandAll}
+                          onQueryChange={setSearchQuery}
+                          onSortChange={handleSortChange}
+                          sort={sort}
+                        />
+                      </div>
+                    ) : null}
+                    <ProjectsWorkItemsLoadNotice
+                      error={projectsWorkItemsQuery.error}
+                      failedSections={
+                        projectsWorkItemsQuery.data?.issues.failedSections ?? []
+                      }
+                      isRetrying={
+                        projectsWorkItemsQuery.isFetching &&
+                        !projectsWorkItemsQuery.isLoading
+                      }
+                      onRetry={() => void projectsWorkItemsQuery.refetch()}
+                      subject="issues"
+                    />
+                    {projectsWorkItemsQuery.isLoading ? (
+                      <p className="px-2 text-xs text-muted-foreground">
+                        Loading tasks
+                      </p>
+                    ) : null}
+                    <ProjectsIndexTree
+                      channelsById={channelsById}
+                      channelsLoading={channelsQuery.isLoading}
+                      collapsedProjectIds={collapsedProjectIds}
+                      nodes={tree}
+                      onOpenChannel={handleOpenChannel}
+                      onToggleProject={handleToggleProject}
+                      onOpenIssue={handleOpenIssue}
+                      onOpenProject={handleOpenProject}
+                      onOpenRepository={handleOpenRepository}
+                      onOpenRepositoryBranch={handleOpenRepositoryBranch}
+                      onOpenRepositoryCommit={handleOpenRepositoryCommit}
+                      repositorySummaries={
+                        repositoryActivitySummariesQuery.data
+                      }
+                      searching={searchQuery.trim().length > 0}
+                    />
+                  </div>
                 </div>
               </div>
             </div>
+            {profilePanelPubkey ? (
+              <UserProfilePanel
+                canResetWidth={threadPanelWidth.canReset}
+                currentPubkey={identityQuery.data?.pubkey}
+                onClose={handleCloseProfilePanel}
+                onOpenDm={handleOpenDm}
+                onOpenProfile={handleOpenProfilePanel}
+                onResetWidth={threadPanelWidth.onResetWidth}
+                onResizeStart={threadPanelWidth.onResizeStart}
+                onTabChange={handleProfilePanelTabChange}
+                onViewChange={handleProfilePanelViewChange}
+                pubkey={profilePanelPubkey}
+                tab={profilePanelTab}
+                view={profilePanelView}
+                widthPx={threadPanelWidth.widthPx}
+              />
+            ) : phonePaneOnly === "list" ? null : (
+              <ProjectsIndexActivity
+                onPhoneBack={phone ? () => setPhonePane("list") : undefined}
+                channelsById={channelsById}
+                collapsed={phone ? false : activityCollapsed}
+                issues={projectsWorkItemsQuery.data?.issues.items ?? []}
+                onRetryWorkItems={() => void projectsWorkItemsQuery.refetch()}
+                onToggleCollapsed={() =>
+                  setActivityCollapsed((collapsed) => !collapsed)
+                }
+                projects={projects}
+                pullRequests={
+                  projectsWorkItemsQuery.data?.pullRequests.items ?? []
+                }
+                workItemsError={projectsWorkItemsQuery.error}
+                workItemsFailedSections={[
+                  ...new Set([
+                    ...(projectsWorkItemsQuery.data?.issues.failedSections ??
+                      []),
+                    ...(projectsWorkItemsQuery.data?.pullRequests
+                      .failedSections ?? []),
+                  ]),
+                ]}
+                workItemsLoading={projectsWorkItemsQuery.isLoading}
+                workItemsRetrying={
+                  projectsWorkItemsQuery.isFetching &&
+                  !projectsWorkItemsQuery.isLoading
+                }
+              />
+            )}
           </div>
-          {profilePanelPubkey ? (
-            <UserProfilePanel
-              canResetWidth={threadPanelWidth.canReset}
-              currentPubkey={identityQuery.data?.pubkey}
-              onClose={handleCloseProfilePanel}
-              onOpenDm={handleOpenDm}
-              onOpenProfile={handleOpenProfilePanel}
-              onResetWidth={threadPanelWidth.onResetWidth}
-              onResizeStart={threadPanelWidth.onResizeStart}
-              onTabChange={handleProfilePanelTabChange}
-              onViewChange={handleProfilePanelViewChange}
-              pubkey={profilePanelPubkey}
-              tab={profilePanelTab}
-              view={profilePanelView}
-              widthPx={threadPanelWidth.widthPx}
-            />
-          ) : phonePaneOnly === "list" ? null : (
-            <ProjectsIndexActivity
-              onPhoneBack={phone ? () => setPhonePane("list") : undefined}
-              channelsById={channelsById}
-              collapsed={phone ? false : activityCollapsed}
-              issues={projectsWorkItemsQuery.data?.issues.items ?? []}
-              onRetryWorkItems={() => void projectsWorkItemsQuery.refetch()}
-              onToggleCollapsed={() =>
-                setActivityCollapsed((collapsed) => !collapsed)
-              }
-              projects={projects}
-              pullRequests={projectsWorkItemsQuery.data?.pullRequests.items ?? []}
-              workItemsError={projectsWorkItemsQuery.error}
-              workItemsFailedSections={[
-                ...new Set([
-                  ...(projectsWorkItemsQuery.data?.issues.failedSections ?? []),
-                  ...(projectsWorkItemsQuery.data?.pullRequests.failedSections ??
-                    []),
-                ]),
-              ]}
-              workItemsLoading={projectsWorkItemsQuery.isLoading}
-              workItemsRetrying={
-                projectsWorkItemsQuery.isFetching &&
-                !projectsWorkItemsQuery.isLoading
-              }
-            />
-          )}
         </div>
       </div>
-    </div>
     </ProfilePanelProvider>
   );
 }

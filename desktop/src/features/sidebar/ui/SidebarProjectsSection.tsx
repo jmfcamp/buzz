@@ -315,7 +315,9 @@ export function SidebarProjectsSection() {
                 const childChannels = listProjectChildChannels(project).flatMap(
                   (binding) => {
                     const channel = channelsById.get(binding.channelId);
-                    return channel ? [{ binding, channel }] : [];
+                    return channel && !channel.archivedAt
+                      ? [{ binding, channel }]
+                      : [];
                   },
                 );
                 const isExpanded =

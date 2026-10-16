@@ -5,6 +5,8 @@ import {
   Folders,
   Hash,
 } from "lucide-react";
+import { usePersistedIdSet } from "@/features/projects/lib/persistedIdSet";
+import { isRenderableProjectChannel } from "@/features/projects/lib/renderableProjectChannel";
 import * as React from "react";
 
 import type {
@@ -77,11 +79,14 @@ function taskGroupStateKey(projectId: string, word: string) {
   return `${projectId}:tasks:${word}`;
 }
 
-/** Done starts collapsed. Every other section starts expanded. */
+/**
+ * Every section starts collapsed; the set holds the keys the user toggled
+ * open (persisted across visits).
+ */
 function sectionIsOpen(
   collapsed: ReadonlySet<string>,
   key: string,
-  startsCollapsed = false,
+  startsCollapsed = true,
 ) {
   return startsCollapsed ? collapsed.has(key) : !collapsed.has(key);
 }
@@ -138,7 +143,6 @@ function IndexSection({
   );
 }
 
-
 export function ProjectsIndexTree({
   channelsById,
   channelsLoading = false,
@@ -176,8 +180,8 @@ export function ProjectsIndexTree({
   repositorySummaries?: Record<string, ProjectActivitySummary>;
   searching: boolean;
 }) {
-  const [collapsed, setCollapsed] = React.useState<ReadonlySet<string>>(
-    () => new Set(),
+  const [collapsed, setCollapsed] = usePersistedIdSet(
+    "buzz.projects.page.sections.open",
   );
   const toggle = React.useCallback((key: string) => {
     setCollapsed((current) => {
@@ -347,49 +351,57 @@ export function ProjectsIndexTree({
                   open={channelsOpen}
                   testId={`projects-index-section-${project.dtag}-channels`}
                 >
-                  {node.channels.map((row) => {
-                    const channel = channelsById.get(row.channelId);
-                    const name =
-                      channel?.name ??
-                      (channelsLoading
-                        ? "Loading channel"
-                        : "Channel unavailable");
-                    const members = projectsIndexChannelMemberPubkeys(channel);
-                    return (
-                      <div
-                        className={ROW_CLASS}
-                        data-testid="project-channel-row"
-                        key={projectRelatedChannelDisplayRowKey(row)}
-                      >
-                        <button
-                          className="flex min-w-0 flex-1 items-center text-left"
-                          onClick={() => onOpenChannel(row.channelId)}
-                          title={
-                            channel
-                              ? `Open #${name}`
-                              : "Open unavailable channel"
-                          }
-                          type="button"
+                  {node.channels
+                    .filter((row) =>
+                      isRenderableProjectChannel(
+                        channelsById.get(row.channelId),
+                        channelsLoading,
+                      ),
+                    )
+                    .map((row) => {
+                      const channel = channelsById.get(row.channelId);
+                      const name =
+                        channel?.name ??
+                        (channelsLoading
+                          ? "Loading channel"
+                          : "Channel unavailable");
+                      const members =
+                        projectsIndexChannelMemberPubkeys(channel);
+                      return (
+                        <div
+                          className={ROW_CLASS}
+                          data-testid="project-channel-row"
+                          key={projectRelatedChannelDisplayRowKey(row)}
                         >
-                          <span className="min-w-0 flex-1 truncate">
-                            {channel ? `#${name}` : name}
-                          </span>
-                        </button>
-                        {members && members.length > 0 ? (
-                          <span
-                            className="ml-auto shrink-0"
-                            data-testid="project-channel-members"
+                          <button
+                            className="flex min-w-0 flex-1 items-center text-left"
+                            onClick={() => onOpenChannel(row.channelId)}
+                            title={
+                              channel
+                                ? `Open #${name}`
+                                : "Open unavailable channel"
+                            }
+                            type="button"
                           >
-                            <ProjectEntityFacepile
-                              interactive
-                              participants={[...members]}
-                              profiles={profiles}
-                            />
-                          </span>
-                        ) : null}
-                      </div>
-                    );
-                  })}
+                            <span className="min-w-0 flex-1 truncate">
+                              {channel ? `#${name}` : name}
+                            </span>
+                          </button>
+                          {members && members.length > 0 ? (
+                            <span
+                              className="ml-auto shrink-0"
+                              data-testid="project-channel-members"
+                            >
+                              <ProjectEntityFacepile
+                                interactive
+                                participants={[...members]}
+                                profiles={profiles}
+                              />
+                            </span>
+                          ) : null}
+                        </div>
+                      );
+                    })}
                 </IndexSection>
                 <IndexSection
                   icon={<CircleDot className="h-3.5 w-3.5 shrink-0" />}

@@ -1,4 +1,5 @@
 import { FolderKanban, Hash, LockKeyhole } from "lucide-react";
+import { isRenderableProjectChannel } from "@/features/projects/lib/renderableProjectChannel";
 import * as React from "react";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
@@ -43,6 +44,12 @@ export function ProjectsChannelsList({
       collectProjectRelatedChannelRows(projects),
     );
     return collected
+      .filter((row) =>
+        isRenderableProjectChannel(
+          channelsById.get(row.channelId),
+          channelsQuery.isPending,
+        ),
+      )
       .filter((row) => {
         const channel = channelsById.get(row.channelId);
         return matchesProjectsSearch(searchQuery, [
@@ -71,7 +78,7 @@ export function ProjectsChannelsList({
           left.channelId.localeCompare(right.channelId)
         );
       });
-  }, [channelsById, projects, searchQuery]);
+  }, [channelsById, channelsQuery.isPending, projects, searchQuery]);
   const participantPubkeys = React.useMemo(
     () => [
       ...new Set(

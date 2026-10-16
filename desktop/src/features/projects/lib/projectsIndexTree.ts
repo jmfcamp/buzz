@@ -21,6 +21,7 @@ import {
 } from "@/features/projects/lib/taskStatus";
 
 export type ProjectsIndexChannel = {
+  archivedAt?: string | null;
   channelType?: "stream" | "forum" | "dm";
   description?: string | null;
   id: string;
