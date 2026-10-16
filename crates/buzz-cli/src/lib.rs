@@ -616,7 +616,7 @@ pub enum ChannelsCmd {
     },
     /// Create a new channel
     #[command(
-        after_help = "Examples:\n  buzz channels create --name general --type stream --visibility open\n  buzz channels create --name design --type forum --visibility open --description \"Design discussions\"\n  buzz channels create --name standup --type stream --visibility open --ttl 3600  # ephemeral, archived after 1h idle\n  buzz channels create --name project-x --template \"Buzz Team\"  # type/visibility/canvas/roster from the template; explicit flags override"
+        after_help = "Examples:\n  buzz channels create --name general --type stream --visibility open\n  buzz channels create --name design --type forum --visibility open --description \"Design discussions\"\n  buzz channels create --name standup --type stream --visibility open --ttl 3600  # ephemeral, archived after 1h idle\n  buzz channels create --name project-x --template \"Buzz Team\"  # type/visibility/canvas/roster from the template; explicit flags override\n  buzz channels create --name products_x_my-slug --type stream --visibility open --project-home <home-uuid> --slug my-slug  # project slug channel"
     )]
     Create {
         /// Channel name
@@ -645,6 +645,21 @@ pub enum ChannelsCmd {
         /// app's prod app-data dir). Mainly for the dev store or testing.
         #[arg(long, value_name = "PATH")]
         templates_file: Option<String>,
+        /// Tag this channel as a project's slug channel: the project home
+        /// channel UUID. Use only for a new scope of work (`/hula-project`
+        /// slug ack); ordinary channels stay untagged. Requires --slug, and
+        /// the name must end with `_<slug>`. The owner's Buzz app links it
+        /// into the project on its next sync.
+        #[arg(
+            long,
+            value_name = "UUID",
+            requires = "slug",
+            conflicts_with = "template"
+        )]
+        project_home: Option<String>,
+        /// The Hula-OS plan slug for --project-home (lowercase, digits, hyphens).
+        #[arg(long, requires = "project_home")]
+        slug: Option<String>,
     },
     /// Update channel name, description, visibility, or ephemeral TTL
     #[command(

@@ -8,14 +8,15 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::client::{
-    extract_d_tag, extract_p_tags, extract_tag_value, normalize_write_response,
-    print_create_response, BuzzClient,
+    create_response_with_id_if_accepted, extract_d_tag, extract_p_tags, extract_tag_value,
+    normalize_write_response, BuzzClient,
 };
 use crate::commands::agents::fetch_archived_snapshot;
 use crate::commands::channel_templates::{self, ChannelTemplateRecord, TemplateAgentRoster};
 use crate::commands::users::presence_subject;
 use crate::error::CliError;
 use crate::validate::{parse_uuid, read_or_stdin, validate_hex64, validate_uuid};
+use nostr::Tag;
 
 fn extract_channel_metadata(e: &serde_json::Value) -> serde_json::Value {
     serde_json::json!({
@@ -659,7 +660,11 @@ pub async fn cmd_create_channel(
     visibility: &str,
     description: Option<&str>,
     ttl: Option<i64>,
+    project_slug: Option<(&str, &str)>,
 ) -> Result<(), CliError> {
+    let project_tags = project_slug
+        .map(|(home, slug)| project_slug_tags(name, home, slug))
+        .transpose()?;
     match channel_type {
         "stream" | "forum" => {}
         _ => {
@@ -691,14 +696,70 @@ pub async fn cmd_create_channel(
         "forum" => buzz_sdk::ChannelKind::Forum,
         _ => unreachable!(),
     };
-    let builder =
+    let mut builder =
         buzz_sdk::build_create_channel(channel_uuid, name, Some(vis), Some(ct), description, ttl)
             .map_err(|e| CliError::Other(format!("build_create_channel failed: {e}")))?;
+    if let Some(tags) = project_tags {
+        builder = builder.tags(tags);
+    }
 
     let event = client.sign_event(builder)?;
     let resp = client.submit_event(event).await?;
-    print_create_response(&resp, "channel_id", &channel_uuid.to_string());
+    println!(
+        "{}",
+        channel_create_output(&resp, &channel_uuid.to_string(), name)
+    );
     Ok(())
+}
+
+/// Tag names on the kind:9007 create for a project slug channel. The relay
+/// stores the signed event as-is (it only validates name/visibility/type).
+pub const PROJECT_HOME_TAG: &str = "buzz-project-home";
+pub const PROJECT_SLUG_TAG: &str = "buzz-project-slug";
+
+fn project_slug_tags(name: &str, home: &str, slug: &str) -> Result<Vec<Tag>, CliError> {
+    let home = Uuid::parse_str(home.trim()).map_err(|_| {
+        CliError::Usage(format!(
+            "--project-home must be a channel UUID (got: {home})"
+        ))
+    })?;
+    let slug = slug.trim();
+    if slug.is_empty()
+        || !slug
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    {
+        return Err(CliError::Usage(format!(
+            "--slug must be lowercase letters, digits and hyphens (got: {slug})"
+        )));
+    }
+    if !name.ends_with(&format!("_{slug}")) {
+        return Err(CliError::Usage(format!(
+            "a project slug channel name must end with _{slug} (got: {name})"
+        )));
+    }
+    let mk = |k: &str, v: &str| {
+        Tag::parse([k, v]).map_err(|e| CliError::Other(format!("invalid tag: {e}")))
+    };
+    Ok(vec![
+        mk(PROJECT_HOME_TAG, &home.to_string())?,
+        mk(PROJECT_SLUG_TAG, slug)?,
+    ])
+}
+
+/// Create response plus `channel_id`, `name` and an openable `link` when accepted.
+fn channel_create_output(resp: &str, channel_id: &str, name: &str) -> String {
+    let mut v: serde_json::Value = serde_json::from_str(&create_response_with_id_if_accepted(
+        resp,
+        "channel_id",
+        channel_id,
+    ))
+    .unwrap_or_else(|_| serde_json::json!({}));
+    if v.get("accepted").and_then(|a| a.as_bool()) == Some(true) {
+        v["name"] = serde_json::json!(name);
+        v["link"] = serde_json::json!(format!("hulabuzz://channel/{channel_id}"));
+    }
+    v.to_string()
 }
 
 /// A resolved live managed-agent instance backing a template persona slug.
@@ -1890,6 +1951,8 @@ pub async fn dispatch(
             ttl,
             template,
             templates_file,
+            project_home,
+            slug,
         } => {
             if let Some(template_name) = template {
                 cmd_create_channel_from_template(
@@ -1917,6 +1980,7 @@ pub async fn dispatch(
                     &visibility.to_string(),
                     description.as_deref(),
                     ttl,
+                    project_home.as_deref().zip(slug.as_deref()),
                 )
                 .await
             }
@@ -1981,6 +2045,43 @@ pub async fn dispatch_canvas(cmd: crate::CanvasCmd, client: &BuzzClient) -> Resu
 
 #[cfg(test)]
 mod tests {
+
+    use super::{channel_create_output, project_slug_tags, PROJECT_HOME_TAG, PROJECT_SLUG_TAG};
+
+    #[test]
+    fn project_slug_tags_validate_and_tag() {
+        let home = "bc95409d-ab1e-4235-8169-c1824b953d05";
+        let tags = project_slug_tags("products_hulahealth_portal", home, "portal").unwrap();
+        let v: Vec<Vec<String>> = tags.iter().map(|t| t.as_slice().to_vec()).collect();
+        assert_eq!(v[0], vec![PROJECT_HOME_TAG.to_string(), home.to_string()]);
+        assert_eq!(
+            v[1],
+            vec![PROJECT_SLUG_TAG.to_string(), "portal".to_string()]
+        );
+        assert!(project_slug_tags("products_hulahealth_other", home, "portal").is_err());
+        assert!(project_slug_tags("x_Bad", home, "Bad").is_err());
+        assert!(project_slug_tags("x_a", "not-a-uuid", "a").is_err());
+    }
+
+    #[test]
+    fn channel_create_output_adds_link_only_when_accepted() {
+        let ok = channel_create_output(
+            r#"{"event_id":"e","accepted":true,"message":""}"#,
+            "abc",
+            "n_s",
+        );
+        let v: serde_json::Value = serde_json::from_str(&ok).unwrap();
+        assert_eq!(v["channel_id"], "abc");
+        assert_eq!(v["name"], "n_s");
+        assert_eq!(v["link"], "hulabuzz://channel/abc");
+        let no = channel_create_output(
+            r#"{"event_id":"e","accepted":false,"message":"x"}"#,
+            "abc",
+            "n_s",
+        );
+        let v: serde_json::Value = serde_json::from_str(&no).unwrap();
+        assert!(v.get("link").is_none());
+    }
     use super::{
         apply_cardinality_rule, assemble_roster_resolution, build_hint_map, build_template_report,
         cmd_set_add_policy, fetch_candidate_hints, finalize_roster_resolution, format_candidate,

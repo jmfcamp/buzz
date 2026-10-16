@@ -64,3 +64,43 @@ test("auto sync still requires a provable owner", () => {
   });
   assert.deepEqual(ids, []);
 });
+
+test("tagged slug channels are adopted by tag + exact name, without creator proof", async () => {
+  const {
+    findTaggedSlugChannels,
+    PROJECT_HOME_TAG: H,
+    PROJECT_SLUG_TAG: S,
+  } = await import("./adoptAgentChannels.ts");
+  const HOME = "bc95409d";
+  const t = (home, slug) => [
+    ["h", "x"],
+    ["name", "n"],
+    [H, home],
+    [S, slug],
+  ];
+  const ids = findTaggedSlugChannels({
+    projectChannelName: "products_hulahealth",
+    projectHomeChannelId: HOME,
+    linkedChannelIds: new Set(["linked"]),
+    directory: [
+      { id: "ok", name: "products_hulahealth_portal", archivedAt: null },
+      { id: "stack", name: "products_hulahealth_hulahealth-portal-app_journeys", archivedAt: null },
+      { id: "untagged", name: "products_hulahealth_plain", archivedAt: null },
+      { id: "otherhome", name: "products_hulahealth_x", archivedAt: null },
+      { id: "mismatch", name: "products_hulahealth_y", archivedAt: null },
+      { id: "dup", name: "products_hulahealth_portal (2)", archivedAt: null },
+      { id: "arch", name: "products_hulahealth_old", archivedAt: "2026-10-16" },
+      { id: "linked", name: "products_hulahealth_z", archivedAt: null },
+    ],
+    createTags: new Map([
+      ["ok", t(HOME, "portal")],
+      ["stack", t(HOME, "journeys")],
+      ["otherhome", t("deadbeef", "x")],
+      ["mismatch", t(HOME, "not-y")],
+      ["dup", t(HOME, "portal")],
+      ["arch", t(HOME, "old")],
+      ["linked", t(HOME, "z")],
+    ]),
+  });
+  assert.deepEqual(ids, ["ok", "stack"]);
+});

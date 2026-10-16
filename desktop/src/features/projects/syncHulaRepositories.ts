@@ -1,5 +1,9 @@
 import { ensureNamedChannel } from "@/features/projects/lib/hulaChannels";
-import { findAdoptableProjectChannels } from "@/features/projects/lib/adoptAgentChannels";
+import {
+  findAdoptableProjectChannels,
+  findTaggedSlugChannels,
+} from "@/features/projects/lib/adoptAgentChannels";
+import { relayClient } from "@/shared/api/relayClient";
 import { getChannelDetails } from "@/shared/api/tauriChannels";
 import { getUsersBatch } from "@/shared/api/tauriProfiles";
 import {
@@ -74,6 +78,8 @@ type HulaSyncDeps = {
   getUsersBatch?: (
     pubkeys: string[],
   ) => Promise<{ profiles: Record<string, { ownerPubkey: string | null }> }>;
+  /** kind:9007 channel-create events for these channel ids (slug-channel project tags). */
+  fetchChannelCreates?: (channelIds: string[]) => Promise<RelayEvent[]>;
 };
 
 const defaultHulaSyncDeps: HulaSyncDeps = {
@@ -82,6 +88,12 @@ const defaultHulaSyncDeps: HulaSyncDeps = {
   getOpenChannelDirectory,
   getChannelDetails,
   getUsersBatch,
+  fetchChannelCreates: (channelIds) =>
+    relayClient.fetchEvents({
+      kinds: [9007],
+      "#h": channelIds,
+      limit: channelIds.length * 2,
+    }),
   createChannel,
   joinChannel,
   fetchOwnHead,
@@ -536,6 +548,8 @@ async function adoptableAgentChannels(
       )
       .slice(0, 20);
     if (candidates.length === 0) return [];
+    // Slug channels tagged for this project at creation (`buzz channels create --project-home --slug`).
+    const tagged = await taggedSlugChannels(project, candidates, linked, deps);
     if (options.trustNamePrefix) {
       return findAdoptableProjectChannels({
         projectChannelName: project.name,
@@ -546,7 +560,7 @@ async function adoptableAgentChannels(
         trustNamePrefix: true,
       });
     }
-    if (!deps.getUsersBatch) return [];
+    if (!deps.getUsersBatch) return tagged;
     const withCreators = (
       await Promise.all(
         candidates.map(async (channel) => {
@@ -564,20 +578,51 @@ async function adoptableAgentChannels(
         withCreators.map((channel) => channel.createdBy.trim().toLowerCase()),
       ),
     ];
-    if (creators.length === 0) return [];
+    if (creators.length === 0) return tagged;
     const { profiles } = await deps.getUsersBatch(creators);
     const creatorOwners = new Map(
       creators.map((pubkey) => [pubkey, profiles[pubkey]?.ownerPubkey ?? null]),
     );
-    return findAdoptableProjectChannels({
-      projectChannelName: project.name,
-      ownerPubkey: project.owner,
-      linkedChannelIds: linked,
-      directory: withCreators,
-      creatorOwners,
-    });
+    return [
+      ...new Set([
+        ...tagged,
+        ...findAdoptableProjectChannels({
+          projectChannelName: project.name,
+          ownerPubkey: project.owner,
+          linkedChannelIds: linked,
+          directory: withCreators,
+          creatorOwners,
+        }),
+      ]),
+    ].sort();
   } catch {
     // Adoption is best-effort; never block the repository sync on it.
+    return [];
+  }
+}
+
+async function taggedSlugChannels(
+  project: Project,
+  candidates: { id: string; name: string; archivedAt: string | null }[],
+  linked: ReadonlySet<string>,
+  deps: HulaSyncDeps,
+): Promise<string[]> {
+  if (!deps.fetchChannelCreates || !project.projectChannelId) return [];
+  try {
+    const events = await deps.fetchChannelCreates(candidates.map((c) => c.id));
+    const createTags = new Map<string, string[][]>();
+    for (const event of events) {
+      const id = event.tags.find((t) => t[0] === "h")?.[1];
+      if (id && !createTags.has(id)) createTags.set(id, event.tags);
+    }
+    return findTaggedSlugChannels({
+      projectChannelName: project.name,
+      projectHomeChannelId: project.projectChannelId,
+      linkedChannelIds: linked,
+      directory: candidates,
+      createTags,
+    });
+  } catch {
     return [];
   }
 }
