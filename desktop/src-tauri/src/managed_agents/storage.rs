@@ -276,6 +276,19 @@ fn load_agent_store<R: tauri::Runtime>(
 /// Load the keyed agent *instances*. Key-less definitions (former personas,
 /// folded into the same store) are filtered out so every pre-fold call site
 /// keeps seeing exactly the records it always did.
+/// Pubkeys of the agents that run on this computer (local backend), read from
+/// the store without touching the keychain. Used by `local-agents` access.
+pub fn local_agent_pubkeys<R: tauri::Runtime>(app: &AppHandle<R>) -> Vec<String> {
+    load_agent_store(app)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|record| {
+            !record.pubkey.is_empty() && matches!(record.backend, crate::managed_agents::BackendKind::Local)
+        })
+        .map(|record| record.pubkey.to_ascii_lowercase())
+        .collect()
+}
+
 pub fn load_managed_agents<R: tauri::Runtime>(
     app: &AppHandle<R>,
 ) -> Result<Vec<ManagedAgentRecord>, String> {

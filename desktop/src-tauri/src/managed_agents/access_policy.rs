@@ -22,14 +22,15 @@
 //!   does not present the locked owner-only control as applied while the remote
 //!   deployment may still use a wider policy.
 //!
-//! ## "owner-only" is strictly the owner; "owner-and-agents" adds siblings
+//! ## Access modes
 //!
-//! `owner-only` ("Only me") admits only the human owner. `owner-and-agents`
-//! ("Me and my agents") additionally admits every NIP-OA-verified agent that
-//! shares the owner (see `crates/buzz-acp/src/lib.rs`) — the meaning
-//! `owner-only` had before the split. Both stay inside the owner's trust
-//! boundary, so an owner-only access build keeps `owner-and-agents` and clamps
-//! every wider mode to `owner-only`.
+//! `owner-only` ("Only me") admits only the human owner. `local-agents` ("All
+//! local bots") admits the owner plus the agents running on this computer; the
+//! list is computed at spawn and passed in `BUZZ_ACP_RESPOND_TO_ALLOWLIST`, so a
+//! change to the local agent set applies on the agent's next start. Same-owner
+//! agents elsewhere are not implied. Both stay inside the owner's trust
+//! boundary, so an owner-only access build keeps `local-agents` and clamps every
+//! wider mode to `owner-only`.
 
 use super::{validate_respond_to_allowlist, ManagedAgentRecord, RespondTo};
 
@@ -56,8 +57,8 @@ pub(crate) fn projected_access_with_policy(
     owner_only_access: bool,
 ) -> (RespondTo, Vec<String>) {
     if owner_only_with_policy(owner_only_access) {
-        let mode = if record.respond_to == RespondTo::OwnerAndAgents {
-            RespondTo::OwnerAndAgents
+        let mode = if record.respond_to == RespondTo::LocalAgents {
+            RespondTo::LocalAgents
         } else {
             RespondTo::OwnerOnly
         };
@@ -75,6 +76,17 @@ pub(crate) fn build_respond_to_env_with_policy(
     owner_hex: Option<&str>,
     enforced_owner_only: bool,
 ) -> Result<RespondToEnv, String> {
+    build_respond_to_env_with_local_agents(record, owner_hex, enforced_owner_only, &[])
+}
+
+/// Like [`build_respond_to_env_with_policy`], with the pubkeys of the agents
+/// running on this computer for `local-agents` mode (self is dropped).
+pub(crate) fn build_respond_to_env_with_local_agents(
+    record: &ManagedAgentRecord,
+    owner_hex: Option<&str>,
+    enforced_owner_only: bool,
+    local_agent_pubkeys: &[String],
+) -> Result<RespondToEnv, String> {
     let (respond_to, _) = projected_access_with_policy(record, enforced_owner_only);
     let normalized = validate_respond_to_allowlist(&record.respond_to_allowlist)?;
     if respond_to == RespondTo::Allowlist && normalized.is_empty() {
@@ -91,14 +103,27 @@ pub(crate) fn build_respond_to_env_with_policy(
             format!(
                 "{},{}",
                 RespondTo::OwnerOnly.as_str(),
-                RespondTo::OwnerAndAgents.as_str()
+                RespondTo::LocalAgents.as_str()
             ),
         ));
     } else {
         remove.push("BUZZ_ACP_ALLOWED_RESPOND_TO");
     }
+    let local: Vec<String> = if respond_to == RespondTo::LocalAgents {
+        let me = record.pubkey.to_ascii_lowercase();
+        let others: Vec<String> = local_agent_pubkeys
+            .iter()
+            .map(|pk| pk.to_ascii_lowercase())
+            .filter(|pk| *pk != me)
+            .collect();
+        validate_respond_to_allowlist(&others)?
+    } else {
+        Vec::new()
+    };
     if respond_to == RespondTo::Allowlist {
         set.push(("BUZZ_ACP_RESPOND_TO_ALLOWLIST", normalized.join(",")));
+    } else if !local.is_empty() {
+        set.push(("BUZZ_ACP_RESPOND_TO_ALLOWLIST", local.join(",")));
     } else {
         remove.push("BUZZ_ACP_RESPOND_TO_ALLOWLIST");
     }

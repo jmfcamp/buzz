@@ -384,7 +384,7 @@ export type ManagedAgent = {
 /** Inbound author gate mode. Mirrors buzz-acp's --respond-to CLI flag. */
 export type RespondToMode =
   | "owner-only"
-  | "owner-and-agents"
+  | "local-agents"
   | "allowlist"
   | "anyone";
 

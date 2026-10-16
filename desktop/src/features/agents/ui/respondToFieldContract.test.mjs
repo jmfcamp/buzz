@@ -18,7 +18,7 @@ for (const label of [
   "Only me (default)",
   "Selected people",
   "Anyone",
-  "Allow All Local Agents",
+  "All local bots",
   "Allow All Community Bots",
   "Allow All Bots",
 ]) {
@@ -73,18 +73,19 @@ test("the warning copy comes from the shared helper, not inline text", () => {
   assert.match(collapsedSource, /<p aria-live="polite"[^>]*> \{warningText\}/);
 });
 
-test("Only me is strictly the owner; Me and my agents lists the agents", () => {
+test("Only me is strictly the owner; All local bots lists local agents", () => {
   // `owner-only` admits the owner alone; same-owner agents need the explicit
-  // `owner-and-agents` option (`managed_agents/access_policy.rs`).
+  // `local-agents` option (`managed_agents/access_policy.rs`).
   assert.match(
     collapsedSource,
     /mode === "owner-only" \? \( <> <p[^>]*> Only you can send instructions\. <\/p> <OwnerOnlyMembers agents=\{\[\]\} \/>/,
   );
   assert.match(
     collapsedSource,
-    /mode === "owner-and-agents" \? \( <> <p[^>]*> You and your agents can send instructions\./,
+    /mode === "local-agents" \? \( <> <p[^>]*> You and the agents on this computer can send instructions\./,
   );
-  assert.match(collapsedSource, /value: "owner-and-agents"/);
+  assert.match(collapsedSource, /value: "local-agents"/);
+  assert.doesNotMatch(collapsedSource, /Me and my agents/);
   assert.match(collapsedSource, /<DesktopDataNotice what=/);
 });
 
@@ -110,5 +111,5 @@ test("community bulk-allow uses catalog plus reserved Hula pubkeys", () => {
 
 test("agent-to-agent note explains both agents must allow it", () => {
   assert.match(collapsedSource, /data-testid="agent-respond-to-a2a-note"/);
-  assert.match(collapsedSource, /both agents must allow it \(Me and my agents\)/);
+  assert.match(collapsedSource, /both agents must allow it \(All local bots\)/);
 });

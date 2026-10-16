@@ -36,7 +36,7 @@ export type TimelineMessage = {
   /** For bot messages, the display name of the persona this bot was created from. */
   personaDisplayName?: string;
   /** For bot messages, the respond-to mode (who can interact with this bot). */
-  respondTo?: "owner-only" | "owner-and-agents" | "allowlist" | "anyone";
+  respondTo?: "owner-only" | "local-agents" | "allowlist" | "anyone";
   time: string;
   body: string;
   parentId?: string | null;
