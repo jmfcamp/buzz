@@ -107,3 +107,8 @@ test("community bulk-allow uses catalog plus reserved Hula pubkeys", () => {
   assert.match(respondToFieldSource, /communityBotsForBulkAllow/);
   assert.match(collapsedSource, /communityBots: communityBotsForAllow/);
 });
+
+test("agent-to-agent note explains both agents must allow it", () => {
+  assert.match(collapsedSource, /data-testid="agent-respond-to-a2a-note"/);
+  assert.match(collapsedSource, /both agents must allow it \(Me and my agents\)/);
+});
