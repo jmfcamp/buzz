@@ -1,3 +1,4 @@
+import { AssistantRoutinesPanel } from "@/features/assistantRoutines/ui/AssistantRoutinesPanel";
 import { ListTodo, Plus } from "lucide-react";
 import * as React from "react";
 
@@ -228,6 +229,9 @@ export function useBestieDmChannelExtras(
         />
       );
     }
+    if (activeKind === "routine") {
+      return <AssistantRoutinesPanel me={scope.ownerPubkey} />;
+    }
     if (activeKind === "scratch") {
       return (
         <BestieDmScratchSheet
@@ -255,7 +259,17 @@ export function useBestieDmChannelExtras(
         scope={scope}
       />
     );
-  }, [activeKind, adding, brewDisabled, coffeeLive, requestCoffeeBrew, scope, summarizeDisabled, summarizeLive, summarizeLiveThreadId]);
+  }, [
+    activeKind,
+    adding,
+    brewDisabled,
+    coffeeLive,
+    requestCoffeeBrew,
+    scope,
+    summarizeDisabled,
+    summarizeLive,
+    summarizeLiveThreadId,
+  ]);
 
   const idleAuxiliaryHeaderActions =
     React.useMemo<IdleAuxiliaryHeaderControls | null>(() => {
@@ -268,7 +282,7 @@ export function useBestieDmChannelExtras(
           setAdding(false);
         },
       };
-      if (activeKind === "coffee") {
+      if (activeKind === "coffee" || activeKind === "routine") {
         return { ...back };
       }
       const addLabel =

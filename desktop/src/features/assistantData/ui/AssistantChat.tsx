@@ -1,11 +1,7 @@
 // Web Assistant popover body: same layout/markup as the desktop Assistant popover — agent lockup header, nudge
 // banner, mini transcript (TimelineMessageList), rounded composer with the round send button, and the "Lists"
 // expansion card. Your DM with the Assistant goes over the relay (signer-only); typed list requests apply at once.
-import {
-  Bell,
-  ChevronDown,
-  SquareArrowOutUpRight,
-} from "lucide-react";
+import { Bell, ChevronDown, SquareArrowOutUpRight } from "lucide-react";
 import * as React from "react";
 
 import { useManagedAgentsQuery } from "@/features/agents/hooks";
@@ -26,6 +22,7 @@ import { PresenceDot } from "@/features/presence/ui/PresenceBadge";
 import { useProfileQuery, useUserProfileQuery } from "@/features/profile/hooks";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import { useIdentityQuery } from "@/shared/api/hooks";
+import { tryRunRoutineByName } from "@/features/assistantRoutines/runRoutineByName";
 import { startManagedAgent } from "@/shared/api/tauriManagedAgents";
 import type { Channel, RelayEvent } from "@/shared/api/types";
 import {
@@ -172,7 +169,9 @@ export function AssistantPopoverBody({
   };
   // Same composer as channels/threads (MessageComposer). Text is injected (Ask Assistant) or cleared (Close Thread)
   // by moving to a fresh draft key: the composer saves the outgoing key and loads the new one we pre-filled.
-  const [draftGen, setDraftGen] = React.useState(() => readDraftGen(me, agentPubkey));
+  const [draftGen, setDraftGen] = React.useState(() =>
+    readDraftGen(me, agentPubkey),
+  );
   const draftKey = assistDraftKey(me, agentPubkey, draftGen);
   const draftKeyRef = React.useRef(draftKey);
   draftKeyRef.current = draftKey;
@@ -346,7 +345,8 @@ export function AssistantPopoverBody({
     if (!me || !agentPubkey) return;
     for (const ev of merged) {
       if (!ev?.id || appliedFenceIds.current.has(ev.id)) continue;
-      if ((ev.pubkey ?? "").toLowerCase() !== agentPubkey.toLowerCase()) continue;
+      if ((ev.pubkey ?? "").toLowerCase() !== agentPubkey.toLowerCase())
+        continue;
       const body = typeof ev.content === "string" ? ev.content : "";
       if (!body || !messageMayContainAssistantListFence(body)) {
         continue;
@@ -366,7 +366,8 @@ export function AssistantPopoverBody({
   // as unread. Only while the popup is open on the Chat tab and the page is visible.
   const chatShown = visible && (!tabbed || tab === "chat");
   const [pageVisible, setPageVisible] = React.useState(
-    () => typeof document === "undefined" || document.visibilityState === "visible",
+    () =>
+      typeof document === "undefined" || document.visibilityState === "visible",
   );
   React.useEffect(() => {
     const on = () => setPageVisible(document.visibilityState === "visible");
@@ -387,10 +388,14 @@ export function AssistantPopoverBody({
       if (r.rootId) markThreadRead(r.rootId, r.createdAt);
     }
     if (plan.topLevelAt !== null) {
-      markChannelRead(channel.id, new Date(plan.topLevelAt * 1_000).toISOString(), {
-        preserveForcedUnread: true,
-        topLevelOnly: true,
-      });
+      markChannelRead(
+        channel.id,
+        new Date(plan.topLevelAt * 1_000).toISOString(),
+        {
+          preserveForcedUnread: true,
+          topLevelOnly: true,
+        },
+      );
     }
     for (const id of plan.ids) markedSeen.current.add(id);
   }, [
@@ -408,7 +413,10 @@ export function AssistantPopoverBody({
   const [closeConfirm, setCloseConfirm] = React.useState(false);
   React.useEffect(() => {
     if (!closeConfirm) return;
-    const t = window.setTimeout(() => setCloseConfirm(false), CLOSE_THREAD_CONFIRM_MS);
+    const t = window.setTimeout(
+      () => setCloseConfirm(false),
+      CLOSE_THREAD_CONFIRM_MS,
+    );
     return () => window.clearTimeout(t);
   }, [closeConfirm]);
   React.useEffect(() => {
@@ -437,6 +445,8 @@ export function AssistantPopoverBody({
   ) => {
     const text = content.trim();
     if ((!text && !mediaTags?.length) || busy || !me) return;
+    // Typing a routine's name ("Wake the bots") runs it instead of sending it as chat.
+    if (!mediaTags?.length && tryRunRoutineByName(text, me)) return;
     setBusy(true);
     setError(null);
     try {
@@ -466,7 +476,6 @@ export function AssistantPopoverBody({
       setBusy(false);
     }
   };
-
 
   return (
     <div
@@ -688,7 +697,10 @@ export function AssistantPopoverBody({
             data-testid="web-assistant-typing-slot"
           >
             {typingPubkeys.length > 0 && channel ? (
-              <div className="flex min-w-0 flex-1" data-testid="web-assistant-typing">
+              <div
+                className="flex min-w-0 flex-1"
+                data-testid="web-assistant-typing"
+              >
                 <TypingIndicatorRow
                   channel={channel}
                   className="min-w-0 flex-1 py-0"

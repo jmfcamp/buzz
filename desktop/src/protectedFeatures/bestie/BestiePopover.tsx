@@ -1,8 +1,5 @@
-import {
-  ChevronDown,
-  Plus,
-  SquareArrowOutUpRight,
-} from "lucide-react";
+import { tryRunRoutineByName } from "@/features/assistantRoutines/runRoutineByName";
+import { ChevronDown, Plus, SquareArrowOutUpRight } from "lucide-react";
 import { motion } from "motion/react";
 import * as React from "react";
 import { toast } from "sonner";
@@ -989,6 +986,9 @@ export function BestiePopover({
     ) {
       return;
     }
+    // Typing a routine's name ("Wake the bots") runs it instead of sending it as chat.
+    if (tryRunRoutineByName(trimmedDraft, bestie.ownerPubkey ?? undefined))
+      return;
     sendLockRef.current = true;
     void (async () => {
       try {
