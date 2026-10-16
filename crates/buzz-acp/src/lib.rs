@@ -384,6 +384,12 @@ enum SiblingVerdict {
 /// current event and arms a bounded retry deadline, so a transient relay
 /// outage cannot poison a sibling for the process lifetime and a persistent
 /// one cannot turn every sibling event into an inline relay round-trip.
+/// Strict owner check: the author is exactly this agent's registered owner.
+/// Fails closed when no owner is configured.
+fn is_owner(author: &str, owner_cache: &OwnerCache) -> bool {
+    owner_cache.get().is_some_and(|owner| author == owner)
+}
+
 async fn is_owner_or_sibling(
     author: &str,
     owner_cache: &OwnerCache,
@@ -581,13 +587,18 @@ mod inbound_author_gate {
         if is_dm {
             return match respond_to {
                 RespondTo::Nobody => false,
+                // "Only me" is strictly the owner, in DMs too.
+                RespondTo::OwnerOnly => super::is_owner(author, owner_cache),
                 _ => is_owner_or_sibling(author, owner_cache, rest_client).await,
             };
         }
         match respond_to {
             RespondTo::Anyone => true,
             RespondTo::Nobody => false,
-            RespondTo::OwnerOnly => is_owner_or_sibling(author, owner_cache, rest_client).await,
+            RespondTo::OwnerOnly => super::is_owner(author, owner_cache),
+            RespondTo::OwnerAndAgents => {
+                is_owner_or_sibling(author, owner_cache, rest_client).await
+            }
             RespondTo::Allowlist => {
                 allowlist.contains(author)
                     || is_owner_or_sibling(author, owner_cache, rest_client).await
@@ -3209,9 +3220,9 @@ async fn run_harness(
     // Warn if owner-dependent mode but no owner resolved yet.
     if startup_owner.is_none() {
         match &config.respond_to {
-            RespondTo::OwnerOnly => {
+            RespondTo::OwnerOnly | RespondTo::OwnerAndAgents => {
                 tracing::warn!(
-                    "respond-to=owner-only but no owner is set — all events will be \
+                    "respond-to=owner-only/owner-and-agents but no owner is set — all events will be \
                      dropped. Set BUZZ_AUTH_TAG or --agent-owner, or use --respond-to=anyone."
                 );
             }
@@ -4017,8 +4028,8 @@ async fn run_harness(
                             // agent. Must be AFTER !shutdown (owner can always
                             // shut down regardless of gate mode).
                             //
-                            // Both OwnerOnly and Allowlist accept events from
-                            // "siblings" — pubkeys whose agent_owner_pubkey
+                            // OwnerAndAgents and Allowlist accept events from
+                            // "siblings" (OwnerOnly is strictly the owner) — pubkeys whose agent_owner_pubkey
                             // matches this agent's owner (e.g. other bots
                             // launched by the same human). Allowlist adds the
                             // explicit pubkey list on top, for external people;
@@ -8140,7 +8151,7 @@ mod author_gate_tests {
                 )]),
                 event_generation: 0,
                 channel_type: "stream",
-                respond_to: RespondTo::OwnerOnly,
+                respond_to: RespondTo::OwnerAndAgents,
                 allowlist: HashSet::new(),
                 cache_owner: true,
                 cache_sibling: false,
@@ -8324,7 +8335,7 @@ mod author_gate_tests {
                 ]),
                 event_generation: 0,
                 channel_type: "stream",
-                respond_to: RespondTo::OwnerOnly,
+                respond_to: RespondTo::OwnerAndAgents,
                 allowlist: HashSet::new(),
                 cache_owner: true,
                 cache_sibling: false,
@@ -8393,7 +8404,7 @@ mod author_gate_tests {
         let decision = gate
             .evaluate_listener_event(
                 &buzz_event,
-                &RespondTo::OwnerOnly,
+                &RespondTo::OwnerAndAgents,
                 &HashSet::new(),
                 &cache,
                 &channel_info,
@@ -8438,7 +8449,7 @@ mod author_gate_tests {
         let decision = gate
             .evaluate_for_test(
                 &event,
-                &RespondTo::OwnerOnly,
+                &RespondTo::OwnerAndAgents,
                 &HashSet::new(),
                 false,
                 &cache,
@@ -8503,7 +8514,7 @@ mod author_gate_tests {
         let decision = gate
             .evaluate_listener_event(
                 &buzz_event,
-                &RespondTo::OwnerOnly,
+                &RespondTo::OwnerAndAgents,
                 &HashSet::new(),
                 &cache,
                 &channel_info,
@@ -8567,7 +8578,7 @@ mod author_gate_tests {
         let decision = gate
             .evaluate_listener_event(
                 &event,
-                &RespondTo::OwnerOnly,
+                &RespondTo::OwnerAndAgents,
                 &HashSet::new(),
                 &owner_cache,
                 &channel_info,
@@ -8628,7 +8639,7 @@ mod author_gate_tests {
                 let decision = gate
                     .evaluate_listener_event(
                         &event,
-                        &RespondTo::OwnerOnly,
+                        &RespondTo::OwnerAndAgents,
                         &HashSet::new(),
                         &owner_cache,
                         &channel_info,
@@ -8647,7 +8658,7 @@ mod author_gate_tests {
             let decision = gate
                 .evaluate_listener_event(
                     &event,
-                    &RespondTo::OwnerOnly,
+                    &RespondTo::OwnerAndAgents,
                     &HashSet::new(),
                     &owner_cache,
                     &channel_info,
@@ -8707,7 +8718,7 @@ mod author_gate_tests {
         let first_new = gate
             .evaluate_listener_event(
                 &new_event,
-                &RespondTo::OwnerOnly,
+                &RespondTo::OwnerAndAgents,
                 &HashSet::new(),
                 &owner_cache,
                 &channel_info,
@@ -8723,7 +8734,7 @@ mod author_gate_tests {
         let recovered = gate
             .evaluate_listener_event(
                 &new_event,
-                &RespondTo::OwnerOnly,
+                &RespondTo::OwnerAndAgents,
                 &HashSet::new(),
                 &owner_cache,
                 &channel_info,
@@ -8745,7 +8756,7 @@ mod author_gate_tests {
         let stale = gate
             .evaluate_listener_event(
                 &stale_old_event,
-                &RespondTo::OwnerOnly,
+                &RespondTo::OwnerAndAgents,
                 &HashSet::new(),
                 &owner_cache,
                 &channel_info,
@@ -8782,7 +8793,7 @@ mod author_gate_tests {
         let decision = gate
             .evaluate_for_test(
                 &event,
-                &RespondTo::OwnerOnly,
+                &RespondTo::OwnerAndAgents,
                 &HashSet::new(),
                 false,
                 &cache,
@@ -8821,7 +8832,7 @@ mod author_gate_tests {
         let decision = gate
             .evaluate_for_test(
                 &event,
-                &RespondTo::OwnerOnly,
+                &RespondTo::OwnerAndAgents,
                 &HashSet::new(),
                 false,
                 &cache,
@@ -8863,7 +8874,7 @@ mod author_gate_tests {
         let decision = gate
             .evaluate_for_test(
                 &event,
-                &RespondTo::OwnerOnly,
+                &RespondTo::OwnerAndAgents,
                 &HashSet::new(),
                 false,
                 &cache,
@@ -8959,7 +8970,7 @@ mod author_gate_tests {
         let cache = cache_with_sibling();
         assert!(
             !inbound_author_gate::test_author_allowed(
-                &RespondTo::OwnerOnly,
+                &RespondTo::OwnerAndAgents,
                 &HashSet::new(),
                 STRANGER,
                 false,
@@ -8972,12 +8983,12 @@ mod author_gate_tests {
     }
 
     #[tokio::test]
-    async fn test_owner_only_admits_owner_and_sibling_to_steer() {
+    async fn test_owner_and_agents_admits_owner_and_sibling_to_steer() {
         let cache = cache_with_sibling();
         for (who, label) in [(OWNER, "owner"), (SIBLING, "sibling")] {
             assert!(
                 inbound_author_gate::test_author_allowed(
-                    &RespondTo::OwnerOnly,
+                    &RespondTo::OwnerAndAgents,
                     &HashSet::new(),
                     who,
                     false,
@@ -8985,7 +8996,38 @@ mod author_gate_tests {
                     &dummy_rest_client()
                 )
                 .await,
-                "under default OwnerOnly, the {label} must be admitted so steering can fire"
+                "under OwnerAndAgents, the {label} must be admitted so steering can fire"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_owner_only_is_strictly_the_owner() {
+        let cache = cache_with_sibling();
+        for is_dm in [false, true] {
+            assert!(
+                inbound_author_gate::test_author_allowed(
+                    &RespondTo::OwnerOnly,
+                    &HashSet::new(),
+                    OWNER,
+                    is_dm,
+                    &cache,
+                    &dummy_rest_client()
+                )
+                .await,
+                "OwnerOnly must admit the owner (dm={is_dm})"
+            );
+            assert!(
+                !inbound_author_gate::test_author_allowed(
+                    &RespondTo::OwnerOnly,
+                    &HashSet::new(),
+                    SIBLING,
+                    is_dm,
+                    &cache,
+                    &dummy_rest_client()
+                )
+                .await,
+                "OwnerOnly must NOT admit a same-owner sibling agent (dm={is_dm})"
             );
         }
     }
@@ -9036,7 +9078,7 @@ mod author_gate_tests {
     async fn test_dm_admits_owner_and_sibling_in_every_responding_mode() {
         let cache = cache_with_sibling();
         for mode in [
-            RespondTo::OwnerOnly,
+            RespondTo::OwnerAndAgents,
             RespondTo::Allowlist,
             RespondTo::Anyone,
         ] {

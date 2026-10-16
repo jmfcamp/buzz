@@ -257,7 +257,11 @@ export function buildOwnerFields({
       ? ownerDisplayName
         ? `Only ${ownerDisplayName} (owner)`
         : "Only the owner"
-      : respondTo === "allowlist"
+      : respondTo === "owner-and-agents"
+        ? ownerDisplayName
+          ? `${ownerDisplayName} (owner) and their agents`
+          : "The owner and their agents"
+        : respondTo === "allowlist"
         ? "Selected people"
         : "Anyone"
     : null;
