@@ -405,6 +405,11 @@ export function AppSidebar({
           addedProjectAddresses: new Set(sidebarAddedProjects),
           currentPubkey,
           filter: sidebarProjectsFilter,
+          memberChannelIds: new Set(
+            channels
+              .filter((channel) => channel.isMember)
+              .map((channel) => channel.id),
+          ),
           projects: sidebarProjectsQuery.data ?? [],
           sort: "name",
         }),
@@ -414,6 +419,7 @@ export function AppSidebar({
       currentPubkey,
       sidebarProjectsFilter,
       sidebarProjectsQuery.data,
+      channels,
     ],
   );
 

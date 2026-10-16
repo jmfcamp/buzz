@@ -153,10 +153,7 @@ export function SidebarProjectsSection() {
   const addedProjectAddresses = membership.addresses;
   const createProjectMutation = useCreateProjectMutation();
   const deleteProjectMutation = useDeleteProjectMutation();
-  const isPending =
-    projectsQuery.isPending ||
-    identityQuery.isPending ||
-    (filter === "added" && !membership.resolved);
+  const isPending = projectsQuery.isPending || identityQuery.isPending;
   React.useEffect(() => {
     setProjectExpansion(
       readSidebarProjectExpansion(relayOrigin, currentPubkey),
@@ -170,16 +167,33 @@ export function SidebarProjectsSection() {
     () => new Set(addedProjectAddresses),
     [addedProjectAddresses],
   );
+  const memberChannelIds = React.useMemo(
+    () =>
+      new Set(
+        (channelsQuery.data ?? [])
+          .filter((channel) => channel.isMember)
+          .map((channel) => channel.id),
+      ),
+    [channelsQuery.data],
+  );
   const projects = React.useMemo(
     () =>
       listSidebarProjects({
         addedProjectAddresses: addedProjectAddressSet,
         currentPubkey,
         filter,
+        memberChannelIds,
         projects: projectsQuery.data ?? [],
         sort,
       }),
-    [addedProjectAddressSet, currentPubkey, filter, projectsQuery.data, sort],
+    [
+      addedProjectAddressSet,
+      currentPubkey,
+      filter,
+      memberChannelIds,
+      projectsQuery.data,
+      sort,
+    ],
   );
   const channelsById = React.useMemo(
     () =>
