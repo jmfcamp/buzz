@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 
 import type { Project } from "@/features/projects/hooks";
@@ -13,7 +13,6 @@ import { openClawWorkspaceClient } from "@/features/projects/lib/openClawWorkspa
 import { syncMissingHulaRepositories } from "@/features/projects/syncHulaRepositories";
 import { Button } from "@/shared/ui/button";
 import { relayReadRetry, relayReadRetryDelay } from "@/shared/lib/relayReadRetry";
-import { useIdentityQuery } from "@/shared/api/hooks";
 import { isWebBuild } from "@/features/bridge/ui/DesktopData";
 import { DesktopRepoCard, isDesktopRepoError, useDesktopRepoDirect } from "./DesktopRepoCard";
 import { OverviewRailSection } from "./ProjectOverviewPanel";
@@ -51,15 +50,6 @@ export function HulaProjectOverview({
     queryFn: () => loadCheckoutRows(project),
   });
   const syncKey = `${project.id}:${project.repositoryAddresses.length}`;
-  const identityQuery = useIdentityQuery();
-  const isOwner =
-    !!identityQuery.data?.pubkey &&
-    identityQuery.data.pubkey.toLowerCase() === project.owner.toLowerCase();
-  const republish = useMutation({
-    mutationFn: () => syncMissingHulaRepositories(project, undefined, { linksOnly: true }),
-    retry: relayReadRetry,
-    retryDelay: relayReadRetryDelay,
-  });
   const syncQuery = useQuery({
     enabled: hulaPath.length > 0,
     queryKey: ["hula-sync", syncKey],
@@ -70,7 +60,7 @@ export function HulaProjectOverview({
     retryDelay: relayReadRetryDelay,
     staleTime: Number.POSITIVE_INFINITY,
   });
-  const added = (syncQuery.data ?? 0) + (republish.data ?? 0);
+  const added = syncQuery.data ?? 0;
 
   React.useEffect(() => {
     if (added > 0) {
@@ -91,29 +81,6 @@ export function HulaProjectOverview({
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-6 px-4 py-4">
       <OverviewRailSection title="Repositories">
-        {isOwner ? (
-          <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-            <Button
-              className="h-6 px-2 text-xs"
-              data-testid="hula-republish-links"
-              disabled={republish.isPending}
-              onClick={() => republish.mutate()}
-              size="sm"
-              variant="outline"
-            >
-              {republish.isPending ? "Republishing…" : "Republish project links"}
-            </Button>
-            <span className="min-w-0 truncate" data-testid="hula-republish-status">
-              {republish.isError
-                ? `Failed: ${syncErrorText(republish.error)}`
-                : republish.isSuccess
-                  ? republish.data > 0
-                    ? "Project links republished."
-                    : "Links already correct."
-                  : null}
-            </span>
-          </div>
-        ) : null}
         {!needsDesktop && (syncQuery.isError || syncQuery.failureCount > 0) ? (
           <div
             className="mb-2 flex items-start gap-2 rounded-md border border-border/60 bg-muted/30 px-2.5 py-2 text-xs text-muted-foreground"
