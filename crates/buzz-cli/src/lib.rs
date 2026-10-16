@@ -209,6 +209,43 @@ pub enum OutputFormat {
 }
 
 #[derive(Subcommand)]
+pub enum SlugCmd {
+    /// Print the slug's channel (channel_id, name, link, source). Order: plans/<slug>/.buzz-channel.yaml,
+    /// then the channel tagged for the slug at creation, then a unique `…_<slug>` name. With --create,
+    /// create + tag it when none exists and write the mapping file into plans/<slug>/.
+    #[command(
+        after_help = "Examples:\n  buzz slug where portal-shell-and-journeys\n  buzz slug where my-slug --project-home <home-uuid> --create"
+    )]
+    Where {
+        /// The plan slug (directory name under plans/)
+        slug: String,
+        /// Project home channel UUID (narrows name matches; required for --create)
+        #[arg(long, value_name = "UUID")]
+        project_home: Option<String>,
+        /// Directory that holds plan folders (default: ./plans)
+        #[arg(long, default_value = "plans")]
+        plans_dir: String,
+        /// Create the slug channel (tagged for the project) when none exists
+        #[arg(long)]
+        create: bool,
+        /// Channel name for --create (default: <project home name>_<slug>)
+        #[arg(long, requires = "create")]
+        name: Option<String>,
+    },
+    /// Exit non-zero (printing the right link) unless --channel is the slug's channel
+    Check {
+        slug: String,
+        /// The channel the work is happening in (from [Context])
+        #[arg(long)]
+        channel: String,
+        #[arg(long, value_name = "UUID")]
+        project_home: Option<String>,
+        #[arg(long, default_value = "plans")]
+        plans_dir: String,
+    },
+}
+
+#[derive(Subcommand)]
 enum Cmd {
     /// Draft owner-reviewed agent creation and updates
     #[command(subcommand)]
@@ -258,6 +295,9 @@ enum Cmd {
     /// Create and manage multi-repo projects (NIP-MP)
     #[command(subcommand)]
     Projects(ProjectsCmd),
+    /// Find, create, or enforce the Buzz channel of a Hula-OS slug (plans/<slug>/)
+    #[command(subcommand)]
+    Slug(SlugCmd),
     /// Send, get, list, and set status on git patches (NIP-34)
     #[command(subcommand)]
     Patches(PatchesCmd),
@@ -416,6 +456,10 @@ pub enum MessagesCmd {
         /// Channel UUID (from 'buzz channels list')
         #[arg(long)]
         channel: String,
+        /// Slug-scoped post: refuse (and print the slug channel's link) unless
+        /// --channel is the channel of this Hula-OS slug. See `buzz slug where`.
+        #[arg(long)]
+        slug: Option<String>,
         /// Message text — supports @mentions and markdown. Use '-' to read from stdin.
         #[arg(long)]
         content: String,
@@ -2158,6 +2202,7 @@ async fn run(cli: Cli) -> Result<(), CliError> {
         Cmd::Notes(sub) => commands::notes::dispatch(sub, &client).await,
         Cmd::Repos(sub) => commands::repos::dispatch(sub, &client).await,
         Cmd::Projects(sub) => commands::projects::dispatch(sub, &client).await,
+        Cmd::Slug(sub) => commands::slug::dispatch(sub, &client).await,
         Cmd::Patches(sub) => commands::patches::dispatch(sub, &client).await,
         Cmd::Issues(sub) => commands::issues::dispatch(sub, &client).await,
         Cmd::Media(sub) => commands::upload::dispatch_media(sub, &client).await,
@@ -2334,6 +2379,7 @@ mod tests {
             "projects",
             "reactions",
             "repos",
+            "slug",
             "social",
             "upload",
             "users",
