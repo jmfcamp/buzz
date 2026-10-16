@@ -80,6 +80,29 @@ export function HulaProjectOverview({
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-6 px-4 py-4">
       <OverviewRailSection title="Repositories">
+        {!needsDesktop && (syncQuery.isError || syncQuery.failureCount > 0) ? (
+          <div
+            className="mb-2 flex items-start gap-2 rounded-md border border-border/60 bg-muted/30 px-2.5 py-2 text-xs text-muted-foreground"
+            data-testid="hula-sync-status"
+            role="status"
+          >
+            <span className="min-w-0 flex-1 break-words">
+              {syncQuery.isError
+                ? `Repository sync failed: ${syncErrorText(syncQuery.error)}`
+                : `Repository sync hit an error, retrying (attempt ${syncQuery.failureCount + 1} of 5): ${syncErrorText(syncQuery.failureReason)}`}
+            </span>
+            <Button
+              className="h-6 shrink-0 px-2 text-xs"
+              data-testid="hula-sync-retry"
+              disabled={syncQuery.isFetching}
+              onClick={() => void syncQuery.refetch()}
+              size="sm"
+              variant="outline"
+            >
+              {syncQuery.isFetching ? "Retrying…" : "Retry"}
+            </Button>
+          </div>
+        ) : null}
         {needsDesktop ? (
           <DesktopRepoCard compact error={syncQuery.error ?? readmeQuery.error} what="these repos" />
         ) : rows.repos.length === 0 ? (
@@ -191,4 +214,10 @@ async function worktreesFor(hulaPath: string): Promise<WorktreeRecord[]> {
   } catch {
     return [];
   }
+}
+
+function syncErrorText(error: unknown): string {
+  if (!error) return "unknown error";
+  const text = error instanceof Error ? error.message : String(error);
+  return text.length > 240 ? `${text.slice(0, 240)}…` : text;
 }
