@@ -1,4 +1,7 @@
 import { ensureNamedChannel } from "@/features/projects/lib/hulaChannels";
+import { findAdoptableProjectChannels } from "@/features/projects/lib/adoptAgentChannels";
+import { getChannelDetails } from "@/shared/api/tauriChannels";
+import { getUsersBatch } from "@/shared/api/tauriProfiles";
 import {
   allocateDisplayName,
   hulaDirectoryPath,
@@ -66,12 +69,19 @@ type HulaSyncDeps = {
    * reuse a collaborator's repo for a folder instead of re-creating it.
    */
   listRepositoryAnnouncements?: () => Promise<RelayEvent[]>;
+  /** Profile lookup (agent → owner) used to adopt the owner's agents' channels. */
+  getChannelDetails: (channelId: string) => Promise<{ createdBy: string }>;
+  getUsersBatch?: (
+    pubkeys: string[],
+  ) => Promise<{ profiles: Record<string, { ownerPubkey: string | null }> }>;
 };
 
 const defaultHulaSyncDeps: HulaSyncDeps = {
   listGitRepositories: (root) =>
     listGitRepositories(root, openClawWorkspaceClient),
   getOpenChannelDirectory,
+  getChannelDetails,
+  getUsersBatch,
   createChannel,
   joinChannel,
   fetchOwnHead,
@@ -109,7 +119,9 @@ export function buildHulaMembershipPatch(input: {
   );
   const drop = new Set(input.dropRelatedChannelIds ?? []);
   const tags = patched.tags
-    .filter((tag) => !(tag[0] === PROJECT_RELATED_CHANNEL_TAG && drop.has(tag[1])))
+    .filter(
+      (tag) => !(tag[0] === PROJECT_RELATED_CHANNEL_TAG && drop.has(tag[1])),
+    )
     .map((tag) => [...tag]);
   for (const channelId of [...drop]) present.delete(channelId);
   for (const channelId of [...input.relatedChannelIds].sort()) {
@@ -337,7 +349,8 @@ export async function syncMissingHulaRepositories(
   // Any other viewer would sign the owner's announcement with their own key,
   // which forks the project into a second row and re-creates repos each visit.
   if (deps.getIdentity) {
-    const identity = (await deps.getIdentity())?.pubkey.trim().toLowerCase() ?? "";
+    const identity =
+      (await deps.getIdentity())?.pubkey.trim().toLowerCase() ?? "";
     if (!identity || identity !== project.owner.trim().toLowerCase()) return 0;
   }
   const root = hulaDirectoryPath(project.hulaPath);
@@ -350,7 +363,11 @@ export async function syncMissingHulaRepositories(
   const discovered = options.linksOnly
     ? announcementPathsUnder(root, announcements ?? [])
     : await deps.listGitRepositories(root);
-  if (announcements && announcements.length === 0 && project.repositories.length > 0) {
+  if (
+    announcements &&
+    announcements.length === 0 &&
+    project.repositories.length > 0
+  ) {
     // A project with live repos can't have zero announcements; the read failed.
     // Creating now would duplicate every repo, so stop and let the caller retry.
     throw new Error("Could not load repositories from the relay. Try again.");
@@ -361,11 +378,10 @@ export async function syncMissingHulaRepositories(
     ? []
     : discovered.filter((path) => !known.has(path));
   const linkChanged =
-    links.relinked.length > 0 || links.replaced.size > 0 || links.dropped.size > 0;
-  if (
-    links.addresses.length + missing.length >
-    MAX_PROJECT_MEMBERS
-  ) {
+    links.relinked.length > 0 ||
+    links.replaced.size > 0 ||
+    links.dropped.size > 0;
+  if (links.addresses.length + missing.length > MAX_PROJECT_MEMBERS) {
     throw new Error(
       `A project can include at most ${MAX_PROJECT_MEMBERS} repositories.`,
     );
@@ -381,7 +397,8 @@ export async function syncMissingHulaRepositories(
 
   const renamed = await correctStoredRepositoryNames(project, deps);
   const driPubkey = await loggedInOwnerDri(project, deps);
-  if (missing.length === 0 && !linkChanged) {
+  const adopted = await adoptableAgentChannels(project, deps);
+  if (missing.length === 0 && !linkChanged && adopted.length === 0) {
     if (!driPubkey) return renamed;
     const wrote = await publishMissingProjectDri(project, driPubkey, deps);
     return renamed + (wrote ? 1 : 0);
@@ -400,7 +417,9 @@ export async function syncMissingHulaRepositories(
       .filter((channel) => channel.archivedAt !== null)
       .map((channel) => channel.id),
   );
-  const dropRelated = project.relatedChannelIds.filter((id) => archived.has(id));
+  const dropRelated = project.relatedChannelIds.filter((id) =>
+    archived.has(id),
+  );
   const resume = new Map<string, Channel>();
   const added: { address: string; channelId: string; dtag: string }[] = [];
 
@@ -469,6 +488,7 @@ export async function syncMissingHulaRepositories(
     ...new Set([
       ...project.relatedChannelIds.filter((id) => !archived.has(id)),
       ...links.relinkedChannelIds.filter((id) => !archived.has(id)),
+      ...adopted,
       ...added
         .map((repo) => repo.channelId)
         .filter((channelId) => channelId !== project.projectChannelId),
@@ -486,7 +506,67 @@ export async function syncMissingHulaRepositories(
   });
   const projectEvent = await deps.signRelayEvent(patched);
   await deps.publishProjectEvent(projectEvent);
-  return added.length + renamed + (linkChanged ? 1 : 0);
+  return added.length + renamed + adopted.length + (linkChanged ? 1 : 0);
+}
+
+/** Owner-agent channels named under this project that it does not link yet. */
+async function adoptableAgentChannels(
+  project: Project,
+  deps: HulaSyncDeps,
+): Promise<string[]> {
+  if (!deps.getUsersBatch) return [];
+  try {
+    const directory = await deps.getOpenChannelDirectory();
+    const linked = new Set<string>([
+      ...(project.projectChannelId ? [project.projectChannelId] : []),
+      ...project.relatedChannelIds,
+      ...project.repositories.flatMap((repository) =>
+        repository.channelId ? [repository.channelId] : [],
+      ),
+    ]);
+    const prefix = `${project.name.trim().toLowerCase()}_`;
+    const candidates = directory
+      .filter(
+        (channel) =>
+          channel.archivedAt === null &&
+          !linked.has(channel.id) &&
+          channel.name.toLowerCase().startsWith(prefix),
+      )
+      .slice(0, 20);
+    if (candidates.length === 0) return [];
+    const withCreators = (
+      await Promise.all(
+        candidates.map(async (channel) => {
+          try {
+            const detail = await deps.getChannelDetails(channel.id);
+            return { ...channel, createdBy: detail.createdBy };
+          } catch {
+            return null;
+          }
+        }),
+      )
+    ).filter((channel) => channel !== null);
+    const creators = [
+      ...new Set(
+        withCreators.map((channel) => channel.createdBy.trim().toLowerCase()),
+      ),
+    ];
+    if (creators.length === 0) return [];
+    const { profiles } = await deps.getUsersBatch(creators);
+    const creatorOwners = new Map(
+      creators.map((pubkey) => [pubkey, profiles[pubkey]?.ownerPubkey ?? null]),
+    );
+    return findAdoptableProjectChannels({
+      projectChannelName: project.name,
+      ownerPubkey: project.owner,
+      linkedChannelIds: linked,
+      directory: withCreators,
+      creatorOwners,
+    });
+  } catch {
+    // Adoption is best-effort; never block the repository sync on it.
+    return [];
+  }
 }
 
 /**
@@ -548,9 +628,11 @@ function assertPathLength(hulaPath: string) {
   }
 }
 
-
 /** Folder paths of live repo announcements inside `root` (and `root` itself). */
-function announcementPathsUnder(root: string, events: readonly RelayEvent[]): string[] {
+function announcementPathsUnder(
+  root: string,
+  events: readonly RelayEvent[],
+): string[] {
   const paths = new Set<string>([root]);
   for (const event of events) {
     if (event.kind !== KIND_REPO_ANNOUNCEMENT) continue;
