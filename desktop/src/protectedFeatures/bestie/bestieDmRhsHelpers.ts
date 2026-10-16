@@ -4,7 +4,13 @@ import { openReminders } from "./bestieListStorage";
 import type { BestieListKind, BestieListState } from "./bestieListTypes";
 
 /** Fixed RHS categories: reminders, todos, and jobs. */
-export type BestieRhsKind = BestieListKind | "job" | "coffee" | "thread" | "scratch";
+export type BestieRhsKind =
+  | BestieListKind
+  | "job"
+  | "coffee"
+  | "thread"
+  | "scratch"
+  | "routine";
 
 /** Omit empty counts the same way Projects overview does. */
 export function presentBestieContextCount(
@@ -19,6 +25,7 @@ export function bestieCategoryTitle(kind: BestieRhsKind): string {
   if (kind === "job") return "Jobs";
   if (kind === "coffee") return "Coffee";
   if (kind === "thread") return "Threads";
+  if (kind === "routine") return "Routines";
   return "Scratch";
 }
 
@@ -103,4 +110,3 @@ export function soonestEnabledJobDueAt(state: BestieJobState): number | null {
   }
   return soonest;
 }
-

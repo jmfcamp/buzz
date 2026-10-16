@@ -18,6 +18,7 @@ import {
   StickyNote,
   Trash2,
   ChevronLeft,
+  Workflow,
 } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import * as React from "react";
@@ -32,6 +33,8 @@ import {
   useNowSeconds,
 } from "@/features/assistantLists/listsStore";
 import { AssistantListsPanel } from "@/features/assistantLists/ui/AssistantListsPanel";
+import { useAssistantRoutines } from "@/features/assistantRoutines/routinesSync";
+import { AssistantRoutinesPanel } from "@/features/assistantRoutines/ui/AssistantRoutinesPanel";
 import { cn } from "@/shared/lib/cn";
 
 import { computeBestieJobNextDueAt } from "../core/bestieJobSchedule";
@@ -53,7 +56,8 @@ export type SuiteCategory =
   | "job"
   | "coffee"
   | "thread"
-  | "scratch";
+  | "scratch"
+  | "routine";
 
 type JobsState = {
   jobs: BestieJob[];
@@ -110,6 +114,7 @@ export function useSuiteSummary(me: string | undefined) {
   const coffee = useAssistantData<CoffeeState>("coffee").data;
   const scratch = useAssistantData<ScratchState>("scratch").data;
   const threads = useAssistantData<ThreadsState>("threads").data;
+  const routines = useAssistantRoutines(me);
   const now = useNowSeconds();
   const items = lists ? liveItems(lists) : [];
   return {
@@ -123,6 +128,7 @@ export function useSuiteSummary(me: string | undefined) {
     thread: (threads?.threads ?? []).length,
     threadLive: Boolean(threads?.pendingSummarize),
     scratch: (scratch?.notes ?? []).length,
+    routine: routines?.length ?? 0,
     directLive:
       jobs !== null || coffee !== null || scratch !== null || threads !== null,
   };
@@ -146,6 +152,7 @@ const CATS: {
   { key: "coffee", label: "Coffee", icon: Coffee },
   { key: "thread", label: "Threads", icon: MessagesSquare },
   { key: "scratch", label: "Scratch", icon: StickyNote },
+  { key: "routine", label: "Routines", icon: Workflow },
 ];
 
 export function SuiteCategoryNav({
@@ -250,6 +257,7 @@ export function SuiteSection({
         <ThreadsSection me={me} onNavigate={onNavigate} />
       ) : null}
       {category === "scratch" ? <ScratchSection me={me} /> : null}
+      {category === "routine" ? <AssistantRoutinesPanel me={me} /> : null}
     </div>
   );
 }
@@ -275,7 +283,10 @@ function NeedsDirect({ what }: { what: string }) {
         {what} run on your desktop app. Connect it with Direct to see and manage
         them here.
       </div>
-      <div className="mt-1 break-words text-2xs" data-testid="assistant-needs-direct-reason">
+      <div
+        className="mt-1 break-words text-2xs"
+        data-testid="assistant-needs-direct-reason"
+      >
         {reason}
       </div>
       {direct ? (

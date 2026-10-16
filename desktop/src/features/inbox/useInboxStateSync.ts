@@ -4,6 +4,7 @@ import { usePersonalPinsSync } from "@/features/pinned-sites/hooks";
 import { currentPopoutPayload } from "@/features/popout/lib/popoutWindow";
 
 import { startAssistantListsSync } from "@/features/assistantLists/listsSync";
+import { startAssistantRoutinesSync } from "@/features/assistantRoutines/routinesSync";
 import { useCommunities } from "@/features/communities/useCommunities";
 import { startThreadLabelsSync } from "@/features/sidebar/lib/threadLabelsSync";
 
@@ -29,6 +30,11 @@ export function useInboxStateSync(
   React.useEffect(() => {
     if (!enabled || isPopout || !pubkey || !relayUrl) return;
     return startAssistantListsSync(pubkey, relayUrl);
+  }, [enabled, isPopout, pubkey, relayUrl]);
+  // Assistant routines: same lifecycle, own d-tag (buzz:assistant-routines).
+  React.useEffect(() => {
+    if (!enabled || isPopout || !pubkey || !relayUrl) return;
+    return startAssistantRoutinesSync(pubkey, relayUrl);
   }, [enabled, isPopout, pubkey, relayUrl]);
   // Personal thread titles/icons: kind 30078 d=buzz:thread-labels, same lifecycle.
   // Surface-tabs (open tab strip) stay on their own d-tag and are not touched here.

@@ -1,4 +1,16 @@
-import { Bell, Briefcase, Check, Coffee, ListTodo, MessagesSquare, Plus, StickyNote, Trash2 } from "lucide-react";
+import { useAssistantRoutines } from "@/features/assistantRoutines/routinesSync";
+import {
+  Bell,
+  Briefcase,
+  Check,
+  Coffee,
+  ListTodo,
+  MessagesSquare,
+  Plus,
+  StickyNote,
+  Trash2,
+  Workflow,
+} from "lucide-react";
 import * as React from "react";
 
 import { cn } from "@/shared/lib/cn";
@@ -364,6 +376,7 @@ export function BestieDmRhsPanel({
   const coffeeCount = coffeeState.entries.length;
   const threadCount = threadState.threads.length;
   const scratchCount = scratchState.notes.length;
+  const routineCount = useAssistantRoutines(scope.ownerPubkey)?.length ?? 0;
 
   return (
     <div
@@ -402,9 +415,7 @@ export function BestieDmRhsPanel({
         Jobs
       </CategoryNavButton>
       <CategoryNavButton
-        count={
-          coffeeLive ? undefined : presentBestieContextCount(coffeeCount)
-        }
+        count={coffeeLive ? undefined : presentBestieContextCount(coffeeCount)}
         icon={<Coffee className="size-4" />}
         onClick={() => onOpenKind("coffee")}
         pressed={activeKind === "coffee"}
@@ -458,6 +469,15 @@ export function BestieDmRhsPanel({
       >
         Scratch
       </CategoryNavButton>
+      <CategoryNavButton
+        count={presentBestieContextCount(routineCount)}
+        icon={<Workflow className="size-4" />}
+        onClick={() => onOpenKind("routine")}
+        pressed={activeKind === "routine"}
+        testId="bestie-rhs-routines"
+      >
+        Routines
+      </CategoryNavButton>
     </div>
   );
 }
@@ -498,8 +518,8 @@ export function BestieDmCategorySheet({
         />
       ) : (
         <p className="px-0.5 text-xs text-muted-foreground">
-          Use + to add by hand (reminders can set a due time), or ask Assistant in
-          natural language / with a{" "}
+          Use + to add by hand (reminders can set a due time), or ask Assistant
+          in natural language / with a{" "}
           <code className="text-2xs">bestie-list</code> fence.
           {onRequestAdd ? (
             <>

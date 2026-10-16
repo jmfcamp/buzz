@@ -1,3 +1,4 @@
+import { AssistantRoutinesPanel } from "@/features/assistantRoutines/ui/AssistantRoutinesPanel";
 import { ChevronDown, Plus } from "lucide-react";
 import * as React from "react";
 
@@ -107,6 +108,8 @@ export function BestiePopoverListsSection({
         summarizeLive={Boolean(brewEnabled && summarizeLive)}
         summarizeLiveThreadId={brewEnabled ? summarizeLiveThreadId : null}
       />
+    ) : activeKind === "routine" ? (
+      <AssistantRoutinesPanel me={scope.ownerPubkey} />
     ) : activeKind === "scratch" ? (
       <BestieDmScratchSheet
         adding={adding}
