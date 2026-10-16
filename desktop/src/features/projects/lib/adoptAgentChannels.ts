@@ -46,3 +46,43 @@ export function findAdoptableProjectChannels(input: {
     .map((channel) => channel.id)
     .sort();
 }
+
+/** Tags `buzz channels create --project-home <uuid> --slug <slug>` puts on the kind:9007 create. */
+export const PROJECT_HOME_TAG = "buzz-project-home";
+export const PROJECT_SLUG_TAG = "buzz-project-slug";
+
+/**
+ * Slug channels created for this project (a new Hula-OS scope of work): the create event names this project's home
+ * channel and a slug, and the channel name is `<project channel name>_[<stack>_]<slug>`. No creator proof needed: the
+ * tag + exact name are the claim, and only the owner's app can sign it into the project. Open, unarchived, unlinked,
+ * and never a `name (2)` collision copy.
+ */
+export function findTaggedSlugChannels(input: {
+  projectChannelName: string;
+  projectHomeChannelId: string | null;
+  linkedChannelIds: ReadonlySet<string>;
+  directory: readonly Omit<AdoptableChannel, "createdBy">[];
+  /** channel id → tags of its kind:9007 create event. */
+  createTags: ReadonlyMap<string, readonly (readonly string[])[]>;
+}): string[] {
+  const home = input.projectHomeChannelId?.trim().toLowerCase();
+  const base = input.projectChannelName.trim().toLowerCase();
+  if (!home || !base) return [];
+  return input.directory
+    .filter((channel) => {
+      if (channel.archivedAt !== null) return false;
+      if (input.linkedChannelIds.has(channel.id)) return false;
+      if (/\s\(\d+\)$/.test(channel.name)) return false;
+      const tags = input.createTags.get(channel.id) ?? [];
+      const tagHome = tags.find((t) => t[0] === PROJECT_HOME_TAG)?.[1];
+      const slug = tags.find((t) => t[0] === PROJECT_SLUG_TAG)?.[1];
+      if (!tagHome || !slug || tagHome.trim().toLowerCase() !== home)
+        return false;
+      if (!/^[a-z0-9-]+$/.test(slug)) return false;
+      // `<project>_<slug>` from the home channel, `<project>_<stack>_<slug>` from a stack channel.
+      const name = channel.name.toLowerCase();
+      return name.startsWith(`${base}_`) && name.endsWith(`_${slug}`);
+    })
+    .map((channel) => channel.id)
+    .sort();
+}

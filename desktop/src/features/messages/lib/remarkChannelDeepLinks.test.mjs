@@ -33,3 +33,15 @@ test("peels trailing sentence punctuation", () => {
   );
   assert.equal(children[2].value, ".");
 });
+
+test("matches the whole hulabuzz:// link (no stray 'hula' text)", () => {
+  const children = run(
+    "Created #x for this project: hulabuzz://channel/580ca78b-9dae-46f3-8854-bd671853ba32",
+  );
+  assert.equal(children[0].value, "Created #x for this project: ");
+  assert.equal(children[1].type, "channel-deep-link");
+  assert.equal(
+    children[1].value,
+    "hulabuzz://channel/580ca78b-9dae-46f3-8854-bd671853ba32",
+  );
+});
