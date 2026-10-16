@@ -264,23 +264,15 @@ export function welcomeStarterRuntimeUpdate(
 
 export function welcomeTeammateHasExpectedAccess(
   teammate: ManagedAgent,
-  leadPubkey: string,
-  agentAccessOwnerOnly: boolean,
+  _leadPubkey: string,
+  _agentAccessOwnerOnly: boolean,
 ) {
-  if (agentAccessOwnerOnly) {
-    // Owner-only builds clamp wider modes, so teammates use "Me and my agents":
-    // the lead is authorized as a NIP-OA-verified same-owner sibling. Strict
-    // "owner-only" would lock the lead out.
-    return (
-      teammate.respondTo === "owner-and-agents" &&
-      teammate.respondToAllowlist.length === 0
-    );
-  }
+  // Teammates use "All local bots": the lead runs on this computer, so it is
+  // admitted, and the mode is allowed in owner-only builds too. Strict
+  // "owner-only" would lock the lead out.
   return (
-    teammate.respondTo === "allowlist" &&
-    teammate.respondToAllowlist.some(
-      (pubkey) => normalizePubkey(pubkey) === normalizePubkey(leadPubkey),
-    )
+    teammate.respondTo === "local-agents" &&
+    teammate.respondToAllowlist.length === 0
   );
 }
 
@@ -302,17 +294,11 @@ export function welcomeTeammateAccessUpdate(
   ) {
     return null;
   }
-  return agentAccessOwnerOnly
-    ? {
-        pubkey: teammate.pubkey,
-        respondTo: "owner-and-agents",
-        respondToAllowlist: [],
-      }
-    : {
-        pubkey: teammate.pubkey,
-        respondTo: "allowlist",
-        respondToAllowlist: [leadPubkey],
-      };
+  return {
+    pubkey: teammate.pubkey,
+    respondTo: "local-agents",
+    respondToAllowlist: [],
+  };
 }
 
 /**

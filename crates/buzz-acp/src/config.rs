@@ -91,18 +91,22 @@ pub enum MultipleEventHandling {
 
 /// Inbound author gate: which authors' events the harness forwards to the agent.
 ///
-/// - `owner-only` — only the agent's registered owner (default). Same-owner
-///   sibling agents are NOT admitted.
-/// - `owner-and-agents` — the owner plus every NIP-OA-verified agent that
-///   shares that owner (the pre-split meaning of `owner-only`).
-/// - `allowlist`  — owner + same-owner agents + explicit pubkey list (`--respond-to-allowlist`).
+/// - `owner-only` — only the agent's registered owner (default).
+/// - `local-agents` — owner + the agents running on the owner's computer, passed
+///   by the desktop in `--respond-to-allowlist` (may be empty). Alias:
+///   `owner-and-agents` (retired).
+/// - `allowlist`  — owner + explicit pubkey list (`--respond-to-allowlist`).
+///
+/// Same-owner agents elsewhere are never implied; only `anyone` DMs still
+/// admit them.
 /// - `anyone`     — all events forwarded (no author filtering).
 /// - `nobody`     — all events dropped (proactive/heartbeat-only mode).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, clap::ValueEnum)]
 pub enum RespondTo {
     #[default]
     OwnerOnly,
-    OwnerAndAgents,
+    #[value(alias = "owner-and-agents")]
+    LocalAgents,
     Allowlist,
     Anyone,
     Nobody,
@@ -112,7 +116,7 @@ impl std::fmt::Display for RespondTo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::OwnerOnly => f.write_str("owner-only"),
-            Self::OwnerAndAgents => f.write_str("owner-and-agents"),
+            Self::LocalAgents => f.write_str("local-agents"),
             Self::Allowlist => f.write_str("allowlist"),
             Self::Anyone => f.write_str("anyone"),
             Self::Nobody => f.write_str("nobody"),
@@ -510,7 +514,7 @@ pub struct CliArgs {
 
     /// Comma-separated list of allowed `--respond-to` modes.
     /// When set, the harness rejects startup if `--respond-to` is not in this list.
-    /// Modes: owner-only, owner-and-agents, allowlist, anyone, nobody.
+    /// Modes: owner-only, local-agents, allowlist, anyone, nobody.
     /// Default: empty (all modes allowed — no restriction).
     /// Example: `BUZZ_ACP_ALLOWED_RESPOND_TO=owner-only,allowlist`
     #[arg(long, env = "BUZZ_ACP_ALLOWED_RESPOND_TO", value_delimiter = ',')]
@@ -1194,6 +1198,14 @@ impl Config {
                 ));
             }
             validate_allowlist(&raw)?
+        } else if args.respond_to == RespondTo::LocalAgents {
+            // The desktop's local agents; empty is valid (owner only for now).
+            let raw = args.respond_to_allowlist.unwrap_or_default();
+            if raw.is_empty() {
+                HashSet::new()
+            } else {
+                validate_allowlist(&raw)?
+            }
         } else {
             if args.respond_to_allowlist.is_some() {
                 tracing::warn!(
@@ -1210,7 +1222,7 @@ impl Config {
                 RespondTo::from_str(s.trim(), true).map_err(|_| {
                     ConfigError::ConfigFile(format!(
                         "invalid value in BUZZ_ACP_ALLOWED_RESPOND_TO: '{s}' \
-                         (valid values: owner-only, owner-and-agents, allowlist, anyone, nobody)"
+                         (valid values: owner-only, local-agents, allowlist, anyone, nobody)"
                     ))
                 })?;
             }
@@ -1318,6 +1330,9 @@ impl Config {
         let respond_to_detail = match &self.respond_to {
             RespondTo::Allowlist => {
                 format!("respond_to=allowlist({})", self.respond_to_allowlist.len())
+            }
+            RespondTo::LocalAgents => {
+                format!("respond_to=local-agents({})", self.respond_to_allowlist.len())
             }
             other => format!("respond_to={other}"),
         };
@@ -2810,10 +2825,14 @@ channels = "ALL"
     #[test]
     fn test_respond_to_display() {
         assert_eq!(format!("{}", RespondTo::OwnerOnly), "owner-only");
-        assert_eq!(format!("{}", RespondTo::OwnerAndAgents), "owner-and-agents");
+        assert_eq!(format!("{}", RespondTo::LocalAgents), "local-agents");
+        assert_eq!(
+            RespondTo::from_str("local-agents", true).unwrap(),
+            RespondTo::LocalAgents
+        );
         assert_eq!(
             RespondTo::from_str("owner-and-agents", true).unwrap(),
-            RespondTo::OwnerAndAgents
+            RespondTo::LocalAgents
         );
         assert_eq!(format!("{}", RespondTo::Allowlist), "allowlist");
         assert_eq!(format!("{}", RespondTo::Anyone), "anyone");
@@ -3113,7 +3132,7 @@ channels = "ALL"
             let mode = RespondTo::from_str(s.trim(), true).map_err(|_| {
                 ConfigError::ConfigFile(format!(
                     "invalid value in BUZZ_ACP_ALLOWED_RESPOND_TO: '{s}' \
-                     (valid values: owner-only, owner-and-agents, allowlist, anyone, nobody)"
+                     (valid values: owner-only, local-agents, allowlist, anyone, nobody)"
                 ))
             })?;
             set.insert(mode);

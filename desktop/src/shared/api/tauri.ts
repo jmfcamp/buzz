@@ -677,7 +677,11 @@ export function fromRawManagedAgent(agent: RawManagedAgent): ManagedAgent {
     useOpenClawWorkspace: agent.use_openclaw_workspace ?? false,
     backend: agent.backend,
     backendAgentId: agent.backend_agent_id,
-    respondTo: agent.respond_to ?? "owner-only",
+    // The retired "owner-and-agents" maps to "All local bots".
+    respondTo:
+      (agent.respond_to as string | undefined) === "owner-and-agents"
+        ? "local-agents"
+        : (agent.respond_to ?? "owner-only"),
     respondToAllowlist: agent.respond_to_allowlist ?? [],
   };
 }

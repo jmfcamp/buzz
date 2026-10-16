@@ -261,6 +261,13 @@ pub(super) fn deploy_payload_json(
 ) -> serde_json::Value {
     let (respond_to, respond_to_allowlist) =
         crate::managed_agents::projected_access_with_policy(record, projections.owner_only_access);
+    // "All local bots" means agents on this computer; a provider host has none,
+    // so a remote deployment answers its owner only.
+    let respond_to = if respond_to == crate::managed_agents::RespondTo::LocalAgents {
+        crate::managed_agents::RespondTo::OwnerOnly
+    } else {
+        respond_to
+    };
     serde_json::json!({
         "name": &record.name,
         "relay_url": relay_url,

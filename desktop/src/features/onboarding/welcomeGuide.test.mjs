@@ -384,19 +384,19 @@ test("starter matching prefers running, then deployed instances", () => {
 
 test("owner-only-access policy accepts local Welcome teammates", () => {
   const teammate = makeAgent({
-    respondTo: "owner-and-agents",
+    respondTo: "local-agents",
     respondToAllowlist: [],
   });
   assert.equal(welcomeTeammateHasExpectedAccess(teammate, PUB_B, true), true);
   // Strict "Only me" would lock the lead out, so it no longer satisfies the policy.
   const strict = makeAgent({ respondTo: "owner-only", respondToAllowlist: [] });
   assert.equal(welcomeTeammateHasExpectedAccess(strict, PUB_B, true), false);
-  assert.equal(welcomeTeammateHasExpectedAccess(teammate, PUB_B, false), false);
+  assert.equal(welcomeTeammateHasExpectedAccess(teammate, PUB_B, false), true);
 });
 
 test("access remediation converges for an upgraded owner-only install", () => {
   // Pre-existing installs allowlisted the lead. An owner-only build must move
-  // them to owner-and-agents, and the write it makes must satisfy the predicate, so
+  // them to local-agents, and the write it makes must satisfy the predicate, so
   // the next provisioning pass makes no further write.
   const allowlisted = makeAgent({
     respondTo: "allowlist",
@@ -405,7 +405,7 @@ test("access remediation converges for an upgraded owner-only install", () => {
   const update = welcomeTeammateAccessUpdate(allowlisted, PUB_B, true);
   assert.deepEqual(update, {
     pubkey: PUB_A,
-    respondTo: "owner-and-agents",
+    respondTo: "local-agents",
     respondToAllowlist: [],
   });
   const remediated = makeAgent({
@@ -416,7 +416,7 @@ test("access remediation converges for an upgraded owner-only install", () => {
   assert.equal(welcomeTeammateAccessUpdate(remediated, PUB_B, true), null);
 });
 
-test("access remediation allowlists the lead when the build is not owner-only", () => {
+test("access remediation moves teammates to All local bots when the build is not owner-only", () => {
   const ownerOnly = makeAgent({
     respondTo: "owner-only",
     respondToAllowlist: [],
@@ -424,8 +424,8 @@ test("access remediation allowlists the lead when the build is not owner-only", 
   const update = welcomeTeammateAccessUpdate(ownerOnly, PUB_B, false);
   assert.deepEqual(update, {
     pubkey: PUB_A,
-    respondTo: "allowlist",
-    respondToAllowlist: [PUB_B],
+    respondTo: "local-agents",
+    respondToAllowlist: [],
   });
   const remediated = makeAgent({
     respondTo: update.respondTo,
@@ -438,20 +438,17 @@ test("access remediation allowlists the lead when the build is not owner-only", 
   assert.equal(welcomeTeammateAccessUpdate(remediated, PUB_B, false), null);
 });
 
-test("access remediation skips a teammate that already allows the lead", () => {
-  const allowlisted = makeAgent({
-    respondTo: "allowlist",
-    respondToAllowlist: [PUB_B, PUB_C],
-  });
-  assert.equal(welcomeTeammateAccessUpdate(allowlisted, PUB_B, false), null);
+test("access remediation skips a teammate already on All local bots", () => {
+  const local = makeAgent({ respondTo: "local-agents", respondToAllowlist: [] });
+  assert.equal(welcomeTeammateAccessUpdate(local, PUB_B, false), null);
 });
 
 test("owner-only-access policy accepts provider Welcome teammates", () => {
   const teammate = makeAgent({
     backend: { type: "provider", id: "remote", config: {} },
-    respondTo: "owner-and-agents",
+    respondTo: "local-agents",
     respondToAllowlist: [],
   });
   assert.equal(welcomeTeammateHasExpectedAccess(teammate, PUB_B, true), true);
-  assert.equal(welcomeTeammateHasExpectedAccess(teammate, PUB_B, false), false);
+  assert.equal(welcomeTeammateHasExpectedAccess(teammate, PUB_B, false), true);
 });

@@ -73,7 +73,7 @@ export function sanitizeGlobal(c: unknown): unknown {
 const list = (v: unknown, f: (x: unknown) => unknown, max = 500) =>
   Array.isArray(v) ? v.slice(0, max).map(f) : [];
 
-export const RESPOND_MODES = ["owner-only", "owner-and-agents", "anyone", "allowlist"] as const;
+export const RESPOND_MODES = ["owner-only", "local-agents", "anyone", "allowlist"] as const;
 function respondFields(
   src: Record<string, unknown>,
   out: Record<string, unknown>,

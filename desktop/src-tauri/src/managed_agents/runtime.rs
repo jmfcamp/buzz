@@ -414,8 +414,14 @@ pub fn find_managed_agent_mut<'a>(
 pub(crate) fn build_respond_to_env(
     record: &ManagedAgentRecord,
     owner_hex: Option<&str>,
+    local_agent_pubkeys: &[String],
 ) -> Result<RespondToEnv, String> {
-    build_respond_to_env_with_policy(record, owner_hex, super::owner_only())
+    super::access_policy::build_respond_to_env_with_local_agents(
+        record,
+        owner_hex,
+        super::owner_only(),
+        local_agent_pubkeys,
+    )
 }
 
 pub(crate) fn configure_runtime_cli(
@@ -807,7 +813,13 @@ pub fn spawn_agent_child<R: tauri::Runtime>(
     // Validation is strict here — a malformed allowlist on disk fails before
     // we spawn anything (the harness would also reject it, but we'd rather
     // fail with a clear error than crash-loop the child).
-    let (gate_set, gate_remove) = build_respond_to_env(record, owner_hex)?;
+    // "All local bots": the agents on this computer, read key-free at spawn.
+    let local_agent_pubkeys = if record.respond_to == super::RespondTo::LocalAgents {
+        super::local_agent_pubkeys(app)
+    } else {
+        Vec::new()
+    };
+    let (gate_set, gate_remove) = build_respond_to_env(record, owner_hex, &local_agent_pubkeys)?;
     for (key, value) in &gate_set {
         command.env(key, value);
     }

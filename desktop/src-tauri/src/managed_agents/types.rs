@@ -861,8 +861,11 @@ fn default_record_active() -> bool {
 pub enum RespondTo {
     #[default]
     OwnerOnly,
-    /// Owner plus verified same-owner agents (the pre-split `owner-only`).
-    OwnerAndAgents,
+    /// Owner plus the agents running on this computer ("All local bots"). The
+    /// list is computed at spawn, not stored. Accepts the retired
+    /// `owner-and-agents` wire value on load.
+    #[serde(alias = "owner-and-agents")]
+    LocalAgents,
     Allowlist,
     Anyone,
 }
@@ -872,7 +875,7 @@ impl RespondTo {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::OwnerOnly => "owner-only",
-            Self::OwnerAndAgents => "owner-and-agents",
+            Self::LocalAgents => "local-agents",
             Self::Allowlist => "allowlist",
             Self::Anyone => "anyone",
         }
@@ -886,11 +889,11 @@ impl RespondTo {
     pub fn parse_wire(value: &str) -> Result<Self, String> {
         match value {
             "owner-only" => Ok(Self::OwnerOnly),
-            "owner-and-agents" => Ok(Self::OwnerAndAgents),
+            "local-agents" | "owner-and-agents" => Ok(Self::LocalAgents),
             "allowlist" => Ok(Self::Allowlist),
             "anyone" => Ok(Self::Anyone),
             other => Err(format!(
-                "definition respond_to '{other}' is not a recognized mode (expected 'owner-only', 'owner-and-agents', 'allowlist', or 'anyone')"
+                "definition respond_to '{other}' is not a recognized mode (expected 'owner-only', 'local-agents', 'allowlist', or 'anyone')"
             )),
         }
     }

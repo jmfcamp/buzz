@@ -45,12 +45,13 @@ import type { PersonaDropdownOption } from "./agentConfigOptions";
  * Dropdown:
  *   - Only me        (default; maps to `buzz-acp --respond-to=owner-only` —
  *                     strictly the owner, no other agents)
- *   - Me and my agents (`--respond-to=owner-and-agents` — owner plus every
- *                     verified same-owner agent)
+ *   - All local bots (`--respond-to=local-agents` — owner plus the agents
+ *                     running on this computer; the desktop passes the list
+ *                     at each start, so it stays current)
  *   - Anyone         (`--respond-to=anyone` — fully open agent)
  *   - Selected people (`--respond-to=allowlist`, plus the selected pubkeys as
  *                     `--respond-to-allowlist`)
- *   - Allow All Local Agents / Allow All Community Bots / Allow All Bots
+ *   - Allow All Community Bots / Allow All Bots
  *     (UI shortcuts that set `allowlist` and fill `--respond-to-allowlist`
  *     with the matching pubkeys; same persistence path as Selected people.
  *     Community bots use the catalog + reserved Hula set that mentions and
@@ -99,10 +100,9 @@ function formatSearchUserSecondary(user: UserSearchResult) {
 
 const RESPOND_TO_OPTIONS: PersonaDropdownOption[] = [
   { label: "Only me (default)", value: "owner-only" },
-  { label: "Me and my agents", value: "owner-and-agents" },
+  { label: "All local bots", value: "local-agents" },
   { label: "Anyone", value: "anyone" },
   { label: "Selected people", value: "allowlist" },
-  { label: "Allow All Local Agents", value: "all-local-agents" },
   { label: "Allow All Community Bots", value: "all-community-bots" },
   { label: "Allow All Bots", value: "all-bots" },
 ];
@@ -348,21 +348,25 @@ export function CreateAgentRespondToField({
           <OwnerOnlyMembers agents={[]} />
         </>
       ) : null}
-      {mode === "owner-and-agents" ? (
+      {mode === "local-agents" ? (
         <>
           <p className="text-xs text-muted-foreground">
-            You and your agents can send instructions.
+            You and the agents on this computer can send instructions.
           </p>
-          <OwnerOnlyMembers agents={managedAgentsQuery.data ?? []} />
+          <OwnerOnlyMembers
+            agents={(managedAgentsQuery.data ?? []).filter(
+              (agent) => agent.backend.type === "local",
+            )}
+          />
         </>
       ) : null}
-      {mode === "owner-only" || mode === "owner-and-agents" ? (
+      {mode === "owner-only" || mode === "local-agents" ? (
         <p
           className="text-xs text-muted-foreground"
           data-testid="agent-respond-to-a2a-note"
         >
           When one of your agents reaches out to another, both agents must
-          allow it (Me and my agents), or the message won't be accepted.
+          allow it (All local bots), or the message won't be accepted.
         </p>
       ) : null}
       <DesktopDataNotice what="Your desktop's agents" />
@@ -721,7 +725,7 @@ function AllowlistPicker({
   );
 }
 
-/** Who may instruct the agent: you, plus your own agents when "Me and my agents" is chosen. */
+/** Who may instruct the agent: you, plus this computer's agents under "All local bots". */
 export function OwnerOnlyMembers({ agents }: { agents: ManagedAgent[] }) {
   const me = useIdentityQuery().data?.pubkey;
   return (

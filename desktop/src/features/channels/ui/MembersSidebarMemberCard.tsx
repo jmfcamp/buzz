@@ -116,8 +116,8 @@ function formatRespondToLabel(agent: ManagedAgent) {
       return "Anyone";
     case "allowlist":
       return `Selected people (${agent.respondToAllowlist.length})`;
-    case "owner-and-agents":
-      return "Me and my agents";
+    case "local-agents":
+      return "All local bots";
     default:
       return "Only me";
   }
