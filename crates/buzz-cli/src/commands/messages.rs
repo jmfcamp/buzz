@@ -1043,6 +1043,7 @@ pub async fn dispatch(
     match cmd {
         MessagesCmd::Send {
             channel,
+            slug,
             content,
             kind,
             reply_to,
@@ -1051,6 +1052,9 @@ pub async fn dispatch(
             mentions,
             notify,
         } => {
+            if let Some(slug) = slug.as_deref() {
+                crate::commands::slug::guard(client, slug, &channel, None, "plans").await?;
+            }
             cmd_send_message(
                 client,
                 SendMessageParams {

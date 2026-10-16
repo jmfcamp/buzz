@@ -157,12 +157,12 @@ pub async fn cmd_search_channels(
 
 /// Stable, scriptable projection of a kind:39000 channel-metadata event.
 #[derive(serde::Serialize)]
-struct ChannelSummary {
-    channel_id: String,
-    name: String,
+pub(crate) struct ChannelSummary {
+    pub(crate) channel_id: String,
+    pub(crate) name: String,
     channel_type: Option<String>,
     visibility: Option<String>,
-    archived: bool,
+    pub(crate) archived: bool,
     about: Option<String>,
     topic: Option<String>,
     purpose: Option<String>,
@@ -172,7 +172,7 @@ struct ChannelSummary {
 impl ChannelSummary {
     /// Parse a kind:39000 event JSON value into a summary. Returns `None` if the
     /// event lacks the required `d` (channel UUID) or `name` tags.
-    fn from_event(event: &serde_json::Value) -> Option<Self> {
+    pub(crate) fn from_event(event: &serde_json::Value) -> Option<Self> {
         let tags = event.get("tags")?.as_array()?;
         let mut channel_id: Option<String> = None;
         let mut name: Option<String> = None;
@@ -717,7 +717,7 @@ pub async fn cmd_create_channel(
 pub const PROJECT_HOME_TAG: &str = "buzz-project-home";
 pub const PROJECT_SLUG_TAG: &str = "buzz-project-slug";
 
-fn project_slug_tags(name: &str, home: &str, slug: &str) -> Result<Vec<Tag>, CliError> {
+pub(crate) fn project_slug_tags(name: &str, home: &str, slug: &str) -> Result<Vec<Tag>, CliError> {
     let home = Uuid::parse_str(home.trim()).map_err(|_| {
         CliError::Usage(format!(
             "--project-home must be a channel UUID (got: {home})"
@@ -748,7 +748,7 @@ fn project_slug_tags(name: &str, home: &str, slug: &str) -> Result<Vec<Tag>, Cli
 }
 
 /// Create response plus `channel_id`, `name` and an openable `link` when accepted.
-fn channel_create_output(resp: &str, channel_id: &str, name: &str) -> String {
+pub(crate) fn channel_create_output(resp: &str, channel_id: &str, name: &str) -> String {
     let mut v: serde_json::Value = serde_json::from_str(&create_response_with_id_if_accepted(
         resp,
         "channel_id",
