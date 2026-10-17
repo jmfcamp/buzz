@@ -29,6 +29,7 @@ test("resolves up with elapsed ms on matching pong", async () => {
 test("resolves timeout when no pong arrives", async () => {
   const h = harness();
   const p = awaitPingOutcome({ requestId: "r2", ...h, sendPing: async () => {} });
+  await new Promise((r) => setImmediate(r)); // timer starts only after the ping is published
   h.fire();
   assert.deepEqual(await p, { kind: "timeout" });
   assert.equal(h.listening, false);
@@ -38,4 +39,15 @@ test("rejects when the send fails", async () => {
   const h = harness();
   const p = awaitPingOutcome({ requestId: "r3", ...h, sendPing: async () => { throw new Error("no signer"); } });
   await assert.rejects(p, /no signer/);
+});
+
+test("timer does not start until the ping is published (signer prompt delay)", async () => {
+  const h = harness();
+  let publish;
+  const p = awaitPingOutcome({ requestId: "r4", ...h, sendPing: () => new Promise((r) => { publish = r; }) });
+  h.fire(); // no timer yet: a slow signer prompt can't eat the timeout
+  publish();
+  await new Promise((r) => setImmediate(r));
+  h.emit({ type: "ping", status: "pong", requestId: "r4" });
+  assert.equal((await p).kind, "up");
 });

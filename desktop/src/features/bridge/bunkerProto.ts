@@ -9,7 +9,8 @@ export const BUNKER_MARK_VALUE = "desktop";
 /** A pairing code is good for one browser, for this long. */
 export const BUNKER_CODE_TTL_MS = 5 * 60_000;
 /** Kinds the desktop always asks about, even for an approved browser (JM: profile, follow list, deletes). */
-export const BUNKER_ALWAYS_ASK_KINDS: ReadonlySet<number> = new Set([0, 3, 5]);
+// JM (Oct 16, 2026): full access for paired browsers; pairing is the only trust step.
+export const BUNKER_ALWAYS_ASK_KINDS: ReadonlySet<number> = new Set<number>();
 /** Custom method: the browser forgot this desktop, so revoke it on the desktop too. */
 export const BUNKER_UNPAIR_METHOD = "buzz_unpair";
 

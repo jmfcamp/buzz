@@ -136,7 +136,7 @@ export function createBunkerPolicy(deps: BunkerPolicyDeps) {
             .slice(0, 80) || "Web browser";
         const allow = await deps.confirm(
           "Sign in a browser with this computer?",
-          `"${label}" (device ${client.slice(0, 8)}…) used your sign-in code and wants this computer to be its signer.\n\nIt can then sign messages, reactions, read markers and synced settings, and decrypt your DMs, without asking. Profile and follow-list changes and deletions will always ask you here. You can revoke it any time in Settings.`,
+          `"${label}" (device ${client.slice(0, 8)}…) used your sign-in code and wants this computer to be its signer.\n\nIt gets full access: it can sign anything and encrypt/decrypt for your account without asking. You can revoke it any time in Settings.`,
         );
         log(
           client,

@@ -57,18 +57,19 @@ test("self encrypt/decrypt runs without a prompt and is logged", async () => {
   assert.ok(t.log.some((e) => e.kind === -2 && /encrypt \(self\)/.test(e.note)));
 });
 
-test("observer decrypt from an own agent: no prompt; from a stranger: refused", async () => {
+test("full access: decrypt from an own agent or anyone else, no prompt", async () => {
   const t = await setup();
   const n = t.prompts.length;
   assert.equal((await t.req("nip44_decrypt", BOT, "f")).text, "DP(f)");
   assert.equal(t.prompts.length, n);
-  await assert.rejects(t.req("nip44_decrypt", STRANGER, "f"), /Only your own/);
+  assert.equal((await t.req("nip44_decrypt", STRANGER, "g")).text, "DP(g)");
+  assert.equal(t.prompts.length, n);
 });
 
-test("encrypt to someone else prompts", async () => {
+test("full access: encrypt to someone else runs without a prompt", async () => {
   const t = await setup({ allow: true });
   assert.equal((await t.req("nip44_encrypt", STRANGER, "z")).text, "EP(z)");
-  assert.ok(t.prompts.some((p) => /Encrypt this/.test(p)));
+  assert.ok(!t.prompts.some((p) => /Encrypt this/.test(p)));
 });
 
 test("tampered text fails the device signature; replayed seq is refused", async () => {
