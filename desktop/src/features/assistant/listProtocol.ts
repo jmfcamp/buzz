@@ -14,10 +14,30 @@ You are the user's Assistant. Reminders and to-dos live in the Assistant Lists (
 kind is "todo" or "reminder"; reminders may carry dueAt (unix milliseconds). complete/remove: {"op":"complete","id":"<item-id>"}. Reply in the main conversation.`;
 }
 
-/** Strip the hint (and anything after it) for display. */
+/**
+ * Turn-hint marker lines the Assistant clients append to the user's message for the agent: the web's
+ * "[Assistant lists]" and the desktop Assistant's live-lists / lists / jobs blocks ("[<Name> live lists]",
+ * "[<Name> lists]", "[<Name> jobs]"). Matched by shape so this file stays free of the desktop-only feature.
+ * The marker must sit alone on its own line, followed by the hint body.
+ */
+const TURN_HINT_MARKER_LINE =
+  /(^|\n)\[[A-Z][A-Za-z]* (?:live lists|lists|jobs)\]\n/;
+
+/**
+ * Strip the turn hint (and anything after it) for display only; what the agent received is unchanged. Handles both
+ * the web hint (blank line before the marker) and the desktop live-lists hint (single newline before it), so a
+ * message sent from the desktop Assistant doesn't show its injected context on web. Same cut rule as the desktop's
+ * outbound-hint strip: cut at the blank line / newline before the earliest marker.
+ */
 export function stripAssistantListHint(content: string): string {
-  const i = content.indexOf(`\n\n${ASSISTANT_LIST_HINT_MARKER}`);
-  if (i >= 0) return content.slice(0, i).trimEnd();
-  const j = content.indexOf(ASSISTANT_LIST_HINT_MARKER);
-  return j === 0 ? "" : content;
+  if (typeof content !== "string") return "";
+  const m = TURN_HINT_MARKER_LINE.exec(`${content}\n`);
+  if (!m) return content;
+  const at = m.index + m[1].length;
+  if (at === 0) return "";
+  const before = content.slice(0, at);
+  return before.trimEnd();
 }
+
+/** Alias: strip any Assistant turn hint (web or desktop) from a displayed message body. */
+export const stripAssistantTurnHints = stripAssistantListHint;

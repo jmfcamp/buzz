@@ -1,12 +1,10 @@
 // Phone-only bottom tab bar (rendered only when usePhoneLayout() is true). iPad/desktop never mount it.
 import { Bot, Inbox, MessagesSquare, SquareTerminal } from "lucide-react";
-import * as ReactRuntime from "react";
-import { useUserProfileQuery } from "@/features/profile/hooks";
-import { useAssistantPubkey } from "@/shared/lib/assistantIdentity";
 
 import {
   closeWebAssistant,
   toggleWebAssistant,
+  useAssistantAvatarSrc,
   useWebAssistantOpen,
 } from "@/features/assistant/ui/WebAssistant";
 
@@ -34,11 +32,10 @@ const TABS: {
 // Tapping opens the web Assistant sheet.
 // Label "Assist" only when unselected and showing the robot (no assistant avatar yet). With an avatar, icon-only.
 function PhoneAssistTab() {
-  const assistantPubkey = useAssistantPubkey();
-  const profile = useUserProfileQuery(assistantPubkey ?? undefined).data;
-  const avatarUrl = assistantPubkey ? (profile?.avatarUrl ?? null) : null;
-  const [failed, setFailed] = ReactRuntime.useState<string | null>(null);
-  const showAvatar = Boolean(avatarUrl) && failed !== avatarUrl;
+  // Resolved like every other avatar (relay media fetched with auth on web, animated → poster); robot only when the
+  // assistant has no avatar or it can't load.
+  const { src: avatarUrl, onError, displayName } = useAssistantAvatarSrc();
+  const showAvatar = Boolean(avatarUrl);
   const open = useWebAssistantOpen();
   const showLabel = !showAvatar && !open;
   return (
@@ -51,9 +48,7 @@ function PhoneAssistTab() {
       )}
       data-testid="phone-tab-assistant"
       onClick={() => toggleWebAssistant()}
-      title={
-        profile?.displayName ? `Assist — ${profile.displayName}` : "Assist"
-      }
+      title={displayName ? `Assist — ${displayName}` : "Assist"}
       type="button"
     >
       <span className="relative flex items-center justify-center">
@@ -62,7 +57,7 @@ function PhoneAssistTab() {
             alt=""
             className="phone-tab-avatar rounded-full object-cover"
             data-testid="phone-tab-assistant-avatar"
-            onError={() => setFailed(avatarUrl)}
+            onError={onError}
             referrerPolicy="no-referrer"
             src={avatarUrl}
           />

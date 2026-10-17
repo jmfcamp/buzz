@@ -44,7 +44,10 @@ import {
   setAssistantPubkey,
   useAssistantPubkey,
 } from "@/shared/lib/assistantIdentity";
+import { parseAnimatedAvatarUrl } from "@/shared/lib/animatedAvatar";
 import { cn } from "@/shared/lib/cn";
+import { rewriteRelayUrl } from "@/shared/lib/mediaUrl";
+import { useRelayMediaSrc } from "@/shared/lib/useRelayMediaSrc";
 import { proxyDirectLive, subscribeProxy } from "@/features/bridge/remoteCmd";
 
 const OPEN_EVENT = "buzz-web-assistant-open";
@@ -443,6 +446,36 @@ export function WebAssistantProfileAction({
   );
 }
 
+/**
+ * The assistant agent's avatar as a loadable image src, or null (no assistant, no avatar, still loading, or failed).
+ * Same resolution as ProfileAvatar/UserAvatar: animated avatars show their poster frame, desktop rewrites relay media
+ * to the local proxy, and web fetches relay-hosted media (/media/<sha>) into a blob: URL — a plain <img> can't send the
+ * Authorization header relay media needs, which is why the Assist tab used to fall back to the robot.
+ */
+export function useAssistantAvatarSrc(): {
+  src: string | null;
+  onError: () => void;
+  displayName: string | null;
+} {
+  const assistantPubkey = useAssistantPubkey();
+  const profile = useUserProfileQuery(assistantPubkey ?? undefined).data;
+  const rawUrl = assistantPubkey ? (profile?.avatarUrl ?? null) : null;
+  const posterUrl = rawUrl
+    ? (parseAnimatedAvatarUrl(rawUrl)?.posterUrl ?? rawUrl)
+    : null;
+  const liveUrl = posterUrl ? rewriteRelayUrl(posterUrl) : undefined;
+  const media = useRelayMediaSrc(liveUrl);
+  const [failed, setFailed] = React.useState<string | null>(null);
+  const src =
+    media.state === "ready" && media.src && failed !== media.src
+      ? media.src
+      : null;
+  const onError = React.useCallback(() => {
+    if (src) setFailed(src);
+  }, [src]);
+  return { src, onError, displayName: profile?.displayName ?? null };
+}
+
 /** Assistant avatar (round) when set and loadable, else a robot icon. */
 export function AssistantGlyph({
   className,
@@ -451,19 +484,16 @@ export function AssistantGlyph({
   className: string;
   robotClassName: string;
 }) {
-  const assistantPubkey = useAssistantPubkey();
-  const profile = useUserProfileQuery(assistantPubkey ?? undefined).data;
-  const avatarUrl = assistantPubkey ? (profile?.avatarUrl ?? null) : null;
-  const [failed, setFailed] = React.useState<string | null>(null);
-  if (avatarUrl && failed !== avatarUrl) {
+  const { src, onError } = useAssistantAvatarSrc();
+  if (src) {
     return (
       <img
         alt=""
         className={cn("rounded-full object-cover", className)}
         data-testid="assistant-glyph-avatar"
-        onError={() => setFailed(avatarUrl)}
+        onError={onError}
         referrerPolicy="no-referrer"
-        src={avatarUrl}
+        src={src}
       />
     );
   }
