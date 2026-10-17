@@ -1497,3 +1497,40 @@ test("textarea-focused printable keydown does not double-send via onInput", asyn
     "keydown encode + onInput guard must send printable once",
   );
 });
+
+test("Buzz Term inputs keep autocorrect, capitalization, spellcheck and autocomplete off with the web keyboard setting on", async () => {
+  const hadLocalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: dom.window.localStorage,
+    writable: true,
+  });
+  try {
+    const assist = await import("@/shared/lib/keyboardAssist");
+    assist.setKeyboardAssist(true);
+    // The setting is on for prose fields (this jsdom runtime is the web build) …
+    assert.equal(assist.isKeyboardAssistOn(), true);
+    assert.equal(assist.composerKeyboardAttrs(assist.isKeyboardAssistOn()).autocorrect, "on");
+    // … and Buzz Term ignores it.
+    const { view } = fixture();
+    await ready(view);
+    const fields = view.container.querySelectorAll("textarea, input, [contenteditable]");
+    assert.ok(fields.length > 0);
+    for (const field of fields) {
+      const label = field.getAttribute("aria-label") ?? field.className;
+      assert.equal(field.getAttribute("autocorrect"), "off", `${label} autocorrect`);
+      assert.equal(field.getAttribute("autocapitalize"), "off", `${label} autocapitalize`);
+      assert.equal(field.getAttribute("autocomplete"), "off", `${label} autocomplete`);
+      assert.equal(field.getAttribute("spellcheck"), "false", `${label} spellcheck`);
+    }
+    assert.deepEqual(
+      { ...assist.TERMINAL_KEYBOARD_PROPS },
+      { autoCapitalize: "off", autoComplete: "off", autoCorrect: "off", spellCheck: false },
+    );
+    assert.ok(Object.isFrozen(assist.TERMINAL_KEYBOARD_PROPS));
+  } finally {
+    dom.window.localStorage.clear();
+    if (hadLocalStorage) Object.defineProperty(globalThis, "localStorage", hadLocalStorage);
+    else delete globalThis.localStorage;
+  }
+});
