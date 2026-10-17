@@ -352,6 +352,8 @@ fn push_descriptor(
         ],
         "push_kinds": crate::handlers::push_lease::PUSH_KINDS,
         "h_grammar": "uuid-v4-lowercase",
+        // Extra `buzz:push-prefs` features this relay honors (clients gate lease shapes on it).
+        "pref_features": ["assistant_reply"],
         "class_support": {
             "apns": ["default"],
             "webpush": ["default", "dm", "mention", "thread_reply", "needs_action"]

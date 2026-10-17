@@ -153,9 +153,15 @@ struct MatchContext {
 /// executor key. Absent or undecodable prefs mean "everything on".
 #[derive(Debug, Default, Clone, serde::Deserialize)]
 struct MemberPushPrefs {
-    /// Push classes the member turned off (`dm`, `thread_reply`, `mention`, `needs_action`).
+    /// Push classes the member turned off (`dm`, `thread_reply`, `mention`, `needs_action`,
+    /// `reminder`, `assistant_reply`). Unknown entries are ignored.
     #[serde(default)]
     off: std::collections::HashSet<String>,
+    /// The member's assistant agent pubkeys (hex). A `dm` / `thread_reply` / `mention` wake for a
+    /// message they wrote in a DM channel is an "assistant reply": it follows `assistant_reply`
+    /// instead of its lease class. Absent (older clients) = no assistant-reply class.
+    #[serde(default)]
+    assistant_pubkeys: std::collections::HashSet<String>,
     /// Muted channel / DM ids (UUID strings). Silences `dm`, `thread_reply` and `channel`; mentions still notify.
     #[serde(default)]
     muted_channels: std::collections::HashSet<String>,
@@ -177,6 +183,29 @@ fn decode_member_prefs(
     serde_json::from_str(&plaintext).ok()
 }
 
+/// Pseudo-class in `buzz:push-prefs` `off` for the member's assistant replying in a DM.
+const ASSISTANT_REPLY_CLASS: &str = "assistant_reply";
+
+/// The member's assistant writing in a DM channel, matched as a message class (not reminders or
+/// approvals, which keep their own classes).
+fn is_assistant_reply(
+    prefs: &MemberPushPrefs,
+    class: &str,
+    job: &buzz_db::push::BatchedMatch,
+    context: &MatchContext,
+) -> bool {
+    if prefs.assistant_pubkeys.is_empty() || !matches!(class, "dm" | "thread_reply" | "mention") {
+        return false;
+    }
+    let Some(channel) = job.event.channel_id else {
+        return false;
+    };
+    context.dm_channels.contains(&channel)
+        && prefs
+            .assistant_pubkeys
+            .contains(&job.event.event.pubkey.to_hex())
+}
+
 /// True when the member's synced prefs silence this wake.
 fn prefs_silence(
     prefs: Option<&MemberPushPrefs>,
@@ -185,7 +214,12 @@ fn prefs_silence(
     context: &MatchContext,
 ) -> bool {
     let Some(prefs) = prefs else { return false };
-    if prefs.off.contains(class) {
+    if is_assistant_reply(prefs, class, job, context) {
+        // Its own switch; "Direct messages" / "Thread replies" / "@Mentions" don't apply.
+        if prefs.off.contains(ASSISTANT_REPLY_CLASS) {
+            return true;
+        }
+    } else if prefs.off.contains(class) {
         return true;
     }
     if class == "dm" || class == "thread_reply" || class == "channel" {
@@ -239,7 +273,25 @@ async fn load_match_context(
             })
         })
     };
-    let dm_channels = if wants_scope("dm") {
+    // Member prefs load first: naming an assistant also needs the DM-channel set (assistant replies).
+    let member_prefs: std::collections::HashMap<Vec<u8>, MemberPushPrefs> = state
+        .db
+        .push_member_prefs(batch.community, &authors)
+        .await
+        .unwrap_or_else(|e| {
+            // Prefs are advisory: a failed load must not block delivery.
+            warn!(community=%batch.community, "push member prefs load failed: {e}");
+            Vec::new()
+        })
+        .into_iter()
+        .filter_map(|(author, content)| {
+            decode_member_prefs(&state.relay_keypair, &author, &content).map(|p| (author, p))
+        })
+        .collect();
+    let wants_assistant = member_prefs
+        .values()
+        .any(|p| !p.assistant_pubkeys.is_empty());
+    let dm_channels = if wants_scope("dm") || wants_assistant {
         state
             .db
             .push_dm_channels(batch.community, &channels)
@@ -274,20 +326,6 @@ async fn load_match_context(
     } else {
         Default::default()
     };
-    let member_prefs = state
-        .db
-        .push_member_prefs(batch.community, &authors)
-        .await
-        .unwrap_or_else(|e| {
-            // Prefs are advisory: a failed load must not block delivery.
-            warn!(community=%batch.community, "push member prefs load failed: {e}");
-            Vec::new()
-        })
-        .into_iter()
-        .filter_map(|(author, content)| {
-            decode_member_prefs(&state.relay_keypair, &author, &content).map(|p| (author, p))
-        })
-        .collect();
     Ok(MatchContext {
         leases,
         memberships,
@@ -894,7 +932,6 @@ async fn retry_or_fail(
     }
 }
 
-
 /// True when a kind 30300 event's public `not_before` is absent or already due.
 fn event_reminder_is_due(event: &nostr::Event) -> bool {
     let mut not_before: Option<u64> = None;
@@ -1136,6 +1173,70 @@ mod tests {
     }
 
     #[test]
+    fn assistant_replies_follow_their_own_switch() {
+        let (member, assistant, person) = (
+            nostr::Keys::generate(),
+            nostr::Keys::generate(),
+            nostr::Keys::generate(),
+        );
+        let channel = uuid::Uuid::new_v4();
+        let subs =
+            serde_json::json!([{"filter":{"kinds":[9]},"class":"dm","ignore":[],"scope":"dm"}]);
+        let mut ctx = scoped_context(&member, subs, channel);
+        ctx.dm_channels.insert(channel);
+        let author = member.public_key().to_bytes().to_vec();
+        let from_assistant = channel_message(&assistant, channel);
+        let from_person = channel_message(&person, channel);
+        let prefs = |off: serde_json::Value| -> MemberPushPrefs {
+            serde_json::from_value(serde_json::json!({
+                "off": off,
+                "assistant_pubkeys": [assistant.public_key().to_hex()],
+                "future_key": true
+            }))
+            .unwrap()
+        };
+        // Assistant replies off: assistant silenced, people DMs still push.
+        ctx.member_prefs.insert(
+            author.clone(),
+            prefs(serde_json::json!(["assistant_reply"])),
+        );
+        assert!(match_job(&from_assistant, &ctx).unwrap().is_empty());
+        assert_eq!(match_job(&from_person, &ctx).unwrap().len(), 1);
+        // Direct messages off, assistant replies on: only the assistant pushes.
+        ctx.member_prefs
+            .insert(author.clone(), prefs(serde_json::json!(["dm"])));
+        assert_eq!(match_job(&from_assistant, &ctx).unwrap().len(), 1);
+        assert!(match_job(&from_person, &ctx).unwrap().is_empty());
+        // Outside a DM the assistant is just another author.
+        ctx.dm_channels.clear();
+        ctx.member_prefs.insert(
+            author.clone(),
+            prefs(serde_json::json!(["assistant_reply"])),
+        );
+        let subs = serde_json::json!([{"filter":{"kinds":[9],"#h":[channel.to_string()]},"class":"channel","ignore":[]}]);
+        ctx.leases[0].subscriptions = subs;
+        assert_eq!(match_job(&from_assistant, &ctx).unwrap().len(), 1);
+        // Older clients: no assistant_pubkeys -> "dm" governs everything as before.
+        ctx.dm_channels.insert(channel);
+        ctx.leases[0].subscriptions =
+            serde_json::json!([{"filter":{"kinds":[9]},"class":"dm","ignore":[],"scope":"dm"}]);
+        ctx.member_prefs.insert(
+            author,
+            serde_json::from_value(serde_json::json!({"off":["dm", "assistant_reply"]})).unwrap(),
+        );
+        assert!(match_job(&from_assistant, &ctx).unwrap().is_empty());
+        assert!(match_job(&from_person, &ctx).unwrap().is_empty());
+    }
+
+    #[test]
+    fn reminder_class_follows_off_reminder() {
+        let prefs: MemberPushPrefs =
+            serde_json::from_value(serde_json::json!({"off":["reminder"]})).unwrap();
+        assert!(prefs.off.contains("reminder"));
+        assert!(!prefs.off.contains("needs_action"));
+    }
+
+    #[test]
     fn member_prefs_decrypt_from_executor_key() {
         let (relay, member) = (nostr::Keys::generate(), nostr::Keys::generate());
         let ct = nostr::nips::nip44::encrypt(
@@ -1296,7 +1397,9 @@ pub async fn push_mention_to_added_member(
     match match_job(&batch.jobs[0], &context) {
         Ok(wakes) if !wakes.is_empty() => {
             match state.db.enqueue_push_wakes(community, &wakes).await {
-                Ok(_) => tracing::info!(%channel, n = wakes.len(), "added-member mention push enqueued"),
+                Ok(_) => {
+                    tracing::info!(%channel, n = wakes.len(), "added-member mention push enqueued")
+                }
                 Err(e) => warn!(%channel, "added-member push enqueue failed: {e}"),
             }
         }
