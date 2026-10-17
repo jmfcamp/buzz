@@ -52,12 +52,9 @@ export function useRemindersQuery(pubkey: string | undefined) {
 export function useDueReminderBadgeCount(
   pubkey: string | undefined,
   enabled: boolean,
-  excludeAssistListCopies = false,
 ): number {
   const remindersQuery = useRemindersQuery(pubkey);
-  return enabled
-    ? countDueInboxReminders(remindersQuery.data ?? [], excludeAssistListCopies)
-    : 0;
+  return enabled ? countDueInboxReminders(remindersQuery.data ?? []) : 0;
 }
 
 /**

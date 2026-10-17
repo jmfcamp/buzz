@@ -36,19 +36,15 @@ export function inboxMessageReminders(
 }
 
 /**
- * Due message reminders for the Inbox Reminders badge. With `excludeAssistListCopies` (web, where the Assistant's
- * own due reminders are added from the lists doc and shown in the Assistant Lists section) the dual-written copies
- * are left out, so a list reminder is counted once and every counted reminder is one you can see in the tab.
+ * Due message reminders for the Inbox Reminders badge (web and desktop). The Assistant's own due reminders are added
+ * from its lists doc and shown in the Reminders tab's Assistant section, so their dual-written copies are left out:
+ * each reminder counts once, and every counted reminder is one you can see in the tab.
  */
 export function countDueInboxReminders(
   reminders: readonly Reminder[],
-  excludeAssistListCopies: boolean,
   now: number = nowSeconds(),
 ): number {
-  return countDue(
-    excludeAssistListCopies ? inboxMessageReminders(reminders) : reminders,
-    now,
-  );
+  return countDue(inboxMessageReminders(reminders), now);
 }
 
 /**

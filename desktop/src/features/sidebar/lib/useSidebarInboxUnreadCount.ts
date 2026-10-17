@@ -1,4 +1,3 @@
-import { isTauri } from "@tauri-apps/api/core";
 import { useAssistantDueReminderCount } from "@/features/assistantLists/listsStore";
 import * as React from "react";
 
@@ -58,10 +57,10 @@ export function useInboxTabCounts(): InboxTabCounts | undefined {
   const assistantDueCount = useAssistantDueReminderCount(
     identityQuery.data?.pubkey,
   );
-  // Web: the Assistant's due reminders come from its lists doc (shown in the Reminders tab's Assistant section), so
-  // their dual-written NIP-ER copies (hidden from the message list) are not counted a second time.
+  // The Assistant's due reminders come from its lists doc (shown in the Reminders tab's Assistant section), so their
+  // dual-written NIP-ER copies (hidden from the message list) are not counted a second time. Same on web and desktop.
   const dueReminderCount =
-    useDueReminderBadgeCount(identityQuery.data?.pubkey, true, !isTauri()) +
+    useDueReminderBadgeCount(identityQuery.data?.pubkey, true) +
     assistantDueCount;
 
   // Same augmentation as HomeScreen: live thread activity + hidden-DM typing

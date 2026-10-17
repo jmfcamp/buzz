@@ -1,4 +1,7 @@
-import { useAssistantOpenReminderCount } from "@/features/assistantLists/listsStore";
+import {
+  useAssistantListsDoc,
+  useAssistantOpenReminderCount,
+} from "@/features/assistantLists/listsStore";
 import { AssistantListsPanel } from "@/features/assistantLists/ui/AssistantListsPanel";
 import {
   AlertCircle,
@@ -312,6 +315,9 @@ export function InboxListPane({
   const assistantOpenReminders = useAssistantOpenReminderCount(
     reminderPubkey ?? undefined,
   );
+  // Desktop lists the Assistant's reminders here too once its lists doc is synced (the badge counts them).
+  const hasAssistantLists =
+    useAssistantListsDoc(reminderPubkey ?? undefined) != null;
   // Reminders live in their own tab now; never mix them into Inbox/Agents.
   const isMixedInboxView = false;
   const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -761,7 +767,7 @@ export function InboxListPane({
           className="flex min-h-0 flex-1 flex-col overflow-hidden"
           data-testid="home-inbox-reminders"
         >
-          {isWebAssistantAvailable() ? (
+          {isWebAssistantAvailable() || hasAssistantLists ? (
             <div className="max-h-[45%] shrink-0 overflow-y-auto border-b border-border/60 px-3 py-2">
               <AssistantListsPanel
                 hideEmpty

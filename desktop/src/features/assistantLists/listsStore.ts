@@ -132,29 +132,18 @@ export function claimReminderFires(
   return fresh;
 }
 
-/** Open Assistant reminders due now for `pubkey` (web only: the desktop's Assistant shows its own). */
+/** Open Assistant reminders due now for `pubkey` (0 until its lists sync is running). Web and desktop. */
 export function useAssistantDueReminderCount(
   pubkey: string | undefined,
 ): number {
   const doc = useAssistantListsDoc(pubkey);
   const now = useNowSeconds();
-  if (
-    !doc ||
-    (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window)
-  )
-    return 0;
   return assistantListsBadgeCount(doc, now);
 }
 
-/** Open Assistant reminders for `pubkey` (web only, like the count above). */
+/** Open Assistant reminders for `pubkey`, due or not (0 until its lists sync is running). */
 export function useAssistantOpenReminderCount(
   pubkey: string | undefined,
 ): number {
-  const doc = useAssistantListsDoc(pubkey);
-  if (
-    !doc ||
-    (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window)
-  )
-    return 0;
-  return openAssistantReminderCount(doc);
+  return openAssistantReminderCount(useAssistantListsDoc(pubkey));
 }
