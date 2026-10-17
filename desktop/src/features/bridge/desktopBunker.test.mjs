@@ -63,20 +63,14 @@ test("strangers get silence; revoked devices get 'revoked'", async () => {
 });
 const BUNKER_UNPAIR = () => "buzz_unpair";
 
-test("auto kinds sign silently; profile / follow list / deletes always ask", async () => {
+test("full access: a paired browser signs every kind silently", async () => {
   const s = setup({ allow: (t) => !/Sign this/.test(t) || false });
   const c = s.p.newCode();
   await s.p.handle(A, "connect", ["x", c.secret]);
   s.prompts.length = 0;
-  for (const k of [9, 7, 22242, 27235, 30078, 20002]) assert.equal(JSON.parse(await s.p.handle(A, "sign_event", [ev(k)])).kind, k);
+  for (const k of [9, 7, 22242, 27235, 30078, 20002, 0, 3, 5]) assert.equal(JSON.parse(await s.p.handle(A, "sign_event", [ev(k)])).kind, k);
   assert.equal(s.prompts.length, 0);
-  for (const k of [0, 3, 5]) await assert.rejects(s.p.handle(A, "sign_event", [ev(k)]), /declined/);
-  assert.equal(s.prompts.length, 3);
-  assert.equal(bunkerAutoKind(0), false);
-  assert.equal(bunkerAutoKind(9), true);
-  assert.equal(bunkerAutoKind(30350), true);
-  assert.equal(bunkerAutoKind(3), false);
-  assert.equal(bunkerAutoKind(5), false);
+  for (const k of [0, 3, 5, 9, 30350]) assert.equal(bunkerAutoKind(k), true);
 });
 
 test("nip44 self and peer, rate limit", async () => {

@@ -144,7 +144,7 @@ export function createDirectSigner(deps: SignerDeps) {
           const label = (typeof p.label === "string" ? p.label : "Web browser").replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 80) || "Web browser";
           const ok = await deps.confirm(
             "Let this browser sign with this computer?",
-            `"${label}" (device ${device.slice(0, 8)}…) wants to use this computer as its signer over Direct.\n\nIt can then sign messages, reactions, read markers and synced settings for your account without asking. Anything else will ask you here first. You can revoke it any time in Settings.`,
+            `"${label}" (device ${device.slice(0, 8)}…) wants to use this computer as its signer over Direct.\n\nIt gets full access: it can sign anything and encrypt/decrypt for your account without asking. You can revoke it any time in Settings.`,
           );
           deps.store.log({ at: deps.now(), device, kind: -1, ok, note: ok ? "paired" : "pairing declined" });
           if (!ok) throw new MgmtError("declined", "Declined on the desktop.");
@@ -205,26 +205,16 @@ export function createDirectSigner(deps: SignerDeps) {
           const what = op === "nip44_encrypt" ? "encrypt" : "decrypt";
           const log = (ok: boolean, extra = "") =>
             deps.store.log({ at: deps.now(), device, kind: -2, ok, note: `${what}${self ? " (self)" : ` ${op === "nip44_decrypt" ? "from" : "to"} ${peer.slice(0, 8)}…`}${extra}` });
-          const ownAgent =
-            !self && op === "nip44_decrypt" && !!cr.decryptFromPeer && !!cr.isOwnAgent && (await cr.isOwnAgent(peer).catch(() => false));
-          if (!self && !ownAgent) {
-            if (op === "nip44_decrypt") {
-              log(false, ": not offered");
-              throw new MgmtError("unsupported", "Only your own data can be decrypted here.");
-            }
-            const ok = await deps.confirm(
-              "Encrypt this for your browser?",
-              `Your browser asks this computer to encrypt something to another key (${peer.slice(0, 8)}…). Only allow this if you just did something that needs it.`,
-            );
-            if (!ok) {
-              log(false, ": declined");
-              throw new MgmtError("declined", "Declined on the desktop.");
-            }
+          // Full access for a paired device (JM, Oct 16, 2026): encrypt/decrypt to any peer without a desktop prompt.
+          const ownAgent = !self && op === "nip44_decrypt" && !!cr.isOwnAgent && (await cr.isOwnAgent(peer).catch(() => false));
+          if (!self && op === "nip44_decrypt" && !cr.decryptFromPeer) {
+            log(false, ": not offered");
+            throw new MgmtError("unsupported", "Only your own data can be decrypted here.");
           }
           try {
             const out =
               op === "nip44_decrypt"
-                ? ownAgent && cr.decryptFromPeer
+                ? !self && cr.decryptFromPeer
                   ? await cr.decryptFromPeer(peer, text)
                   : await cr.decryptFromSelf(text)
                 : self

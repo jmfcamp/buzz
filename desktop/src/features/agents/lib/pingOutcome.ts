@@ -37,7 +37,11 @@ export async function awaitPingOutcome({
       if (frame.status !== "pong") return;
       finish(() => resolve({ kind: "up", ms: Math.max(0, Math.round(now() - startedAt)) }));
     });
-    cancelTimeout = scheduleTimeout(() => finish(() => resolve({ kind: "timeout" })));
-    sendPing().catch((error) => finish(() => reject(error)));
+    // Start the clock only once the ping is published: signing/encrypting can wait on a signer prompt.
+    sendPing()
+      .then(() => {
+        if (!settled) cancelTimeout = scheduleTimeout(() => finish(() => resolve({ kind: "timeout" })));
+      })
+      .catch((error) => finish(() => reject(error)));
   });
 }

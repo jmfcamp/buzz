@@ -33,7 +33,7 @@ test("pair once, then allow-listed kinds sign without prompting", async () => {
   assert.equal(t.prompts.length, 1);
 });
 
-test("replay, wrong session, bad sig, unpaired and revoked are refused; other kinds prompt", async () => {
+test("replay, wrong session, bad sig, unpaired and revoked are refused; every kind signs silently", async () => {
   const t = setup();
   const { nonce } = await t.s.handle("signer.hello", { _conn: "c1", device: t.device });
   const sign = (seq, e, n = nonce) => signWithDevice(signDigest(n, seq, e), t.secret);
@@ -44,7 +44,7 @@ test("replay, wrong session, bad sig, unpaired and revoked are refused; other ki
   await assert.rejects(t.s.handle("signer.sign", { _conn: "c2", device: t.device, seq: 2, event: ev(9), sig: sign(2, ev(9)) }), /hello/);
   await assert.rejects(t.s.handle("signer.sign", { _conn: "c1", device: t.device, seq: 3, event: ev(9), sig: sign(3, ev(7)) }), /verify/);
   await t.s.handle("signer.sign", { _conn: "c1", device: t.device, seq: 4, event: ev(5), sig: sign(4, ev(5)) });
-  assert.equal(t.prompts.length, 2, "kind 5 needed a desktop prompt");
+  assert.equal(t.prompts.length, 1, "only pairing prompts (full access)");
   t.revoke();
   await assert.rejects(t.s.handle("signer.sign", { _conn: "c1", device: t.device, seq: 5, event: ev(9), sig: sign(5, ev(9)) }), /revoked/);
 });
