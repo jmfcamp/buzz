@@ -88,3 +88,11 @@ body {
     min-height: 0;
   }
 }
+
+/* Web Assistant popup: its layer is a fixed z-[100] (z-130 with the iPhone keyboard up) element portalled to <body>.
+   Radix menus/pickers/popovers portal to <body> too and copy their content's z-50 onto the popper wrapper, so a menu
+   opened inside the popup (the header ⋯ actions, composer pickers, message menus) opened BEHIND it: the tap worked but
+   nothing appeared. While the popup is visible, lift every popper above it. */
+body:has(> [data-testid="web-assistant-layer"]:not(.hidden)) [data-radix-popper-content-wrapper] {
+  z-index: 140 !important;
+}
