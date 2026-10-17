@@ -752,6 +752,12 @@ export function subscribeControlResults(
   const subscribers = controlResultListeners.get(key) ?? new Set();
   subscribers.add(listener);
   controlResultListeners.set(key, subscribers);
+  // Someone is waiting on this agent's reply (Ping, model switch): trust its frames while they wait, even when it isn't
+  // a local/catalog agent (remote gateway bots), and (re)start the observer subscription — a failed startup (e.g. a
+  // superseded relay connect) otherwise leaves it dead and every reply is missed. Sender == agent tag + decrypt still apply.
+  const trustId = `control-results:${key}`;
+  registerKnownAgents(trustId, [key]);
+  void ensureRelayObserverSubscription();
   return () => {
     const current = controlResultListeners.get(key);
     if (!current) {
@@ -760,6 +766,7 @@ export function subscribeControlResults(
     current.delete(listener);
     if (current.size === 0) {
       controlResultListeners.delete(key);
+      unregisterKnownAgents(trustId);
     }
   };
 }
