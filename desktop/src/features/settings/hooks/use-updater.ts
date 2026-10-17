@@ -30,7 +30,8 @@ const BACKGROUND_BLOCKED_STATES = new Set<UpdateStatus["state"]>([
   "manual-required",
 ]);
 
-const GITHUB_RELEASES_URL = "https://github.com/jmfcamp/buzz/releases/latest";
+// Manual download page on S3 + CloudFront (releases.huladesk.com).
+const GITHUB_RELEASES_URL = "https://releases.huladesk.com/hula-buzz/download.html";
 
 function toErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);

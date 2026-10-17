@@ -24,9 +24,17 @@
 #   -- or --
 #   APPLE_ID / APPLE_PASSWORD (app-specific password) / APPLE_TEAM_ID
 #
-# Pubkey + updater endpoint are committed in desktop/src-tauri/tauri.conf.json.
-# Rolling updater URL:
+# Pubkey + updater endpoints are committed in desktop/src-tauri/tauri.conf.json.
+# Updater endpoints (tried in order):
+#   https://releases.huladesk.com/hula-buzz/latest.json             (S3 + CloudFront)
 #   https://github.com/jmfcamp/buzz/releases/download/hula-desktop-latest/latest.json
+#
+# KEY ROTATION (0.5.28-hula.8 bridge): the old updater key 6D35E6D8B2E9B88A is
+# lost except for the TAURI_SIGNING_PRIVATE_KEY secret here. Apps verify an
+# update with the pubkey compiled into the *installed* app, so hula.8 is signed
+# with that old key (accepted by hula.7 and earlier) while it embeds the NEW
+# pubkey 98C5B2CF44EED820 from tauri.conf.json. Releases after hula.8 are
+# built locally from huladesk/hula-buzz and signed with the new key.
 
 name: Hula Desktop Release
 
@@ -55,7 +63,12 @@ env:
   # @protected-features to the OSS stubs and release looks nothing like
   # `just desktop-standalone` (which loads desktop/.env.local).
   VITE_BUZZ_BESTIE: "1"
-  HULA_UPDATER_ENDPOINT: https://github.com/jmfcamp/buzz/releases/download/hula-desktop-latest/latest.json
+  HULA_UPDATER_ENDPOINT: https://releases.huladesk.com/hula-buzz/latest.json
+  HULA_UPDATER_FALLBACK_ENDPOINTS: https://github.com/jmfcamp/buzz/releases/download/hula-desktop-latest/latest.json
+  # Pubkey matching the TAURI_SIGNING_PRIVATE_KEY secret (old key 6D35E6D8B2E9B88A).
+  # The archive signature is verified against THIS key, which is what hula.7
+  # and earlier will check. tauri.conf.json carries the new pubkey.
+  HULA_SIGNING_PUBKEY: dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZEMzVFNkQ4QjJFOUI4OEEKUldTS3VPbXkyT1kxYlpCc2VZa1AvZzNEL3REL04yUytxVk9iYzRWOWlYc0JSTDJjUDZVZUs4NzMK
   HULA_REPO: jmfcamp/buzz
 
 jobs:
@@ -111,9 +124,12 @@ jobs:
           if bad:
               print("::error::tauri.conf.json still points at Block updater:", bad)
               sys.exit(1)
-          expected = "https://github.com/jmfcamp/buzz/releases/download/hula-desktop-latest/latest.json"
-          if expected not in endpoints:
-              print("::error::missing Hula updater endpoint in tauri.conf.json")
+          expected = [
+              "https://releases.huladesk.com/hula-buzz/latest.json",
+              "https://github.com/jmfcamp/buzz/releases/download/hula-desktop-latest/latest.json",
+          ]
+          if endpoints[:2] != expected:
+              print("::error::tauri.conf.json updater endpoints must be", expected, "got", endpoints)
               sys.exit(1)
           if len(pubkey) < 40:
               print("::error::Hula updater pubkey missing from tauri.conf.json")
@@ -156,6 +172,7 @@ jobs:
           # GITHUB_ENV so the Tauri build actually compiles in the updater plugin.
           BUZZ_UPDATER_PUBLIC_KEY=$(python3 -c 'import json; print(json.load(open("desktop/src-tauri/tauri.conf.json"))["plugins"]["updater"]["pubkey"])')
           BUZZ_UPDATER_ENDPOINT="$HULA_UPDATER_ENDPOINT"
+          BUZZ_UPDATER_FALLBACK_ENDPOINTS="$HULA_UPDATER_FALLBACK_ENDPOINTS"
           if [[ -z "${BUZZ_UPDATER_PUBLIC_KEY}" || -z "${BUZZ_UPDATER_ENDPOINT}" ]]; then
             echo "::error::BUZZ_UPDATER_PUBLIC_KEY and BUZZ_UPDATER_ENDPOINT must both be set (required at compile time for buzz_updater_enabled)"
             exit 1
@@ -164,7 +181,7 @@ jobs:
             echo "BUZZ_UPDATER_PUBLIC_KEY=${BUZZ_UPDATER_PUBLIC_KEY}"
             echo "BUZZ_UPDATER_ENDPOINT=${BUZZ_UPDATER_ENDPOINT}"
           } >> "$GITHUB_ENV"
-          export BUZZ_UPDATER_PUBLIC_KEY BUZZ_UPDATER_ENDPOINT
+          export BUZZ_UPDATER_PUBLIC_KEY BUZZ_UPDATER_ENDPOINT BUZZ_UPDATER_FALLBACK_ENDPOINTS
           # build-release-config.mjs writes relative to cwd (desktop/)
           (
             cd desktop
@@ -431,10 +448,12 @@ jobs:
           [[ -f "${ARCHIVE}.sig" ]] || { echo "::error::signer did not produce ${ARCHIVE}.sig"; exit 1; }
           ls -la "$ARCHIVE" "${ARCHIVE}.sig"
 
-          # Verify the updater signature against the committed pubkey, exactly
+          # Verify the updater signature against HULA_SIGNING_PUBKEY (old key), exactly
           # what the in-app updater checks.
           brew list minisign >/dev/null 2>&1 || brew install minisign >/dev/null
-          python3 -c 'import json,base64; print(base64.b64decode(json.load(open("desktop/src-tauri/tauri.conf.json"))["plugins"]["updater"]["pubkey"]).decode())' > "$RUNNER_TEMP/updater.pub"
+          # Verify against the key installed apps (hula.7 and earlier) trust,
+          # not the new pubkey this build embeds for future releases.
+          printf '%s' "$HULA_SIGNING_PUBKEY" | base64 --decode > "$RUNNER_TEMP/updater.pub"
           base64 --decode < "${ARCHIVE}.sig" > "$RUNNER_TEMP/updater.minisig"
           minisign -V -p "$RUNNER_TEMP/updater.pub" -m "$ARCHIVE" -x "$RUNNER_TEMP/updater.minisig"
           # And the archive still holds a valid Apple signature after tar round-trip.
