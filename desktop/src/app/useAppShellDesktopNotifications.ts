@@ -8,6 +8,8 @@ import {
 import { useInboxStateSync } from "@/features/inbox/useInboxStateSync";
 import { useCommunityJoinAlerts } from "@/features/community-members/useCommunityJoinAlerts";
 import { hasMentionForEvent } from "@/features/notifications/lib/shouldNotify";
+import { isAssistantReply } from "@/features/notifications/lib/assistantReply";
+import { getAssistantPubkey } from "@/shared/lib/assistantIdentity";
 import type { NotificationSettings } from "@/features/notifications/hooks";
 import {
   listenForDesktopNotificationActions,
@@ -77,9 +79,17 @@ export function useAppShellDesktopNotifications({
   const handleDmNotification = React.useEffectEvent(
     (event: RelayEvent, channel: Channel) => {
       if (!enabled) return;
+      // Your assistant's replies in your DMs follow "Assistant replies", people DMs follow "Direct messages".
+      const assistantReply = isAssistantReply(
+        event.pubkey,
+        channel.channelType,
+        getAssistantPubkey(),
+      );
       if (
         !notificationSettings.desktopEnabled ||
-        !notificationSettings.slotAlertsEnabled.dm
+        !(assistantReply
+          ? notificationSettings.eventAlertsEnabled.assistant_reply
+          : notificationSettings.slotAlertsEnabled.dm)
       ) {
         return;
       }
@@ -112,9 +122,17 @@ export function useAppShellDesktopNotifications({
   const handleThreadReplyDesktopNotification = React.useEffectEvent(
     (channelId: string, event: RelayEvent) => {
       if (!enabled) return;
+      // A thread reply from your assistant inside your DM with it is an assistant reply.
+      const assistantReply = isAssistantReply(
+        event.pubkey,
+        channels.find((c) => c.id === channelId)?.channelType,
+        getAssistantPubkey(),
+      );
       if (
         !notificationSettings.desktopEnabled ||
-        !notificationSettings.slotAlertsEnabled.thread_reply
+        !(assistantReply
+          ? notificationSettings.eventAlertsEnabled.assistant_reply
+          : notificationSettings.slotAlertsEnabled.thread_reply)
       ) {
         return;
       }

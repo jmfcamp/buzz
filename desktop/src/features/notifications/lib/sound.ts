@@ -80,6 +80,7 @@ export const RECOMMENDED_SOUND_BY_SLOT: Record<SoundSlot, SoundName> = {
 
 /** Non-sound notification types with their own on/off switch. */
 export const EVENT_ALERT_TYPES = [
+  "assistant_reply",
   "reminder",
   "community_join",
   "remote_terminal",
@@ -88,20 +89,25 @@ export type EventAlertType = (typeof EVENT_ALERT_TYPES)[number];
 export type NotificationToggleKey = SoundSlot | EventAlertType;
 
 export const DEFAULT_EVENT_ALERTS_ENABLED: Record<EventAlertType, boolean> = {
+  assistant_reply: true,
   reminder: true,
   community_join: true,
   remote_terminal: true,
 };
 
 export const EVENT_ALERT_LABELS: Record<EventAlertType, string> = {
+  assistant_reply: "Assistant replies",
   reminder: "Reminders",
   community_join: "Community joins",
   remote_terminal: "Remote terminal opened",
 };
 
 export const EVENT_ALERT_DESCRIPTIONS: Record<EventAlertType, string> = {
+  assistant_reply:
+    "When your assistant replies to you in your direct messages. Reminders and approvals follow their own switches.",
   reminder: "When a reminder you set comes due.",
-  community_join: "When someone joins the community (admins only).",
+  community_join:
+    "When someone joins the community (admins only). In-app only: not sent as a phone notification.",
   remote_terminal: "When a remote terminal session is opened on this computer.",
 };
 

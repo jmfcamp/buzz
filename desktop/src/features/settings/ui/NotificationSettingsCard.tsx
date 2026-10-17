@@ -33,15 +33,23 @@ import { sendTestNotification } from "@/features/notifications/lib/testNotificat
 
 const IS_WEB = import.meta.env?.VITE_BUZZ_PLATFORM === "web";
 
-/** Per-type switches, in display order. Remote terminal alerts exist only on desktop. */
-const NOTIFY_TYPE_ROWS: NotificationToggleKey[] = [
-  "dm",
-  "thread_reply",
-  "mention",
-  "needs_action",
-  "reminder",
-  "community_join",
-  ...(IS_WEB ? [] : (["remote_terminal"] as const)),
+/**
+ * Per-type switches, in display order, as sections: a top-level switch with optional indented sub-items
+ * (`children`). Each sub-item is its own switch (not gated by its parent), so a sub-category can be heard or
+ * silenced independently; add more sub-items by extending `children`. Remote terminal alerts exist only on desktop.
+ */
+type NotifyTypeRow = {
+  key: NotificationToggleKey;
+  children?: NotificationToggleKey[];
+};
+const NOTIFY_TYPE_ROWS: NotifyTypeRow[] = [
+  { key: "dm", children: ["assistant_reply"] },
+  { key: "thread_reply" },
+  { key: "mention" },
+  { key: "needs_action" },
+  { key: "reminder" },
+  { key: "community_join" },
+  ...(IS_WEB ? [] : [{ key: "remote_terminal" as const }]),
 ];
 
 function toggleLabel(key: NotificationToggleKey) {
@@ -49,7 +57,15 @@ function toggleLabel(key: NotificationToggleKey) {
     ? EVENT_ALERT_LABELS[key as keyof typeof EVENT_ALERT_LABELS]
     : SLOT_LABELS[key as SoundSlot];
 }
+/** "Notify me about" copy that differs from the shared slot description (also used by Alert sounds). */
+const NOTIFY_DESCRIPTION_OVERRIDES: Partial<
+  Record<NotificationToggleKey, string>
+> = {
+  dm: "When someone messages you directly. Your assistant's replies have their own switch below.",
+};
 function toggleDescription(key: NotificationToggleKey) {
+  const override = NOTIFY_DESCRIPTION_OVERRIDES[key];
+  if (override) return override;
   return key in EVENT_ALERT_DESCRIPTIONS
     ? EVENT_ALERT_DESCRIPTIONS[key as keyof typeof EVENT_ALERT_DESCRIPTIONS]
     : SLOT_DESCRIPTIONS[key as SoundSlot];
@@ -73,7 +89,11 @@ function StalePushRow() {
         <p className="text-sm font-medium">Phone notifications</p>
         <p className="text-sm font-normal text-muted-foreground/70">
           A new version is available.{" "}
-          <button className="underline" onClick={() => location.reload()} type="button">
+          <button
+            className="underline"
+            onClick={() => location.reload()}
+            type="button"
+          >
             Reload
           </button>{" "}
           to show these settings.
@@ -267,9 +287,19 @@ export function NotificationSettingsCard({
         </SettingsOptionGroup>
 
         <SettingsOptionGroup title="Notify me about">
-          {NOTIFY_TYPE_ROWS.map((key) => (
+          {NOTIFY_TYPE_ROWS.flatMap(({ key, children }) => [
+            { key, depth: 0 },
+            ...(children ?? []).map((child) => ({ key: child, depth: 1 })),
+          ]).map(({ key, depth }) => (
             <SettingsOptionRow key={key}>
-              <div className="min-w-0">
+              <div
+                className={cn(
+                  "min-w-0",
+                  depth > 0 && "ml-1 border-l-2 border-border/60 pl-4",
+                )}
+                data-notify-depth={depth}
+                data-testid={`notifications-type-row-${key}`}
+              >
                 <label
                   className="text-sm font-medium"
                   htmlFor={`notify-type-${key}-switch`}
@@ -297,8 +327,11 @@ export function NotificationSettingsCard({
             className="px-3 pb-2 text-xs text-muted-foreground/70"
             data-settings-subcopy
           >
-            Synced to your other devices and to phone push. Anything you are
-            notified about also shows as unread in the Inbox.
+            These switches sync to your other devices. Phone notifications
+            follow them too, except Community joins
+            {IS_WEB ? "" : " and Remote terminal"}, which only notify in the
+            app. Anything you are notified about also shows as unread in the
+            Inbox.
           </p>
         </SettingsOptionGroup>
 

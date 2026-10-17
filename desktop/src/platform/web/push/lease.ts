@@ -15,6 +15,8 @@ export type PushDescriptor = {
   executorKeyId: string;
   executorPubkey: string;
   maxLeaseTtl: number;
+  /** Relay silences assistant replies in DMs from the synced push prefs (`push.pref_features`). */
+  assistantReplyPrefs?: boolean;
 };
 
 /** Validate the relay's NIP-11 `push` descriptor; null when web push isn't offered. */
@@ -49,11 +51,13 @@ export function parsePushDescriptor(info: unknown): PushDescriptor | null {
     (push.limitation as { max_lease_ttl?: number } | undefined)
       ?.max_lease_ttl ?? 0,
   );
+  const features = Array.isArray(push.pref_features) ? push.pref_features : [];
   return {
     origin: push.origin,
     executorKeyId: id,
     executorPubkey: pubkey,
     maxLeaseTtl: ttl > 0 ? ttl : 2592000,
+    assistantReplyPrefs: features.includes("assistant_reply"),
   };
 }
 
@@ -74,8 +78,18 @@ export function leaseSubscriptions(
   me: string,
   prefs: PushPrefs,
   interest?: PushInterest,
+  assistant?: {
+    /** The member's assistant agent (hex), when known. */
+    pubkey?: string | null;
+    /** Relay understands `assistant_reply` in the synced push prefs. */
+    relaySupportsAssistantReply?: boolean;
+  },
 ): Sub[] {
   const subs: Sub[] = [];
+  const assistantPk = assistant?.pubkey?.trim().toLowerCase();
+  const assistantHex =
+    assistantPk && /^[0-9a-f]{64}$/.test(assistantPk) ? assistantPk : null;
+  const assistantOn = prefs.assistant_reply !== false;
   if (prefs.mention)
     subs.push({
       filter: { kinds: MESSAGE_KINDS, "#p": [me] },
@@ -89,18 +103,31 @@ export function leaseSubscriptions(
       ignore: [],
     });
   // Assist / classic NIP-ER reminders. Relay enqueues the match when due
-  // (kind 30300 is not matched at insert time).
-  if (prefs.needs_action)
+  // (kind 30300 is not matched at insert time). Own switch: Reminders, not Approvals.
+  if (prefs.reminder !== false)
     subs.push({
       filter: { kinds: [30300], authors: [me] },
       class: "reminder",
       ignore: [],
     });
-  if (prefs.dm)
+  // DMs. Assistant replies (your assistant in your DMs) have their own switch:
+  //  - off: the assistant is ignored here, so only people DMs push (works on any relay).
+  //  - on with Direct messages off: the DM scope is still needed; a relay that advertises
+  //    `assistant_reply` silences the people DMs from the synced push prefs (off: "dm").
+  //    Older relays would silence the assistant too, so the sub is omitted there.
+  const dmSub =
+    prefs.dm ||
+    (assistantOn &&
+      assistantHex !== null &&
+      assistant?.relaySupportsAssistantReply === true);
+  if (dmSub)
     subs.push({
       filter: { kinds: [9, 40002] },
       class: "dm",
-      ignore: [],
+      ignore:
+        assistantHex && !assistantOn
+          ? [{ kinds: MESSAGE_KINDS, authors: [assistantHex] }]
+          : [],
       scope: "dm",
     });
   if (prefs.thread_reply)

@@ -25,14 +25,20 @@ export const KIND_APP_DATA = 30078;
 export const PREFS_D_TAG = "buzz:notification-prefs";
 export const PUSH_PREFS_D_TAG = "buzz:push-prefs";
 
-/** The four notification types that also drive push and the sound rows. */
-export const SYNCED_SLOTS = [
-  "dm",
-  "mention",
-  "thread_reply",
-  "needs_action",
-] as const;
-export type SyncedSlot = (typeof SYNCED_SLOTS)[number];
+export {
+  buildPushPrefsPayload,
+  PUSH_EXTRA_CLASSES,
+  SYNCED_SLOTS,
+  type PushExtraClass,
+  type PushOffClass,
+  type PushPrefsPayload,
+  type SyncedSlot,
+} from "./pushPrefsPayload";
+import {
+  SYNCED_SLOTS,
+  type PushPrefsPayload,
+  type SyncedSlot,
+} from "./pushPrefsPayload";
 
 export type SyncedTypePrefs = {
   updatedAt: number;
@@ -66,28 +72,6 @@ export function serializeSyncedTypePrefs(p: SyncedTypePrefs): string {
   });
 }
 
-export type PushPrefsPayload = {
-  v: 1;
-  off: SyncedSlot[];
-  muted_channels: string[];
-  muted_threads: string[];
-};
-
-const MAX_MUTES = 500;
-
-export function buildPushPrefsPayload(
-  slots: Record<SyncedSlot, boolean>,
-  mutedChannelIds: Iterable<string>,
-  mutedRootIds: Iterable<string>,
-): PushPrefsPayload {
-  return {
-    v: 1,
-    off: SYNCED_SLOTS.filter((s) => !slots[s]),
-    muted_channels: [...new Set(mutedChannelIds)].sort().slice(0, MAX_MUTES),
-    muted_threads: [...new Set(mutedRootIds)].sort().slice(0, MAX_MUTES),
-  };
-}
-
 function newest(events: RelayEvent[], d: string, pubkey: string) {
   return events
     .filter(
@@ -111,9 +95,7 @@ export async function fetchSyncedTypePrefs(
   const ev = newest(events, PREFS_D_TAG, pubkey);
   if (!ev) return null;
   try {
-    return parseSyncedTypePrefs(
-      JSON.parse(await decryptAppData(ev.content)),
-    );
+    return parseSyncedTypePrefs(JSON.parse(await decryptAppData(ev.content)));
   } catch {
     return null;
   }

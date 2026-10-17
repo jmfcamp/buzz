@@ -37,6 +37,7 @@ import {
 } from "./lease";
 import { errMsg, setDiag } from "./diag";
 import { setWebPushActive } from "./seen";
+import { getAssistantPubkey } from "@/shared/lib/assistantIdentity";
 
 const NOTIFICATION_SETTINGS_KEY = "buzz-notification-settings.v2";
 const STATE_KEY = "buzz-web-push-state.v2";
@@ -93,10 +94,18 @@ function save(s: Stored | null) {
     /* storage denied */
   }
 }
-function prefs() {
+/**
+ * The member's switches. Settings are stored per pubkey (`<key>:<pubkey>`, see notifications/hooks.ts); the
+ * unkeyed read always missed, so every lease used to carry all types regardless of the switches.
+ */
+function prefs(me?: string | null) {
   let raw: string | null = null;
   try {
-    raw = localStorage.getItem(NOTIFICATION_SETTINGS_KEY);
+    const pk = me?.trim().toLowerCase();
+    raw =
+      (pk
+        ? localStorage.getItem(`${NOTIFICATION_SETTINGS_KEY}:${pk}`)
+        : null) ?? localStorage.getItem(NOTIFICATION_SETTINGS_KEY);
   } catch {
     /* ignore */
   }
@@ -151,7 +160,10 @@ async function publishLease(
     descriptor: d,
     generation,
     grant,
-    subscriptions: leaseSubscriptions(me, prefs(), getPushInterest()),
+    subscriptions: leaseSubscriptions(me, prefs(me), getPushInterest(), {
+      pubkey: getAssistantPubkey(),
+      relaySupportsAssistantReply: d.assistantReplyPrefs === true,
+    }),
   });
   const content = await signer.nip44.encrypt(d.executorPubkey, plaintext);
   const ev = await signer.signEvent(
@@ -221,7 +233,9 @@ async function ensurePushSubscribedInner(): Promise<boolean> {
   const fingerprint = JSON.stringify([
     me,
     sub.endpoint,
-    prefs(),
+    prefs(me),
+    getAssistantPubkey(),
+    d.assistantReplyPrefs === true,
     getPushInterest(),
     d.origin,
     d.executorKeyId,
@@ -411,10 +425,17 @@ export function installPushClickRouting() {
 // Re-send the lease (debounced) when All-messages channels or followed
 // threads change, so pushes follow the Notifications menu.
 let interestTimer: ReturnType<typeof setTimeout> | null = null;
-onPushInterestChange(() => {
+function scheduleLeaseResend() {
   if (interestTimer) clearTimeout(interestTimer);
   interestTimer = setTimeout(() => {
     interestTimer = null;
     void ensurePushSubscribed().catch(() => false);
   }, 5_000);
-});
+}
+onPushInterestChange(scheduleLeaseResend);
+// ...and when the Notifications switches change (the fingerprint skips a no-op re-sign).
+if (typeof window !== "undefined")
+  window.addEventListener(
+    "buzz-notification-settings-changed",
+    scheduleLeaseResend,
+  );

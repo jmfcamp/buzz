@@ -43,7 +43,9 @@ export function markPermissionGranted(): void {
 
 /** The live permission, except a stale "default" after a remembered grant reads as "granted". "denied" always wins
  *  (and forgets the grant), so turning notifications off in iOS Settings shows the blocked hint again. */
-export function effectivePermission(live: NotificationPermission): NotificationPermission {
+export function effectivePermission(
+  live: NotificationPermission,
+): NotificationPermission {
   try {
     if (live === "granted") localStorage.setItem(GRANTED_KEY, "1");
     else if (live === "denied") localStorage.removeItem(GRANTED_KEY);
@@ -70,7 +72,9 @@ export function readPushEnv(): PushEnv {
     hasNotification,
     ios,
     standalone,
-    permission: hasNotification ? effectivePermission(Notification.permission) : "unsupported",
+    permission: hasNotification
+      ? effectivePermission(Notification.permission)
+      : "unsupported",
   };
 }
 
@@ -80,6 +84,10 @@ export type PushPrefs = {
   mention: boolean;
   thread_reply: boolean;
   needs_action: boolean;
+  /** Reminders switch (its own switch; not Approvals). Missing = on. */
+  reminder?: boolean;
+  /** Assistant replies sub-switch under Direct messages. Missing = on. */
+  assistant_reply?: boolean;
 };
 export function pushPrefsFromSettings(raw: string | null): PushPrefs {
   const all = {
@@ -87,12 +95,19 @@ export function pushPrefsFromSettings(raw: string | null): PushPrefs {
     mention: true,
     thread_reply: true,
     needs_action: true,
+    reminder: true,
+    assistant_reply: true,
   };
   if (!raw) return all;
   try {
     const s = JSON.parse(raw) as {
       desktopEnabled?: boolean;
-      slotAlertsEnabled?: Partial<Record<keyof PushPrefs, boolean>>;
+      slotAlertsEnabled?: Partial<
+        Record<"dm" | "mention" | "thread_reply" | "needs_action", boolean>
+      >;
+      eventAlertsEnabled?: Partial<
+        Record<"reminder" | "assistant_reply", boolean>
+      >;
     };
     if (s.desktopEnabled === false)
       return {
@@ -100,13 +115,18 @@ export function pushPrefsFromSettings(raw: string | null): PushPrefs {
         mention: false,
         thread_reply: false,
         needs_action: false,
+        reminder: false,
+        assistant_reply: false,
       };
     const a = s.slotAlertsEnabled ?? {};
+    const e = s.eventAlertsEnabled ?? {};
     return {
       dm: a.dm !== false,
       mention: a.mention !== false,
       thread_reply: a.thread_reply !== false,
       needs_action: a.needs_action !== false,
+      reminder: e.reminder !== false,
+      assistant_reply: e.assistant_reply !== false,
     };
   } catch {
     return all;
