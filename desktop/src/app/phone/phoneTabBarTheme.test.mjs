@@ -32,7 +32,7 @@ test("light theme gets its own frosted tab bar with accent-coloured selected tab
 test("nav row and tab-count pill use the shared chrome accent in light and dark", () => {
   assert.match(
     css,
-    /\[data-phone\]:not\(\.dark\) \{[^}]*--phone-chrome-accent: color-mix\(in srgb, hsl\(var\(--primary\)\)/,
+    /\[data-phone\]:not\(\.dark\) \{[^}]*--phone-chrome-accent: color-mix\(in srgb, var\(--phone-bars-raw\)/,
   );
   assert.match(
     css,

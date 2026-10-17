@@ -487,10 +487,13 @@ export function AccentPickerContent({
   accentColor,
   isDark,
   setAccentColor,
+  subcopy,
 }: {
   accentColor: string;
   isDark: boolean;
   setAccentColor: (value: string) => void;
+  /** Replaces the default description (web Buzz themes explain the accent only tints the phone bars). */
+  subcopy?: string;
 }) {
   return (
     <SettingsOptionRow className="items-start">
@@ -500,7 +503,7 @@ export function AccentPickerContent({
           className="text-sm font-normal text-muted-foreground/70"
           data-settings-subcopy
         >
-          Choose the highlight color used throughout Buzz.
+          {subcopy ?? "Choose the highlight color used throughout Buzz."}
         </p>
       </div>
       <div

@@ -14,6 +14,11 @@ import { isMacPlatform } from "@/shared/lib/platform";
 import { getStorageItem } from "@/shared/lib/safeStorage";
 import { createThemeVars, hexToHsl } from "./adaptive-theme";
 import {
+  applyPhoneBarsAccent,
+  resolvePhoneBarsAccent,
+  subscribePhoneBarsAccent,
+} from "./phoneBarsAccent";
+import {
   SYNTAX_THEMES,
   type SyntaxThemeName,
   type ThemeInfo,
@@ -258,6 +263,15 @@ function resolveEffectiveAccent(
   return isBuzzTheme(themeName) ? NEUTRAL_ACCENT : accentColor;
 }
 
+/** The accent the phone bars use for a theme (web "Use accent color for phone bars"); null = none. */
+export function phoneBarsAccentFor(themeName: string): string | null {
+  return resolvePhoneBarsAccent({
+    buzzTheme: isBuzzTheme(themeName),
+    storedAccent: getStorageItem(ACCENT_STORAGE_KEY),
+    defaultAccent: DEFAULT_ACCENT,
+  });
+}
+
 /** Toggle the Buzz-specific gradient marker independently from glass. */
 function applyBuzzSidebar(themeName: string) {
   const root = document.documentElement;
@@ -415,6 +429,7 @@ function applyCachedVars(): string | null {
     // Otherwise a cached Buzz theme + non-neutral stored accent flashes the
     // old accent on reload until the async applyTheme effect runs.
     applyAccentColor(resolveEffectiveAccent(themeName, accent));
+    applyPhoneBarsAccent(phoneBarsAccentFor(themeName));
 
     return themeName;
   } catch {
@@ -631,6 +646,14 @@ export function ThemeProvider({
   // is idempotent on theme changes and simply covers accent-only changes.
   useEffect(() => {
     applyAccentColor(resolveEffectiveAccent(effectiveTheme, accentColor));
+  }, [accentColor, effectiveTheme]);
+
+  // Phone bars accent (web): follows the accent, the theme and the "Use accent color for phone bars" toggle live.
+  useEffect(() => {
+    const apply = () =>
+      applyPhoneBarsAccent(phoneBarsAccentFor(effectiveTheme));
+    apply();
+    return subscribePhoneBarsAccent(apply);
   }, [accentColor, effectiveTheme]);
 
   const setTheme = useCallback((name: string) => {
