@@ -1,4 +1,5 @@
 // Phone-only bottom tab bar (rendered only when usePhoneLayout() is true). iPad/desktop never mount it.
+// Colours live in phone.css (.phone-tabbar): they follow the app theme (light/dark) and the Appearance accent.
 import { Bot, Inbox, MessagesSquare, SquareTerminal } from "lucide-react";
 
 import {
@@ -45,7 +46,6 @@ function PhoneAssistTab({ me }: { me: string | undefined }) {
       aria-label="Assist"
       className={cn(
         "phone-tab flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-md text-[10px] font-medium",
-        open ? "text-white" : "text-white/60",
       )}
       data-testid="phone-tab-assistant"
       onClick={() => toggleWebAssistant()}
@@ -110,7 +110,7 @@ export function PhoneTabBar({
   return (
     <nav
       aria-label="Primary"
-      className="phone-tabbar z-[120] flex text-white"
+      className="phone-tabbar z-[120] flex"
       data-testid="phone-tabbar"
     >
       {TABS.map(({ id, label, Icon }) => {
@@ -121,7 +121,6 @@ export function PhoneTabBar({
             aria-current={isActive ? "page" : undefined}
             className={cn(
               "phone-tab flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-md text-[10px] font-medium",
-              isActive ? "text-white" : "text-white/60",
             )}
             data-testid={`phone-tab-${id}`}
             key={id}
@@ -150,7 +149,7 @@ export function PhoneTabBar({
                 />
                 <span
                   aria-label="Online"
-                  className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-zinc-900 bg-emerald-500"
+                  className="phone-tab-online absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 bg-emerald-500"
                   data-testid="phone-tab-me-online"
                 />
               </span>

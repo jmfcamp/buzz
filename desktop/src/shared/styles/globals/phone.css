@@ -51,8 +51,22 @@
   height: 100% !important;
   max-height: 100%;
 }
-/* Floating capsule tab bar (Primal-style): inset from the edges, above the home indicator, translucent + blurred. */
+/* Floating capsule tab bar (Primal-style): inset from the edges, above the home indicator, translucent + blurred.
+   Colours follow the app theme (root .dark / not) and the Appearance accent (--primary; the neutral accent resolves to
+   the theme foreground, so Buzz themes stay monochrome). Dark: the original charcoal glass. Light: a frosted pill. */
+[data-phone] {
+  /* Accent for phone chrome (nav row icons, tab-count pill, selected tab). Dark mode uses the accent as-is. */
+  --phone-chrome-accent: hsl(var(--primary));
+}
+[data-phone]:not(.dark) {
+  /* Light mode: darken the accent toward black so light accents (Cyan, Green, Lilac…) stay readable on light chrome.
+     The neutral accent is already the (dark) foreground and stays put. */
+  --phone-chrome-accent: color-mix(in srgb, hsl(var(--primary)) 72%, black);
+}
 [data-phone] .phone-tabbar {
+  --phone-tab-fg: rgba(255, 255, 255, 0.6);
+  --phone-tab-active-fg: hsl(var(--primary));
+  --phone-tab-active-bg: color-mix(in srgb, hsl(var(--primary)) 12%, rgba(255, 255, 255, 0.06));
   position: fixed;
   left: 14px;
   right: 14px;
@@ -61,17 +75,35 @@
   padding: 4px;
   gap: 2px;
   border-radius: var(--radius-chrome);
+  color: var(--phone-tab-fg);
   background: rgba(24, 24, 27, 0.72);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   backdrop-filter: blur(20px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28), 0 1px 3px rgba(0, 0, 0, 0.2);
+  /* Ring around the Me tab's online dot matches the pill. */
+  --phone-tab-ring: #18181b;
+}
+[data-phone]:not(.dark) .phone-tabbar {
+  --phone-tab-fg: hsl(var(--foreground) / 0.62);
+  --phone-tab-active-fg: var(--phone-chrome-accent);
+  --phone-tab-active-bg: hsl(var(--primary) / 0.12);
+  --phone-tab-ring: hsl(var(--background));
+  /* A faint wash of the accent in the glass (none for the neutral accent beyond a hint of the foreground). */
+  background: color-mix(in srgb, hsl(var(--background) / 0.8) 95%, hsl(var(--primary) / 0.8));
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 8px 28px hsl(var(--foreground) / 0.12), 0 1px 3px hsl(var(--foreground) / 0.08);
 }
 [data-phone] .phone-tabbar .phone-tab {
+  color: var(--phone-tab-fg);
   transition: background-color 150ms ease, color 150ms ease;
 }
 [data-phone] .phone-tabbar .phone-tab[aria-current="page"] {
-  background: rgba(255, 255, 255, 0.16);
+  color: var(--phone-tab-active-fg);
+  background: var(--phone-tab-active-bg);
+}
+[data-phone] .phone-tabbar .phone-tab-online {
+  border-color: var(--phone-tab-ring);
 }
 /* Content stops above the tab bar. */
 /* The page itself runs to the screen bottom (its own background shows around the floating pill); only its
@@ -455,7 +487,7 @@
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   line-height: 1;
-  color: hsl(var(--primary));
+  color: var(--phone-chrome-accent);
   background: hsl(var(--background) / 0.86);
   -webkit-backdrop-filter: saturate(1.6) blur(14px);
   backdrop-filter: saturate(1.6) blur(14px);
@@ -622,13 +654,14 @@
   margin-top: 4px;
 }
 
-/* Phone nav row (Back / Forward / Home): same Appearance accent as the tab pill; disabled = dimmed accent. */
+/* Phone nav row (Search / Back / Forward / Home / Refresh): same Appearance accent as the tab pill, in light and dark
+   (light uses the contrast-safe --phone-chrome-accent); disabled = dimmed accent. */
 [data-phone] .phone-nav-button {
-  color: hsl(var(--primary));
+  color: var(--phone-chrome-accent);
 }
 [data-phone] .phone-nav-button:disabled {
-  color: hsl(var(--primary) / 0.4);
-  opacity: 1;
+  color: var(--phone-chrome-accent);
+  opacity: 0.4;
 }
 
 /* Bots / Agents: an open profile fills the screen (list hidden while it's open; the panel's close returns). */
