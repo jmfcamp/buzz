@@ -1,4 +1,7 @@
-import { DIRECT_CONTROLS_HINT, useDesktopData } from "@/features/bridge/ui/DesktopData";
+import {
+  DIRECT_CONTROLS_HINT,
+  useDesktopData,
+} from "@/features/bridge/ui/DesktopData";
 import { isCmdStale } from "@/features/bridge/remoteCmd";
 import {
   CopyPlus,
@@ -9,6 +12,7 @@ import {
 } from "lucide-react";
 
 import type { AgentPersona, ManagedAgent } from "@/shared/api/types";
+import { WebAssistantMenuItem } from "./WebAgentAssistantMenu";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,6 +26,7 @@ export function PersonaActionsMenu({
   isPending,
   persona,
   linkedAgent,
+  isAssistant = false,
   onDuplicate,
   onEdit,
   onShare,
@@ -33,6 +38,8 @@ export function PersonaActionsMenu({
   persona: AgentPersona;
   /** Profile agent instance linked to this definition, if one exists. */
   linkedAgent: ManagedAgent | undefined;
+  /** The linked agent is your Assistant (web shows Set/Remove as assistant). */
+  isAssistant?: boolean;
   onDuplicate: (persona: AgentPersona) => void;
   onEdit: (persona: AgentPersona) => void;
   onShare: (
@@ -66,12 +73,19 @@ export function PersonaActionsMenu({
         onCloseAutoFocus={(event) => event.preventDefault()}
       >
         {needsDirect ? (
-          <p className="max-w-56 px-2 py-1.5 text-xs text-muted-foreground" data-testid="persona-actions-needs-direct">
+          <p
+            className="max-w-56 px-2 py-1.5 text-xs text-muted-foreground"
+            data-testid="persona-actions-needs-direct"
+          >
             These actions run on your desktop. Connect over Direct to use them.
           </p>
         ) : null}
         {canEdit ? (
-          <DropdownMenuItem disabled={disabled} title={needsDirect ? DIRECT_CONTROLS_HINT : undefined} onClick={() => onEdit(persona)}>
+          <DropdownMenuItem
+            disabled={disabled}
+            title={needsDirect ? DIRECT_CONTROLS_HINT : undefined}
+            onClick={() => onEdit(persona)}
+          >
             <Pencil className="h-4 w-4" />
             Edit
           </DropdownMenuItem>
@@ -92,6 +106,13 @@ export function PersonaActionsMenu({
           <Share2 className="h-4 w-4" />
           Share
         </DropdownMenuItem>
+        {web && linkedAgent ? (
+          <WebAssistantMenuItem
+            agent={linkedAgent}
+            isAssistant={isAssistant}
+            name={persona.displayName}
+          />
+        ) : null}
         <DropdownMenuSeparator />
         {persona.sourceTeam ? (
           <DropdownMenuItem disabled>
@@ -102,9 +123,21 @@ export function PersonaActionsMenu({
           <DropdownMenuItem
             className="text-destructive focus:text-destructive"
             disabled={disabled || deleteNeedsUpdate}
-            title={deleteNeedsUpdate ? "Your desktop needs the next Hula Buzz update to delete from the web." : needsDirect ? DIRECT_CONTROLS_HINT : undefined}
+            title={
+              deleteNeedsUpdate
+                ? "Your desktop needs the next Hula Buzz update to delete from the web."
+                : needsDirect
+                  ? DIRECT_CONTROLS_HINT
+                  : undefined
+            }
             onClick={() => {
-              if (web && !window.confirm(`Delete ${persona.displayName}? This can't be undone.`)) return;
+              if (
+                web &&
+                !window.confirm(
+                  `Delete ${persona.displayName}? This can't be undone.`,
+                )
+              )
+                return;
               onDelete(persona);
             }}
           >

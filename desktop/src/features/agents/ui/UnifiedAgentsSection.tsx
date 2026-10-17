@@ -28,7 +28,15 @@ import { AgentRuntimeAvatarControl } from "./AgentRuntimeAvatarControl";
 import { CreateIdentityCard } from "./CreateIdentityCard";
 import { PersonaActionsMenu } from "./PersonaActionsMenu";
 import { buildUnifiedGroups } from "./unifiedAgentGroups";
-import { useDirectControlsOff } from "@/features/bridge/ui/DesktopData";
+import {
+  isWebBuild,
+  useDirectControlsOff,
+} from "@/features/bridge/ui/DesktopData";
+import { useAssistantPubkey } from "@/shared/lib/assistantIdentity";
+import {
+  WebAgentAssistantMenu,
+  WebAssistantCardBadge,
+} from "./WebAgentAssistantMenu";
 
 type UnifiedAgentsSectionProps = {
   defaultModel: string;
@@ -106,8 +114,15 @@ export function UnifiedAgentsSection(props: UnifiedAgentsSectionProps) {
   } = props;
 
   const isArchived = useIsArchivedPredicate();
-  useAgentProfileLive(React.useMemo(() => agents.map((a) => a.pubkey), [agents]));
-  const bestiePubkey = useProtectedBestiePubkey(agents)?.toLowerCase() ?? null;
+  useAgentProfileLive(
+    React.useMemo(() => agents.map((a) => a.pubkey), [agents]),
+  );
+  // Desktop: its own Assistant assignment. Web: the desktop's Assistant as mirrored into the synced pick.
+  const protectedAssistantPubkey =
+    useProtectedBestiePubkey(agents)?.toLowerCase() ?? null;
+  const webAssistantPubkey = useAssistantPubkey();
+  const bestiePubkey =
+    protectedAssistantPubkey ?? (isWebBuild() ? webAssistantPubkey : null);
   const { groups, ungrouped, unknown } = React.useMemo(
     () => buildUnifiedGroups(personas, agents, isArchived),
     [personas, agents, isArchived],
@@ -157,6 +172,10 @@ export function UnifiedAgentsSection(props: UnifiedAgentsSectionProps) {
                       isPending={isPersonasPending}
                       persona={group.persona}
                       linkedAgent={profileAgent}
+                      isAssistant={
+                        !!profileAgent &&
+                        profileAgent.pubkey.toLowerCase() === bestiePubkey
+                      }
                       onDeactivate={onDeactivatePersona}
                       onDelete={onDeletePersona}
                       onDuplicate={onDuplicatePersona}
@@ -282,7 +301,9 @@ function AgentPersonaCard({
   // The linked agent's own name (its profile name, then its stored name), so a rename shows on the card; the persona's name
   // when no agent is linked.
   const title = agent
-    ? profileQuery.data?.displayName?.trim() || agent.name?.trim() || persona.displayName
+    ? profileQuery.data?.displayName?.trim() ||
+      agent.name?.trim() ||
+      persona.displayName
     : persona.displayName;
   // Card face second line: the authored description when one exists;
   // otherwise fall back to the model label as before.
@@ -349,7 +370,12 @@ function AgentPersonaCard({
       dataTestId={`persona-agent-row-${persona.id}`}
       footerAccessory={
         agent ? (
-          <ProtectedBestieCardBadge agent={agent} isBestie={isBestie} />
+          <>
+            <ProtectedBestieCardBadge agent={agent} isBestie={isBestie} />
+            {isWebBuild() ? (
+              <WebAssistantCardBadge agent={agent} isAssistant={isBestie} />
+            ) : null}
+          </>
         ) : null
       }
       label={title}
@@ -441,8 +467,22 @@ function StandaloneAgentCard({
       }
       avatarUrl={profileQuery.data?.avatarUrl}
       dataTestId={`managed-agent-${agent.pubkey}`}
+      actions={
+        isWebBuild() ? (
+          <WebAgentAssistantMenu
+            agent={agent}
+            isAssistant={isBestie}
+            name={profileQuery.data?.displayName?.trim() || title}
+          />
+        ) : undefined
+      }
       footerAccessory={
-        <ProtectedBestieCardBadge agent={agent} isBestie={isBestie} />
+        <>
+          <ProtectedBestieCardBadge agent={agent} isBestie={isBestie} />
+          {isWebBuild() ? (
+            <WebAssistantCardBadge agent={agent} isAssistant={isBestie} />
+          ) : null}
+        </>
       }
       label={title}
       subtitle={

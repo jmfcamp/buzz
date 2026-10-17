@@ -9,7 +9,6 @@ import { decode } from "nostr-tools/nip19";
 import { Bot, ChevronDown, Star } from "lucide-react";
 import { useRouter } from "@tanstack/react-router";
 import * as React from "react";
-import { toast } from "sonner";
 
 import { buildAskContext, queueAsk } from "@/features/assistant/askBus";
 import type { TimelineMessage } from "@/features/messages/types";
@@ -49,6 +48,7 @@ import { cn } from "@/shared/lib/cn";
 import { rewriteRelayUrl } from "@/shared/lib/mediaUrl";
 import { useRelayMediaSrc } from "@/shared/lib/useRelayMediaSrc";
 import { proxyDirectLive, subscribeProxy } from "@/features/bridge/remoteCmd";
+import { useWebAssistantChoice } from "@/features/assistant/webAssistantChoice";
 
 const OPEN_EVENT = "buzz-web-assistant-open";
 const ASSIST_SENTINEL = "__buzzAssistPopup";
@@ -108,36 +108,49 @@ export function parseAgentPubkey(input: string): string | null {
   return null;
 }
 
-/** Web only: publishes the synced pick to the Inbox, and imports the desktop's assignment over Direct. */
+/**
+ * Web only: publishes the synced pick to the Inbox, and keeps it matching the desktop's Assistant over Direct. The
+ * desktop's assignment wins (it is the setting; the web changes it over Direct), so a stale pick made elsewhere is
+ * corrected as soon as Direct connects, and again when the app comes back to the foreground.
+ */
 export function WebAssistantBinding() {
-  const me = useIdentityQuery().data?.pubkey;
+  const me = useIdentityQuery().data?.pubkey?.toLowerCase();
   const { activeCommunity } = useCommunities();
   const picked = useSyncedAssistant(me);
   const directLive = useDirectLive();
   React.useEffect(() => {
     setAssistantPubkey(picked);
   }, [picked]);
+  const pickedRef = React.useRef(picked);
+  pickedRef.current = picked;
+  const relayUrl = activeCommunity?.relayUrl;
   React.useEffect(() => {
-    if (picked || !directLive || !me || !activeCommunity?.relayUrl) return;
+    if (!directLive || !me || !relayUrl) return;
     let cancelled = false;
-    void invokeTauri<{ agent_pubkey?: string } | null>(
-      "get_bestie_assignment",
-      {
-        expectedRelayUrl: activeCommunity.relayUrl,
-        expectedSignerPubkey: me,
-      },
-    )
-      .then((r) => {
-        const pk = r?.agent_pubkey;
-        if (!cancelled && pk && HEX64.test(pk)) setSyncedAssistant(me, pk);
-      })
-      .catch(() => {
-        /* older desktop or no assignment */
-      });
+    const sync = () => {
+      if (document.visibilityState === "hidden") return;
+      void invokeTauri<{ agent_pubkey?: string } | null>(
+        "get_bestie_assignment",
+        { expectedRelayUrl: relayUrl, expectedSignerPubkey: me },
+      )
+        .then((r) => {
+          const pk = r?.agent_pubkey?.toLowerCase();
+          if (!cancelled && pk && HEX64.test(pk) && pk !== pickedRef.current)
+            setSyncedAssistant(me, pk);
+        })
+        .catch(() => {
+          /* older desktop or no assignment: keep the synced pick */
+        });
+    };
+    sync();
+    const t = window.setInterval(sync, 60_000);
+    document.addEventListener("visibilitychange", sync);
     return () => {
       cancelled = true;
+      window.clearInterval(t);
+      document.removeEventListener("visibilitychange", sync);
     };
-  }, [picked, directLive, me, activeCommunity?.relayUrl]);
+  }, [directLive, me, relayUrl]);
   return null;
 }
 
@@ -381,7 +394,7 @@ function AssistantEmptyState({
   );
 }
 
-/** Web agent profile row (same as desktop's Make/Remove Assistant): writes the synced Assistant pick. */
+/** Web agent profile row (same as desktop's Make/Remove Assistant): changes the desktop's Assistant over Direct. */
 export function WebAssistantProfileAction({
   agentPubkey,
 }: {
@@ -393,6 +406,7 @@ export function WebAssistantProfileAction({
   const profile = useUserProfileQuery(agentPubkey).data as
     | { displayName?: string | null; botType?: unknown; isAgent?: boolean }
     | undefined;
+  const choice = useWebAssistantChoice();
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const name = profile?.displayName ?? "this agent";
   const pk = agentPubkey.toLowerCase();
@@ -401,16 +415,10 @@ export function WebAssistantProfileAction({
     agents.some((a) => a.pubkey.toLowerCase() === pk);
   if (!isWebAssistantAvailable() || !isAgent) return null;
   const isAssistant = picked?.toLowerCase() === pk;
-  const save = (value: string | null) => {
-    if (!setSyncedAssistant(me, value)) {
-      toast.error("Still syncing your settings. Try again in a moment.");
-      return false;
-    }
-    return true;
-  };
   return (
     <>
       <ProfileAgentActionRow
+        disabled={choice.disabled}
         icon={Star}
         iconClassName={
           isAssistant
@@ -418,24 +426,25 @@ export function WebAssistantProfileAction({
             : undefined
         }
         label={isAssistant ? "Remove Assistant" : "Make Assistant"}
-        onClick={() => (isAssistant ? save(null) : setConfirmOpen(true))}
+        onClick={() =>
+          isAssistant ? void choice.choose(null) : setConfirmOpen(true)
+        }
         testId="user-profile-web-assistant-action"
+        title={choice.disabledReason ?? undefined}
       />
       <AlertDialog onOpenChange={setConfirmOpen} open={confirmOpen}>
         <AlertDialogContent data-testid="web-assistant-confirm-dialog">
           <AlertDialogHeader>
             <AlertDialogTitle>Make {name} your Assistant?</AlertDialogTitle>
             <AlertDialogDescription>
-              {name} will open from the Assist button. Your pick syncs to your
-              other devices.
+              {name} will open from the Assist button, here and on your desktop.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={(event) => {
-                if (!save(pk)) event.preventDefault();
-              }}
+              disabled={choice.disabled}
+              onClick={() => void choice.choose(pk, name)}
             >
               Make Assistant
             </AlertDialogAction>

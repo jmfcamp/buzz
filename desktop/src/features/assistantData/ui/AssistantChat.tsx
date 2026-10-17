@@ -53,6 +53,7 @@ import { useThreadRepliesForRoots } from "@/features/messages/useThreadReplies";
 
 import { useAppShell } from "@/app/AppShellContext";
 import { useAutoDirectWhileOpen } from "@/features/bridge/ui/DesktopData";
+import { AssistantHeaderMenu } from "./AssistantHeaderMenu";
 
 import { useDirectLive } from "../dataStore";
 import { planAssistantSeenReads } from "../seenReads";
@@ -477,34 +478,66 @@ export function AssistantPopoverBody({
     }
   };
 
+  const identityLockup = (grow: boolean) => (
+    <div
+      className={cn("flex min-w-0 items-center gap-2.5", grow && "flex-1")}
+      data-testid="web-assistant-identity"
+    >
+      <div aria-hidden="true" className="relative shrink-0">
+        <UserAvatar
+          avatarUrl={avatarUrl}
+          className="h-8 w-8"
+          displayName={name}
+          fallbackDelayMs={0}
+          size="sm"
+        />
+        <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-popover">
+          <PresenceDot className="h-2 w-2" status={presence} />
+        </span>
+      </div>
+      <span className="min-w-0 truncate text-sm font-medium">{name}</span>
+      <span className="sr-only">{presence}</span>
+    </div>
+  );
+
   return (
     <div
       className="flex h-full min-h-0 flex-col gap-3"
       data-testid="web-assistant-popover"
     >
-      <div className="flex shrink-0 items-center gap-2">
+      {tabbed ? (
+        // Phone / iPad: name row (avatar + name, ⋯ actions, collapse) above a full-width Chat/Lists control, so
+        // nothing overlaps or runs off a 390px screen.
         <div
-          className="flex min-w-0 items-center gap-2.5"
-          data-testid="web-assistant-identity"
+          className="flex shrink-0 flex-col gap-2.5"
+          data-testid="web-assistant-header"
         >
-          <div aria-hidden="true" className="relative shrink-0">
-            <UserAvatar
-              avatarUrl={avatarUrl}
-              className="h-8 w-8"
-              displayName={name}
-              fallbackDelayMs={0}
-              size="sm"
+          <div className="flex min-w-0 items-center gap-1.5">
+            {identityLockup(true)}
+            <AssistantHeaderMenu
+              closeConfirm={closeConfirm}
+              directLive={directLive}
+              onCloseThread={onCloseThreadClick}
+              onOpenConversation={() => onOpenConversation(channel)}
+              onStart={() => void start()}
+              showCloseThread={messages.length > 0}
+              showStart={Boolean(managed) && presence === "offline"}
+              starting={starting}
             />
-            <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-popover">
-              <PresenceDot className="h-2 w-2" status={presence} />
-            </span>
+            <Button
+              aria-label="Close Assistant"
+              className="h-9 w-9 rounded-full bg-muted/70 text-foreground hover:bg-muted [&_svg]:size-5 max-sm:h-11 max-sm:w-11 max-sm:[&_svg]:size-6"
+              data-testid="web-assistant-minimize"
+              onClick={onMinimize}
+              size="icon-xs"
+              type="button"
+              variant="ghost"
+            >
+              <ChevronDown />
+            </Button>
           </div>
-          <span className="min-w-0 truncate text-sm font-medium">{name}</span>
-          <span className="sr-only">{presence}</span>
-        </div>
-        {tabbed ? (
           <div
-            className="grid h-8 shrink-0 auto-cols-fr grid-flow-col items-stretch gap-0.5 rounded-md bg-muted/45 p-0.5"
+            className="grid h-9 w-full shrink-0 auto-cols-fr grid-flow-col items-stretch gap-0.5 rounded-md bg-muted/45 p-0.5"
             data-slot="segmented-control"
             data-testid="web-assistant-tabs"
             role="tablist"
@@ -537,71 +570,80 @@ export function AssistantPopoverBody({
               </button>
             ))}
           </div>
-        ) : null}
-        <div className="flex-1" />
-        {managed && presence === "offline" ? (
-          <Button
-            className="h-7 rounded-full border border-border/50 bg-muted/45 px-2.5 text-xs font-medium text-foreground shadow-none hover:bg-muted/70"
-            data-testid="web-assistant-start"
-            disabled={!directLive || starting}
-            onClick={() => void start()}
-            size="xs"
-            title={
-              directLive
-                ? "Start on your desktop"
-                : "Needs Direct (your desktop connected)"
-            }
-            type="button"
-            variant="ghost"
-          >
-            {starting
-              ? "Starting…"
-              : directLive
-                ? "Start"
-                : "Start · Needs Direct"}
-          </Button>
-        ) : null}
-        {messages.length > 0 ? (
-          <Button
-            aria-label={closeConfirm ? "Confirm close thread" : "Close Thread"}
-            className={
-              closeConfirm
-                ? "h-7 shrink-0 rounded-full px-2.5 text-xs font-medium shadow-none"
-                : "h-7 shrink-0 rounded-full border border-border/50 bg-muted/45 px-2.5 text-xs font-medium text-foreground shadow-none hover:bg-muted/70"
-            }
-            data-testid="web-assistant-close-thread"
-            onClick={onCloseThreadClick}
-            size="xs"
-            type="button"
-            variant={closeConfirm ? "destructive" : "ghost"}
-          >
-            {closeConfirm ? "Confirm?" : "Close Thread"}
-          </Button>
-        ) : null}
-        <div className="flex shrink-0 items-center gap-1">
-          <Button
-            aria-label="Open Assistant conversation"
-            data-testid="web-assistant-open"
-            onClick={() => onOpenConversation(channel)}
-            size="icon-xs"
-            type="button"
-            variant="ghost"
-          >
-            <SquareArrowOutUpRight />
-          </Button>
-          <Button
-            aria-label="Close Assistant"
-            className="h-9 w-9 rounded-full bg-muted/70 text-foreground hover:bg-muted [&_svg]:size-5 max-sm:h-11 max-sm:w-11 max-sm:[&_svg]:size-6"
-            data-testid="web-assistant-minimize"
-            onClick={onMinimize}
-            size="icon-xs"
-            type="button"
-            variant="ghost"
-          >
-            <ChevronDown />
-          </Button>
         </div>
-      </div>
+      ) : (
+        <div
+          className="flex shrink-0 items-center gap-2"
+          data-testid="web-assistant-header"
+        >
+          {identityLockup(false)}
+          <div className="flex-1" />
+          {managed && presence === "offline" ? (
+            <Button
+              className="h-7 rounded-full border border-border/50 bg-muted/45 px-2.5 text-xs font-medium text-foreground shadow-none hover:bg-muted/70"
+              data-testid="web-assistant-start"
+              disabled={!directLive || starting}
+              onClick={() => void start()}
+              size="xs"
+              title={
+                directLive
+                  ? "Start on your desktop"
+                  : "Needs Direct (your desktop connected)"
+              }
+              type="button"
+              variant="ghost"
+            >
+              {starting
+                ? "Starting…"
+                : directLive
+                  ? "Start"
+                  : "Start · Needs Direct"}
+            </Button>
+          ) : null}
+          {messages.length > 0 ? (
+            <Button
+              aria-label={
+                closeConfirm ? "Confirm close thread" : "Close Thread"
+              }
+              className={
+                closeConfirm
+                  ? "h-7 shrink-0 rounded-full px-2.5 text-xs font-medium shadow-none"
+                  : "h-7 shrink-0 rounded-full border border-border/50 bg-muted/45 px-2.5 text-xs font-medium text-foreground shadow-none hover:bg-muted/70"
+              }
+              data-testid="web-assistant-close-thread"
+              onClick={onCloseThreadClick}
+              size="xs"
+              type="button"
+              variant={closeConfirm ? "destructive" : "ghost"}
+            >
+              {closeConfirm ? "Confirm?" : "Close Thread"}
+            </Button>
+          ) : null}
+          <div className="flex shrink-0 items-center gap-1">
+            <Button
+              aria-label="Open Assistant conversation"
+              data-testid="web-assistant-open"
+              onClick={() => onOpenConversation(channel)}
+              size="icon-xs"
+              type="button"
+              variant="ghost"
+            >
+              <SquareArrowOutUpRight />
+            </Button>
+            <Button
+              aria-label="Close Assistant"
+              className="h-9 w-9 rounded-full bg-muted/70 text-foreground hover:bg-muted [&_svg]:size-5 max-sm:h-11 max-sm:w-11 max-sm:[&_svg]:size-6"
+              data-testid="web-assistant-minimize"
+              onClick={onMinimize}
+              size="icon-xs"
+              type="button"
+              variant="ghost"
+            >
+              <ChevronDown />
+            </Button>
+          </div>
+        </div>
+      )}
 
       <div
         className={cn(
