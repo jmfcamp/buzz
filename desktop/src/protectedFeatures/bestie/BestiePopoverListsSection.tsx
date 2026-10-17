@@ -109,7 +109,11 @@ export function BestiePopoverListsSection({
         summarizeLiveThreadId={brewEnabled ? summarizeLiveThreadId : null}
       />
     ) : activeKind === "routine" ? (
-      <AssistantRoutinesPanel me={scope.ownerPubkey} />
+      <AssistantRoutinesPanel
+        adding={adding}
+        me={scope.ownerPubkey}
+        onAddDone={() => setAdding(false)}
+      />
     ) : activeKind === "scratch" ? (
       <BestieDmScratchSheet
         adding={adding}
