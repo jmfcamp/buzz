@@ -103,7 +103,7 @@ test("assist-list NIP-ER copies are not message reminders", () => {
   );
 });
 
-test("web: due count excludes copies; desktop keeps them", () => {
+test("due count excludes copies, the same rule on web and desktop", () => {
   const rs = [
     reminder({ id: "c1", notBefore: NOW - 1, source: "assist-list" }),
     reminder({ id: "c-stale", notBefore: NOW - 99, source: "assist-list" }),
@@ -111,11 +111,15 @@ test("web: due count excludes copies; desktop keeps them", () => {
     reminder({ id: "m-future", notBefore: NOW + 99 }),
     reminder({ id: "m-done", notBefore: NOW - 1, status: "done" }),
   ];
-  assert.equal(countDueInboxReminders(rs, true, NOW), 1);
-  assert.equal(countDueInboxReminders(rs, false, NOW), 3);
+  assert.equal(countDueInboxReminders(rs, NOW), 1);
+  // Exactly the due ones among what RemindersPanel lists.
+  assert.equal(
+    countDueInboxReminders(rs, NOW),
+    inboxMessageReminders(rs).filter((r) => isDue(r, NOW)).length,
+  );
 });
 
-test("web Inbox Reminders badge equals the due items shown in the tab", () => {
+test("Inbox Reminders badge equals the due items shown in the tab", () => {
   // JM's case: one Assistant reminder ("CHA", due) dual-written as an NIP-ER copy, plus a stale pending copy.
   const doc = docOf([item("cha", { dueAt: NOW - 3600, text: "CHA" })]);
   const nipEr = [
@@ -123,8 +127,7 @@ test("web Inbox Reminders badge equals the due items shown in the tab", () => {
     reminder({ id: "old-copy", notBefore: NOW - 7200, source: "assist-list" }),
   ];
   const badge =
-    countDueInboxReminders(nipEr, true, NOW) +
-    assistantListsBadgeCount(doc, NOW);
+    countDueInboxReminders(nipEr, NOW) + assistantListsBadgeCount(doc, NOW);
   // Before the fix this was countDue(nipEr) + assistant = 2 + 1 = 3 while one item was visible.
   assert.equal(badge, 1);
 
@@ -140,7 +143,7 @@ test("web Inbox Reminders badge equals the due items shown in the tab", () => {
   assert.ok(openAssistantReminderCount(doc) > 0);
 });
 
-test("web badge with message reminders too matches what is listed", () => {
+test("badge with message reminders too matches what is listed", () => {
   const doc = docOf([
     item("a", { dueAt: NOW - 1 }),
     item("b", { dueAt: NOW + 500 }),
@@ -155,8 +158,7 @@ test("web badge with message reminders too matches what is listed", () => {
     (g) => g.reminders,
   );
   const badge =
-    countDueInboxReminders(nipEr, true, NOW) +
-    assistantListsBadgeCount(doc, NOW);
+    countDueInboxReminders(nipEr, NOW) + assistantListsBadgeCount(doc, NOW);
   assert.equal(badge, 2);
   assert.equal(
     badge,
