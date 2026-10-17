@@ -21,6 +21,8 @@ mod inbound_tests;
 // runner (same constraint as `persona_events::tests::flush_barrier`).
 #[cfg(all(test, not(target_os = "windows")))]
 mod catalog_reconcile_tests;
+#[cfg(all(test, not(target_os = "windows")))]
+mod identity_propagation_tests;
 
 #[derive(Debug)]
 enum InboundRuntimeRefresh {
@@ -81,11 +83,17 @@ pub async fn reconcile_inbound_persona_event(
     // removed while this restart runs refuses its start.
     let admission = crate::managed_agents::AdmissionSnapshot::capture(&app.state::<AppState>());
     let blocking_app = app.clone();
-    let restart = tokio::task::spawn_blocking(move || {
+    let (restart, profile_sync_params) = tokio::task::spawn_blocking(move || {
         reconcile_inbound_persona_event_blocking(event_json, arrival_relay_url, blocking_app)
     })
     .await
     .map_err(|e| format!("spawn_blocking failed: {e}"))??;
+
+    // An inbound definition edit (another device renamed it or changed its
+    // avatar) was propagated to this device's linked instances; republish
+    // their kind:0 so the cards and every other client see the new identity.
+    super::update::publish_linked_profiles(&app, profile_sync_params, "inbound definition edit")
+        .await;
 
     match restart {
         Some(InboundRuntimeRefresh::Local { pubkey, relay_urls }) => {
@@ -153,7 +161,13 @@ fn reconcile_inbound_persona_event_blocking<R: tauri::Runtime>(
     event_json: String,
     arrival_relay_url: String,
     app: AppHandle<R>,
-) -> Result<Option<InboundRuntimeRefresh>, String> {
+) -> Result<
+    (
+        Option<InboundRuntimeRefresh>,
+        super::update::ProfileSyncParams,
+    ),
+    String,
+> {
     use crate::managed_agents::{
         agent_events::managed_agent_content_from_event,
         load_managed_agents, load_teams,
@@ -184,7 +198,7 @@ fn reconcile_inbound_persona_event_blocking<R: tauri::Runtime>(
     // upsert dispatch because its coordinate and retention key differ.
     if kind == KIND_DELETION {
         reconcile_inbound_tombstone(&event, &arrival_relay_url, &app, &state)?;
-        return Ok(None);
+        return Ok((None, Vec::new()));
     }
 
     // Non-deletion upserts (30175/76/77) and the owner's own 30178 catalog head
@@ -195,7 +209,7 @@ fn reconcile_inbound_persona_event_blocking<R: tauri::Runtime>(
         kind,
         KIND_PERSONA | KIND_TEAM | KIND_MANAGED_AGENT | KIND_TEAM_CATALOG
     ) {
-        return Ok(None);
+        return Ok((None, Vec::new()));
     }
 
     // The d-tag identifies the record within its kind. Persona derives it from
@@ -235,7 +249,7 @@ fn reconcile_inbound_persona_event_blocking<R: tauri::Runtime>(
         &arrival_relay_url,
     )?
     else {
-        return Ok(None);
+        return Ok((None, Vec::new()));
     };
     let conn = open_retention_db(&scope.db_path)?;
     let inbound_retained_event = RetainedEvent {
@@ -255,7 +269,7 @@ fn reconcile_inbound_persona_event_blocking<R: tauri::Runtime>(
     // drives this decision through the real entrypoint, so removing this
     // invocation turns that regression RED.
     if retain_inbound_catalog_witness(&conn, &inbound_retained_event)? {
-        return Ok(None);
+        return Ok((None, Vec::new()));
     }
 
     // Advance the durable retention head only AFTER the fallible local-store
@@ -266,10 +280,18 @@ fn reconcile_inbound_persona_event_blocking<R: tauri::Runtime>(
     // managed-agent arm keeps its own preflight so a runtime transition is
     // never attempted for a skipped event.
     let mut runtime_refresh = None;
+    let mut profile_sync_params = Vec::new();
     match kind {
         KIND_PERSONA => {
+            // The local definition's identity before this event lands, so its
+            // linked instances can follow a rename / avatar change below.
+            let mut prior_identity = None;
             let outcome = commit_inbound_with_store(&conn, &inbound_retained_event, || {
                 let mut personas = load_personas(&app)?;
+                prior_identity = personas
+                    .iter()
+                    .find(|record| persona_d_tag(record) == d_tag)
+                    .map(super::update::DefinitionIdentity::of);
                 // `inbound_persona` is `Some` for KIND_PERSONA (set above).
                 apply_inbound_persona(
                     &mut personas,
@@ -278,7 +300,7 @@ fn reconcile_inbound_persona_event_blocking<R: tauri::Runtime>(
                 save_personas(&app, &personas)
             })?;
             if outcome == InboundOutcome::Skipped {
-                return Ok(None);
+                return Ok((None, Vec::new()));
             }
             // A persona edit changes every shared catalog head it is a member
             // of. Refresh those heads on THIS device so the projection tracks
@@ -289,12 +311,26 @@ fn reconcile_inbound_persona_event_blocking<R: tauri::Runtime>(
             // team-membership match keys off the local persona `id`, so resolve
             // it from the just-saved store by d-tag.
             let personas = load_personas(&app)?;
-            if let Some(persona_id) = personas
+            let applied = personas
                 .iter()
                 .find(|record| persona_d_tag(record) == d_tag)
-                .map(|record| record.id.clone())
-            {
-                drop(personas);
+                .cloned();
+            drop(personas);
+            // Another device's edit to a definition updates the definition
+            // only; without this its linked instances on THIS device keep the
+            // old name/avatar, and every agent start republishes that stale
+            // kind:0 — the edit appears to roll back. Mirrors the local
+            // `update_persona` propagation. Best-effort: the definition write
+            // already landed, and a failure here must not replay the event.
+            if let (Some(prior), Some(persona)) = (&prior_identity, &applied) {
+                match super::update::propagate_definition_identity(&app, &state, prior, persona) {
+                    Ok(params) => profile_sync_params = params,
+                    Err(error) => eprintln!(
+                        "buzz-desktop: inbound definition identity propagation failed: {error}"
+                    ),
+                }
+            }
+            if let Some(persona_id) = applied.map(|record| record.id) {
                 super::super::teams::refresh_team_catalog_heads_for_persona(
                     &app,
                     &state,
@@ -316,7 +352,7 @@ fn reconcile_inbound_persona_event_blocking<R: tauri::Runtime>(
                 )
             })?;
             if outcome == InboundOutcome::Skipped {
-                return Ok(None);
+                return Ok((None, Vec::new()));
             }
             // A team edit changes its shared catalog projection. Refresh (or
             // retract, if a member is now missing) THIS device's retained head
@@ -334,7 +370,7 @@ fn reconcile_inbound_persona_event_blocking<R: tauri::Runtime>(
             // stop a running agent. The durable head is still advanced only
             // after `save_managed_agents` below.
             if inbound_event_outcome(&conn, &inbound_retained_event)? == InboundOutcome::Skipped {
-                return Ok(None);
+                return Ok((None, Vec::new()));
             }
             let mut agents = load_managed_agents(&app)?;
             let managed_agent = inbound_managed_agent.ok_or_else(|| {
@@ -408,7 +444,7 @@ fn reconcile_inbound_persona_event_blocking<R: tauri::Runtime>(
     // land on disk silently, leaving the Agents tab stale until restart.
     let _ = app.emit("agents-data-changed", ());
 
-    Ok(runtime_refresh)
+    Ok((runtime_refresh, profile_sync_params))
 }
 
 /// Retain an inbound kind:30178 catalog head as this device's publication

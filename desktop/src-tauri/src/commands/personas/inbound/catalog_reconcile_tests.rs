@@ -123,7 +123,7 @@ fn inbound_catalog_head_retains_arrival_witness_through_the_production_reconcile
         .expect("resolve managed agents base dir");
     let db_path = scoped_retention_db_path(&base_dir, RELAY, &owner);
 
-    let refresh = reconcile_inbound_persona_event_blocking(
+    let (refresh, profile_sync_params) = reconcile_inbound_persona_event_blocking(
         event.as_json(),
         RELAY.to_string(),
         app.handle().clone(),
@@ -144,6 +144,10 @@ fn inbound_catalog_head_retains_arrival_witness_through_the_production_reconcile
     assert!(
         refresh.is_none(),
         "a catalog head carries no local record — reconcile must return no runtime refresh"
+    );
+    assert!(
+        profile_sync_params.is_empty(),
+        "a catalog head changes no definition — reconcile must republish no agent profile"
     );
 
     let conn = open_retention_db(&db_path).unwrap();

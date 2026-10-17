@@ -439,7 +439,7 @@ async fn stalled_query_request_times_out_with_classified_error() {
     let url = format!("http://{addr}/query");
     let result = tokio::time::timeout(
         Duration::from_secs(5),
-        super::send_query_request(
+        super::send_query_request::<serde_json::Value>(
             &client,
             &url,
             "Nostr test-auth",
@@ -499,7 +499,7 @@ async fn stalled_response_body_times_out_with_classified_error() {
     let url = format!("http://{addr}/query");
     let result = tokio::time::timeout(
         Duration::from_secs(5),
-        super::send_query_request(
+        super::send_query_request::<serde_json::Value>(
             &client,
             &url,
             "Nostr test-auth",
@@ -560,7 +560,7 @@ async fn stalled_error_response_body_times_out_with_classified_error() {
     let url = format!("http://{addr}/query");
     let result = tokio::time::timeout(
         Duration::from_secs(5),
-        super::send_query_request(
+        super::send_query_request::<serde_json::Value>(
             &client,
             &url,
             "Nostr test-auth",
@@ -617,7 +617,7 @@ async fn non_stalled_error_response_yields_status_message() {
     let url = format!("http://{addr}/query");
     let result = tokio::time::timeout(
         Duration::from_secs(5),
-        super::send_query_request(
+        super::send_query_request::<serde_json::Value>(
             &client,
             &url,
             "Nostr test-auth",
