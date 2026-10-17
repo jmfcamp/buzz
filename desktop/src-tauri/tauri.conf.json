@@ -43,9 +43,10 @@
   "plugins": {
     "updater": {
       "endpoints": [
+        "https://releases.huladesk.com/hula-buzz/latest.json",
         "https://github.com/jmfcamp/buzz/releases/download/hula-desktop-latest/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZEMzVFNkQ4QjJFOUI4OEEKUldTS3VPbXkyT1kxYlpCc2VZa1AvZzNEL3REL04yUytxVk9iYzRWOWlYc0JSTDJjUDZVZUs4NzMK"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk4QzVCMkNGNDRFRUQ4MjAKUldRZzJPNUV6N0xGbU1PNWd4UFZLREx2ZlZiazVzSkM3bzh5b1UzWFNnNnBtYU5aSS83d3NkSnEK"
     },
     "deep-link": {
       "desktop": {

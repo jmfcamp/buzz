@@ -26,6 +26,12 @@ const outputConfigPath = resolve(
 
 const updaterPubkey = process.env.BUZZ_UPDATER_PUBLIC_KEY;
 const updaterEndpoint = process.env.BUZZ_UPDATER_ENDPOINT;
+// Optional comma-separated fallbacks, tried in order after the primary
+// endpoint (the Tauri updater walks `endpoints` until one answers).
+const fallbackEndpoints = (process.env.BUZZ_UPDATER_FALLBACK_ENDPOINTS ?? "")
+  .split(",")
+  .map((value) => value.trim())
+  .filter((value) => value.length > 0 && value !== updaterEndpoint);
 
 const missing = [];
 if (!updaterPubkey) missing.push("BUZZ_UPDATER_PUBLIC_KEY");
@@ -47,7 +53,7 @@ const releaseConfig = {
   plugins: {
     updater: {
       pubkey: updaterPubkey,
-      endpoints: [updaterEndpoint],
+      endpoints: [updaterEndpoint, ...fallbackEndpoints],
     },
   },
 };
@@ -61,7 +67,9 @@ if (Object.hasOwn(releaseConfig.bundle, "externalBin")) {
   );
 }
 
-console.log(`Updater enabled -> ${updaterEndpoint}`);
+console.log(
+  `Updater enabled -> ${[updaterEndpoint, ...fallbackEndpoints].join(" , ")}`,
+);
 
 writeFileSync(outputConfigPath, `${JSON.stringify(releaseConfig, null, 2)}\n`);
 console.log(`Wrote ${outputConfigPath}`);
