@@ -230,7 +230,11 @@ export function useBestieDmChannelExtras(
       );
     }
     if (activeKind === "routine") {
-      return <AssistantRoutinesPanel me={scope.ownerPubkey} />;
+      return <AssistantRoutinesPanel
+        adding={adding}
+        me={scope.ownerPubkey}
+        onAddDone={() => setAdding(false)}
+      />;
     }
     if (activeKind === "scratch") {
       return (
@@ -282,7 +286,7 @@ export function useBestieDmChannelExtras(
           setAdding(false);
         },
       };
-      if (activeKind === "coffee" || activeKind === "routine") {
+      if (activeKind === "coffee") {
         return { ...back };
       }
       const addLabel =
@@ -290,7 +294,9 @@ export function useBestieDmChannelExtras(
           ? "Add reminder"
           : activeKind === "todo"
             ? "Add to-do"
-            : activeKind === "scratch"
+            : activeKind === "routine"
+              ? "Add routine"
+              : activeKind === "scratch"
               ? "Add scratch note"
               : activeKind === "thread"
                 ? "Add thread"

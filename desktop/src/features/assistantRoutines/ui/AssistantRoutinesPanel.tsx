@@ -55,7 +55,16 @@ function summary(a: RoutineAction, channelName: (id: string | null) => string) {
   return "Prompt the Assistant";
 }
 
-export function AssistantRoutinesPanel({ me }: { me: string | undefined }) {
+export function AssistantRoutinesPanel({
+  me,
+  adding,
+  onAddDone,
+}: {
+  me: string | undefined;
+  /** Controlled by a header + button (Assistant sheets): no inline "New routine" button then. */
+  adding?: boolean;
+  onAddDone?: () => void;
+}) {
   const routines = useAssistantRoutines(me);
   const streams = useStreams();
   const fallback = defaultWakeChannel(streams);
@@ -65,6 +74,15 @@ export function AssistantRoutinesPanel({ me }: { me: string | undefined }) {
       : (fallback?.name ?? `${DEFAULT_WAKE_CHANNEL_NAME} (not joined)`);
   const [editing, setEditing] = React.useState<Routine | "new" | null>(null);
   const [runningId, setRunningId] = React.useState<string | null>(null);
+  const controlled = adding !== undefined;
+  React.useEffect(() => {
+    if (!controlled) return;
+    setEditing((cur) => (adding ? (cur ?? "new") : cur === "new" ? null : cur));
+  }, [adding, controlled]);
+  const closeForm = () => {
+    setEditing(null);
+    onAddDone?.();
+  };
 
   if (!routines)
     return <p className="text-xs text-muted-foreground">Loading routines…</p>;
@@ -87,14 +105,14 @@ export function AssistantRoutinesPanel({ me }: { me: string | undefined }) {
       {editing ? (
         <RoutineForm
           initial={editing === "new" ? null : editing}
-          onCancel={() => setEditing(null)}
+          onCancel={closeForm}
           onSave={(r) => {
             updateRoutines(me, (doc, now) => upsertRoutine(doc, r, now));
-            setEditing(null);
+            closeForm();
           }}
           streams={streams}
         />
-      ) : (
+      ) : controlled ? null : (
         <Button
           className="h-8 self-start gap-1"
           data-testid="assistant-routine-add"
