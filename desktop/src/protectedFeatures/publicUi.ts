@@ -1,5 +1,6 @@
 import { createElement, type ReactNode } from "react";
 
+import { stripAssistantTurnHints } from "@/features/assistant/listProtocol";
 import { ChannelScreen } from "@/features/channels/ui/ChannelScreen";
 import type { ChannelScreenProps } from "@/features/channels/ui/ChannelScreen.types";
 import type { TimelineMessage } from "@/features/messages/types";
@@ -63,6 +64,17 @@ export function useProtectedBestieChannelExtras(
 }
 
 export function ProtectedChannelScreen(props: ChannelScreenProps) {
+  // DMs (the Assistant conversation): hide the Assistant's injected turn-hint context in the rendered body, as the
+  // desktop's Assistant DM does. Display only; the event content the agent got is untouched.
+  if (
+    props.activeChannel?.channelType === "dm" &&
+    !props.transformDisplayedMessageBody
+  ) {
+    return createElement(ChannelScreen, {
+      ...props,
+      transformDisplayedMessageBody: stripAssistantTurnHints,
+    });
+  }
   return createElement(ChannelScreen, props);
 }
 
