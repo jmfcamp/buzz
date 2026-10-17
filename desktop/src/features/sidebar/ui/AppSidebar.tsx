@@ -14,7 +14,6 @@ import { FeatureGate } from "@/shared/features";
 import { SidebarDndContext } from "@/features/sidebar/ui/SidebarDnd";
 
 import { AddCommunityDialog } from "@/features/communities/ui/AddCommunityDialog";
-import { useIsMobile } from "@/shared/hooks/use-mobile";
 import { usePhoneLayout } from "@/shared/lib/phoneLayout";
 import { useScrollRestore } from "@/shared/lib/useScrollRestore";
 import { useDeferredLoad } from "@/shared/hooks/useDeferredStartup";
@@ -75,6 +74,7 @@ import {
   SectionQuickAction,
 } from "@/features/sidebar/ui/CustomChannelSection";
 import { CreateChannelDialog } from "@/features/sidebar/ui/CreateChannelDialog";
+import { SidebarDrawerRouteClose } from "@/features/sidebar/ui/SidebarDrawerRouteClose";
 import { SidebarProfileCard } from "@/features/sidebar/ui/SidebarProfileCard";
 import { HuddleProfileControl } from "@/features/huddle";
 import type {
@@ -180,8 +180,7 @@ export function AppSidebar({
   const { starredThreads, unstarThread } = useThreadStars(currentPubkey);
   const { status: updateStatus } = useUpdaterContext();
   const canShowSidebarUpdateCard = shouldShowSidebarUpdateCard(updateStatus);
-  const { open: sidebarOpen, openMobile } = useSidebar();
-  const isMobile = useIsMobile();
+  const { isMobile, open: sidebarOpen, openMobile } = useSidebar();
   const isPhone = usePhoneLayout();
   const [isSidebarUpdateCardDismissed, setIsSidebarUpdateCardDismissed] =
     React.useState(false);
@@ -668,6 +667,7 @@ export function AppSidebar({
       }}
       variant="sidebar"
     >
+      <SidebarDrawerRouteClose />
       <div
         className={`relative flex min-h-0 flex-1 flex-col overflow-hidden ${
           communities.length > 1 ? "md:-ml-[11px] md:w-[calc(100%+11px)]" : ""

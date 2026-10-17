@@ -4,7 +4,6 @@ import { AlertCircle } from "lucide-react";
 import { SidebarRelayConnectionCard } from "@/features/sidebar/ui/SidebarRelayConnectionCard";
 import type { useSidebarRelayConnectionCard } from "@/features/sidebar/ui/useSidebarRelayConnectionCard";
 import { cn } from "@/shared/lib/cn";
-import { useIsMobile } from "@/shared/hooks/use-mobile";
 import { useRelayConnection } from "@/shared/api/useRelayConnection";
 import { useSidebar } from "@/shared/ui/sidebar";
 import { clearStatus, showStatus } from "@/shared/ui/statusPills";
@@ -35,8 +34,7 @@ export function RelayConnectionOverlay({
   hasCommunityRail,
   isHuddleDrawerOpen,
 }: RelayConnectionOverlayProps) {
-  const { open: sidebarOpen, openMobile } = useSidebar();
-  const isMobile = useIsMobile();
+  const { isMobile, open: sidebarOpen, openMobile } = useSidebar();
   const connectionState = useRelayConnection();
 
   // Show the overlay when the sidebar surface isn't visible:

@@ -96,3 +96,23 @@ body {
 body:has(> [data-testid="web-assistant-layer"]:not(.hidden)) [data-radix-popper-content-wrapper] {
   z-index: 140 !important;
 }
+
+/* Slide-in left nav on touch screens (every iPhone orientation, iPad below 768px): the page slides right with the
+   drawer instead of the drawer popping over a still page; it slides back when the drawer closes (a nav tap, the
+   backdrop, a leftward swipe). Mouse/trackpad layouts never match. */
+@media (pointer: coarse) {
+  body > #root {
+    transition: translate 300ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  body:has([data-sidebar="sidebar"][data-mobile="true"][data-state="open"]) {
+    overflow: hidden;
+  }
+  body:has([data-sidebar="sidebar"][data-mobile="true"][data-state="open"]) > #root {
+    translate: min(calc(288px + env(safe-area-inset-left, 0px)), 85vw) 0;
+  }
+}
+@media (pointer: coarse) and (prefers-reduced-motion: reduce) {
+  body > #root {
+    transition: none;
+  }
+}

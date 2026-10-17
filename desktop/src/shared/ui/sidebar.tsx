@@ -1,11 +1,16 @@
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
+import { isTauri } from "@tauri-apps/api/core";
 import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/shared/lib/cn";
 import { performSidebarDefaultHaptic } from "@/shared/lib/haptics";
 import { hasPrimaryShortcutModifier } from "@/shared/lib/platform";
-import { useIsMobile } from "@/shared/hooks/use-mobile";
+import { useSidebarDrawerMode } from "@/shared/hooks/use-mobile";
+import {
+  isDrawerDismissSwipe,
+  shouldCloseDrawerOnTap,
+} from "@/shared/ui/sidebarDrawerClose";
 import { SIDEBAR_WIDTH_MIN } from "@/shared/layout/sidebarLayout";
 import { Button } from "@/shared/ui/button";
 import { DrawerPanelIcon } from "@/shared/ui/DrawerPanelIcon";
@@ -154,7 +159,7 @@ const SidebarProvider = React.forwardRef<
     },
     ref,
   ) => {
-    const isMobile = useIsMobile();
+    const isMobile = useSidebarDrawerMode();
     const [openMobile, setOpenMobile] = React.useState(false);
     const [isResizing, setIsResizing] = React.useState(false);
     const [sidebarWidth, setSidebarWidthState] =
@@ -204,7 +209,8 @@ const SidebarProvider = React.forwardRef<
         setOpen(false);
       };
       window.addEventListener("buzz:collapse-sidebar", collapse);
-      return () => window.removeEventListener("buzz:collapse-sidebar", collapse);
+      return () =>
+        window.removeEventListener("buzz:collapse-sidebar", collapse);
     }, [setOpen]);
 
     const toggleSidebar = React.useCallback(() => {
@@ -307,6 +313,7 @@ const Sidebar = React.forwardRef<
   ) => {
     const { isMobile, isResizing, state, openMobile, setOpenMobile } =
       useSidebar();
+    const swipeStartRef = React.useRef<{ x: number; y: number } | null>(null);
 
     if (collapsible === "none") {
       return (
@@ -324,11 +331,67 @@ const Sidebar = React.forwardRef<
     }
 
     if (isMobile) {
+      // Web: a nav tap navigates and closes the drawer; a leftward swipe closes it. The desktop app's narrow-window
+      // sheet keeps its existing behaviour.
+      const drawerAutoClose = !isTauri();
       return (
         <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
           <SheetContent
             data-sidebar="sidebar"
             data-mobile="true"
+            onOpenAutoFocus={
+              drawerAutoClose
+                ? (event) => {
+                    // Don't focus the drawer's first field (Search): on a phone that would raise the keyboard
+                    // the drawer just closed. Drop the page's focus instead (keyboard down).
+                    event.preventDefault();
+                    const active = document.activeElement;
+                    if (active instanceof HTMLElement) active.blur();
+                  }
+                : undefined
+            }
+            onClickCapture={
+              drawerAutoClose
+                ? (event) => {
+                    if (
+                      shouldCloseDrawerOnTap(event.target, event.currentTarget)
+                    ) {
+                      // After the row's own handler has navigated.
+                      window.setTimeout(() => setOpenMobile(false), 0);
+                    }
+                  }
+                : undefined
+            }
+            onTouchStart={
+              drawerAutoClose
+                ? (event) => {
+                    const t = event.touches[0];
+                    swipeStartRef.current = t
+                      ? { x: t.clientX, y: t.clientY }
+                      : null;
+                  }
+                : undefined
+            }
+            onTouchEnd={
+              drawerAutoClose
+                ? (event) => {
+                    const start = swipeStartRef.current;
+                    swipeStartRef.current = null;
+                    const t = event.changedTouches[0];
+                    if (
+                      start &&
+                      t &&
+                      isDrawerDismissSwipe(
+                        t.clientX - start.x,
+                        t.clientY - start.y,
+                        side,
+                      )
+                    ) {
+                      setOpenMobile(false);
+                    }
+                  }
+                : undefined
+            }
             className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
             style={
               {
