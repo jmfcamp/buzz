@@ -1,4 +1,7 @@
-import { setAssistantPubkey } from "@/shared/lib/assistantIdentity";
+import {
+  ASSISTANT_ASSIGNMENT_CHANGED_EVENT,
+  setAssistantPubkey,
+} from "@/shared/lib/assistantIdentity";
 import {
   readSyncedAssistant,
   setSyncedAssistant,
@@ -69,6 +72,16 @@ export function useBestieAssignmentQuery(enabled = true) {
       return getBestieAssignment(scope);
     },
   });
+
+  // The web changed the Assistant over Direct: reload it.
+  const queryClient = useQueryClient();
+  React.useEffect(() => {
+    const refresh = () =>
+      void queryClient.invalidateQueries({ queryKey: ["bestie-assignment"] });
+    window.addEventListener(ASSISTANT_ASSIGNMENT_CHANGED_EVENT, refresh);
+    return () =>
+      window.removeEventListener(ASSISTANT_ASSIGNMENT_CHANGED_EVENT, refresh);
+  }, [queryClient]);
 
   const assignedAgentPubkey = (
     assignmentQuery.data as { agentPubkey?: string | null } | null | undefined

@@ -164,6 +164,11 @@ export const CMD_WRITES = [
   "assign_bestie",
   "clear_bestie_assignment",
 ] as const;
+/** Writes that change the desktop's Assistant (the desktop UI refreshes after them). */
+export const ASSISTANT_ASSIGNMENT_CMDS: readonly string[] = [
+  "assign_bestie",
+  "clear_bestie_assignment",
+];
 const PROMPT_MAX = 20_000;
 async function runtimeIdFor(deps: CmdDeps, id: string): Promise<void> {
   const cat = list(
