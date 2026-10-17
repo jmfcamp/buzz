@@ -8,6 +8,7 @@ import {
   useWebAssistantOpen,
 } from "@/features/assistant/ui/WebAssistant";
 
+import { AssistantListsBadge } from "@/features/assistantLists/ui/AssistantListsBadge";
 import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
 import { useSidebarMenuCounts } from "@/features/sidebar/lib/useSidebarMenuCounts";
 import type * as React from "react";
@@ -31,7 +32,7 @@ const TABS: {
 // "Assist" tab item: styled like the other tabs; icon = your assistant's avatar (round, Me-tab size) or a robot.
 // Tapping opens the web Assistant sheet.
 // Label "Assist" only when unselected and showing the robot (no assistant avatar yet). With an avatar, icon-only.
-function PhoneAssistTab() {
+function PhoneAssistTab({ me }: { me: string | undefined }) {
   // Resolved like every other avatar (relay media fetched with auth on web, animated → poster); robot only when the
   // assistant has no avatar or it can't load.
   const { src: avatarUrl, onError, displayName } = useAssistantAvatarSrc();
@@ -67,6 +68,8 @@ function PhoneAssistTab() {
             data-testid="phone-tab-assistant-robot"
           />
         )}
+        {/* Same badge as the Assistant's Lists tab, open or closed. */}
+        <AssistantListsBadge me={me} testId="phone-tab-assistant-badge" />
       </span>
       {showLabel ? <span className="truncate">Assist</span> : null}
     </button>
@@ -155,7 +158,7 @@ export function PhoneTabBar({
           </button>
         );
       })}
-      <PhoneAssistTab />
+      <PhoneAssistTab me={me.pubkey} />
     </nav>
   );
 }

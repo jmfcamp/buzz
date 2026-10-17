@@ -23,6 +23,34 @@ export function countDue(
   return reminders.filter((r) => isDue(r, now)).length;
 }
 
+/** The NIP-ER copy the Assistant Lists dual-write for each list reminder (shown by the Assistant Lists, not here). */
+export function isAssistListCopy(reminder: Reminder): boolean {
+  return reminder.content.source === "assist-list";
+}
+
+/** Message reminders: what the Inbox Reminders list (RemindersPanel) shows. */
+export function inboxMessageReminders(
+  reminders: readonly Reminder[],
+): Reminder[] {
+  return reminders.filter((r) => !isAssistListCopy(r));
+}
+
+/**
+ * Due message reminders for the Inbox Reminders badge. With `excludeAssistListCopies` (web, where the Assistant's
+ * own due reminders are added from the lists doc and shown in the Assistant Lists section) the dual-written copies
+ * are left out, so a list reminder is counted once and every counted reminder is one you can see in the tab.
+ */
+export function countDueInboxReminders(
+  reminders: readonly Reminder[],
+  excludeAssistListCopies: boolean,
+  now: number = nowSeconds(),
+): number {
+  return countDue(
+    excludeAssistListCopies ? inboxMessageReminders(reminders) : reminders,
+    now,
+  );
+}
+
 /**
  * Pending reminders that newly crossed `notBefore` since `watermark` — the
  * fire-on-due window. The strict `>` lower bound is deliberate: a reminder

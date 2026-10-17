@@ -1,12 +1,14 @@
 import { useAssistantDueReminderCount } from "@/features/assistantLists/listsStore";
 import * as React from "react";
+import { isTauri } from "@tauri-apps/api/core";
 
 import { useHomeDrafts } from "@/features/home/useHomeDrafts";
+import { useRemindersQuery } from "@/features/reminders/hooks";
 import {
-  countDueReminders,
-  useRemindersQuery,
-} from "@/features/reminders/hooks";
-import { groupReminders } from "@/features/reminders/lib/reminderFilters";
+  countDueInboxReminders,
+  groupReminders,
+  inboxMessageReminders,
+} from "@/features/reminders/lib/reminderFilters";
 
 type UseHomePersonalInboxOptions = {
   allowMixedSelection: boolean;
@@ -27,11 +29,15 @@ export function useHomePersonalInbox({
 }: UseHomePersonalInboxOptions) {
   const remindersQuery = useRemindersQuery(currentPubkey);
   const assistantDueCount = useAssistantDueReminderCount(currentPubkey);
+  // Same rule as the shared Inbox badge (useInboxTabCounts): on web the Assistant's reminders count once, from its
+  // lists doc, not again through their hidden NIP-ER copies.
   const dueReminderCount =
-    countDueReminders(remindersQuery.data ?? []) + assistantDueCount;
+    countDueInboxReminders(remindersQuery.data ?? [], !isTauri()) +
+    assistantDueCount;
+  // Exactly what RemindersPanel lists (it hides the Assistant Lists' copies).
   const pendingReminders = React.useMemo(
     () =>
-      groupReminders(remindersQuery.data ?? []).flatMap(
+      groupReminders(inboxMessageReminders(remindersQuery.data ?? [])).flatMap(
         (group) => group.reminders,
       ),
     [remindersQuery.data],

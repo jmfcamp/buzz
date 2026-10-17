@@ -350,6 +350,28 @@ export function dueReminderItems(
   );
 }
 
+/**
+ * The Assistant's "new list items" count: open reminders that are due. One definition for every surface that shows
+ * it: the Lists tab badge, the assistant avatar in the phone tab bar and the sidebar Assist button, and the
+ * Assistant's share of the Inbox Reminders badge.
+ */
+export function assistantListsBadgeCount(
+  doc: ListsDoc | null | undefined,
+  nowSeconds: number,
+): number {
+  return doc ? dueReminderItems(doc, nowSeconds).length : 0;
+}
+
+/** Open Assistant reminders (due or not): the Lists "Reminders" row count and the Inbox Reminders section. */
+export function openAssistantReminderCount(
+  doc: ListsDoc | null | undefined,
+): number {
+  return doc
+    ? liveItems(doc).filter((i) => i.kind === "reminder" && i.status === "open")
+        .length
+    : 0;
+}
+
 /** Next due time of a repeating reminder strictly after `nowSeconds` (deterministic on every device). */
 export function nextRepeatDueAt(
   item: ListItem,

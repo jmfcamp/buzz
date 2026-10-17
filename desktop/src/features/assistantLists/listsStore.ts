@@ -2,7 +2,12 @@
 // this through the desktop Assistant store); listsSync.ts plugs the relay engine in.
 import * as React from "react";
 
-import { dueReminderItems, type ListsDoc, markFired } from "./listsDoc";
+import {
+  assistantListsBadgeCount,
+  type ListsDoc,
+  markFired,
+  openAssistantReminderCount,
+} from "./listsDoc";
 
 export const ASSISTANT_LISTS_CHANGED_EVENT = "buzz-assistant-lists-changed";
 const nowSec = () => Math.floor(Date.now() / 1000);
@@ -138,5 +143,18 @@ export function useAssistantDueReminderCount(
     (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window)
   )
     return 0;
-  return dueReminderItems(doc, now).length;
+  return assistantListsBadgeCount(doc, now);
+}
+
+/** Open Assistant reminders for `pubkey` (web only, like the count above). */
+export function useAssistantOpenReminderCount(
+  pubkey: string | undefined,
+): number {
+  const doc = useAssistantListsDoc(pubkey);
+  if (
+    !doc ||
+    (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window)
+  )
+    return 0;
+  return openAssistantReminderCount(doc);
 }

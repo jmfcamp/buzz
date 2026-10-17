@@ -13,7 +13,10 @@ import {
   useRemindersQuery,
   useReminderMutations,
 } from "@/features/reminders/hooks";
-import { groupReminders } from "@/features/reminders/lib/reminderFilters";
+import {
+  groupReminders,
+  inboxMessageReminders,
+} from "@/features/reminders/lib/reminderFilters";
 import {
   hasNavigableTarget,
   resolveReminderDestination,
@@ -269,12 +272,15 @@ function ReminderRow({
  */
 export function RemindersPanel({
   pubkey,
+  emptyState = "full",
   includeDone = false,
   onSelectReminder,
   presentation = "card",
   selectedReminderId,
 }: {
   pubkey: string;
+  /** "none": nothing when empty (the Inbox shows Assistant reminders above, so "No reminders" would be wrong). */
+  emptyState?: "full" | "none";
   includeDone?: boolean;
   onSelectReminder?: (reminderId: string) => void;
   presentation?: "inbox-list" | "card";
@@ -283,10 +289,7 @@ export function RemindersPanel({
   const remindersQuery = useRemindersQuery(pubkey);
   // Assist lists own their UI; hide the dual-written NIP-ER copies here.
   const reminders = React.useMemo(
-    () =>
-      (remindersQuery.data ?? []).filter(
-        (r) => r.content.source !== "assist-list",
-      ),
+    () => inboxMessageReminders(remindersQuery.data ?? []),
     [remindersQuery.data],
   );
   const { goChannel } = useAppNavigation();
@@ -326,6 +329,7 @@ export function RemindersPanel({
   }
 
   if (groups.length === 0) {
+    if (emptyState === "none") return null;
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8">
         <Bell className="h-8 w-8 text-muted-foreground/50" />

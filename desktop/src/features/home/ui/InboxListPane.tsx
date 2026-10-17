@@ -1,3 +1,4 @@
+import { useAssistantOpenReminderCount } from "@/features/assistantLists/listsStore";
 import { AssistantListsPanel } from "@/features/assistantLists/ui/AssistantListsPanel";
 import {
   AlertCircle,
@@ -307,6 +308,10 @@ export function InboxListPane({
     useCountAgentInfoItems();
   const isReminders = filter === "reminders";
   const isDrafts = filter === "drafts";
+  // Assistant reminders listed above the message reminders: when there are any, no "No reminders" below them.
+  const assistantOpenReminders = useAssistantOpenReminderCount(
+    reminderPubkey ?? undefined,
+  );
   // Reminders live in their own tab now; never mix them into Inbox/Agents.
   const isMixedInboxView = false;
   const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -759,6 +764,7 @@ export function InboxListPane({
           {isWebAssistantAvailable() ? (
             <div className="max-h-[45%] shrink-0 overflow-y-auto border-b border-border/60 px-3 py-2">
               <AssistantListsPanel
+                hideEmpty
                 me={reminderPubkey ?? undefined}
                 mode="reminders"
               />
@@ -766,6 +772,7 @@ export function InboxListPane({
           ) : null}
           {reminderPubkey ? (
             <RemindersPanel
+              emptyState={assistantOpenReminders > 0 ? "none" : "full"}
               onSelectReminder={onSelectReminder}
               presentation="inbox-list"
               pubkey={reminderPubkey}
