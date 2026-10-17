@@ -7,7 +7,10 @@ import {
   fetchReminders,
   snoozeReminder,
 } from "@/features/reminders/lib/reminderService";
-import { countDue } from "@/features/reminders/lib/reminderFilters";
+import {
+  countDue,
+  countDueInboxReminders,
+} from "@/features/reminders/lib/reminderFilters";
 import type {
   Reminder,
   ReminderTarget,
@@ -49,9 +52,12 @@ export function useRemindersQuery(pubkey: string | undefined) {
 export function useDueReminderBadgeCount(
   pubkey: string | undefined,
   enabled: boolean,
+  excludeAssistListCopies = false,
 ): number {
   const remindersQuery = useRemindersQuery(pubkey);
-  return enabled ? countDueReminders(remindersQuery.data ?? []) : 0;
+  return enabled
+    ? countDueInboxReminders(remindersQuery.data ?? [], excludeAssistListCopies)
+    : 0;
 }
 
 /**

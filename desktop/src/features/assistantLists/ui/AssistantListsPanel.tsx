@@ -49,10 +49,13 @@ export function AssistantListsPanel({
   me,
   mode = "all",
   className,
+  hideEmpty = false,
 }: {
   me: string | undefined;
   mode?: "all" | "reminders" | "todos";
   className?: string;
+  /** Skip the "No reminders." line (the Inbox Reminders tab has one empty state for both sections). */
+  hideEmpty?: boolean;
 }) {
   const doc = useAssistantListsDoc(me);
   const now = useNowSeconds(15_000);
@@ -166,7 +169,7 @@ export function AssistantListsPanel({
         ) : null}
       </form>
 
-      {reminders.length + todos.length === 0 ? (
+      {!hideEmpty && reminders.length + todos.length === 0 ? (
         <p className="py-2 text-center text-xs text-muted-foreground">
           {mode === "reminders"
             ? "No reminders."

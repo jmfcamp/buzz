@@ -25,7 +25,7 @@ import * as React from "react";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import {
-  dueReminderItems,
+  assistantListsBadgeCount,
   liveItems,
 } from "@/features/assistantLists/listsDoc";
 import {
@@ -120,7 +120,7 @@ export function useSuiteSummary(me: string | undefined) {
   return {
     reminder: items.filter((i) => i.kind === "reminder" && i.status === "open")
       .length,
-    dueReminders: lists ? dueReminderItems(lists, now).length : 0,
+    dueReminders: assistantListsBadgeCount(lists, now),
     todo: items.filter((i) => i.kind === "todo" && i.status === "open").length,
     job: (jobs?.jobs ?? []).filter((j) => j.enabled).length,
     coffee: (coffee?.entries ?? []).length,

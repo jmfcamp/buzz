@@ -27,6 +27,7 @@ import {
 } from "@/shared/ui/alert-dialog";
 
 import { AssistantPopoverBody } from "@/features/assistantData/ui/AssistantChat";
+import { AssistantListsBadge } from "@/features/assistantLists/ui/AssistantListsBadge";
 import { Button } from "@/shared/ui/button";
 import { useOptionalSidebar } from "@/shared/ui/sidebar";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
@@ -511,6 +512,7 @@ export function AssistantGlyph({
 
 /** Desktop-width / iPad web: Assist button in the sidebar profile row (where the desktop's Assistant button sits). */
 export function WebAssistSidebarButton() {
+  const me = useIdentityQuery().data?.pubkey;
   const assistantPubkey = useAssistantPubkey();
   const name = useUserProfileQuery(assistantPubkey ?? undefined).data
     ?.displayName;
@@ -534,7 +536,17 @@ export function WebAssistSidebarButton() {
       title={label}
       type="button"
     >
-      <AssistantGlyph className="h-6 w-6" robotClassName="h-[18px] w-[18px]" />
+      <span className="relative flex">
+        <AssistantGlyph
+          className="h-6 w-6"
+          robotClassName="h-[18px] w-[18px]"
+        />
+        <AssistantListsBadge
+          className="-right-2 -top-1.5"
+          me={me}
+          testId="sidebar-assist-badge"
+        />
+      </span>
     </button>
   );
 }
