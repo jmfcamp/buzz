@@ -148,9 +148,19 @@ export function BotDetailView({
   const pingUnavailableReason =
     isWebBuild() && !directLive ? "Needs Direct (desktop) to read the reply" : null;
 
+  // Ping result belongs to one bot: reset when the profile switches, and drop late outcomes from the previous bot.
+  const botPubkey = bot?.pubkey ?? null;
+  const pingBotRef = React.useRef(botPubkey);
+  React.useEffect(() => {
+    pingBotRef.current = botPubkey;
+    setPingState({ kind: "idle" });
+  }, [botPubkey]);
+
   const handlePing = React.useCallback(() => {
     if (!bot || pingState.kind === "pending") return;
     const requestId = crypto.randomUUID();
+    const pingedPubkey = bot.pubkey;
+    const stillCurrent = () => isMountedRef.current && pingBotRef.current === pingedPubkey;
     setPingState({ kind: "pending" });
     void awaitPingOutcome({
       requestId,
@@ -163,7 +173,7 @@ export function BotDetailView({
       now: () => performance.now(),
     })
       .then((outcome) => {
-        if (!isMountedRef.current) return;
+        if (!stillCurrent()) return;
         setPingState(
           outcome.kind === "up"
             ? { kind: "up", ms: outcome.ms }
@@ -171,7 +181,7 @@ export function BotDetailView({
         );
       })
       .catch((error) => {
-        if (!isMountedRef.current) return;
+        if (!stillCurrent()) return;
         setPingState({ kind: "idle" });
         toast.error(
           error instanceof Error ? error.message : "Couldn't send the ping.",
