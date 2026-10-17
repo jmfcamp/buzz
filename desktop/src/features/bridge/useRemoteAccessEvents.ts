@@ -13,7 +13,8 @@ import { sendChannelMessage } from "@/shared/api/tauriMessages";
 import { startManagedAgent, stopManagedAgent } from "@/shared/api/tauriManagedAgents";
 import { managedAgentsQueryKey } from "@/features/agents/hooks";
 import { listPersonas } from "@/shared/api/tauriPersonas";
-import { CMD_WRITES } from "./directCmd";
+import { ASSISTANT_ASSIGNMENT_CMDS, CMD_WRITES } from "./directCmd";
+import { ASSISTANT_ASSIGNMENT_CHANGED_EVENT } from "@/shared/lib/assistantIdentity";
 import { handleMgmt, mgmtErrorString, type MgmtDeps } from "./directMgmt";
 import { createDirectSigner, localSignerStore, type SignerDeps } from "./directSigner";
 import { initDesktopBunker } from "./desktopBunkerRuntime";
@@ -84,6 +85,7 @@ const directSigner = createDirectSigner(desktopSignerDeps);
 /** Ops that change agent state: the desktop's own agent lists (and the bridge snapshot) must refresh after them. */
 const MUTATING_OPS = new Set(["agent.start", "agent.stop", "agent.create", "agent.rename", "agent.update"]);
 const MUTATING_CMDS = new Set<string>(CMD_WRITES);
+const ASSISTANT_CMDS = new Set<string>(ASSISTANT_ASSIGNMENT_CMDS);
 const isMutating = (op: string, params: unknown) =>
   MUTATING_OPS.has(op) || (op === "cmd" && MUTATING_CMDS.has(String((params as { name?: unknown } | null)?.name)));
 
@@ -112,9 +114,9 @@ export function useRemoteAccessEvents(pubkey?: string): void {
         await invoke("remote_mgmt_reply", { reqId, ok: false, error: mgmtErrorString(err) }).catch(() => {});
       } finally {
         if (isMutating(op, params)) void queryClientRef.current.invalidateQueries({ queryKey: managedAgentsQueryKey });
-        // Assistant picked/cleared from the web: refresh the desktop's own Assistant (which then re-shares the pick).
-        if (op === "cmd" && /_bestie/.test(String((params as { name?: unknown } | null)?.name)))
-          void queryClientRef.current.invalidateQueries({ queryKey: ["bestie-assignment"] });
+        // Assistant picked/cleared from the web: the desktop's own Assistant refreshes (and re-shares the pick).
+        if (op === "cmd" && ASSISTANT_CMDS.has(String((params as { name?: unknown } | null)?.name)))
+          window.dispatchEvent(new Event(ASSISTANT_ASSIGNMENT_CHANGED_EVENT));
       }
     }).then((u) => (cancelled ? u() : unlistens.push(u)));
     void listen("remote-access-changed", () => void refreshRemoteAccess()).then((u) => (cancelled ? u() : unlistens.push(u)));
