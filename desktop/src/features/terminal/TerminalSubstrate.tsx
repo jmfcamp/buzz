@@ -7,6 +7,7 @@ import { ChevronRight, Maximize2, Minimize2, Plus, X } from "lucide-react";
 import { useTheme } from "@/shared/theme/ThemeProvider";
 import { cn } from "@/shared/lib/cn";
 import { isMacPlatform } from "@/shared/lib/platform";
+import { TERMINAL_KEYBOARD_PROPS } from "@/shared/lib/keyboardAssist";
 import {
   INITIAL_HANDOFF_STATE,
   accumulateScrollLines,
@@ -1893,6 +1894,7 @@ export function TerminalSubstrate({
         {touchUi && pasteBox ? (
           <textarea
             aria-label="Paste here"
+            {...TERMINAL_KEYBOARD_PROPS}
             autoFocus
             className="buzz-terminal-pastebox"
             data-testid="terminal-pastebox"
@@ -1911,9 +1913,8 @@ export function TerminalSubstrate({
         ) : null}
         <textarea
           aria-label="Terminal input"
-          autoCapitalize="off"
-          autoComplete="off"
-          autoCorrect="off"
+          // Always off, whatever Settings > Keyboard autocorrect says.
+          {...TERMINAL_KEYBOARD_PROPS}
           className="buzz-terminal-input"
           inputMode={touchUi && !kbWanted ? "none" : undefined}
           onBlur={() => {
@@ -1985,7 +1986,6 @@ export function TerminalSubstrate({
             );
           }}
           ref={textareaRef}
-          spellCheck={false}
           tabIndex={0}
         />
       </div>

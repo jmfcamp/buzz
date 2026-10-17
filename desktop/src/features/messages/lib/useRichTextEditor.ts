@@ -6,7 +6,7 @@ import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
 import { Extension } from "@tiptap/core";
-import { TextSelection } from "@tiptap/pm/state";
+import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 
 import { readTextFromSystemClipboard } from "@/shared/api/tauriMedia";
 import {
@@ -20,6 +20,11 @@ import { resolveLinkAt, type LinkSelectionInfo } from "./resolveLinkAt";
 export type { LinkSelectionInfo } from "./resolveLinkAt";
 
 import { MESSAGE_MARKDOWN_CLASS } from "@/shared/ui/mentionChip";
+import {
+  composerKeyboardAttrs,
+  isKeyboardAssistOn,
+  subscribeKeyboardAssist,
+} from "@/shared/lib/keyboardAssist";
 
 import {
   MentionHighlightExtension,
@@ -216,6 +221,22 @@ export function useRichTextEditor({
           link: false,
         }),
         MacEmacsTextShortcuts,
+        // Keyboard autocorrect & suggestions (web setting). A plugin prop so
+        // the attributes are recomputed on every view update; toggling the
+        // setting re-applies them below without recreating the editor.
+        Extension.create({
+          name: "keyboardAssist",
+          addProseMirrorPlugins() {
+            return [
+              new Plugin({
+                key: new PluginKey("keyboardAssist"),
+                props: {
+                  attributes: () => composerKeyboardAttrs(isKeyboardAssistOn()),
+                },
+              }),
+            ];
+          },
+        }),
         // Shift+Enter inside lists/blockquotes: split the node instead of
         // inserting a hard break so continuation lines keep their formatting.
         Extension.create({
@@ -400,12 +421,11 @@ export function useRichTextEditor({
                   messageLinkWiring.resolveChannelName,
                 )(view, event as ClipboardEvent),
         },
+        // autocapitalize / autocorrect / spellcheck come from the
+        // keyboardAssist plugin below (web setting; desktop stays off).
         attributes: {
-          autocapitalize: "none",
-          autocorrect: "off",
           class: `${MESSAGE_MARKDOWN_CLASS} min-h-0 resize-none overflow-y-hidden border-0 bg-transparent px-0 py-0 text-message font-normal tracking-normal text-foreground shadow-none focus-visible:ring-0 caret-foreground outline-hidden max-w-none`,
           "data-testid": "message-input",
-          spellcheck: "true",
         },
         // ArrowUp in an empty composer → edit your last message (Slack
         // parity). Handled here in ProseMirror's own DOM `keydown` hook —
@@ -539,6 +559,14 @@ export function useRichTextEditor({
     },
     [],
   );
+
+  // Re-apply the keyboard attributes when the web setting changes.
+  React.useEffect(() => {
+    if (!editor) return;
+    return subscribeKeyboardAssist(() => {
+      if (!editor.isDestroyed) editor.view.updateState(editor.view.state);
+    });
+  }, [editor]);
 
   // Toggle editable without destroying the editor instance.
   //

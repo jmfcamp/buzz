@@ -4,6 +4,10 @@ import type * as React from "react";
 import { buildDirectMessageIntro } from "@/features/channels/lib/dmParticipantDisplay";
 import { SearchPromptPlaceholder } from "@/features/search/ui/SearchPromptPlaceholder";
 import type { Channel } from "@/shared/api/types";
+import {
+  searchKeyboardProps,
+  useKeyboardAssist,
+} from "@/shared/lib/keyboardAssist";
 
 export function getChannelScopeLabel(
   channel: Channel,
@@ -42,6 +46,7 @@ export function SearchDialogInputRow({
   query,
   scopeLabel,
 }: SearchDialogInputRowProps) {
+  const keyboardAssist = useKeyboardAssist();
   return (
     <div
       className="flex h-12 items-center gap-3 border-b border-border/70 px-4"
@@ -75,14 +80,12 @@ export function SearchDialogInputRow({
           aria-label={
             scopeLabel ? `Search in ${scopeLabel}` : "Search everything"
           }
-          autoCapitalize="none"
-          autoCorrect="off"
+          {...searchKeyboardProps(keyboardAssist)}
           className="relative z-10 w-full min-w-0 bg-transparent text-base text-foreground outline-none"
           data-testid="search-dialog-input"
           ref={inputRef}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={onKeyDown}
-          spellCheck={false}
           value={query}
         />
       </div>
