@@ -11,6 +11,7 @@ import {
 } from "@/features/notifications/lib/syncedPrefs";
 import type { Channel, FeedItem } from "@/shared/api/types";
 import { setPushInterest } from "@/platform/web/push/interest";
+import { useAssistantPubkey } from "@/shared/lib/assistantIdentity";
 
 const PUSHED_KEY = "buzz-push-prefs-published.v1";
 
@@ -25,11 +26,23 @@ function useSyncedPushPrefs(
   mutedRootIds: ReadonlySet<string>,
 ) {
   const me = pubkey?.trim().toLowerCase() ?? "";
+  const assistantPubkey = useAssistantPubkey();
+  const { reminder, assistant_reply } = settings.eventAlertsEnabled;
   const payload = React.useMemo(() => {
     const slots = {} as Record<SyncedSlot, boolean>;
     for (const s of SYNCED_SLOTS) slots[s] = settings.slotAlertsEnabled[s];
-    return buildPushPrefsPayload(slots, mutedChannelIds, mutedRootIds);
-  }, [settings.slotAlertsEnabled, mutedChannelIds, mutedRootIds]);
+    return buildPushPrefsPayload(slots, mutedChannelIds, mutedRootIds, {
+      events: { reminder, assistant_reply },
+      assistantPubkey,
+    });
+  }, [
+    settings.slotAlertsEnabled,
+    reminder,
+    assistant_reply,
+    assistantPubkey,
+    mutedChannelIds,
+    mutedRootIds,
+  ]);
   const fingerprint = JSON.stringify(payload);
   React.useEffect(() => {
     if (!me) return;
@@ -41,6 +54,7 @@ function useSyncedPushPrefs(
       /* storage denied */
     }
     // Only typed-off defaults and no mutes => nothing to tell the relay yet.
+    // (Knowing the assistant alone changes nothing while Assistant replies is on.)
     if (last === fingerprint) return;
     if (
       last === null &&
@@ -85,7 +99,9 @@ export function useInboxPushPairing(args: {
   React.useEffect(() => {
     setPushInterest({
       channels: args.allChannelIds ?? [],
-      roots: [...args.followedRootIds].filter((id) => !args.mutedRootIds.has(id)),
+      roots: [...args.followedRootIds].filter(
+        (id) => !args.mutedRootIds.has(id),
+      ),
     });
   }, [args.allChannelIds, args.followedRootIds, args.mutedRootIds]);
   useSyncedPushPrefs(

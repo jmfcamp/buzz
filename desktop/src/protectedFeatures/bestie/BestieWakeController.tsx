@@ -640,10 +640,7 @@ export function BestieWakeController() {
         postedReminderNudgeIdsRef.current.add(nudge.id);
         // OS toast (classic Remind-me-later path). Push to phone is via NIP-ER dual-write.
         const settings = readStoredNotificationSettings(listScope.ownerPubkey);
-        if (
-          settings.desktopEnabled &&
-          settings.slotAlertsEnabled.needs_action
-        ) {
+        if (settings.desktopEnabled && settings.eventAlertsEnabled.reminder) {
           void sendDesktopNotification({
             title: nudge.title,
             body: nudge.body,

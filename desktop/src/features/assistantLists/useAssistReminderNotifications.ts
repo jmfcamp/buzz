@@ -64,10 +64,7 @@ export function useAssistReminderNotifications(
     }
 
     const settings = readStoredNotificationSettings(pubkey);
-    if (
-      !settings.desktopEnabled ||
-      !settings.slotAlertsEnabled.needs_action
-    ) {
+    if (!settings.desktopEnabled || !settings.eventAlertsEnabled.reminder) {
       void completeAssistNipErForItems(pubkey, claimed);
       return;
     }

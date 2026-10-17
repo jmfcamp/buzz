@@ -32,6 +32,8 @@ test("pushPrefsFromSettings", () => {
     mention: true,
     thread_reply: true,
     needs_action: true,
+    reminder: true,
+    assistant_reply: true,
   });
   assert.deepEqual(
     pushPrefsFromSettings(
@@ -40,7 +42,29 @@ test("pushPrefsFromSettings", () => {
         slotAlertsEnabled: { dm: false },
       }),
     ),
-    { dm: false, mention: true, thread_reply: true, needs_action: true },
+    {
+      dm: false,
+      mention: true,
+      thread_reply: true,
+      needs_action: true,
+      reminder: true,
+      assistant_reply: true,
+    },
+  );
+  assert.deepEqual(
+    pushPrefsFromSettings(
+      JSON.stringify({
+        eventAlertsEnabled: { reminder: false, assistant_reply: false },
+      }),
+    ),
+    {
+      dm: true,
+      mention: true,
+      thread_reply: true,
+      needs_action: true,
+      reminder: false,
+      assistant_reply: false,
+    },
   );
   assert.equal(
     pushPrefsFromSettings(JSON.stringify({ desktopEnabled: false })).mention,

@@ -46,6 +46,9 @@ export type { DesktopNotificationPermissionState } from "./lib/desktop";
 // v2: settings model reworked around per-event rows (flutter default sound,
 // slotAlertsEnabled, no singleSound/soundEnabled) — v1 values are abandoned.
 const NOTIFICATION_SETTINGS_STORAGE_KEY = "buzz-notification-settings.v2";
+/** Fired on window after the stored switches change. */
+export const NOTIFICATION_SETTINGS_CHANGED_EVENT =
+  "buzz-notification-settings-changed";
 const HOME_FEED_SEEN_MAX_ITEMS = 500;
 const EMPTY_FEED_ID_SET: ReadonlySet<string> = new Set();
 
@@ -189,10 +192,12 @@ function writeStoredNotificationSettings(
     return;
   }
 
-  window.localStorage.setItem(
-    notificationSettingsStorageKey(pubkey),
-    JSON.stringify(settings),
-  );
+  const key = notificationSettingsStorageKey(pubkey);
+  const next = JSON.stringify(settings);
+  if (window.localStorage.getItem(key) === next) return;
+  window.localStorage.setItem(key, next);
+  // Web push re-sends its lease from these switches (platform/web/push/client.ts).
+  window.dispatchEvent(new Event(NOTIFICATION_SETTINGS_CHANGED_EVENT));
 }
 
 function mergeSeenFeedIds(current: string[], nextIds: readonly string[]) {
