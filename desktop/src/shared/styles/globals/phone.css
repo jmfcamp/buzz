@@ -55,18 +55,29 @@
    Colours follow the app theme (root .dark / not) and the Appearance accent (--primary; the neutral accent resolves to
    the theme foreground, so Buzz themes stay monochrome). Dark: the original charcoal glass. Light: a frosted pill. */
 [data-phone] {
-  /* Accent for phone chrome (nav row icons, tab-count pill, selected tab). Dark mode uses the accent as-is. */
-  --phone-chrome-accent: hsl(var(--primary));
+  /* Accent for phone chrome (nav row icons, tab-count pill, selected tab, faint wash). --phone-bars-raw is the colour
+     as-is; --phone-chrome-accent is the contrast-safe version used for icons/labels. Without data-phone-bars (desktop
+     app) both follow the app accent (--primary). */
+  --phone-bars-raw: hsl(var(--primary));
+  --phone-chrome-accent: var(--phone-bars-raw);
+}
+/* Web "Use accent color for phone bars": on = the chosen accent in every theme (Buzz themes included, bars only);
+   off, or no accent chosen = the theme's plain foreground. */
+[data-phone][data-phone-bars="accent"] {
+  --phone-bars-raw: hsl(var(--phone-bars-accent, var(--primary)));
+}
+[data-phone][data-phone-bars="plain"] {
+  --phone-bars-raw: hsl(var(--foreground));
 }
 [data-phone]:not(.dark) {
   /* Light mode: darken the accent toward black so light accents (Cyan, Green, Lilac…) stay readable on light chrome.
-     The neutral accent is already the (dark) foreground and stays put. */
-  --phone-chrome-accent: color-mix(in srgb, hsl(var(--primary)) 72%, black);
+     The neutral accent / plain foreground is already dark and stays put. */
+  --phone-chrome-accent: color-mix(in srgb, var(--phone-bars-raw) 72%, black);
 }
 [data-phone] .phone-tabbar {
   --phone-tab-fg: rgba(255, 255, 255, 0.6);
-  --phone-tab-active-fg: hsl(var(--primary));
-  --phone-tab-active-bg: color-mix(in srgb, hsl(var(--primary)) 12%, rgba(255, 255, 255, 0.06));
+  --phone-tab-active-fg: var(--phone-chrome-accent);
+  --phone-tab-active-bg: color-mix(in srgb, var(--phone-bars-raw) 12%, rgba(255, 255, 255, 0.06));
   position: fixed;
   left: 14px;
   right: 14px;
@@ -87,10 +98,10 @@
 [data-phone]:not(.dark) .phone-tabbar {
   --phone-tab-fg: hsl(var(--foreground) / 0.62);
   --phone-tab-active-fg: var(--phone-chrome-accent);
-  --phone-tab-active-bg: hsl(var(--primary) / 0.12);
+  --phone-tab-active-bg: color-mix(in srgb, var(--phone-bars-raw) 12%, transparent);
   --phone-tab-ring: hsl(var(--background));
-  /* A faint wash of the accent in the glass (none for the neutral accent beyond a hint of the foreground). */
-  background: color-mix(in srgb, hsl(var(--background) / 0.8) 95%, hsl(var(--primary) / 0.8));
+  /* A faint wash of the accent in the glass (plain / neutral: a hint of the foreground). */
+  background: color-mix(in srgb, hsl(var(--background) / 0.8) 95%, var(--phone-bars-raw));
   border: 1px solid hsl(var(--border));
   box-shadow: 0 8px 28px hsl(var(--foreground) / 0.12), 0 1px 3px hsl(var(--foreground) / 0.08);
 }

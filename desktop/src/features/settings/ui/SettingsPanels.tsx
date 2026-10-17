@@ -49,7 +49,11 @@ import { LocalArchiveSettingsCard } from "@/features/local-archive/ui/LocalArchi
 import { cn } from "@/shared/lib/cn";
 import { useCommunities } from "@/features/communities/useCommunities";
 import { Badge } from "@/shared/ui/badge";
-import { isBuzzTheme, useTheme } from "@/shared/theme/ThemeProvider";
+import {
+  isBuzzTheme,
+  phoneBarsAccentFor,
+  useTheme,
+} from "@/shared/theme/ThemeProvider";
 import {
   LIGHT_THEMES,
   SYNTAX_THEMES,
@@ -80,6 +84,7 @@ import { SidebarMenuCountsSetting } from "./SidebarMenuCountsSetting";
 import { SignerToastSetting } from "./SignerToastSetting";
 import { KbDebugSetting } from "./KbDebugSetting";
 import { KeyboardAssistSetting } from "./KeyboardAssistSetting";
+import { PhoneBarsAccentSetting } from "./PhoneBarsAccentSetting";
 import { ChannelTemplatesSettingsCard } from "./ChannelTemplatesSettingsCard";
 import { ExperimentalFeaturesCard } from "./ExperimentalFeaturesCard";
 import { KeyboardShortcutsCard } from "./KeyboardShortcutsCard";
@@ -513,8 +518,17 @@ function ThemeSettingsCard() {
   // Buzz themes pin a neutral accent (GitHub black in light, white in dark),
   // so the accent picker is hidden while a Buzz theme is active. `themeName` is
   // the effective theme, so this also covers System mode resolving to Buzz.
+  // On web the picker stays visible for Buzz themes too: there the accent only
+  // tints the phone bars ("Use accent color for phone bars", right below it).
   const buzzThemeSelected = isBuzzTheme(themeName);
-  const accentPickerHidden = buzzThemeSelected;
+  const webRuntime = !isTauri();
+  const accentPickerHidden = buzzThemeSelected && !webRuntime;
+  const accentSubcopy =
+    buzzThemeSelected && webRuntime
+      ? "Buzz themes stay black and white; the accent tints the phone bars."
+      : undefined;
+  const showPhoneBarsAccent =
+    webRuntime && !accentPickerHidden && phoneBarsAccentFor(themeName) !== null;
   const shouldReduceMotion = useReducedMotion();
 
   const previewVarsByTheme = useThemePreviewVars();
@@ -832,6 +846,7 @@ function ThemeSettingsCard() {
                 accentColor={accentColor}
                 isDark={isDark}
                 setAccentColor={setAccentColor}
+                subcopy={accentSubcopy}
               />
             )
           ) : (
@@ -849,11 +864,14 @@ function ThemeSettingsCard() {
                     accentColor={accentColor}
                     isDark={isDark}
                     setAccentColor={setAccentColor}
+                    subcopy={accentSubcopy}
                   />
                 </motion.div>
               )}
             </AnimatePresence>
           )}
+
+          {showPhoneBarsAccent ? <PhoneBarsAccentSetting /> : null}
 
           <GlassBackgroundSetting />
           {buzzThemeSelected ? <ProminentActiveTabSetting /> : null}
