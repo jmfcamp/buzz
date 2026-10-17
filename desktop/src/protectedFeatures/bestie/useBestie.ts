@@ -1,5 +1,9 @@
 import { setAssistantPubkey } from "@/shared/lib/assistantIdentity";
-import { readSyncedAssistant, setSyncedAssistant } from "@/features/inbox/assistantPick";
+import {
+  readSyncedAssistant,
+  setSyncedAssistant,
+  useSyncedAssistant,
+} from "@/features/inbox/assistantPick";
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -69,23 +73,34 @@ export function useBestieAssignmentQuery(enabled = true) {
   const assignedAgentPubkey = (
     assignmentQuery.data as { agentPubkey?: string | null } | null | undefined
   )?.agentPubkey;
+  // The desktop's assignment is the source of truth (the web changes it over Direct). Re-share it whenever the synced pick
+  // drifts, e.g. an older web build picked a different agent.
+  const syncedPick = useSyncedAssistant(ownerPubkey || undefined);
   React.useEffect(() => {
-    if (assignedAgentPubkey !== undefined) setAssistantPubkey(assignedAgentPubkey);
+    if (assignedAgentPubkey !== undefined)
+      setAssistantPubkey(assignedAgentPubkey);
     // Share the pick with your other devices (web) through the synced inbox-state doc. A desktop without an
     // assignment never clears a pick made elsewhere.
     if (!assignedAgentPubkey || !ownerPubkey) return;
+    if (syncedPick === assignedAgentPubkey.toLowerCase()) return;
     let tries = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const share = () => {
-      if (readSyncedAssistant(ownerPubkey) === assignedAgentPubkey.toLowerCase()) return;
+      if (
+        readSyncedAssistant(ownerPubkey) === assignedAgentPubkey.toLowerCase()
+      )
+        return;
       // The inbox-state sync may not be running yet; retry for a minute.
-      if (!setSyncedAssistant(ownerPubkey, assignedAgentPubkey) && tries++ < 12) {
+      if (
+        !setSyncedAssistant(ownerPubkey, assignedAgentPubkey) &&
+        tries++ < 12
+      ) {
         timer = setTimeout(share, 5_000);
       }
     };
     share();
     return () => clearTimeout(timer);
-  }, [assignedAgentPubkey, ownerPubkey]);
+  }, [assignedAgentPubkey, ownerPubkey, syncedPick]);
   return { assignmentQuery, ownerPubkey, queryKey, relayUrl, scope };
 }
 
@@ -120,7 +135,8 @@ export function useBestie() {
 
   const assignMutation = useMutation({
     mutationFn: (agent: ManagedAgent) => {
-      if (!scope) throw new Error("Assistant is unavailable outside a community");
+      if (!scope)
+        throw new Error("Assistant is unavailable outside a community");
       return assignBestie(agent.pubkey, scope);
     },
     onSuccess: (assignment) => {
@@ -129,7 +145,8 @@ export function useBestie() {
   });
   const clearMutation = useMutation({
     mutationFn: () => {
-      if (!scope) throw new Error("Assistant is unavailable outside a community");
+      if (!scope)
+        throw new Error("Assistant is unavailable outside a community");
       return clearBestieAssignment(scope);
     },
     onSuccess: () => {
@@ -138,7 +155,8 @@ export function useBestie() {
   });
   const resolveMutation = useMutation({
     mutationFn: () => {
-      if (!scope) throw new Error("Assistant is unavailable outside a community");
+      if (!scope)
+        throw new Error("Assistant is unavailable outside a community");
       return resolveBestieConversation(scope);
     },
     onSuccess: (channel) => {

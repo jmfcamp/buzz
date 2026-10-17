@@ -73,7 +73,12 @@ export function sanitizeGlobal(c: unknown): unknown {
 const list = (v: unknown, f: (x: unknown) => unknown, max = 500) =>
   Array.isArray(v) ? v.slice(0, max).map(f) : [];
 
-export const RESPOND_MODES = ["owner-only", "local-agents", "anyone", "allowlist"] as const;
+export const RESPOND_MODES = [
+  "owner-only",
+  "local-agents",
+  "anyone",
+  "allowlist",
+] as const;
 function respondFields(
   src: Record<string, unknown>,
   out: Record<string, unknown>,
@@ -156,6 +161,8 @@ export const CMD_WRITES = [
   "delete_managed_agent",
   "delete_team",
   "term_herdr_handoff",
+  "assign_bestie",
+  "clear_bestie_assignment",
 ] as const;
 const PROMPT_MAX = 20_000;
 async function runtimeIdFor(deps: CmdDeps, id: string): Promise<void> {
@@ -711,6 +718,30 @@ export async function handleCmd(
           ? (r as Record<string, unknown>).agent_pubkey
           : null;
       return typeof pk === "string" && HEX64.test(pk.toLowerCase())
+        ? { agent_pubkey: pk.toLowerCase() }
+        : null;
+    }
+    case "assign_bestie":
+    case "clear_bestie_assignment": {
+      // Web "Set as assistant": the desktop keeps the one Assistant assignment; only one of your own agents can be picked,
+      // for this desktop's relay + owner (the Rust command re-checks both).
+      const expectedRelayUrl =
+        str(a.expectedRelayUrl, "Relay", 2048) ?? bad("Missing relay.");
+      const signer = (
+        str(a.expectedSignerPubkey, "Owner", 128) ?? bad("Missing owner.")
+      ).toLowerCase();
+      if (!HEX64.test(signer)) bad("Invalid owner.");
+      if (deps.ownerPubkey && deps.ownerPubkey.toLowerCase() !== signer)
+        bad("The desktop is signed in as a different account.");
+      const scope = { expectedRelayUrl, expectedSignerPubkey: signer };
+      if (name === "clear_bestie_assignment") {
+        await inv(name, scope);
+        return null;
+      }
+      const agentPubkey = await managedPubkey(deps, a.agentPubkey);
+      const r = obj(await inv(name, { agentPubkey, ...scope }));
+      const pk = typeof r.agent_pubkey === "string" ? r.agent_pubkey : "";
+      return HEX64.test(pk.toLowerCase())
         ? { agent_pubkey: pk.toLowerCase() }
         : null;
     }

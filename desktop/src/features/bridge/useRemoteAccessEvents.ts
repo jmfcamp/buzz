@@ -112,6 +112,9 @@ export function useRemoteAccessEvents(pubkey?: string): void {
         await invoke("remote_mgmt_reply", { reqId, ok: false, error: mgmtErrorString(err) }).catch(() => {});
       } finally {
         if (isMutating(op, params)) void queryClientRef.current.invalidateQueries({ queryKey: managedAgentsQueryKey });
+        // Assistant picked/cleared from the web: refresh the desktop's own Assistant (which then re-shares the pick).
+        if (op === "cmd" && /_bestie/.test(String((params as { name?: unknown } | null)?.name)))
+          void queryClientRef.current.invalidateQueries({ queryKey: ["bestie-assignment"] });
       }
     }).then((u) => (cancelled ? u() : unlistens.push(u)));
     void listen("remote-access-changed", () => void refreshRemoteAccess()).then((u) => (cancelled ? u() : unlistens.push(u)));
